@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from fastapi import HTTPException, status
 
 from app.core.config import get_settings
 
@@ -17,3 +18,20 @@ def create_access_token(subject: str, email: str) -> str:
     }
 
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_access_token(token: str) -> dict:
+    settings = get_settings()
+
+    try:
+        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+        ) from exc
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        ) from exc

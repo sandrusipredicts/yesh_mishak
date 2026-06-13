@@ -1,9 +1,29 @@
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Any, Optional
+
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional
+
 from app.db.supabase import get_supabase_client
 
 router = APIRouter(prefix="/fields", tags=["fields"])
+
+
+def _format_supabase_error(exc: Exception) -> dict[str, Any]:
+    error: dict[str, Any] = {
+        "type": exc.__class__.__name__,
+        "message": str(exc),
+        "repr": repr(exc),
+    }
+
+    for attr in ("code", "message", "details", "hint"):
+        value = getattr(exc, attr, None)
+        if value:
+            error[attr] = value
+
+    if exc.args and isinstance(exc.args[0], dict):
+        error.update(exc.args[0])
+
+    return error
 
 
 class FieldCreate(BaseModel):
@@ -41,7 +61,7 @@ def get_field(field_id: str):
         supabase.table("games")
         .select("*")
         .eq("field_id", field_id)
-        .eq("status", "active")
+        .eq("status", "open")
         .execute()
     )
     field["active_game"] = games_response.data[0] if games_response.data else None
@@ -62,9 +82,22 @@ def create_field(field: FieldCreate):
         "opening_hours": field.opening_hours,
         "notes": field.notes,
         "verified": False,
-        "status": "open",
+        "approval_status": "pending",
     }
-    response = supabase.table("fields").insert(data).execute()
+    try:
+        response = supabase.table("fields").insert(data).execute()
+    except Exception as exc:
+        error = _format_supabase_error(exc)
+        print(f"Supabase fields insert failed: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to create field",
+                "supabase_error": error,
+                "insert_data": data,
+            },
+        ) from exc
+
     return {"message": "Field submitted for VAR approval", "field": response.data[0]}
 
 

@@ -2,48 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Google ID Token Test</title>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 2rem;
-        max-width: 860px;
-      }
-
-      code,
-      pre {
-        background: #f4f4f4;
-        border-radius: 4px;
-      }
-
-      pre {
-        min-height: 160px;
-        overflow-wrap: anywhere;
-        padding: 1rem;
-        white-space: pre-wrap;
-      }
-    </style>
+    <title>Use Local Google Test Server</title>
   </head>
   <body>
-    <h1>Google ID Token Test</h1>
-    <p>Replace <code>936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com.apps.googleusercontent.com</code> with your OAuth web client ID, then open this file in a browser.</p>
-
-    <div
-      id="g_id_onload"
-      data-client_id="936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com"
-      data-callback="handleCredentialResponse"
-    ></div>
-    <div class="g_id_signin" data-type="standard"></div>
-
-    <h2>response.credential</h2>
-    <pre id="credential"></pre>
-
-    <script>
-      function handleCredentialResponse(response) {
-        document.getElementById("credential").textContent = response.credential || "";
-      }
-    </script>
+    <h1>Use the local Google test server</h1>
+    <p>
+      Run <code>python docs/google_identity_test_server.py</code> from the repository root,
+      then open <code>http://127.0.0.1:5500/test-google-login</code>.
+    </p>
+    <p>
+      The server reads <code>GOOGLE_CLIENT_ID</code> from your environment or
+      <code>backend/.env</code> and does not store the returned credential token.
+    </p>
   </body>
 </html>

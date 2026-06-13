@@ -4,11 +4,11 @@
 
 users
 
-id, google_sub, email, name, picture, phone_number, created_at, last_active
+id, google_sub, email, name, role (user/admin), picture, phone_number, created_at, last_active
 
 fields
 
-id, name, lat, lng, sport_type (football/basketball/both), surface_type, has_nets, has_water, opening_hours, status (pending/approved/rejected/renovation), verified, added_by, created_at, notes, image_url
+id, name, lat, lng, sport_type (football/basketball/both), surface_type, has_nets, has_water, opening_hours, approval_status (pending/approved/rejected), verified, added_by, created_at, notes, image_url
 
 games
 
@@ -60,7 +60,15 @@ Content-Type: application/json
 }
 ```
 
-The Google ID token comes from Google Identity Services as `response.credential`. For manual testing, see `docs/test_google_login.html`.
+The Google ID token comes from Google Identity Services as `response.credential`.
+
+For manual testing, run:
+
+```bash
+python docs/google_identity_test_server.py
+```
+
+Open `http://127.0.0.1:5500/test-google-login`, sign in, then copy the value from the textarea or browser console.
 
 Expected response shape:
 

@@ -69,7 +69,21 @@ The SQL schema is in `schema.sql` and includes foreign keys between users, field
 
 `POST /auth/google` verifies a Google ID token, finds or creates a user in Supabase by email, and returns an internal app JWT.
 
-The Google ID token comes from the Google Identity Services `response.credential` value. A minimal helper page is available at `../docs/test_google_login.html` for manually getting that token during local testing.
+The Google ID token comes from the Google Identity Services `response.credential` value.
+
+For local manual testing, run this from the repository root:
+
+```bash
+python docs/google_identity_test_server.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:5500/test-google-login
+```
+
+The test server reads `GOOGLE_CLIENT_ID` from your environment or `backend/.env`. After Google Sign-In, it prints `response.credential` to the browser console and shows it in a textarea. The token is not stored.
 
 Test it in Postman:
 
@@ -99,3 +113,47 @@ Expected response:
 ```
 
 Invalid Google tokens return `401`. User insert failures return `500`.
+
+Swagger admin test:
+
+1. Copy the `response.credential` value from the textarea.
+2. Send `POST /auth/google` with:
+
+```json
+{
+  "token": "paste_response_credential_here"
+}
+```
+
+3. Copy the returned `access_token`.
+4. In Swagger, click `Authorize` and enter:
+
+```text
+Bearer <access_token>
+```
+
+5. Call `GET /admin/fields/pending`.
+
+## Admin field approval
+
+Admin endpoints require the internal JWT from `POST /auth/google`:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Only users with `role = "admin"` in the `users` table can access:
+
+- `GET /admin/fields/pending`
+- `POST /admin/fields/{field_id}/approve`
+- `POST /admin/fields/{field_id}/reject`
+
+Manual test flow:
+
+1. Create one regular user and one admin user in Supabase. Set the admin user's `role` to `admin`.
+2. Create a field with `approval_status = "pending"` and `verified = false`.
+3. Log in as the regular user and call any `/admin` endpoint. Expected: `403`.
+4. Log in as the admin user and call `GET /admin/fields/pending`. Expected: the pending field is returned.
+5. Call `POST /admin/fields/{field_id}/approve`. Expected: the field returns with `verified = true` and `approval_status = "approved"`.
+6. Call `GET /fields`. Expected: the approved field appears because public fields are filtered by `verified = true`.
+7. Create or reset another pending field, then call `POST /admin/fields/{field_id}/reject`. Expected: `verified = false` and `approval_status = "rejected"`.
