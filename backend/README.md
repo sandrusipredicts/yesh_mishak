@@ -157,3 +157,7 @@ Manual test flow:
 5. Call `POST /admin/fields/{field_id}/approve`. Expected: the field returns with `verified = true` and `approval_status = "approved"`.
 6. Call `GET /fields`. Expected: the approved field appears because public fields are filtered by `verified = true`.
 7. Create or reset another pending field, then call `POST /admin/fields/{field_id}/reject`. Expected: `verified = false` and `approval_status = "rejected"`.
+
+## Task G end-to-end Postman flow
+
+See `../docs/task_g_postman_flow.md` for the full manual MVP backend test sequence, including request bodies, expected responses, DB verification queries, and known schema alignment SQL.

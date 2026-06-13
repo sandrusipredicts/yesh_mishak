@@ -1,8 +1,9 @@
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
 
 router = APIRouter(prefix="/fields", tags=["fields"])
@@ -45,7 +46,13 @@ class FieldStatusUpdate(BaseModel):
 @router.get("/")
 def get_fields():
     supabase = get_supabase_client()
-    response = supabase.table("fields").select("*").eq("verified", True).execute()
+    response = (
+        supabase.table("fields")
+        .select("*")
+        .eq("verified", True)
+        .eq("approval_status", "approved")
+        .execute()
+    )
     return response.data
 
 
@@ -69,7 +76,7 @@ def get_field(field_id: str):
 
 
 @router.post("/")
-def create_field(field: FieldCreate):
+def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(get_current_user)):
     supabase = get_supabase_client()
     data = {
         "name": field.name,
@@ -83,6 +90,8 @@ def create_field(field: FieldCreate):
         "notes": field.notes,
         "verified": False,
         "approval_status": "pending",
+        "status": "open",
+        "added_by": current_user["id"],
     }
     try:
         response = supabase.table("fields").insert(data).execute()

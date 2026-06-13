@@ -8,7 +8,7 @@ id, google_sub, email, name, role (user/admin), picture, phone_number, created_a
 
 fields
 
-id, name, lat, lng, sport_type (football/basketball/both), surface_type, has_nets, has_water, opening_hours, approval_status (pending/approved/rejected), verified, added_by, created_at, notes, image_url
+id, name, lat, lng, sport_type (football/basketball/both), surface_type, has_nets, has_water, opening_hours, status (open/closed/renovation), approval_status (pending/approved/rejected), verified, added_by, created_at, notes, image_url
 
 games
 
@@ -20,7 +20,7 @@ id, game_id, user_id, joined_at
 
 notification_preferences
 
-id, user_id, notification_type (radius/city/specific_field), radius_km, city, field_id, created_at
+id, user_id, enabled, sport_type (football/basketball/both), notification_type (radius/city/specific_field), radius_km, lat, lng, city, field_id, created_at
 
 ## Task B - Auth + Users
 

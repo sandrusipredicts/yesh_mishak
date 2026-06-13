@@ -22,6 +22,7 @@ create table if not exists fields (
     has_nets boolean not null default false,
     has_water boolean not null default false,
     opening_hours text,
+    status text not null default 'open' check (status in ('open', 'closed', 'renovation')),
     approval_status text not null default 'pending' check (approval_status in ('pending', 'approved', 'rejected')),
     verified boolean not null default false,
     added_by uuid references users(id) on delete set null,
@@ -57,8 +58,12 @@ create table if not exists game_players (
 create table if not exists notification_preferences (
     id uuid primary key default gen_random_uuid(),
     user_id uuid not null references users(id) on delete cascade,
+    enabled boolean not null default true,
+    sport_type text not null default 'both' check (sport_type in ('football', 'basketball', 'both')),
     notification_type text not null check (notification_type in ('radius', 'city', 'specific_field')),
     radius_km numeric(6, 2),
+    lat numeric(10, 7),
+    lng numeric(10, 7),
     city text,
     field_id uuid references fields(id) on delete cascade,
     created_at timestamptz not null default now()
@@ -71,3 +76,4 @@ create index if not exists idx_game_players_game_id on game_players(game_id);
 create index if not exists idx_game_players_user_id on game_players(user_id);
 create index if not exists idx_notification_preferences_user_id on notification_preferences(user_id);
 create index if not exists idx_notification_preferences_field_id on notification_preferences(field_id);
+create index if not exists idx_notification_preferences_enabled on notification_preferences(enabled);
