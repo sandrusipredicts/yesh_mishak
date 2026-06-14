@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
 import { getFields } from '../api/fields'
+import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
 import NotificationsModal from '../components/NotificationsModal'
 
@@ -133,6 +134,8 @@ function MapPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [currentUserId] = useState(getStoredCurrentUserId)
+  const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
+  const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -174,9 +177,15 @@ function MapPage() {
     setReloadKey((currentReloadKey) => currentReloadKey + 1)
   }
 
+  function handleFieldCreated() {
+    setFieldSubmitMessage('Sent for VAR approval')
+    refreshFields()
+  }
+
   return (
     <main className="map-page">
       {error ? <div className="map-error">{error}</div> : null}
+      {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
 
       <button
         className="floating-button top"
@@ -233,7 +242,15 @@ function MapPage() {
         })}
       </MapContainer>
 
-      <button className="floating-button bottom" type="button" aria-label="Add field">
+      <button
+        className="floating-button bottom"
+        type="button"
+        aria-label="Add field"
+        onClick={() => {
+          setFieldSubmitMessage('')
+          setIsAddFieldOpen(true)
+        }}
+      >
         +
       </button>
 
@@ -246,6 +263,10 @@ function MapPage() {
 
       {isNotificationsOpen ? (
         <NotificationsModal fields={fields} onClose={() => setIsNotificationsOpen(false)} />
+      ) : null}
+
+      {isAddFieldOpen ? (
+        <AddFieldModal onClose={() => setIsAddFieldOpen(false)} onCreated={handleFieldCreated} />
       ) : null}
     </main>
   )
