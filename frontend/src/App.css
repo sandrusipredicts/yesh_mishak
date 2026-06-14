@@ -1,0 +1,35 @@
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.status-panel {
+  width: min(100%, 460px);
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  padding: 24px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(20, 28, 45, 0.08);
+}
+
+.status-panel h1 {
+  margin: 0 0 16px;
+  color: #182033;
+  font-size: 28px;
+}
+
+.status-line {
+  margin: 0;
+  color: #334155;
+  font-size: 18px;
+}
+
+.status-value {
+  font-weight: 700;
+}
+
+.status-error {
+  color: #b42318;
+}
