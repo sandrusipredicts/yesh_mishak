@@ -57,10 +57,10 @@ function getMarkerColor(field) {
 
 function createMarkerIcon(color) {
   return L.divIcon({
-    className: '',
-    html: `<span class="field-marker ${color}"></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
+    className: 'field-marker-icon',
+    html: `<div class="field-marker ${color}"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   })
 }
 
