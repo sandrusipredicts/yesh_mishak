@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
 import { getFields } from '../api/fields'
+import FieldDetailsPanel from '../components/FieldDetailsPanel'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -114,6 +115,7 @@ function MapPage() {
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [fields, setFields] = useState([])
   const [error, setError] = useState('')
+  const [selectedField, setSelectedField] = useState(null)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -167,7 +169,16 @@ function MapPage() {
           const color = getMarkerColor(field)
 
           return (
-            <Marker icon={markerIcons[color]} key={field.id} position={position}>
+            <Marker
+              eventHandlers={{
+                click: () => {
+                  setSelectedField(field)
+                },
+              }}
+              icon={markerIcons[color]}
+              key={field.id}
+              position={position}
+            >
               <Popup>
                 <div className="field-popup">
                   <h2>{field.name}</h2>
@@ -183,6 +194,8 @@ function MapPage() {
       <button className="floating-button bottom" type="button" aria-label="Add field">
         +
       </button>
+
+      <FieldDetailsPanel field={selectedField} onClose={() => setSelectedField(null)} />
     </main>
   )
 }
