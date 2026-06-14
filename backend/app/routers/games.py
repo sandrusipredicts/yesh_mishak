@@ -6,10 +6,9 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
+from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
 
 router = APIRouter(prefix="/games", tags=["games"])
-
-ACTIVE_GAME_STATUSES = ["open", "full"]
 
 
 class GameCreate(BaseModel):
@@ -98,7 +97,7 @@ def get_active_games():
         .in_("status", ACTIVE_GAME_STATUSES)
         .execute()
     )
-    return response.data
+    return attach_participants_to_games(response.data)
 
 
 @router.post("/{game_id}/join")

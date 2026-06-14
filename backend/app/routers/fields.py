@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
+from app.routers.game_payloads import get_active_games_for_fields
 
 router = APIRouter(prefix="/fields", tags=["fields"])
 
@@ -53,7 +54,15 @@ def get_fields():
         .eq("approval_status", "approved")
         .execute()
     )
-    return response.data
+    fields = response.data
+    active_games_by_field_id = get_active_games_for_fields(
+        [str(field["id"]) for field in fields if field.get("id")]
+    )
+
+    for field in fields:
+        field["active_game"] = active_games_by_field_id.get(str(field.get("id")))
+
+    return fields
 
 
 @router.get("/{field_id}")
@@ -64,14 +73,8 @@ def get_field(field_id: str):
         raise HTTPException(status_code=404, detail="Field not found")
     field = response.data[0]
 
-    games_response = (
-        supabase.table("games")
-        .select("*")
-        .eq("field_id", field_id)
-        .eq("status", "open")
-        .execute()
-    )
-    field["active_game"] = games_response.data[0] if games_response.data else None
+    active_games_by_field_id = get_active_games_for_fields([field_id])
+    field["active_game"] = active_games_by_field_id.get(field_id)
     return field
 
 

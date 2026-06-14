@@ -1,5 +1,5 @@
 import { useState } from 'react'
-
+import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 
 function formatBoolean(value) {
@@ -37,7 +37,7 @@ function getWaterCoolerValue(field) {
   return field.has_water_cooler ?? field.has_water
 }
 
-function FieldDetailsPanel({ field, onClose, onGameCreated }) {
+function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const [isOpenGameModalOpen, setIsOpenGameModalOpen] = useState(false)
 
   if (!field) {
@@ -90,7 +90,11 @@ function FieldDetailsPanel({ field, onClose, onGameCreated }) {
       {activeGame ? (
         <div className="active-game-summary">
           <p>{playerCount ?? 'Active game available'}</p>
-          <button type="button">Join</button>
+          <GamePanel
+            game={activeGame}
+            currentUserId={currentUserId}
+            onUpdate={onGameCreated}
+          />
         </div>
       ) : (
         <button
