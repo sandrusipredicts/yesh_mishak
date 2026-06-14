@@ -23,8 +23,8 @@ function getPlayerCount(activeGame) {
     return null
   }
 
-  const playersPresent = activeGame.players_present ?? activeGame.current_players
-  const maxPlayers = activeGame.max_players ?? activeGame.target_players
+  const playersPresent = activeGame.players_present
+  const maxPlayers = activeGame.max_players
 
   if (playersPresent === undefined || maxPlayers === undefined) {
     return null
