@@ -3,6 +3,10 @@ import { useState } from 'react'
 import { createGame } from '../api/games'
 
 function getErrorMessage(error) {
+  if (error?.response?.status === 401) {
+    return 'צריך להתחבר כדי לפתוח משחק'
+  }
+
   const detail = error?.response?.data?.detail ?? error?.response?.data?.message ?? ''
 
   if (String(detail).toLowerCase().includes('active game already exists')) {
