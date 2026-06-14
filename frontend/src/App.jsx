@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import './App.css'
 import LoginPage from './components/LoginPage'
 import MapPage from './pages/MapPage'
+import OnboardingPage from './pages/OnboardingPage'
 
 function getStoredUser() {
   const accessToken = localStorage.getItem('access_token')
@@ -21,6 +22,9 @@ function getStoredUser() {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(getStoredUser)
+  const [isOnboardingDone, setIsOnboardingDone] = useState(
+    () => localStorage.getItem('onboarding_done') === 'true',
+  )
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('access_token')
@@ -30,8 +34,16 @@ function App() {
     setCurrentUser(null)
   }, [])
 
+  const handleOnboardingComplete = useCallback(() => {
+    setIsOnboardingDone(true)
+  }, [])
+
   if (!currentUser) {
     return <LoginPage onLogin={setCurrentUser} />
+  }
+
+  if (!isOnboardingDone) {
+    return <OnboardingPage onComplete={handleOnboardingComplete} />
   }
 
   return (

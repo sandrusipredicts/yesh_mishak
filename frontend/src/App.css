@@ -40,6 +40,96 @@
   font-size: 14px;
 }
 
+.onboarding-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f5f7fb;
+}
+
+.onboarding-panel {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 18px;
+  border-radius: 8px;
+  padding: 28px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.onboarding-panel h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.onboarding-lines {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 20px 0 0;
+  direction: rtl;
+  font-size: 18px;
+}
+
+.onboarding-form {
+  position: relative;
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-form label {
+  color: #475569;
+  font-size: 14px;
+}
+
+.onboarding-form input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 14px 16px;
+  color: #172033;
+  font: inherit;
+  font-size: 18px;
+}
+
+.city-suggestions {
+  display: grid;
+  max-height: 220px;
+  overflow: auto;
+  gap: 2px;
+  margin: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px;
+  background: #ffffff;
+  list-style: none;
+}
+
+.city-suggestions button {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: transparent;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+  text-align: right;
+}
+
+.city-suggestions button:hover,
+.city-suggestions button:focus {
+  background: #f1f5f9;
+}
+
+.onboarding-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 14px;
+}
+
 .auth-toolbar {
   position: absolute;
   z-index: 1200;
