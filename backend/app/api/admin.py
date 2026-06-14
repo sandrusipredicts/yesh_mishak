@@ -8,6 +8,16 @@ from app.db.supabase import get_supabase_client
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+@router.get("/me")
+def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
+    return {
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "name": current_user["name"],
+        "role": current_user["role"],
+    }
+
+
 @router.get("/fields/pending")
 def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
     response = (
