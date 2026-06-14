@@ -5,6 +5,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 're
 
 import { getFields } from '../api/fields'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
+import NotificationsModal from '../components/NotificationsModal'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -117,6 +118,7 @@ function MapPage() {
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -162,7 +164,12 @@ function MapPage() {
     <main className="map-page">
       {error ? <div className="map-error">{error}</div> : null}
 
-      <button className="floating-button top" type="button" aria-label="Notifications">
+      <button
+        className="floating-button top"
+        type="button"
+        aria-label="Notifications"
+        onClick={() => setIsNotificationsOpen(true)}
+      >
         Bell
       </button>
 
@@ -221,6 +228,10 @@ function MapPage() {
         onClose={() => setSelectedField(null)}
         onGameCreated={refreshFields}
       />
+
+      {isNotificationsOpen ? (
+        <NotificationsModal fields={fields} onClose={() => setIsNotificationsOpen(false)} />
+      ) : null}
     </main>
   )
 }

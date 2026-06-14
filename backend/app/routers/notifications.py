@@ -2,7 +2,7 @@ from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
@@ -24,6 +24,15 @@ class NotificationPreference(BaseModel):
 class NotificationCandidateRequest(BaseModel):
     field_id: str
     sport_type: str
+
+
+class NotificationSettings(BaseModel):
+    distance_enabled: bool = True
+    distance_radius_km: float = Field(default=5, ge=1, le=20)
+    city_enabled: bool = False
+    city_name: str = "ירוחם"
+    specific_fields_enabled: bool = False
+    selected_field_ids: list[str] = Field(default_factory=list)
 
 
 def _validate_preference(pref: NotificationPreference) -> None:
@@ -68,11 +77,177 @@ def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
     return response.data
 
 
+def _is_settings_payload(body: dict[str, Any]) -> bool:
+    return any(
+        key in body
+        for key in (
+            "distance_enabled",
+            "distance_radius_km",
+            "city_enabled",
+            "city_name",
+            "specific_fields_enabled",
+            "selected_field_ids",
+        )
+    )
+
+
+def _save_preference_row(
+    supabase: Any,
+    row: dict[str, Any],
+    existing_row: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if existing_row:
+        response = (
+            supabase.table("notification_preferences")
+            .update(row)
+            .eq("id", existing_row["id"])
+            .execute()
+        )
+    else:
+        response = supabase.table("notification_preferences").insert(row).execute()
+
+    return response.data or []
+
+
+def _field_key(field_id: Any) -> str:
+    return str(field_id) if field_id else ""
+
+
+def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    settings = NotificationSettings(**body)
+    supabase = get_supabase_client()
+    user_id = current_user["id"]
+
+    existing_response = (
+        supabase.table("notification_preferences")
+        .select("*")
+        .eq("user_id", user_id)
+        .in_("notification_type", ["radius", "city", "specific_field"])
+        .execute()
+    )
+    existing_rows = existing_response.data or []
+
+    existing_by_type: dict[str, dict[str, Any]] = {}
+    existing_specific_by_field: dict[str, dict[str, Any]] = {}
+
+    for row in existing_rows:
+        notification_type = row.get("notification_type")
+
+        if notification_type == "specific_field":
+            field_key = _field_key(row.get("field_id"))
+            existing_specific_by_field.setdefault(field_key, row)
+        elif notification_type in ("radius", "city"):
+            existing_by_type.setdefault(notification_type, row)
+
+    saved_preferences: list[dict[str, Any]] = []
+    saved_preferences.extend(
+        _save_preference_row(
+            supabase,
+            {
+                "user_id": user_id,
+                "enabled": settings.distance_enabled,
+                "sport_type": "both",
+                "notification_type": "radius",
+                "radius_km": settings.distance_radius_km,
+                "lat": None,
+                "lng": None,
+                "city": None,
+                "field_id": None,
+            },
+            existing_by_type.get("radius"),
+        )
+    )
+    saved_preferences.extend(
+        _save_preference_row(
+            supabase,
+            {
+                "user_id": user_id,
+                "enabled": settings.city_enabled,
+                "sport_type": "both",
+                "notification_type": "city",
+                "radius_km": None,
+                "lat": None,
+                "lng": None,
+                "city": settings.city_name,
+                "field_id": None,
+            },
+            existing_by_type.get("city"),
+        )
+    )
+
+    selected_field_ids = list(dict.fromkeys(settings.selected_field_ids))
+    desired_specific_rows = [
+        {
+            "user_id": user_id,
+            "enabled": settings.specific_fields_enabled,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "radius_km": None,
+            "lat": None,
+            "lng": None,
+            "city": None,
+            "field_id": field_id,
+        }
+        for field_id in selected_field_ids
+    ]
+
+    if not desired_specific_rows:
+        desired_specific_rows.append(
+            {
+                "user_id": user_id,
+                "enabled": settings.specific_fields_enabled,
+                "sport_type": "both",
+                "notification_type": "specific_field",
+                "radius_km": None,
+                "lat": None,
+                "lng": None,
+                "city": None,
+                "field_id": None,
+            }
+        )
+
+    kept_specific_ids: set[str] = set()
+
+    for row in desired_specific_rows:
+        existing_row = existing_specific_by_field.get(_field_key(row.get("field_id")))
+        saved_rows = _save_preference_row(supabase, row, existing_row)
+        saved_preferences.extend(saved_rows)
+
+        if existing_row:
+            kept_specific_ids.add(str(existing_row["id"]))
+        elif saved_rows:
+            kept_specific_ids.add(str(saved_rows[0]["id"]))
+
+    stale_specific_ids = [
+        row["id"]
+        for row in existing_rows
+        if row.get("notification_type") == "specific_field" and str(row["id"]) not in kept_specific_ids
+    ]
+
+    if stale_specific_ids:
+        (
+            supabase.table("notification_preferences")
+            .delete()
+            .in_("id", stale_specific_ids)
+            .execute()
+        )
+
+    return {"message": "Preferences saved", "preferences": saved_preferences}
+
+
 @router.put("/preferences")
 def save_preferences(
-    pref: NotificationPreference,
+    body: dict[str, Any],
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    try:
+        if _is_settings_payload(body):
+            return _save_settings(body, current_user)
+
+        pref = NotificationPreference(**body)
+    except ValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.errors()) from error
+
     _validate_preference(pref)
     supabase = get_supabase_client()
 

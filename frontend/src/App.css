@@ -201,7 +201,24 @@
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
 }
 
+.notifications-modal {
+  position: relative;
+  width: min(480px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
 .open-game-modal h2 {
+  margin: 0 0 18px;
+  font-size: 22px;
+}
+
+.notifications-modal h2 {
   margin: 0 0 18px;
   font-size: 22px;
 }
@@ -220,6 +237,65 @@
 .open-game-form {
   display: grid;
   gap: 14px;
+}
+
+.notifications-form {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-loading {
+  margin: 0;
+  color: #475569;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.settings-toggle,
+.settings-range,
+.settings-input,
+.field-selection-option {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.settings-toggle,
+.field-selection-option {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.settings-range input,
+.settings-input input {
+  width: 100%;
+}
+
+.settings-input input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #172033;
+  font: inherit;
+}
+
+.field-selection-list {
+  display: grid;
+  max-height: 180px;
+  overflow: auto;
+  gap: 8px;
+}
+
+.field-selection-list p {
+  margin: 0;
+  color: #64748b;
 }
 
 .open-game-form label {
@@ -241,6 +317,12 @@
 .modal-error {
   margin: 0;
   color: #b42318;
+  font-size: 14px;
+}
+
+.modal-success {
+  margin: 0;
+  color: #15803d;
   font-size: 14px;
 }
 
