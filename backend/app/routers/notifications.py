@@ -35,6 +35,16 @@ class NotificationSettings(BaseModel):
     selected_field_ids: list[str] = Field(default_factory=list)
 
 
+SETTINGS_PAYLOAD_KEYS = {
+    "distance_enabled",
+    "distance_radius_km",
+    "city_enabled",
+    "city_name",
+    "specific_fields_enabled",
+    "selected_field_ids",
+}
+
+
 def _validate_preference(pref: NotificationPreference) -> None:
     if pref.sport_type not in ("football", "basketball", "both"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
@@ -78,17 +88,7 @@ def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 def _is_settings_payload(body: dict[str, Any]) -> bool:
-    return any(
-        key in body
-        for key in (
-            "distance_enabled",
-            "distance_radius_km",
-            "city_enabled",
-            "city_name",
-            "specific_fields_enabled",
-            "selected_field_ids",
-        )
-    )
+    return bool(SETTINGS_PAYLOAD_KEYS.intersection(body))
 
 
 def _save_preference_row(
@@ -114,7 +114,12 @@ def _field_key(field_id: Any) -> str:
 
 
 def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
-    settings = NotificationSettings(**body)
+    settings_data = dict(body)
+
+    if settings_data.get("selected_field_ids") is None:
+        settings_data["selected_field_ids"] = []
+
+    settings = NotificationSettings(**settings_data)
     supabase = get_supabase_client()
     user_id = current_user["id"]
 
