@@ -51,12 +51,18 @@
   margin: 4px 0;
 }
 
+.field-marker-icon {
+  z-index: 650;
+}
+
 .field-marker {
-  width: 18px;
-  height: 18px;
+  display: block;
+  width: 24px;
+  height: 24px;
   border: 2px solid #ffffff;
   border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.3);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
 }
 
 .field-marker.gray {
@@ -173,6 +179,69 @@
   color: #ffffff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.open-game-modal {
+  position: relative;
+  width: min(420px, 100%);
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
+.open-game-modal h2 {
+  margin: 0 0 18px;
+  font-size: 22px;
+}
+
+.modal-close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.open-game-form {
+  display: grid;
+  gap: 14px;
+}
+
+.open-game-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.open-game-form input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #172033;
+  font: inherit;
+}
+
+.modal-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 14px;
 }
 
 @media (max-width: 640px) {
