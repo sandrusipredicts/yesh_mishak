@@ -151,11 +151,15 @@ function NotificationsModal({ fields = [], onClose }) {
         return
       }
 
+      console.log('Requesting geolocation for radius notifications')
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          console.log('Geolocation success', lat, lng)
           resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
+            lat,
+            lng,
           })
         },
         (geolocationError) => {
@@ -169,8 +173,8 @@ function NotificationsModal({ fields = [], onClose }) {
         },
         {
           enableHighAccuracy: false,
-          maximumAge: 60000,
           timeout: GEOLOCATION_TIMEOUT_MS,
+          maximumAge: 0,
         },
       )
     })
@@ -189,7 +193,7 @@ function NotificationsModal({ fields = [], onClose }) {
       let nextDistanceEnabled = distanceEnabled
       let locationErrorMessage = ''
 
-      if (distanceEnabled && (nextDistanceLat === null || nextDistanceLng === null)) {
+      if (distanceEnabled) {
         try {
           const currentLocation = await getCurrentLocation()
           nextDistanceLat = currentLocation.lat
@@ -201,7 +205,6 @@ function NotificationsModal({ fields = [], onClose }) {
           nextDistanceEnabled = false
           nextDistanceLat = null
           nextDistanceLng = null
-          setDistanceEnabled(false)
           setDistanceLat(null)
           setDistanceLng(null)
         }
