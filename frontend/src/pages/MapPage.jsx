@@ -117,6 +117,7 @@ function MapPage() {
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [currentUserId, setCurrentUserId] = useState('')
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -131,6 +132,17 @@ function MapPage() {
         setCenter(DEFAULT_CENTER)
       },
     )
+  }, [])
+
+  useEffect(() => {
+    const storedUserId =
+      localStorage.getItem('currentUserId') ||
+      localStorage.getItem('current_user_id') ||
+      localStorage.getItem('user_id')
+
+    if (storedUserId) {
+      setCurrentUserId(storedUserId)
+    }
   }, [])
 
   const markerIcons = useMemo(
@@ -220,6 +232,7 @@ function MapPage() {
         field={selectedField}
         onClose={() => setSelectedField(null)}
         onGameCreated={refreshFields}
+        currentUserId={currentUserId}
       />
     </main>
   )
