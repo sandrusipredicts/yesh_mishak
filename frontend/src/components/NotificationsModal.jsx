@@ -8,6 +8,47 @@ import {
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
+const GEOLOCATION_TIMEOUT_MS = 15000
+
+function getGeolocationErrorDetails(error) {
+  if (!error || typeof error.code !== 'number') {
+    return {
+      code: 'UNKNOWN',
+      label: 'UNKNOWN',
+      message: 'Location failed without a browser error message.',
+    }
+  }
+
+  const labels = {
+    [error.PERMISSION_DENIED]: 'PERMISSION_DENIED',
+    [error.POSITION_UNAVAILABLE]: 'POSITION_UNAVAILABLE',
+    [error.TIMEOUT]: 'TIMEOUT',
+  }
+
+  return {
+    code: error.code,
+    label: labels[error.code] ?? 'UNKNOWN',
+    message: error.message || 'The browser did not provide more details.',
+  }
+}
+
+function formatGeolocationError(error) {
+  const details = getGeolocationErrorDetails(error)
+
+  if (details.label === 'PERMISSION_DENIED') {
+    return `Location permission was denied. (${details.label}: ${details.message})`
+  }
+
+  if (details.label === 'POSITION_UNAVAILABLE') {
+    return `The browser could not determine your current location. (${details.label}: ${details.message})`
+  }
+
+  if (details.label === 'TIMEOUT') {
+    return `Location lookup timed out. (${details.label}: ${details.message})`
+  }
+
+  return `Could not get current location. (${details.label}: ${details.message})`
+}
 
 function getFieldLabel(field) {
   return field.name ?? field.title ?? `Field ${field.id}`
@@ -117,7 +158,20 @@ function NotificationsModal({ fields = [], onClose }) {
             lng: position.coords.longitude,
           })
         },
-        () => reject(new Error('Could not get current location.')),
+        (geolocationError) => {
+          const details = getGeolocationErrorDetails(geolocationError)
+          console.error('Geolocation failed', {
+            code: details.code,
+            label: details.label,
+            message: details.message,
+          })
+          reject(new Error(formatGeolocationError(geolocationError)))
+        },
+        {
+          enableHighAccuracy: false,
+          maximumAge: 60000,
+          timeout: GEOLOCATION_TIMEOUT_MS,
+        },
       )
     })
   }
@@ -132,17 +186,29 @@ function NotificationsModal({ fields = [], onClose }) {
     try {
       let nextDistanceLat = distanceLat
       let nextDistanceLng = distanceLng
+      let nextDistanceEnabled = distanceEnabled
+      let locationErrorMessage = ''
 
       if (distanceEnabled && (nextDistanceLat === null || nextDistanceLng === null)) {
-        const currentLocation = await getCurrentLocation()
-        nextDistanceLat = currentLocation.lat
-        nextDistanceLng = currentLocation.lng
-        setDistanceLat(nextDistanceLat)
-        setDistanceLng(nextDistanceLng)
+        try {
+          const currentLocation = await getCurrentLocation()
+          nextDistanceLat = currentLocation.lat
+          nextDistanceLng = currentLocation.lng
+          setDistanceLat(nextDistanceLat)
+          setDistanceLng(nextDistanceLng)
+        } catch (locationError) {
+          locationErrorMessage = locationError.message
+          nextDistanceEnabled = false
+          nextDistanceLat = null
+          nextDistanceLng = null
+          setDistanceEnabled(false)
+          setDistanceLat(null)
+          setDistanceLng(null)
+        }
       }
 
       await updateNotificationPreferences({
-        distance_enabled: distanceEnabled,
+        distance_enabled: nextDistanceEnabled,
         distance_radius_km: Number(distanceRadiusKm),
         distance_lat: nextDistanceLat,
         distance_lng: nextDistanceLng,
@@ -151,7 +217,12 @@ function NotificationsModal({ fields = [], onClose }) {
         specific_fields_enabled: specificFieldsEnabled,
         selected_field_ids: selectedFieldIds,
       })
-      setSavedMessage('Notification preferences saved.')
+      if (locationErrorMessage) {
+        setError(`${locationErrorMessage} Distance notifications were not enabled.`)
+        setSavedMessage('City and specific field preferences saved.')
+      } else {
+        setSavedMessage('Notification preferences saved.')
+      }
     } catch (saveError) {
       setError(saveError.message || 'Could not save notification preferences.')
     } finally {
