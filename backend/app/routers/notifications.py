@@ -246,11 +246,24 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 
 @router.put("/preferences")
 def save_preferences(
-    body: dict[str, Any] = Body(...),
+    body: Any = Body(...),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")
+
+    is_settings_payload = _is_settings_payload(body)
+    print(
+        "PUT /notifications/preferences",
+        {
+            "body_keys": list(body.keys()),
+            "is_settings_payload": is_settings_payload,
+        },
+    )
+
     try:
-        if _is_settings_payload(body):
+        if is_settings_payload:
+            print("PUT /notifications/preferences routing to settings handler")
             return _save_settings(body, current_user)
 
         pref = NotificationPreference(**body)
