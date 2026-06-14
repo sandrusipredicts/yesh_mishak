@@ -150,8 +150,10 @@ function NotificationsModal({ fields = [], onClose }) {
 
       let isSettled = false
       console.log('Requesting geolocation for radius notifications')
+      console.log('Calling navigator.geolocation.getCurrentPosition')
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          console.log('Raw browser geolocation success', position)
           if (isSettled) {
             return
           }
@@ -166,6 +168,7 @@ function NotificationsModal({ fields = [], onClose }) {
           })
         },
         (geolocationError) => {
+          console.log('Raw browser geolocation error', geolocationError)
           if (isSettled) {
             return
           }
