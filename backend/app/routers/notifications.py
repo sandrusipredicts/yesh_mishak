@@ -2,7 +2,7 @@ from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
@@ -24,6 +24,15 @@ class NotificationPreference(BaseModel):
 class NotificationCandidateRequest(BaseModel):
     field_id: str
     sport_type: str
+
+
+class NotificationSettings(BaseModel):
+    distance_enabled: bool = True
+    distance_radius_km: float = Field(default=5, ge=1, le=20)
+    city_enabled: bool = False
+    city_name: str = "ירוחם"
+    specific_fields_enabled: bool = False
+    selected_field_ids: list[str] = []
 
 
 def _validate_preference(pref: NotificationPreference) -> None:
@@ -68,11 +77,107 @@ def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
     return response.data
 
 
+def _is_settings_payload(body: dict[str, Any]) -> bool:
+    return any(
+        key in body
+        for key in (
+            "distance_enabled",
+            "distance_radius_km",
+            "city_enabled",
+            "city_name",
+            "specific_fields_enabled",
+            "selected_field_ids",
+        )
+    )
+
+
+def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    settings = NotificationSettings(**body)
+    supabase = get_supabase_client()
+    user_id = current_user["id"]
+
+    (
+        supabase.table("notification_preferences")
+        .delete()
+        .eq("user_id", user_id)
+        .in_("notification_type", ["radius", "city", "specific_field"])
+        .execute()
+    )
+
+    rows: list[dict[str, Any]] = [
+        {
+            "user_id": user_id,
+            "enabled": settings.distance_enabled,
+            "sport_type": "both",
+            "notification_type": "radius",
+            "radius_km": settings.distance_radius_km,
+            "lat": None,
+            "lng": None,
+            "city": None,
+            "field_id": None,
+        },
+        {
+            "user_id": user_id,
+            "enabled": settings.city_enabled,
+            "sport_type": "both",
+            "notification_type": "city",
+            "radius_km": None,
+            "lat": None,
+            "lng": None,
+            "city": settings.city_name,
+            "field_id": None,
+        },
+    ]
+
+    selected_field_ids = list(dict.fromkeys(settings.selected_field_ids))
+
+    if selected_field_ids:
+        rows.extend(
+            {
+                "user_id": user_id,
+                "enabled": settings.specific_fields_enabled,
+                "sport_type": "both",
+                "notification_type": "specific_field",
+                "radius_km": None,
+                "lat": None,
+                "lng": None,
+                "city": None,
+                "field_id": field_id,
+            }
+            for field_id in selected_field_ids
+        )
+    else:
+        rows.append(
+            {
+                "user_id": user_id,
+                "enabled": settings.specific_fields_enabled,
+                "sport_type": "both",
+                "notification_type": "specific_field",
+                "radius_km": None,
+                "lat": None,
+                "lng": None,
+                "city": None,
+                "field_id": None,
+            }
+        )
+
+    response = supabase.table("notification_preferences").insert(rows).execute()
+    return {"message": "Preferences saved", "preferences": response.data}
+
+
 @router.put("/preferences")
 def save_preferences(
-    pref: NotificationPreference,
+    body: dict[str, Any],
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    try:
+        if _is_settings_payload(body):
+            return _save_settings(body, current_user)
+
+        pref = NotificationPreference(**body)
+    except ValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.errors()) from error
+
     _validate_preference(pref)
     supabase = get_supabase_client()
 
