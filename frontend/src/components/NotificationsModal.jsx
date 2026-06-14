@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { getFields } from '../api/fields'
 import {
@@ -77,11 +77,10 @@ function parsePreferences(preferences) {
 }
 
 function NotificationsModal({ fields = [], onClose }) {
+  const isSavingRef = useRef(false)
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
-  const [distanceLat, setDistanceLat] = useState(null)
-  const [distanceLng, setDistanceLng] = useState(null)
   const [cityEnabled, setCityEnabled] = useState(false)
   const [cityName, setCityName] = useState(DEFAULT_CITY)
   const [specificFieldsEnabled, setSpecificFieldsEnabled] = useState(false)
@@ -111,8 +110,6 @@ function NotificationsModal({ fields = [], onClose }) {
         const parsedPreferences = parsePreferences(preferences)
         setDistanceEnabled(parsedPreferences.distanceEnabled)
         setDistanceRadiusKm(parsedPreferences.distanceRadiusKm)
-        setDistanceLat(parsedPreferences.distanceLat)
-        setDistanceLng(parsedPreferences.distanceLng)
         setCityEnabled(parsedPreferences.cityEnabled)
         setCityName(parsedPreferences.cityName)
         setSpecificFieldsEnabled(parsedPreferences.specificFieldsEnabled)
@@ -151,9 +148,15 @@ function NotificationsModal({ fields = [], onClose }) {
         return
       }
 
+      let isSettled = false
       console.log('Requesting geolocation for radius notifications')
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          if (isSettled) {
+            return
+          }
+
+          isSettled = true
           const lat = position.coords.latitude
           const lng = position.coords.longitude
           console.log('Geolocation success', lat, lng)
@@ -163,6 +166,11 @@ function NotificationsModal({ fields = [], onClose }) {
           })
         },
         (geolocationError) => {
+          if (isSettled) {
+            return
+          }
+
+          isSettled = true
           const details = getGeolocationErrorDetails(geolocationError)
           console.error('Geolocation failed', {
             code: details.code,
@@ -183,14 +191,22 @@ function NotificationsModal({ fields = [], onClose }) {
   async function handleSubmit(event) {
     event.preventDefault()
 
+    if (isSavingRef.current) {
+      console.log('Notification preferences save already in progress')
+      return
+    }
+
+    isSavingRef.current = true
     setIsSaving(true)
     setError('')
     setSavedMessage('')
+    console.log('Save clicked')
+    console.log('Radius enabled', distanceEnabled)
 
     try {
-      let nextDistanceLat = distanceLat
-      let nextDistanceLng = distanceLng
-      let nextDistanceEnabled = distanceEnabled
+      let nextDistanceLat = null
+      let nextDistanceLng = null
+      let nextDistanceEnabled = false
       let locationErrorMessage = ''
 
       if (distanceEnabled) {
@@ -198,19 +214,17 @@ function NotificationsModal({ fields = [], onClose }) {
           const currentLocation = await getCurrentLocation()
           nextDistanceLat = currentLocation.lat
           nextDistanceLng = currentLocation.lng
-          setDistanceLat(nextDistanceLat)
-          setDistanceLng(nextDistanceLng)
+          nextDistanceEnabled = true
+          console.log('Geolocation success used for payload', nextDistanceLat, nextDistanceLng)
         } catch (locationError) {
           locationErrorMessage = locationError.message
           nextDistanceEnabled = false
           nextDistanceLat = null
           nextDistanceLng = null
-          setDistanceLat(null)
-          setDistanceLng(null)
         }
       }
 
-      await updateNotificationPreferences({
+      const notificationPayload = {
         distance_enabled: nextDistanceEnabled,
         distance_radius_km: Number(distanceRadiusKm),
         distance_lat: nextDistanceLat,
@@ -219,7 +233,10 @@ function NotificationsModal({ fields = [], onClose }) {
         city_name: cityName.trim() || DEFAULT_CITY,
         specific_fields_enabled: specificFieldsEnabled,
         selected_field_ids: selectedFieldIds,
-      })
+      }
+
+      console.log('Final notification payload sent to backend', notificationPayload)
+      await updateNotificationPreferences(notificationPayload)
       if (locationErrorMessage) {
         setError(`${locationErrorMessage} Distance notifications were not enabled.`)
         setSavedMessage('City and specific field preferences saved.')
@@ -229,6 +246,7 @@ function NotificationsModal({ fields = [], onClose }) {
     } catch (saveError) {
       setError(saveError.message || 'Could not save notification preferences.')
     } finally {
+      isSavingRef.current = false
       setIsSaving(false)
     }
   }
