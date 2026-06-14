@@ -37,6 +37,7 @@ class FieldCreate(BaseModel):
     has_nets: bool
     has_water: bool
     opening_hours: Optional[str] = None
+    city: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -90,6 +91,7 @@ def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(get_
         "has_nets": field.has_nets,
         "has_water": field.has_water,
         "opening_hours": field.opening_hours,
+        "city": field.city,
         "notes": field.notes,
         "verified": False,
         "approval_status": "pending",

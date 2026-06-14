@@ -530,6 +530,7 @@
 }
 
 .open-game-form input,
+.open-game-form select,
 .add-field-form input,
 .add-field-form select,
 .add-field-form textarea {

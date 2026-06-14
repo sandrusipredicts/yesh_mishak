@@ -29,6 +29,8 @@ class NotificationCandidateRequest(BaseModel):
 class NotificationSettings(BaseModel):
     distance_enabled: bool = True
     distance_radius_km: float = Field(default=5, ge=1, le=20)
+    distance_lat: Optional[float] = None
+    distance_lng: Optional[float] = None
     city_enabled: bool = False
     city_name: str = "ירוחם"
     specific_fields_enabled: bool = False
@@ -38,6 +40,8 @@ class NotificationSettings(BaseModel):
 SETTINGS_PAYLOAD_KEYS = {
     "distance_enabled",
     "distance_radius_km",
+    "distance_lat",
+    "distance_lng",
     "city_enabled",
     "city_name",
     "specific_fields_enabled",
@@ -73,6 +77,10 @@ def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     dlng = radians(lng2 - lng1)
     a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
     return 2 * earth_radius_km * asin(sqrt(a))
+
+
+def _normalize_city(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 @router.get("/preferences")
@@ -158,8 +166,8 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
                 "sport_type": "both",
                 "notification_type": "radius",
                 "radius_km": settings.distance_radius_km,
-                "lat": None,
-                "lng": None,
+                "lat": settings.distance_lat,
+                "lng": settings.distance_lng,
                 "city": None,
                 "field_id": None,
             },
@@ -319,7 +327,7 @@ def get_notification_candidates(
     supabase = get_supabase_client()
     field_response = (
         supabase.table("fields")
-        .select("id,lat,lng,sport_type")
+        .select("*")
         .eq("id", body.field_id)
         .limit(1)
         .execute()
@@ -345,6 +353,9 @@ def get_notification_candidates(
         reason = None
         if pref.get("notification_type") == "specific_field" and pref.get("field_id") == body.field_id:
             reason = "specific_field_and_sport_match"
+        elif pref.get("notification_type") == "city":
+            if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
+                reason = "city_and_sport_match"
         elif pref.get("notification_type") == "radius":
             if pref.get("lat") is None or pref.get("lng") is None or pref.get("radius_km") is None:
                 continue

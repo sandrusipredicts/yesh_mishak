@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { getFields } from '../api/fields'
 import {
@@ -8,6 +8,48 @@ import {
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
+const GEOLOCATION_TIMEOUT_MS = 15000
+const GEOLOCATION_ERROR_GRACE_MS = 1200
+
+function getGeolocationErrorDetails(error) {
+  if (!error || typeof error.code !== 'number') {
+    return {
+      code: 'UNKNOWN',
+      label: 'UNKNOWN',
+      message: 'Location failed without a browser error message.',
+    }
+  }
+
+  const labels = {
+    [error.PERMISSION_DENIED]: 'PERMISSION_DENIED',
+    [error.POSITION_UNAVAILABLE]: 'POSITION_UNAVAILABLE',
+    [error.TIMEOUT]: 'TIMEOUT',
+  }
+
+  return {
+    code: error.code,
+    label: labels[error.code] ?? 'UNKNOWN',
+    message: error.message || 'The browser did not provide more details.',
+  }
+}
+
+function formatGeolocationError(error) {
+  const details = getGeolocationErrorDetails(error)
+
+  if (details.label === 'PERMISSION_DENIED') {
+    return `Location permission was denied. (${details.label}: ${details.message})`
+  }
+
+  if (details.label === 'POSITION_UNAVAILABLE') {
+    return `The browser could not determine your current location. (${details.label}: ${details.message})`
+  }
+
+  if (details.label === 'TIMEOUT') {
+    return `Location lookup timed out. (${details.label}: ${details.message})`
+  }
+
+  return `Could not get current location. (${details.label}: ${details.message})`
+}
 
 function getFieldLabel(field) {
   return field.name ?? field.title ?? `Field ${field.id}`
@@ -24,6 +66,8 @@ function parsePreferences(preferences) {
   return {
     distanceEnabled: distancePreference?.enabled ?? true,
     distanceRadiusKm: Number(distancePreference?.radius_km ?? DEFAULT_RADIUS_KM),
+    distanceLat: distancePreference?.lat ?? null,
+    distanceLng: distancePreference?.lng ?? null,
     cityEnabled: cityPreference?.enabled ?? false,
     cityName: cityPreference?.city ?? DEFAULT_CITY,
     specificFieldsEnabled: fieldPreferences.some((preference) => preference.enabled),
@@ -34,6 +78,8 @@ function parsePreferences(preferences) {
 }
 
 function NotificationsModal({ fields = [], onClose }) {
+  const isSavingRef = useRef(false)
+  const locationAttemptRef = useRef(0)
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -97,26 +143,146 @@ function NotificationsModal({ fields = [], onClose }) {
     )
   }
 
+  function getCurrentLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Browser location is not available.'))
+        return
+      }
+
+      const attemptId = locationAttemptRef.current + 1
+      locationAttemptRef.current = attemptId
+      let isSettled = false
+      let pendingErrorTimer = null
+      console.log('Requesting geolocation for radius notifications')
+      console.log('getCurrentLocation started', { attemptId })
+      console.log('Calling navigator.geolocation.getCurrentPosition')
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          console.log('Raw browser geolocation success', position)
+          if (isSettled) {
+            console.log('Ignored late geolocation success after settlement', { attemptId })
+            return
+          }
+
+          if (pendingErrorTimer) {
+            clearTimeout(pendingErrorTimer)
+            pendingErrorTimer = null
+          }
+
+          isSettled = true
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          console.log('Geolocation success', lat, lng)
+          console.log('getCurrentLocation resolved SUCCESS', { attemptId, lat, lng })
+          resolve({
+            lat,
+            lng,
+          })
+        },
+        (geolocationError) => {
+          console.log('Raw browser geolocation error', geolocationError)
+          if (isSettled) {
+            console.log('Ignored late geolocation error after settlement', { attemptId })
+            return
+          }
+
+          if (pendingErrorTimer) {
+            console.log('Ignored duplicate geolocation error while waiting for success', { attemptId })
+            return
+          }
+
+          const details = getGeolocationErrorDetails(geolocationError)
+          console.error('Geolocation failed', {
+            code: details.code,
+            label: details.label,
+            message: details.message,
+          })
+          pendingErrorTimer = setTimeout(() => {
+            if (isSettled) {
+              return
+            }
+
+            isSettled = true
+            pendingErrorTimer = null
+            console.log('getCurrentLocation resolved ERROR', {
+              attemptId,
+              code: details.code,
+              label: details.label,
+              message: details.message,
+            })
+            reject(new Error(formatGeolocationError(geolocationError)))
+          }, GEOLOCATION_ERROR_GRACE_MS)
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: GEOLOCATION_TIMEOUT_MS,
+          maximumAge: 0,
+        },
+      )
+    })
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
 
+    if (isSavingRef.current) {
+      console.log('Notification preferences save already in progress')
+      return
+    }
+
+    isSavingRef.current = true
     setIsSaving(true)
     setError('')
     setSavedMessage('')
+    console.log('Save clicked')
+    console.log('Radius enabled', distanceEnabled)
 
     try {
-      await updateNotificationPreferences({
-        distance_enabled: distanceEnabled,
+      let nextDistanceLat = null
+      let nextDistanceLng = null
+      let nextDistanceEnabled = false
+      let locationErrorMessage = ''
+
+      if (distanceEnabled) {
+        try {
+          const currentLocation = await getCurrentLocation()
+          nextDistanceLat = currentLocation.lat
+          nextDistanceLng = currentLocation.lng
+          nextDistanceEnabled = true
+          console.log('Geolocation success used for payload', nextDistanceLat, nextDistanceLng)
+        } catch (locationError) {
+          locationErrorMessage = locationError.message
+          nextDistanceEnabled = false
+          nextDistanceLat = null
+          nextDistanceLng = null
+        }
+      }
+
+      const notificationPayload = {
+        distance_enabled: nextDistanceEnabled,
         distance_radius_km: Number(distanceRadiusKm),
+        distance_lat: nextDistanceLat,
+        distance_lng: nextDistanceLng,
         city_enabled: cityEnabled,
         city_name: cityName.trim() || DEFAULT_CITY,
         specific_fields_enabled: specificFieldsEnabled,
         selected_field_ids: selectedFieldIds,
-      })
-      setSavedMessage('Notification preferences saved.')
-    } catch {
-      setError('Could not save notification preferences.')
+      }
+
+      console.log('about to send payload')
+      console.log('Final notification payload sent to backend', notificationPayload)
+      await updateNotificationPreferences(notificationPayload)
+      if (locationErrorMessage) {
+        setError(`${locationErrorMessage} Distance notifications were not enabled.`)
+        setSavedMessage('City and specific field preferences saved.')
+      } else {
+        setSavedMessage('Notification preferences saved.')
+      }
+    } catch (saveError) {
+      setError(saveError.message || 'Could not save notification preferences.')
     } finally {
+      isSavingRef.current = false
       setIsSaving(false)
     }
   }
