@@ -7,8 +7,6 @@ import { getFields } from '../api/fields'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
-const TILE_URL =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="256" height="256"%3E%3Crect width="256" height="256" fill="%23eef2f7"/%3E%3Cpath d="M0 0H256V256H0Z" fill="none" stroke="%23d8dee8" stroke-width="1"/%3E%3C/svg%3E'
 
 function getFieldPosition(field) {
   const lat = Number(field.lat ?? field.latitude)
@@ -151,7 +149,10 @@ function MapPage() {
       </button>
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
-        <TileLayer attribution="Local test tiles" url={TILE_URL} />
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
         <RecenterMap center={center} />
         <FieldLoader center={center} onError={setError} onFieldsLoaded={setFields} />
 
