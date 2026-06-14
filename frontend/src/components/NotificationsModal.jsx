@@ -24,6 +24,8 @@ function parsePreferences(preferences) {
   return {
     distanceEnabled: distancePreference?.enabled ?? true,
     distanceRadiusKm: Number(distancePreference?.radius_km ?? DEFAULT_RADIUS_KM),
+    distanceLat: distancePreference?.lat ?? null,
+    distanceLng: distancePreference?.lng ?? null,
     cityEnabled: cityPreference?.enabled ?? false,
     cityName: cityPreference?.city ?? DEFAULT_CITY,
     specificFieldsEnabled: fieldPreferences.some((preference) => preference.enabled),
@@ -37,6 +39,8 @@ function NotificationsModal({ fields = [], onClose }) {
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
+  const [distanceLat, setDistanceLat] = useState(null)
+  const [distanceLng, setDistanceLng] = useState(null)
   const [cityEnabled, setCityEnabled] = useState(false)
   const [cityName, setCityName] = useState(DEFAULT_CITY)
   const [specificFieldsEnabled, setSpecificFieldsEnabled] = useState(false)
@@ -66,6 +70,8 @@ function NotificationsModal({ fields = [], onClose }) {
         const parsedPreferences = parsePreferences(preferences)
         setDistanceEnabled(parsedPreferences.distanceEnabled)
         setDistanceRadiusKm(parsedPreferences.distanceRadiusKm)
+        setDistanceLat(parsedPreferences.distanceLat)
+        setDistanceLng(parsedPreferences.distanceLng)
         setCityEnabled(parsedPreferences.cityEnabled)
         setCityName(parsedPreferences.cityName)
         setSpecificFieldsEnabled(parsedPreferences.specificFieldsEnabled)
@@ -97,6 +103,25 @@ function NotificationsModal({ fields = [], onClose }) {
     )
   }
 
+  function getCurrentLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Browser location is not available.'))
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          })
+        },
+        () => reject(new Error('Could not get current location.')),
+      )
+    })
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
 
@@ -105,17 +130,30 @@ function NotificationsModal({ fields = [], onClose }) {
     setSavedMessage('')
 
     try {
+      let nextDistanceLat = distanceLat
+      let nextDistanceLng = distanceLng
+
+      if (distanceEnabled && (nextDistanceLat === null || nextDistanceLng === null)) {
+        const currentLocation = await getCurrentLocation()
+        nextDistanceLat = currentLocation.lat
+        nextDistanceLng = currentLocation.lng
+        setDistanceLat(nextDistanceLat)
+        setDistanceLng(nextDistanceLng)
+      }
+
       await updateNotificationPreferences({
         distance_enabled: distanceEnabled,
         distance_radius_km: Number(distanceRadiusKm),
+        distance_lat: nextDistanceLat,
+        distance_lng: nextDistanceLng,
         city_enabled: cityEnabled,
         city_name: cityName.trim() || DEFAULT_CITY,
         specific_fields_enabled: specificFieldsEnabled,
         selected_field_ids: selectedFieldIds,
       })
       setSavedMessage('Notification preferences saved.')
-    } catch {
-      setError('Could not save notification preferences.')
+    } catch (saveError) {
+      setError(saveError.message || 'Could not save notification preferences.')
     } finally {
       setIsSaving(false)
     }

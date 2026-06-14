@@ -13,11 +13,16 @@ function getErrorMessage(error) {
     return 'כבר יש משחק פעיל במגרש הזה'
   }
 
+  if (detail) {
+    return String(detail)
+  }
+
   return 'Could not open game. Please try again.'
 }
 
 function OpenGameModal({ field, onClose, onCreated }) {
-  const [sportType, setSportType] = useState(field?.sport_type ?? '')
+  const fieldSportType = field?.sport_type ?? ''
+  const [sportType, setSportType] = useState(fieldSportType === 'both' ? '' : fieldSportType)
   const [playersPresent, setPlayersPresent] = useState('1')
   const [maxPlayers, setMaxPlayers] = useState('10')
   const [ageNote, setAgeNote] = useState('')
@@ -35,13 +40,18 @@ function OpenGameModal({ field, onClose, onCreated }) {
       return
     }
 
+    if (!['football', 'basketball'].includes(sportType.trim())) {
+      setError('Choose football or basketball.')
+      return
+    }
+
     if (!Number.isFinite(playersPresentNumber) || playersPresentNumber < 1) {
       setError('Players present must be at least 1.')
       return
     }
 
-    if (!Number.isFinite(maxPlayersNumber) || maxPlayersNumber <= playersPresentNumber) {
-      setError('Max players must be greater than players present.')
+    if (!Number.isFinite(maxPlayersNumber) || maxPlayersNumber < playersPresentNumber) {
+      setError('Max players must be greater than or equal to players present.')
       return
     }
 
@@ -77,12 +87,19 @@ function OpenGameModal({ field, onClose, onCreated }) {
         <form className="open-game-form" onSubmit={handleSubmit}>
           <label>
             Sport type
-            <input
-              type="text"
+            <select
               value={sportType}
               onChange={(event) => setSportType(event.target.value)}
               required
-            />
+            >
+              {fieldSportType === 'both' ? <option value="">Choose sport</option> : null}
+              {(fieldSportType === 'football' || fieldSportType === 'both') ? (
+                <option value="football">Football</option>
+              ) : null}
+              {(fieldSportType === 'basketball' || fieldSportType === 'both') ? (
+                <option value="basketball">Basketball</option>
+              ) : null}
+            </select>
           </label>
 
           <label>

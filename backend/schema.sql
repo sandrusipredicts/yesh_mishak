@@ -22,6 +22,7 @@ create table if not exists fields (
     has_nets boolean not null default false,
     has_water boolean not null default false,
     opening_hours text,
+    city text,
     status text not null default 'open' check (status in ('open', 'closed', 'renovation')),
     approval_status text not null default 'pending' check (approval_status in ('pending', 'approved', 'rejected')),
     verified boolean not null default false,

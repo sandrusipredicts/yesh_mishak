@@ -112,6 +112,7 @@ function AddFieldModal({ onClose, onCreated }) {
         has_nets: hasNets,
         has_water: hasWater,
         opening_hours: openingHours.trim(),
+        city: localStorage.getItem('userCity') || '',
         notes: notes.trim(),
       })
       onCreated?.()
