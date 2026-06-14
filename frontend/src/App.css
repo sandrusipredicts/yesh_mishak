@@ -306,12 +306,25 @@
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
 }
 
+.add-field-modal {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: auto;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
 .open-game-modal h2 {
   margin: 0 0 18px;
   font-size: 22px;
 }
 
-.notifications-modal h2 {
+.notifications-modal h2,
+.add-field-modal h2 {
   margin: 0 0 18px;
   font-size: 22px;
 }
@@ -335,6 +348,11 @@
 .notifications-form {
   display: grid;
   gap: 16px;
+}
+
+.add-field-form {
+  display: grid;
+  gap: 14px;
 }
 
 .settings-loading {
@@ -398,13 +416,91 @@
   font-size: 14px;
 }
 
-.open-game-form input {
+.add-field-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.open-game-form input,
+.add-field-form input,
+.add-field-form select,
+.add-field-form textarea {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 10px 12px;
   color: #172033;
   font: inherit;
+}
+
+.add-field-form textarea {
+  resize: vertical;
+}
+
+.form-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.form-toggle-row label {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.location-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.location-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.location-picker-header button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+}
+
+.location-picker-map {
+  height: 220px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.location-picker-pin-icon {
+  z-index: 650;
+}
+
+.location-picker-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+  cursor: move;
+}
+
+.location-picker p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .modal-error {
@@ -419,11 +515,29 @@
   font-size: 14px;
 }
 
+.map-success {
+  position: absolute;
+  z-index: 1000;
+  top: 20px;
+  left: 20px;
+  max-width: 280px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #15803d;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 14px;
+}
+
 @media (max-width: 640px) {
   .field-details-panel {
     right: 0;
     bottom: 0;
     width: 100%;
     border-radius: 12px 12px 0 0;
+  }
+
+  .form-toggle-row {
+    grid-template-columns: 1fr;
   }
 }
