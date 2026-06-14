@@ -32,7 +32,7 @@ class NotificationSettings(BaseModel):
     city_enabled: bool = False
     city_name: str = "ירוחם"
     specific_fields_enabled: bool = False
-    selected_field_ids: list[str] = []
+    selected_field_ids: list[str] = Field(default_factory=list)
 
 
 def _validate_preference(pref: NotificationPreference) -> None:
@@ -91,63 +91,108 @@ def _is_settings_payload(body: dict[str, Any]) -> bool:
     )
 
 
+def _save_preference_row(
+    supabase: Any,
+    row: dict[str, Any],
+    existing_row: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if existing_row:
+        response = (
+            supabase.table("notification_preferences")
+            .update(row)
+            .eq("id", existing_row["id"])
+            .execute()
+        )
+    else:
+        response = supabase.table("notification_preferences").insert(row).execute()
+
+    return response.data or []
+
+
+def _field_key(field_id: Any) -> str:
+    return str(field_id) if field_id else ""
+
+
 def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     settings = NotificationSettings(**body)
     supabase = get_supabase_client()
     user_id = current_user["id"]
 
-    (
+    existing_response = (
         supabase.table("notification_preferences")
-        .delete()
+        .select("*")
         .eq("user_id", user_id)
         .in_("notification_type", ["radius", "city", "specific_field"])
         .execute()
     )
+    existing_rows = existing_response.data or []
 
-    rows: list[dict[str, Any]] = [
-        {
-            "user_id": user_id,
-            "enabled": settings.distance_enabled,
-            "sport_type": "both",
-            "notification_type": "radius",
-            "radius_km": settings.distance_radius_km,
-            "lat": None,
-            "lng": None,
-            "city": None,
-            "field_id": None,
-        },
-        {
-            "user_id": user_id,
-            "enabled": settings.city_enabled,
-            "sport_type": "both",
-            "notification_type": "city",
-            "radius_km": None,
-            "lat": None,
-            "lng": None,
-            "city": settings.city_name,
-            "field_id": None,
-        },
-    ]
+    existing_by_type: dict[str, dict[str, Any]] = {}
+    existing_specific_by_field: dict[str, dict[str, Any]] = {}
 
-    selected_field_ids = list(dict.fromkeys(settings.selected_field_ids))
+    for row in existing_rows:
+        notification_type = row.get("notification_type")
 
-    if selected_field_ids:
-        rows.extend(
+        if notification_type == "specific_field":
+            field_key = _field_key(row.get("field_id"))
+            existing_specific_by_field.setdefault(field_key, row)
+        elif notification_type in ("radius", "city"):
+            existing_by_type.setdefault(notification_type, row)
+
+    saved_preferences: list[dict[str, Any]] = []
+    saved_preferences.extend(
+        _save_preference_row(
+            supabase,
             {
                 "user_id": user_id,
-                "enabled": settings.specific_fields_enabled,
+                "enabled": settings.distance_enabled,
                 "sport_type": "both",
-                "notification_type": "specific_field",
-                "radius_km": None,
+                "notification_type": "radius",
+                "radius_km": settings.distance_radius_km,
                 "lat": None,
                 "lng": None,
                 "city": None,
-                "field_id": field_id,
-            }
-            for field_id in selected_field_ids
+                "field_id": None,
+            },
+            existing_by_type.get("radius"),
         )
-    else:
-        rows.append(
+    )
+    saved_preferences.extend(
+        _save_preference_row(
+            supabase,
+            {
+                "user_id": user_id,
+                "enabled": settings.city_enabled,
+                "sport_type": "both",
+                "notification_type": "city",
+                "radius_km": None,
+                "lat": None,
+                "lng": None,
+                "city": settings.city_name,
+                "field_id": None,
+            },
+            existing_by_type.get("city"),
+        )
+    )
+
+    selected_field_ids = list(dict.fromkeys(settings.selected_field_ids))
+    desired_specific_rows = [
+        {
+            "user_id": user_id,
+            "enabled": settings.specific_fields_enabled,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "radius_km": None,
+            "lat": None,
+            "lng": None,
+            "city": None,
+            "field_id": field_id,
+        }
+        for field_id in selected_field_ids
+    ]
+
+    if not desired_specific_rows:
+        desired_specific_rows.append(
             {
                 "user_id": user_id,
                 "enabled": settings.specific_fields_enabled,
@@ -161,8 +206,33 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
             }
         )
 
-    response = supabase.table("notification_preferences").insert(rows).execute()
-    return {"message": "Preferences saved", "preferences": response.data}
+    kept_specific_ids: set[str] = set()
+
+    for row in desired_specific_rows:
+        existing_row = existing_specific_by_field.get(_field_key(row.get("field_id")))
+        saved_rows = _save_preference_row(supabase, row, existing_row)
+        saved_preferences.extend(saved_rows)
+
+        if existing_row:
+            kept_specific_ids.add(str(existing_row["id"]))
+        elif saved_rows:
+            kept_specific_ids.add(str(saved_rows[0]["id"]))
+
+    stale_specific_ids = [
+        row["id"]
+        for row in existing_rows
+        if row.get("notification_type") == "specific_field" and str(row["id"]) not in kept_specific_ids
+    ]
+
+    if stale_specific_ids:
+        (
+            supabase.table("notification_preferences")
+            .delete()
+            .in_("id", stale_specific_ids)
+            .execute()
+        )
+
+    return {"message": "Preferences saved", "preferences": saved_preferences}
 
 
 @router.put("/preferences")
