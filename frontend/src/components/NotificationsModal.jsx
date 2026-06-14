@@ -9,6 +9,7 @@ import {
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
 const GEOLOCATION_TIMEOUT_MS = 15000
+const GEOLOCATION_ERROR_GRACE_MS = 1200
 
 function getGeolocationErrorDetails(error) {
   if (!error || typeof error.code !== 'number') {
@@ -78,6 +79,7 @@ function parsePreferences(preferences) {
 
 function NotificationsModal({ fields = [], onClose }) {
   const isSavingRef = useRef(false)
+  const locationAttemptRef = useRef(0)
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -148,20 +150,31 @@ function NotificationsModal({ fields = [], onClose }) {
         return
       }
 
+      const attemptId = locationAttemptRef.current + 1
+      locationAttemptRef.current = attemptId
       let isSettled = false
+      let pendingErrorTimer = null
       console.log('Requesting geolocation for radius notifications')
+      console.log('getCurrentLocation started', { attemptId })
       console.log('Calling navigator.geolocation.getCurrentPosition')
       navigator.geolocation.getCurrentPosition(
         (position) => {
           console.log('Raw browser geolocation success', position)
           if (isSettled) {
+            console.log('Ignored late geolocation success after settlement', { attemptId })
             return
+          }
+
+          if (pendingErrorTimer) {
+            clearTimeout(pendingErrorTimer)
+            pendingErrorTimer = null
           }
 
           isSettled = true
           const lat = position.coords.latitude
           const lng = position.coords.longitude
           console.log('Geolocation success', lat, lng)
+          console.log('getCurrentLocation resolved SUCCESS', { attemptId, lat, lng })
           resolve({
             lat,
             lng,
@@ -170,17 +183,36 @@ function NotificationsModal({ fields = [], onClose }) {
         (geolocationError) => {
           console.log('Raw browser geolocation error', geolocationError)
           if (isSettled) {
+            console.log('Ignored late geolocation error after settlement', { attemptId })
             return
           }
 
-          isSettled = true
+          if (pendingErrorTimer) {
+            console.log('Ignored duplicate geolocation error while waiting for success', { attemptId })
+            return
+          }
+
           const details = getGeolocationErrorDetails(geolocationError)
           console.error('Geolocation failed', {
             code: details.code,
             label: details.label,
             message: details.message,
           })
-          reject(new Error(formatGeolocationError(geolocationError)))
+          pendingErrorTimer = setTimeout(() => {
+            if (isSettled) {
+              return
+            }
+
+            isSettled = true
+            pendingErrorTimer = null
+            console.log('getCurrentLocation resolved ERROR', {
+              attemptId,
+              code: details.code,
+              label: details.label,
+              message: details.message,
+            })
+            reject(new Error(formatGeolocationError(geolocationError)))
+          }, GEOLOCATION_ERROR_GRACE_MS)
         },
         {
           enableHighAccuracy: false,
@@ -238,6 +270,7 @@ function NotificationsModal({ fields = [], onClose }) {
         selected_field_ids: selectedFieldIds,
       }
 
+      console.log('about to send payload')
       console.log('Final notification payload sent to backend', notificationPayload)
       await updateNotificationPreferences(notificationPayload)
       if (locationErrorMessage) {
