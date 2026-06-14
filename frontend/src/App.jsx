@@ -1,8 +1,8 @@
 import './App.css'
-import BackendStatusPage from './pages/BackendStatusPage'
+import MapPage from './pages/MapPage'
 
 function App() {
-  return <BackendStatusPage />
+  return <MapPage />
 }
 
 export default App

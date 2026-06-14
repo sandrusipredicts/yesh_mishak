@@ -1,35 +1,90 @@
-.app-shell {
-  display: grid;
+.map-page {
+  position: relative;
   min-height: 100vh;
+  overflow: hidden;
+}
+
+.map-canvas {
+  height: 100vh;
+  width: 100%;
+}
+
+.floating-button {
+  position: absolute;
+  z-index: 1000;
+  display: grid;
+  width: 52px;
+  height: 52px;
   place-items: center;
-  padding: 24px;
-}
-
-.status-panel {
-  width: min(100%, 460px);
-  border: 1px solid #d9dee8;
-  border-radius: 8px;
-  padding: 24px;
+  border: 0;
+  border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 12px 30px rgba(20, 28, 45, 0.08);
-}
-
-.status-panel h1 {
-  margin: 0 0 16px;
-  color: #182033;
+  color: #172033;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
   font-size: 28px;
+  line-height: 1;
 }
 
-.status-line {
-  margin: 0;
-  color: #334155;
-  font-size: 18px;
+.floating-button.top {
+  top: 20px;
+  right: 20px;
+  font-size: 24px;
 }
 
-.status-value {
-  font-weight: 700;
+.floating-button.bottom {
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.status-error {
+.field-popup {
+  min-width: 160px;
+}
+
+.field-popup h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.field-popup p {
+  margin: 4px 0;
+}
+
+.field-marker {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.3);
+}
+
+.field-marker.gray {
+  background: #6b7280;
+}
+
+.field-marker.green {
+  background: #16a34a;
+}
+
+.field-marker.yellow {
+  background: #eab308;
+}
+
+.field-marker.red {
+  background: #dc2626;
+}
+
+.map-error {
+  position: absolute;
+  z-index: 1000;
+  top: 20px;
+  left: 20px;
+  max-width: 280px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
   color: #b42318;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 14px;
 }
