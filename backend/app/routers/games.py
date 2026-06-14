@@ -14,6 +14,7 @@ router = APIRouter(prefix="/games", tags=["games"])
 class GameCreate(BaseModel):
     field_id: str
     sport_type: str
+    players_present: int = Field(ge=1)
     max_players: int = Field(gt=0)
     age_note: Optional[str] = None
     min_age: Optional[int] = Field(default=None, ge=0)
@@ -34,6 +35,12 @@ def _ensure_active_game(game: dict[str, Any]) -> None:
 
 @router.post("/")
 def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_current_user)):
+    if game.players_present > game.max_players:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="players_present must be less than or equal to max_players",
+        )
+
     if game.min_age is not None and game.max_age is not None and game.min_age > game.max_age:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid age range")
 
@@ -68,7 +75,7 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
         "field_id": game.field_id,
         "created_by": current_user["id"],
         "sport_type": game.sport_type,
-        "players_present": 1,
+        "players_present": game.players_present,
         "max_players": game.max_players,
         "status": "open",
         "age_note": game.age_note,
