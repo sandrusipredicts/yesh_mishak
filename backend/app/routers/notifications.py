@@ -1,7 +1,7 @@
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user
@@ -35,6 +35,18 @@ class NotificationSettings(BaseModel):
     city_name: str = "ירוחם"
     specific_fields_enabled: bool = False
     selected_field_ids: list[str] = Field(default_factory=list)
+
+
+SETTINGS_PAYLOAD_KEYS = {
+    "distance_enabled",
+    "distance_radius_km",
+    "distance_lat",
+    "distance_lng",
+    "city_enabled",
+    "city_name",
+    "specific_fields_enabled",
+    "selected_field_ids",
+}
 
 
 def _validate_preference(pref: NotificationPreference) -> None:
@@ -84,17 +96,11 @@ def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 def _is_settings_payload(body: dict[str, Any]) -> bool:
-    return any(
-        key in body
-        for key in (
-            "distance_enabled",
-            "distance_radius_km",
-            "city_enabled",
-            "city_name",
-            "specific_fields_enabled",
-            "selected_field_ids",
-        )
-    )
+    if not isinstance(body, dict):
+        return False
+
+    body_keys = {str(key).strip() for key in body}
+    return bool(SETTINGS_PAYLOAD_KEYS.intersection(body_keys))
 
 
 def _save_preference_row(
@@ -120,15 +126,12 @@ def _field_key(field_id: Any) -> str:
 
 
 def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
-    settings = NotificationSettings(**body)
-    if settings.distance_enabled and (
-        settings.distance_lat is None or settings.distance_lng is None
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Distance notifications require current location",
-        )
+    settings_data = dict(body)
 
+    if settings_data.get("selected_field_ids") is None:
+        settings_data["selected_field_ids"] = []
+
+    settings = NotificationSettings(**settings_data)
     supabase = get_supabase_client()
     user_id = current_user["id"]
 
@@ -251,11 +254,24 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 
 @router.put("/preferences")
 def save_preferences(
-    body: dict[str, Any],
+    body: Any = Body(...),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")
+
+    is_settings_payload = _is_settings_payload(body)
+    print(
+        "PUT /notifications/preferences",
+        {
+            "body_keys": list(body.keys()),
+            "is_settings_payload": is_settings_payload,
+        },
+    )
+
     try:
-        if _is_settings_payload(body):
+        if is_settings_payload:
+            print("PUT /notifications/preferences routing to settings handler")
             return _save_settings(body, current_user)
 
         pref = NotificationPreference(**body)
