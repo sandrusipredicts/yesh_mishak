@@ -23,14 +23,14 @@ function getPlayerCount(activeGame) {
     return null
   }
 
-  const currentPlayers = activeGame.current_players ?? activeGame.players_present
-  const targetPlayers = activeGame.target_players ?? activeGame.max_players
+  const playersPresent = activeGame.players_present ?? activeGame.current_players
+  const maxPlayers = activeGame.max_players ?? activeGame.target_players
 
-  if (currentPlayers === undefined || targetPlayers === undefined) {
+  if (playersPresent === undefined || maxPlayers === undefined) {
     return null
   }
 
-  return `${currentPlayers} מתוך ${targetPlayers} שחקנים`
+  return `${playersPresent} מתוך ${maxPlayers} שחקנים`
 }
 
 function getWaterCoolerValue(field) {
