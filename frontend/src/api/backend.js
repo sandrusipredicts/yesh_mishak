@@ -1,6 +1,6 @@
-import apiClient from './client'
+import { api } from './client'
 
 export async function getBackendStatus() {
-  const response = await apiClient.get('/')
+  const response = await api.get('/')
   return response.data
 }
