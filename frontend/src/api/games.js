@@ -10,22 +10,30 @@ export async function createGame(data) {
   return response.data
 }
 
-export async function joinGame(gameId) {
-  const response = await api.post(`/games/${gameId}/join`)
+function requireGameId(gameId) {
+  if (!gameId) {
+    throw new Error('Game id is required')
+  }
+
+  return gameId
+}
+
+export async function joinGame(gameId, userId) {
+  const response = await api.post(`/games/${requireGameId(gameId)}/join`, { user_id: userId })
   return response.data
 }
 
-export async function leaveGame(gameId) {
-  const response = await api.post(`/games/${gameId}/leave`)
+export async function leaveGame(gameId, userId) {
+  const response = await api.post(`/games/${requireGameId(gameId)}/leave`, { user_id: userId })
   return response.data
 }
 
 export async function extendGame(gameId) {
-  const response = await api.post(`/games/${gameId}/extend`)
+  const response = await api.post(`/games/${requireGameId(gameId)}/extend`)
   return response.data
 }
 
 export async function closeGame(gameId) {
-  const response = await api.post(`/games/${gameId}/close`)
+  const response = await api.post(`/games/${requireGameId(gameId)}/close`)
   return response.data
 }

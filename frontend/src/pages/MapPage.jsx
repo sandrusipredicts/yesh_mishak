@@ -10,6 +10,19 @@ import NotificationsModal from '../components/NotificationsModal'
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
 
+function getStoredCurrentUserId() {
+  if (typeof localStorage === 'undefined') {
+    return ''
+  }
+
+  return (
+    localStorage.getItem('currentUserId') ||
+    localStorage.getItem('current_user_id') ||
+    localStorage.getItem('user_id') ||
+    ''
+  )
+}
+
 function getFieldPosition(field) {
   const lat = Number(field.lat ?? field.latitude)
   const lng = Number(field.lng ?? field.longitude)
@@ -119,6 +132,7 @@ function MapPage() {
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [currentUserId] = useState(getStoredCurrentUserId)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -227,6 +241,7 @@ function MapPage() {
         field={selectedField}
         onClose={() => setSelectedField(null)}
         onGameCreated={refreshFields}
+        currentUserId={currentUserId}
       />
 
       {isNotificationsOpen ? (

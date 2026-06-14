@@ -1,3 +1,78 @@
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f5f7fb;
+}
+
+.login-panel {
+  display: grid;
+  width: min(360px, 100%);
+  gap: 16px;
+  border-radius: 8px;
+  padding: 28px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.login-panel h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.login-panel p {
+  margin: 0;
+}
+
+.google-login-button {
+  min-height: 44px;
+}
+
+.login-status {
+  color: #475569;
+  font-size: 14px;
+}
+
+.login-error {
+  color: #b42318;
+  font-size: 14px;
+}
+
+.auth-toolbar {
+  position: absolute;
+  z-index: 1200;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  max-width: min(360px, calc(100% - 96px));
+  align-items: center;
+  gap: 10px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 14px;
+}
+
+.auth-toolbar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-toolbar button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #172033;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .map-page {
   position: relative;
   min-height: 100vh;
@@ -167,6 +242,24 @@
 .active-game-summary p {
   margin: 0;
   font-weight: 700;
+}
+
+.participants-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.participants-list li {
+  color: #172033;
+}
+
+.panel-warning,
+.panel-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 14px;
 }
 
 .active-game-summary button,
