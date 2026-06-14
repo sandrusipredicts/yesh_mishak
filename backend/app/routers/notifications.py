@@ -1,7 +1,7 @@
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user
@@ -88,7 +88,11 @@ def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 def _is_settings_payload(body: dict[str, Any]) -> bool:
-    return bool(SETTINGS_PAYLOAD_KEYS.intersection(body))
+    if not isinstance(body, dict):
+        return False
+
+    body_keys = {str(key).strip() for key in body}
+    return bool(SETTINGS_PAYLOAD_KEYS.intersection(body_keys))
 
 
 def _save_preference_row(
@@ -242,7 +246,7 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 
 @router.put("/preferences")
 def save_preferences(
-    body: dict[str, Any],
+    body: dict[str, Any] = Body(...),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     try:
