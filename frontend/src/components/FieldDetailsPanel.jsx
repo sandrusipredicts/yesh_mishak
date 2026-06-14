@@ -1,3 +1,7 @@
+import { useState } from 'react'
+
+import OpenGameModal from './OpenGameModal'
+
 function formatBoolean(value) {
   if (value === true) {
     return 'Yes'
@@ -19,21 +23,23 @@ function getPlayerCount(activeGame) {
     return null
   }
 
-  const currentPlayers = activeGame.current_players ?? activeGame.players_present
-  const targetPlayers = activeGame.target_players ?? activeGame.max_players
+  const playersPresent = activeGame.players_present
+  const maxPlayers = activeGame.max_players
 
-  if (currentPlayers === undefined || targetPlayers === undefined) {
+  if (playersPresent === undefined || maxPlayers === undefined) {
     return null
   }
 
-  return `${currentPlayers} מתוך ${targetPlayers} שחקנים`
+  return `${playersPresent} מתוך ${maxPlayers} שחקנים`
 }
 
 function getWaterCoolerValue(field) {
   return field.has_water_cooler ?? field.has_water
 }
 
-function FieldDetailsPanel({ field, onClose }) {
+function FieldDetailsPanel({ field, onClose, onGameCreated }) {
+  const [isOpenGameModalOpen, setIsOpenGameModalOpen] = useState(false)
+
   if (!field) {
     return null
   }
@@ -87,10 +93,22 @@ function FieldDetailsPanel({ field, onClose }) {
           <button type="button">Join</button>
         </div>
       ) : (
-        <button className="primary-panel-button" type="button">
+        <button
+          className="primary-panel-button"
+          type="button"
+          onClick={() => setIsOpenGameModalOpen(true)}
+        >
           Open Game
         </button>
       )}
+
+      {isOpenGameModalOpen && !activeGame ? (
+        <OpenGameModal
+          field={field}
+          onClose={() => setIsOpenGameModalOpen(false)}
+          onCreated={onGameCreated}
+        />
+      ) : null}
     </aside>
   )
 }

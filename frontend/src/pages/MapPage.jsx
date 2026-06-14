@@ -57,10 +57,10 @@ function getMarkerColor(field) {
 
 function createMarkerIcon(color) {
   return L.divIcon({
-    className: '',
-    html: `<span class="field-marker ${color}"></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
+    className: 'field-marker-icon',
+    html: `<div class="field-marker ${color}"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   })
 }
 
@@ -83,7 +83,7 @@ function RecenterMap({ center }) {
   return null
 }
 
-function FieldLoader({ center, onError, onFieldsLoaded }) {
+function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
   const loadFields = useCallback(
     async (bounds) => {
       try {
@@ -106,7 +106,7 @@ function FieldLoader({ center, onError, onFieldsLoaded }) {
 
   useEffect(() => {
     loadFields(map.getBounds())
-  }, [center, loadFields, map])
+  }, [center, loadFields, map, reloadKey])
 
   return null
 }
@@ -116,6 +116,7 @@ function MapPage() {
   const [fields, setFields] = useState([])
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -142,6 +143,21 @@ function MapPage() {
     [],
   )
 
+  const handleFieldsLoaded = useCallback((loadedFields) => {
+    setFields(loadedFields)
+    setSelectedField((currentField) => {
+      if (!currentField) {
+        return currentField
+      }
+
+      return loadedFields.find((field) => field.id === currentField.id) ?? currentField
+    })
+  }, [])
+
+  function refreshFields() {
+    setReloadKey((currentReloadKey) => currentReloadKey + 1)
+  }
+
   return (
     <main className="map-page">
       {error ? <div className="map-error">{error}</div> : null}
@@ -156,7 +172,12 @@ function MapPage() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <RecenterMap center={center} />
-        <FieldLoader center={center} onError={setError} onFieldsLoaded={setFields} />
+        <FieldLoader
+          center={center}
+          onError={setError}
+          onFieldsLoaded={handleFieldsLoaded}
+          reloadKey={reloadKey}
+        />
 
         {fields.map((field) => {
           const position = getFieldPosition(field)
@@ -195,7 +216,11 @@ function MapPage() {
         +
       </button>
 
-      <FieldDetailsPanel field={selectedField} onClose={() => setSelectedField(null)} />
+      <FieldDetailsPanel
+        field={selectedField}
+        onClose={() => setSelectedField(null)}
+        onGameCreated={refreshFields}
+      />
     </main>
   )
 }
