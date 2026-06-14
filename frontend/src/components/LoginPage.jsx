@@ -3,14 +3,27 @@ import { useEffect, useRef, useState } from 'react'
 import { loginWithGoogle } from '../api/auth'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
+let googleScriptPromise
 
 function loadGoogleScript() {
-  const existingScript = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`)
-  if (existingScript) {
+  if (window.google?.accounts?.id) {
     return Promise.resolve()
   }
 
-  return new Promise((resolve, reject) => {
+  if (googleScriptPromise) {
+    return googleScriptPromise
+  }
+
+  const existingScript = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`)
+  if (existingScript) {
+    googleScriptPromise = new Promise((resolve, reject) => {
+      existingScript.addEventListener('load', resolve, { once: true })
+      existingScript.addEventListener('error', reject, { once: true })
+    })
+    return googleScriptPromise
+  }
+
+  googleScriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script')
     script.src = GOOGLE_SCRIPT_SRC
     script.async = true
@@ -19,6 +32,8 @@ function loadGoogleScript() {
     script.onerror = reject
     document.head.appendChild(script)
   })
+
+  return googleScriptPromise
 }
 
 function LoginPage({ onLogin }) {
@@ -39,7 +54,17 @@ function LoginPage({ onLogin }) {
       try {
         await loadGoogleScript()
 
-        if (!isMounted || !window.google || !buttonRef.current) {
+        if (!isMounted) {
+          return
+        }
+
+        if (!window.google?.accounts?.id) {
+          setError('Google login loaded but is not ready yet.')
+          return
+        }
+
+        if (!buttonRef.current) {
+          setError('Google login button could not be mounted.')
           return
         }
 
@@ -75,6 +100,12 @@ function LoginPage({ onLogin }) {
           size: 'large',
           width: 280,
         })
+
+        window.setTimeout(() => {
+          if (isMounted && buttonRef.current && buttonRef.current.childElementCount === 0) {
+            setError('Google login button could not be rendered.')
+          }
+        }, 0)
       } catch {
         if (isMounted) {
           setError('Could not load Google login.')
