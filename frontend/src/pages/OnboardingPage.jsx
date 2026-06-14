@@ -1,21 +1,64 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { israelCities } from '../data/israelCities'
 
+function normalizeSearchValue(value) {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function sortHebrewCities(cities) {
+  return [...cities].sort((a, b) => a.localeCompare(b, 'he'))
+}
+
+function getCitySuggestions(query) {
+  const normalizedQuery = normalizeSearchValue(query)
+  const sortedCities = sortHebrewCities(israelCities)
+
+  if (!normalizedQuery) {
+    return sortedCities
+  }
+
+  const startsWithMatches = []
+  const includesMatches = []
+
+  sortedCities.forEach((cityName) => {
+    const normalizedCityName = normalizeSearchValue(cityName)
+
+    if (normalizedCityName.startsWith(normalizedQuery)) {
+      startsWithMatches.push(cityName)
+    } else if (normalizedCityName.includes(normalizedQuery)) {
+      includesMatches.push(cityName)
+    }
+  })
+
+  return [...sortHebrewCities(startsWithMatches), ...sortHebrewCities(includesMatches)]
+}
+
 function OnboardingPage({ onComplete }) {
+  const selectorRef = useRef(null)
   const [city, setCity] = useState('')
   const [error, setError] = useState('')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
   const normalizedCity = city.trim()
 
   const suggestions = useMemo(() => {
-    if (!normalizedCity) {
-      return []
+    return getCitySuggestions(city)
+  }, [city])
+
+  useEffect(() => {
+    function handleDocumentMouseDown(event) {
+      if (!selectorRef.current?.contains(event.target)) {
+        setIsDropdownOpen(false)
+      }
     }
 
-    return israelCities
-      .filter((cityName) => cityName.includes(normalizedCity))
-      .slice(0, 6)
-  }, [normalizedCity])
+    document.addEventListener('mousedown', handleDocumentMouseDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown)
+    }
+  }, [])
 
   function handleSubmit(event) {
     event.preventDefault()
@@ -33,6 +76,36 @@ function OnboardingPage({ onComplete }) {
   function handleSuggestionClick(cityName) {
     setCity(cityName)
     setError('')
+    setIsDropdownOpen(false)
+  }
+
+  function handleInputKeyDown(event) {
+    if (event.key === 'Escape') {
+      setIsDropdownOpen(false)
+      return
+    }
+
+    if (!isDropdownOpen && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      setIsDropdownOpen(true)
+      return
+    }
+
+    if (!suggestions.length) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setHighlightedIndex((currentIndex) => (currentIndex + 1) % suggestions.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setHighlightedIndex((currentIndex) => (
+        currentIndex === 0 ? suggestions.length - 1 : currentIndex - 1
+      ))
+    } else if (event.key === 'Enter' && isDropdownOpen) {
+      event.preventDefault()
+      handleSuggestionClick(suggestions[highlightedIndex])
+    }
   }
 
   return (
@@ -47,30 +120,44 @@ function OnboardingPage({ onComplete }) {
         </ul>
 
         <form className="onboarding-form" onSubmit={handleSubmit}>
-          <label htmlFor="city-input">עיר</label>
-          <input
-            id="city-input"
-            type="text"
-            value={city}
-            onChange={(event) => {
-              setCity(event.target.value)
-              setError('')
-            }}
-            autoComplete="off"
-            placeholder="לדוגמה: ירוחם"
-          />
+          <div className="city-selector" ref={selectorRef}>
+            <label htmlFor="city-input">עיר</label>
+            <input
+              id="city-input"
+              type="text"
+              value={city}
+              onFocus={() => setIsDropdownOpen(true)}
+              onChange={(event) => {
+                setCity(event.target.value)
+                setError('')
+                setHighlightedIndex(0)
+                setIsDropdownOpen(true)
+              }}
+              onKeyDown={handleInputKeyDown}
+              autoComplete="off"
+              aria-autocomplete="list"
+              aria-expanded={isDropdownOpen}
+              aria-controls="city-suggestions"
+              placeholder="לדוגמה: ירוחם"
+            />
 
-          {suggestions.length > 0 ? (
-            <ul className="city-suggestions" aria-label="City suggestions">
-              {suggestions.map((cityName) => (
-                <li key={cityName}>
-                  <button type="button" onClick={() => handleSuggestionClick(cityName)}>
-                    {cityName}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+            {isDropdownOpen && suggestions.length > 0 ? (
+              <ul id="city-suggestions" className="city-suggestions" aria-label="City suggestions">
+                {suggestions.map((cityName, index) => (
+                  <li key={cityName}>
+                    <button
+                      type="button"
+                      className={index === highlightedIndex ? 'is-highlighted' : ''}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleSuggestionClick(cityName)}
+                    >
+                      {cityName}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
 
           {error ? <p className="onboarding-error">{error}</p> : null}
 

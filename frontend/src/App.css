@@ -79,6 +79,13 @@
   gap: 10px;
 }
 
+.city-selector {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  direction: rtl;
+}
+
 .onboarding-form label {
   color: #475569;
   font-size: 14px;
@@ -90,13 +97,20 @@
   border-radius: 6px;
   padding: 14px 16px;
   color: #172033;
+  direction: rtl;
   font: inherit;
   font-size: 18px;
+  text-align: right;
 }
 
 .city-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
   display: grid;
-  max-height: 220px;
+  max-height: 288px;
   overflow: auto;
   gap: 2px;
   margin: 0;
@@ -104,6 +118,7 @@
   border-radius: 6px;
   padding: 4px;
   background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
   list-style: none;
 }
 
@@ -120,7 +135,8 @@
 }
 
 .city-suggestions button:hover,
-.city-suggestions button:focus {
+.city-suggestions button:focus,
+.city-suggestions button.is-highlighted {
   background: #f1f5f9;
 }
 
