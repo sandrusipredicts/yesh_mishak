@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.jwt import create_access_token
@@ -61,6 +62,9 @@ class FakeUsersQuery:
         if self.selected_columns is None:
             return user
 
+        if "*" in self.selected_columns:
+            return user
+
         return {column: user.get(column) for column in self.selected_columns}
 
 
@@ -80,6 +84,127 @@ class FakeSupabaseClient:
 
 def make_token(user: dict[str, Any]) -> str:
     return create_access_token(subject=user["id"], email=user["email"])
+
+
+def configure_test_settings(monkeypatch) -> None:
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    get_settings.cache_clear()
+
+
+ADMIN_ENDPOINTS = [
+    "/admin/me",
+    "/admin/fields",
+    "/admin/games",
+    "/admin/users",
+    "/admin/stats",
+]
+
+
+def make_admin_matrix_client(
+    admin_user: dict[str, Any],
+    regular_user: dict[str, Any],
+) -> FakeSupabaseClient:
+    return FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, regular_user],
+            "fields": [
+                {
+                    "id": "00000000-0000-0000-0000-000000000101",
+                    "name": "Central Field",
+                    "verified": True,
+                    "approval_status": "approved",
+                },
+                {
+                    "id": "00000000-0000-0000-0000-000000000102",
+                    "name": "Pending Field",
+                    "verified": False,
+                    "approval_status": "pending",
+                },
+            ],
+            "games": [
+                {
+                    "id": "00000000-0000-0000-0000-000000000201",
+                    "field_id": "00000000-0000-0000-0000-000000000101",
+                    "status": "open",
+                    "started_at": "2026-06-15T09:00:00+00:00",
+                },
+                {
+                    "id": "00000000-0000-0000-0000-000000000202",
+                    "field_id": "00000000-0000-0000-0000-000000000101",
+                    "status": "finished",
+                    "started_at": "2026-06-14T09:00:00+00:00",
+                },
+            ],
+            "game_players": [],
+        },
+    )
+
+
+@pytest.mark.parametrize("endpoint", ADMIN_ENDPOINTS)
+def test_admin_endpoints_allow_admin_user(monkeypatch, endpoint: str) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    regular_user = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "user@example.com",
+        "name": "Regular User",
+        "role": "user",
+    }
+    fake_client = make_admin_matrix_client(admin_user, regular_user)
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).get(
+        endpoint,
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("endpoint", ADMIN_ENDPOINTS)
+def test_admin_endpoints_reject_regular_user(monkeypatch, endpoint: str) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    regular_user = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "user@example.com",
+        "name": "Regular User",
+        "role": "user",
+    }
+    fake_client = make_admin_matrix_client(admin_user, regular_user)
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).get(
+        endpoint,
+        headers={"Authorization": f"Bearer {make_token(regular_user)}"},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("endpoint", ADMIN_ENDPOINTS)
+def test_admin_endpoints_require_token(endpoint: str) -> None:
+    response = TestClient(app).get(endpoint)
+
+    assert response.status_code == 401
 
 
 def test_admin_me_returns_current_admin(monkeypatch) -> None:
