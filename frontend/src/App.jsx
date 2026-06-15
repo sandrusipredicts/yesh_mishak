@@ -1,7 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import './App.css'
+import AdminRoute from './components/AdminRoute'
 import LoginPage from './components/LoginPage'
+import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import OnboardingPage from './pages/OnboardingPage'
 
@@ -21,10 +23,23 @@ function getStoredUser() {
 }
 
 function App() {
+  const [pathname, setPathname] = useState(() => window.location.pathname)
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const [isOnboardingDone, setIsOnboardingDone] = useState(
     () => localStorage.getItem('onboarding_done') === 'true',
   )
+
+  useEffect(() => {
+    function handlePopState() {
+      setPathname(window.location.pathname)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('access_token')
@@ -37,6 +52,23 @@ function App() {
   const handleOnboardingComplete = useCallback(() => {
     setIsOnboardingDone(true)
   }, [])
+
+  const handleAdminForbidden = useCallback(() => {
+    window.history.replaceState(null, '', '/')
+    setPathname('/')
+  }, [])
+
+  if (pathname === '/admin') {
+    return (
+      <AdminRoute
+        onForbidden={handleAdminForbidden}
+        onLogin={setCurrentUser}
+        onUnauthorized={handleLogout}
+      >
+        <AdminPage />
+      </AdminRoute>
+    )
+  }
 
   if (!currentUser) {
     return <LoginPage onLogin={setCurrentUser} />
