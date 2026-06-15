@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
 import AdminStats from '../components/admin/AdminStats'
+import AdminFields from '../components/admin/AdminFields'
+import AdminGames from '../components/admin/AdminGames'
+import AdminUsers from '../components/admin/AdminUsers'
 
 const ADMIN_SECTIONS = [
   {
@@ -64,13 +67,18 @@ function AdminPage() {
 
         <section className="admin-content" aria-labelledby="admin-section-title">
           <h2 id="admin-section-title">{activeSection.title}</h2>
-          {activeSection.id === 'stats' ? (
-            <AdminStats />
-          ) : (
+          {activeSection.id === 'stats' ? <AdminStats /> : null}
+          {activeSection.id === 'fields' ? <AdminFields /> : null}
+          {activeSection.id === 'games' ? <AdminGames /> : null}
+          {activeSection.id === 'users' ? <AdminUsers /> : null}
+          {activeSection.id !== 'stats' &&
+          activeSection.id !== 'fields' &&
+          activeSection.id !== 'games' &&
+          activeSection.id !== 'users' ? (
             <div className="admin-section-placeholder">
               <p>{activeSection.placeholder}</p>
             </div>
-          )}
+          ) : null}
         </section>
       </div>
     </main>
