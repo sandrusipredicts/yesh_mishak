@@ -14,6 +14,13 @@ const regularUser = {
   role: 'user',
 }
 
+const adminStats = {
+  verified_fields: 12,
+  pending_fields: 3,
+  active_games: 4,
+  total_users: 25,
+}
+
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -66,7 +73,7 @@ async function mockMapRequests(page) {
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
-async function mockAdminApi(page, { user = adminUser } = {}) {
+async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {}) {
   await page.route('**/admin/**', (route) => {
     const url = new URL(route.request().url())
 
@@ -80,6 +87,10 @@ async function mockAdminApi(page, { user = adminUser } = {}) {
       }
 
       return fulfillJson(route, user)
+    }
+
+    if (url.pathname === '/admin/stats') {
+      return fulfillJson(route, stats)
     }
 
     if (url.pathname === '/admin/fields/pending') {
@@ -171,9 +182,27 @@ test('admin user can access /admin', async ({ page }) => {
   await page.goto('/admin')
 
   await expect(page.getByRole('heading', { name: 'Admin Panel' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stats' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Fields' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Games' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Users' })).toBeVisible()
+})
+
+test('admin stats tab loads values from GET /admin/stats', async ({ page }) => {
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page)
+
+  await page.goto('/admin')
+
+  await expect(page.getByRole('heading', { name: 'Stats' })).toBeVisible()
+  await expect(page.getByText('Verified fields')).toBeVisible()
+  await expect(page.getByText('12')).toBeVisible()
+  await expect(page.getByText('Pending fields')).toBeVisible()
+  await expect(page.getByText('3')).toBeVisible()
+  await expect(page.getByText('Active games')).toBeVisible()
+  await expect(page.getByText('4')).toBeVisible()
+  await expect(page.getByText('Total users')).toBeVisible()
+  await expect(page.getByText('25')).toBeVisible()
 })
 
 test('admin fields tab loads without crashing', async ({ page }) => {
