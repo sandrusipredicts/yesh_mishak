@@ -1,18 +1,10 @@
 import { useState } from 'react'
 
-import AdminStats from '../components/admin/AdminStats'
 import AdminFields from '../components/admin/AdminFields'
 import AdminGames from '../components/admin/AdminGames'
-import AdminStats from '../components/admin/AdminStats'
 import AdminUsers from '../components/admin/AdminUsers'
 
 const ADMIN_SECTIONS = [
-  {
-    id: 'stats',
-    label: 'Stats',
-    title: 'Stats',
-    placeholder: 'Stats dashboard will appear here',
-  },
   {
     id: 'fields',
     label: 'Fields',
@@ -34,7 +26,7 @@ const ADMIN_SECTIONS = [
 ]
 
 function AdminPage() {
-  const [activeSectionId, setActiveSectionId] = useState('stats')
+  const [activeSectionId, setActiveSectionId] = useState('fields')
   const activeSection =
     ADMIN_SECTIONS.find((section) => section.id === activeSectionId) ?? ADMIN_SECTIONS[0]
 
@@ -43,7 +35,7 @@ function AdminPage() {
       <header className="admin-header">
         <div>
           <h1>Admin Panel</h1>
-          <p>Manage fields, games, users and system stats.</p>
+          <p>Manage fields, games and users.</p>
         </div>
         <a className="admin-back-link" href="/">
           Back to map
@@ -68,15 +60,12 @@ function AdminPage() {
 
         <section className="admin-content" aria-labelledby="admin-section-title">
           <h2 id="admin-section-title">{activeSection.title}</h2>
-          {activeSection.id === 'stats' ? <AdminStats /> : null}
           {activeSection.id === 'fields' ? <AdminFields /> : null}
           {activeSection.id === 'games' ? <AdminGames /> : null}
           {activeSection.id === 'users' ? <AdminUsers /> : null}
-          {activeSection.id !== 'stats' &&
-          activeSection.id !== 'fields' &&
+          {activeSection.id !== 'fields' &&
           activeSection.id !== 'games' &&
-          activeSection.id !== 'users' &&
-          activeSection.id !== 'stats' ? (
+          activeSection.id !== 'users' ? (
             <div className="admin-section-placeholder">
               <p>{activeSection.placeholder}</p>
             </div>

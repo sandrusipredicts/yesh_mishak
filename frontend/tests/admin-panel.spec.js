@@ -14,15 +14,6 @@ const regularUser = {
   role: 'user',
 }
 
-const adminStats = {
-  verified_fields: 12,
-  pending_fields: 3,
-  active_games: 4,
-  total_users: 25,
-  rejected_fields: 2,
-  finished_games: 8,
-}
-
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -75,11 +66,7 @@ async function mockMapRequests(page) {
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
-async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {}) {
-  const requests = {
-    stats: 0,
-  }
-
+async function mockAdminApi(page, { user = adminUser } = {}) {
   await page.route('**/admin/**', (route) => {
     const url = new URL(route.request().url())
 
@@ -93,11 +80,6 @@ async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {})
       }
 
       return fulfillJson(route, user)
-    }
-
-    if (url.pathname === '/admin/stats') {
-      requests.stats += 1
-      return fulfillJson(route, stats)
     }
 
     if (url.pathname === '/admin/fields/pending') {
@@ -156,7 +138,6 @@ async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {})
     return fulfillJson(route, { detail: 'Unhandled admin mock' }, 404)
   })
 
-  return requests
 }
 
 test.beforeEach(async ({ page }) => {
@@ -190,29 +171,9 @@ test('admin user can access /admin', async ({ page }) => {
   await page.goto('/admin')
 
   await expect(page.getByRole('heading', { name: 'Admin Panel' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stats' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Fields' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Games' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Users' })).toBeVisible()
-})
-
-test('admin stats tab loads values from GET /admin/stats', async ({ page }) => {
-  await seedAuthenticatedUser(page, adminUser)
-  const adminRequests = await mockAdminApi(page)
-
-  await page.goto('/admin')
-
-  await expect(page.getByRole('heading', { name: 'Stats' })).toBeVisible()
-  await expect(page.getByLabel('Admin stats')).toBeVisible()
-  await expect(page.getByText('Verified fields')).toBeVisible()
-  await expect(page.getByText('12')).toBeVisible()
-  await expect(page.getByText('Pending fields')).toBeVisible()
-  await expect(page.getByText('3')).toBeVisible()
-  await expect(page.getByText('Active games')).toBeVisible()
-  await expect(page.getByText('4')).toBeVisible()
-  await expect(page.getByText('Total users')).toBeVisible()
-  await expect(page.getByText('25')).toBeVisible()
-  expect(adminRequests.stats).toBeGreaterThan(0)
 })
 
 test('admin fields tab loads without crashing', async ({ page }) => {
