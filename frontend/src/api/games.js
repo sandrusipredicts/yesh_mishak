@@ -20,7 +20,7 @@ function requireGameId(gameId) {
 
 export async function joinGame(gameId, userId) {
   const response = await api.post(
-    `/games/${requireGameId(gameId)}/join/`,
+    `/games/${requireGameId(gameId)}/join`,
     { user_id: userId }
   )
   return response.data
@@ -28,7 +28,7 @@ export async function joinGame(gameId, userId) {
 
 export async function leaveGame(gameId, userId) {
   const response = await api.post(
-    `/games/${requireGameId(gameId)}/leave/`,
+    `/games/${requireGameId(gameId)}/leave`,
     { user_id: userId }
   )
   return response.data
@@ -36,14 +36,14 @@ export async function leaveGame(gameId, userId) {
 
 export async function extendGame(gameId) {
   const response = await api.post(
-    `/games/${requireGameId(gameId)}/extend/`
+    `/games/${requireGameId(gameId)}/extend`
   )
   return response.data
 }
 
 export async function closeGame(gameId) {
   const response = await api.post(
-    `/games/${requireGameId(gameId)}/close/`
+    `/games/${requireGameId(gameId)}/close`
   )
   return response.data
 }
