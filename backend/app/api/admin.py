@@ -42,6 +42,35 @@ ADMIN_USER_COLUMNS = ",".join(
 )
 
 
+def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
+    query = get_supabase_client().table(table_name).select("id", count="exact")
+
+    for column, value in filters or []:
+        query = query.eq(column, value)
+
+    response = query.execute()
+    count = getattr(response, "count", None)
+    if count is not None:
+        return count
+
+    return len(response.data or [])
+
+
+def _count_rows_in(table_name: str, column: str, values: list[str]) -> int:
+    response = (
+        get_supabase_client()
+        .table(table_name)
+        .select("id", count="exact")
+        .in_(column, values)
+        .execute()
+    )
+    count = getattr(response, "count", None)
+    if count is not None:
+        return count
+
+    return len(response.data or [])
+
+
 @router.get("/me")
 def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
     return {
@@ -62,6 +91,21 @@ def get_admin_users(_: dict[str, Any] = Depends(require_admin)):
         .execute()
     )
     return response.data
+
+
+@router.get("/stats")
+def get_admin_stats(_: dict[str, Any] = Depends(require_admin)):
+    return {
+        "verified_fields": _count_rows(
+            "fields",
+            [("verified", True), ("approval_status", "approved")],
+        ),
+        "pending_fields": _count_rows("fields", [("approval_status", "pending")]),
+        "active_games": _count_rows_in("games", "status", ACTIVE_GAME_STATUSES),
+        "total_users": _count_rows("users"),
+        "rejected_fields": _count_rows("fields", [("approval_status", "rejected")]),
+        "finished_games": _count_rows_in("games", "status", FINISHED_GAME_STATUSES),
+    }
 
 
 @router.get("/fields")
