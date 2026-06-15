@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import AdminFields from '../components/admin/AdminFields'
+
 const ADMIN_SECTIONS = [
   {
     id: 'stats',
@@ -62,9 +64,13 @@ function AdminPage() {
 
         <section className="admin-content" aria-labelledby="admin-section-title">
           <h2 id="admin-section-title">{activeSection.title}</h2>
-          <div className="admin-section-placeholder">
-            <p>{activeSection.placeholder}</p>
-          </div>
+          {activeSection.id === 'fields' ? (
+            <AdminFields />
+          ) : (
+            <div className="admin-section-placeholder">
+              <p>{activeSection.placeholder}</p>
+            </div>
+          )}
         </section>
       </div>
     </main>
