@@ -3,6 +3,7 @@ import { useState } from 'react'
 import AdminStats from '../components/admin/AdminStats'
 import AdminFields from '../components/admin/AdminFields'
 import AdminGames from '../components/admin/AdminGames'
+import AdminStats from '../components/admin/AdminStats'
 import AdminUsers from '../components/admin/AdminUsers'
 
 const ADMIN_SECTIONS = [
@@ -74,7 +75,8 @@ function AdminPage() {
           {activeSection.id !== 'stats' &&
           activeSection.id !== 'fields' &&
           activeSection.id !== 'games' &&
-          activeSection.id !== 'users' ? (
+          activeSection.id !== 'users' &&
+          activeSection.id !== 'stats' ? (
             <div className="admin-section-placeholder">
               <p>{activeSection.placeholder}</p>
             </div>
