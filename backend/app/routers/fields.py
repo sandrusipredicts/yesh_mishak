@@ -3,7 +3,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import get_active_games_for_fields
 
@@ -41,8 +41,30 @@ class FieldCreate(BaseModel):
     notes: Optional[str] = None
 
 
+ALLOWED_FIELD_STATUSES = {"open", "closed", "renovation"}
+
+
 class FieldStatusUpdate(BaseModel):
     status: str  # open / closed / renovation
+
+
+def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[str, Any]:
+    if body.status not in ALLOWED_FIELD_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid field status",
+        )
+
+    supabase = get_supabase_client()
+    response = (
+        supabase.table("fields")
+        .update({"status": body.status})
+        .eq("id", field_id)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"message": "Status updated", "field": response.data[0]}
 
 
 @router.get("/")
@@ -116,14 +138,9 @@ def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(get_
 
 
 @router.patch("/{field_id}/status")
-def update_field_status(field_id: str, body: FieldStatusUpdate):
-    supabase = get_supabase_client()
-    response = (
-        supabase.table("fields")
-        .update({"status": body.status})
-        .eq("id", field_id)
-        .execute()
-    )
-    if not response.data:
-        raise HTTPException(status_code=404, detail="Field not found")
-    return {"message": "Status updated", "field": response.data[0]}
+def update_field_status(
+    field_id: str,
+    body: FieldStatusUpdate,
+    _: dict[str, Any] = Depends(require_admin),
+):
+    return update_field_status_record(field_id, body)
