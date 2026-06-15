@@ -1,10 +1,12 @@
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client
 from app.routers.fields import FieldStatusUpdate, update_field_status_record
+from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -24,6 +26,8 @@ ADMIN_FIELD_COLUMNS = ",".join(
         "created_at",
     ]
 )
+FINISHED_GAME_STATUSES = ["finished", "cancelled"]
+FINISHED_GAMES_LIMIT = 50
 
 ADMIN_USER_COLUMNS = ",".join(
     [
@@ -108,6 +112,148 @@ def update_admin_field_status(
     _: dict[str, Any] = Depends(require_admin),
 ):
     return update_field_status_record(field_id, body)
+
+
+def _attach_field_names(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not games:
+        return []
+
+    field_ids = sorted({str(game["field_id"]) for game in games if game.get("field_id")})
+    fields_by_id: dict[str, str] = {}
+    if field_ids:
+        field_rows = (
+            get_supabase_client()
+            .table("fields")
+            .select("id,name")
+            .in_("id", field_ids)
+            .execute()
+            .data
+        )
+        fields_by_id = {
+            str(field["id"]): field.get("name") or "Unknown field"
+            for field in field_rows
+            if field.get("id")
+        }
+
+    return [
+        dict(game, field_name=fields_by_id.get(str(game.get("field_id")), "Unknown field"))
+        for game in games
+    ]
+
+
+def _format_admin_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    games_with_field_names = _attach_field_names(games)
+    return attach_participants_to_games(games_with_field_names)
+
+
+def _get_games_by_statuses(
+    statuses: list[str],
+    *,
+    limit: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    query = (
+        get_supabase_client()
+        .table("games")
+        .select("*")
+        .in_("status", statuses)
+        .order("started_at", desc=True)
+    )
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    return _format_admin_games(query.execute().data)
+
+
+def _get_game(game_id: str) -> dict[str, Any]:
+    response = (
+        get_supabase_client()
+        .table("games")
+        .select("*")
+        .eq("id", game_id)
+        .limit(1)
+        .execute()
+    )
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+
+    return response.data[0]
+
+
+def _ensure_admin_active_game(game: dict[str, Any]) -> None:
+    if game.get("status") not in ACTIVE_GAME_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Game is not active",
+        )
+
+
+@router.get("/games")
+def get_admin_games(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    _: dict[str, Any] = Depends(require_admin),
+):
+    if status_filter and status_filter not in ("active", "finished"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status must be active or finished",
+        )
+
+    if status_filter == "active":
+        return {"active": _get_games_by_statuses(ACTIVE_GAME_STATUSES)}
+
+    if status_filter == "finished":
+        return {"finished": _get_games_by_statuses(FINISHED_GAME_STATUSES, limit=FINISHED_GAMES_LIMIT)}
+
+    return {
+        "active": _get_games_by_statuses(ACTIVE_GAME_STATUSES),
+        "finished": _get_games_by_statuses(FINISHED_GAME_STATUSES, limit=FINISHED_GAMES_LIMIT),
+    }
+
+
+@router.post("/games/{game_id}/close")
+def close_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
+    game = _get_game(game_id)
+    _ensure_admin_active_game(game)
+
+    response = (
+        get_supabase_client()
+        .table("games")
+        .update({"status": "finished"})
+        .eq("id", game_id)
+        .execute()
+    )
+    return {"message": "Game closed", "game": response.data[0]}
+
+
+@router.post("/games/{game_id}/extend")
+def extend_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
+    game = _get_game(game_id)
+    _ensure_admin_active_game(game)
+
+    expires_at = game.get("expires_at")
+    if not expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Game expires_at is missing",
+        )
+
+    current_expires = datetime.fromisoformat(expires_at)
+    new_expires = current_expires + timedelta(hours=1)
+    response = (
+        get_supabase_client()
+        .table("games")
+        .update({"expires_at": new_expires.isoformat()})
+        .eq("id", game_id)
+        .execute()
+    )
+
+    return {
+        "message": "Game extended by 1 hour",
+        "new_expires_at": new_expires.isoformat(),
+        "game": response.data[0],
+    }
 
 
 def _update_field_approval(field_id: str, updates: dict[str, Any]) -> dict[str, Any]:
