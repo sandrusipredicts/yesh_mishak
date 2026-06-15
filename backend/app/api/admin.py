@@ -25,6 +25,18 @@ ADMIN_FIELD_COLUMNS = ",".join(
     ]
 )
 
+ADMIN_USER_COLUMNS = ",".join(
+    [
+        "id",
+        "name",
+        "email",
+        "phone_number",
+        "created_at",
+        "last_active",
+        "role",
+    ]
+)
+
 
 @router.get("/me")
 def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
@@ -34,6 +46,18 @@ def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
         "name": current_user["name"],
         "role": current_user["role"],
     }
+
+
+@router.get("/users")
+def get_admin_users(_: dict[str, Any] = Depends(require_admin)):
+    response = (
+        get_supabase_client()
+        .table("users")
+        .select(ADMIN_USER_COLUMNS)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data
 
 
 @router.get("/fields")
