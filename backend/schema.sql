@@ -4,11 +4,14 @@ create table if not exists users (
     id uuid primary key default gen_random_uuid(),
     google_sub text unique,
     email text unique,
+    username text unique,
+    password_hash text,
     name text not null,
     role text not null default 'user' check (role in ('user', 'admin')),
     picture text,
-    phone_number text,
+    phone_number text unique,
     created_at timestamptz not null default now(),
+    last_login timestamptz,
     last_active timestamptz
 );
 

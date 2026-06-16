@@ -19,6 +19,7 @@ function getStoredUser() {
     id,
     name: localStorage.getItem('currentUserName') || '',
     email: localStorage.getItem('currentUserEmail') || '',
+    username: localStorage.getItem('currentUsername') || '',
   }
 }
 
@@ -46,6 +47,7 @@ function App() {
     localStorage.removeItem('currentUserId')
     localStorage.removeItem('currentUserName')
     localStorage.removeItem('currentUserEmail')
+    localStorage.removeItem('currentUsername')
     setCurrentUser(null)
   }, [])
 

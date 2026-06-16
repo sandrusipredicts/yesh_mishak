@@ -56,7 +56,7 @@ def find_or_create_google_user(google_user: dict[str, Any]) -> dict[str, Any]:
     try:
         existing_user = (
             supabase.table("users")
-            .select("id,email,name")
+            .select("id,email,name,username,phone_number")
             .eq("email", email)
             .limit(1)
             .execute()
