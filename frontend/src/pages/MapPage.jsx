@@ -7,6 +7,7 @@ import { getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
 import NotificationsModal from '../components/NotificationsModal'
+import { getNotifications } from '../api/notifications'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -133,6 +134,7 @@ function MapPage() {
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
   const [currentUserId] = useState(getStoredCurrentUserId)
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
   const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
@@ -150,6 +152,35 @@ function MapPage() {
         setCenter(DEFAULT_CENTER)
       },
     )
+  }, [])
+
+  const refreshNotifications = useCallback(async () => {
+    try {
+      const loadedNotifications = await getNotifications()
+      setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
+    } catch {
+      setNotifications([])
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    getNotifications()
+      .then((loadedNotifications) => {
+        if (isMounted) {
+          setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setNotifications([])
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const markerIcons = useMemo(
@@ -182,6 +213,11 @@ function MapPage() {
     refreshFields()
   }
 
+  const unreadNotificationCount = notifications.filter((notification) => !notification.is_read).length
+  const notificationsLabel = unreadNotificationCount
+    ? `Notifications, ${unreadNotificationCount} unread`
+    : 'Notifications'
+
   return (
     <main className="map-page">
       {error ? <div className="map-error">{error}</div> : null}
@@ -190,10 +226,15 @@ function MapPage() {
       <button
         className="floating-button top"
         type="button"
-        aria-label="Notifications"
+        aria-label={notificationsLabel}
         onClick={() => setIsNotificationsOpen(true)}
       >
         Bell
+        {unreadNotificationCount ? (
+          <span className="notification-badge" aria-hidden="true">
+            {unreadNotificationCount}
+          </span>
+        ) : null}
       </button>
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
@@ -262,7 +303,13 @@ function MapPage() {
       />
 
       {isNotificationsOpen ? (
-        <NotificationsModal fields={fields} onClose={() => setIsNotificationsOpen(false)} />
+        <NotificationsModal
+          fields={fields}
+          notifications={notifications}
+          onClose={() => setIsNotificationsOpen(false)}
+          onNotificationsChange={setNotifications}
+          onRefreshNotifications={refreshNotifications}
+        />
       ) : null}
 
       {isAddFieldOpen ? (

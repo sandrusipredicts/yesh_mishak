@@ -207,6 +207,24 @@
   line-height: 1;
 }
 
+.notification-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .floating-button.top {
   top: 20px;
   right: 20px;
@@ -454,6 +472,109 @@
 .notifications-form {
   display: grid;
   gap: 16px;
+}
+
+.notifications-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.notifications-tabs button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.notifications-tabs button.active {
+  border-color: #172033;
+  background: #172033;
+  color: #ffffff;
+}
+
+.notifications-list-section {
+  display: grid;
+  gap: 12px;
+}
+
+.notifications-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notifications-list-header p {
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.notifications-list-header button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.notifications-list-header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.notifications-list {
+  display: grid;
+  max-height: 420px;
+  overflow: auto;
+  gap: 8px;
+}
+
+.notification-list-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.notification-list-item.unread {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.notification-list-item span {
+  font-weight: 800;
+}
+
+.notification-list-item small {
+  color: #475569;
+  font-size: 14px;
+}
+
+.notifications-empty {
+  margin: 0;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  color: #64748b;
+  text-align: center;
 }
 
 .add-field-form {

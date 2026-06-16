@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
+from app.routers.notifications import create_game_created_notifications
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -97,6 +98,13 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
     supabase.table("game_players").insert(
         {"game_id": created_game["id"], "user_id": current_user["id"]}
     ).execute()
+
+    create_game_created_notifications(
+        supabase=supabase,
+        game=created_game,
+        field=field,
+        organizer_id=current_user["id"],
+    )
 
     return {"message": "Game created", "game": created_game}
 

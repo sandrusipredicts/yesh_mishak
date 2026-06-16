@@ -4,7 +4,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -81,6 +81,143 @@ def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def _normalize_city(value: Any) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _find_notification_candidates(
+    supabase: Any,
+    field: dict[str, Any],
+    sport_type: str,
+) -> list[dict[str, str]]:
+    preferences = (
+        supabase.table("notification_preferences")
+        .select("*")
+        .eq("enabled", True)
+        .execute()
+    )
+
+    candidates: list[dict[str, str]] = []
+    seen_user_ids: set[str] = set()
+
+    for pref in preferences.data:
+        if pref.get("sport_type") not in (sport_type, "both"):
+            continue
+
+        reason = None
+        if pref.get("notification_type") == "specific_field" and pref.get("field_id") == field.get("id"):
+            reason = "specific_field_and_sport_match"
+        elif pref.get("notification_type") == "city":
+            if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
+                reason = "city_and_sport_match"
+        elif pref.get("notification_type") == "radius":
+            if pref.get("lat") is None or pref.get("lng") is None or pref.get("radius_km") is None:
+                continue
+
+            distance = _distance_km(
+                float(pref["lat"]),
+                float(pref["lng"]),
+                float(field["lat"]),
+                float(field["lng"]),
+            )
+            if distance <= float(pref["radius_km"]):
+                reason = "within_radius_and_sport_match"
+
+        user_id = pref.get("user_id")
+        if reason and user_id and user_id not in seen_user_ids:
+            seen_user_ids.add(user_id)
+            candidates.append({"user_id": user_id, "reason": reason})
+
+    return candidates
+
+
+def create_game_created_notifications(
+    supabase: Any,
+    game: dict[str, Any],
+    field: dict[str, Any],
+    organizer_id: str,
+) -> list[dict[str, Any]]:
+    candidates = _find_notification_candidates(supabase, field, str(game["sport_type"]))
+    recipient_ids = [
+        candidate["user_id"]
+        for candidate in candidates
+        if candidate.get("user_id") and candidate["user_id"] != organizer_id
+    ]
+
+    if not recipient_ids:
+        return []
+
+    existing_response = (
+        supabase.table("notifications")
+        .select("user_id")
+        .eq("type", "game_created")
+        .eq("related_game_id", game["id"])
+        .in_("user_id", recipient_ids)
+        .execute()
+    )
+    existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
+    field_name = field.get("name") or "Unknown field"
+    rows = [
+        {
+            "user_id": user_id,
+            "type": "game_created",
+            "title": "נפתח משחק חדש",
+            "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
+            "related_game_id": game["id"],
+            "related_field_id": field.get("id"),
+            "is_read": False,
+        }
+        for user_id in recipient_ids
+        if user_id not in existing_user_ids
+    ]
+
+    if not rows:
+        return []
+
+    return supabase.table("notifications").insert(rows).execute().data or []
+
+
+@router.get("")
+def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
+    response = (
+        get_supabase_client()
+        .table("notifications")
+        .select("*")
+        .eq("user_id", current_user["id"])
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data
+
+
+@router.patch("/read-all")
+def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_current_user)):
+    (
+        get_supabase_client()
+        .table("notifications")
+        .update({"is_read": True})
+        .eq("user_id", current_user["id"])
+        .execute()
+    )
+    return {"message": "Notifications marked as read"}
+
+
+@router.patch("/{notification_id}/read")
+def mark_notification_read(
+    notification_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    response = (
+        get_supabase_client()
+        .table("notifications")
+        .update({"is_read": True})
+        .eq("id", notification_id)
+        .eq("user_id", current_user["id"])
+        .execute()
+    )
+
+    if not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+
+    return response.data[0]
 
 
 @router.get("/preferences")
@@ -319,7 +456,7 @@ def save_preferences(
 @router.post("/candidates")
 def get_notification_candidates(
     body: NotificationCandidateRequest,
-    _: dict[str, Any] = Depends(get_current_user),
+    _: dict[str, Any] = Depends(require_admin),
 ):
     if body.sport_type not in ("football", "basketball"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
@@ -336,42 +473,4 @@ def get_notification_candidates(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Field not found")
 
     field = field_response.data[0]
-    preferences = (
-        supabase.table("notification_preferences")
-        .select("*")
-        .eq("enabled", True)
-        .execute()
-    )
-
-    candidates: list[dict[str, str]] = []
-    seen_user_ids: set[str] = set()
-
-    for pref in preferences.data:
-        if pref.get("sport_type") not in (body.sport_type, "both"):
-            continue
-
-        reason = None
-        if pref.get("notification_type") == "specific_field" and pref.get("field_id") == body.field_id:
-            reason = "specific_field_and_sport_match"
-        elif pref.get("notification_type") == "city":
-            if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
-                reason = "city_and_sport_match"
-        elif pref.get("notification_type") == "radius":
-            if pref.get("lat") is None or pref.get("lng") is None or pref.get("radius_km") is None:
-                continue
-
-            distance = _distance_km(
-                float(pref["lat"]),
-                float(pref["lng"]),
-                float(field["lat"]),
-                float(field["lng"]),
-            )
-            if distance <= float(pref["radius_km"]):
-                reason = "within_radius_and_sport_match"
-
-        user_id = pref.get("user_id")
-        if reason and user_id and user_id not in seen_user_ids:
-            seen_user_ids.add(user_id)
-            candidates.append({"user_id": user_id, "reason": reason})
-
-    return candidates
+    return _find_notification_candidates(supabase, field, body.sport_type)
