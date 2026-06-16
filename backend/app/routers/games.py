@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
-from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
 from app.routers.notifications import create_game_created_notifications
 
@@ -203,7 +203,7 @@ def leave_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
 
 @router.post("/{game_id}/close")
 def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
-    supabase = get_supabase_service_role_client()
+    supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
 

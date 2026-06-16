@@ -412,6 +412,55 @@ def test_read_all_marks_only_current_users_notifications(
     assert fake_supabase.tables["notifications"][1]["read_at"] is None
 
 
+def test_mark_notification_read_sets_is_read_on_legacy_schema(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-legacy",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Legacy",
+            "body": "Legacy body",
+            "is_read": False,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        }
+    ]
+
+    response = TestClient(app).patch(
+        "/notifications/notification-legacy/read",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_read"] is True
+    stored = fake_supabase.tables["notifications"][0]
+    assert stored["is_read"] is True
+    # The legacy schema has no read_at column, so it must not be written.
+    assert "read_at" not in stored
+
+
+def test_read_all_sets_is_read_on_legacy_schema(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {"id": "own", "user_id": users["candidate"]["id"], "is_read": False},
+        {"id": "other", "user_id": users["other"]["id"], "is_read": False},
+    ]
+
+    response = TestClient(app).patch(
+        "/notifications/read-all",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_supabase.tables["notifications"][0]["is_read"] is True
+    assert fake_supabase.tables["notifications"][1]["is_read"] is False
+    assert "read_at" not in fake_supabase.tables["notifications"][0]
+
+
 def test_create_game_generates_notifications_for_matching_candidates_except_organizer(
     fake_supabase: FakeSupabase,
     fake_service_supabase: FakeSupabase,
@@ -462,7 +511,10 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
     assert notifications[0]["body"] == "נפתח משחק football במגרש Central Court"
     assert notifications[0]["game_id"] == response.json()["game"]["id"]
     assert notifications[0]["field_id"] == "00000000-0000-0000-0000-000000000101"
-    assert notifications[0]["read_at"] is None
+    # New notifications omit the read marker so they default to unread under
+    # either schema (read_at NULL / is_read false).
+    assert notifications[0].get("read_at") is None
+    assert "read_at" not in notifications[0]
 
 
 def test_create_game_matches_by_city(

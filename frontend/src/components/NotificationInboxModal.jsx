@@ -3,7 +3,15 @@ import { useMemo, useState } from 'react'
 import { markAllNotificationsRead, markNotificationRead } from '../api/notifications'
 
 function isNotificationUnread(notification) {
-  return !notification.read_at
+  // Supports both schemas until the read_at migration runs: a notification is
+  // read if read_at is set OR the legacy is_read flag is true.
+  if (notification.read_at) {
+    return false
+  }
+  if (notification.is_read === true) {
+    return false
+  }
+  return true
 }
 
 function formatNotificationTime(value) {

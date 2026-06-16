@@ -84,6 +84,40 @@ def _normalize_city(value: Any) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
+def _is_notification_unread(notification: dict[str, Any]) -> bool:
+    """Return True when a notification has not been read.
+
+    Supports both the ``read_at`` timestamp column and the legacy ``is_read``
+    boolean column so the endpoint stays resilient regardless of which schema
+    the live database currently has, and never crashes on missing metadata.
+    """
+    if notification.get("read_at"):
+        return False
+    if notification.get("is_read"):
+        return False
+    return True
+
+
+def _uses_read_at_column(sample: dict[str, Any]) -> bool:
+    """Decide which read-state column the live table exposes.
+
+    Prefers the canonical ``read_at`` column, falls back to the legacy
+    ``is_read`` boolean, and defaults to ``read_at`` when the row carries
+    neither marker so behaviour stays correct once the migration is applied.
+    """
+    if "read_at" in sample:
+        return True
+    if "is_read" in sample:
+        return False
+    return True
+
+
+def _mark_read_payload(sample: dict[str, Any], now: str) -> dict[str, Any]:
+    if _uses_read_at_column(sample):
+        return {"read_at": now}
+    return {"is_read": True}
+
+
 def _find_notification_candidates(
     supabase: Any,
     field: dict[str, Any],
@@ -175,7 +209,6 @@ def create_game_created_notifications(
             "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
             "game_id": game["id"],
             "field_id": field.get("id"),
-            "read_at": None,
         }
         for user_id in recipient_ids
         if user_id not in existing_user_ids
@@ -207,25 +240,49 @@ def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_cur
     response = (
         get_supabase_service_role_client()
         .table("notifications")
-        .select("id")
+        .select("*")
         .eq("user_id", authenticated_user_id)
-        .is_("read_at", "null")
         .execute()
     )
-    return {"unread_count": len(response.data or [])}
+    unread = [row for row in (response.data or []) if _is_notification_unread(row)]
+    return {"unread_count": len(unread)}
 
 
 @router.patch("/read-all")
 def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_current_user)):
-    now = datetime.now(timezone.utc).isoformat()
-    (
-        get_supabase_service_role_client()
-        .table("notifications")
-        .update({"read_at": now})
-        .eq("user_id", current_user["id"])
-        .is_("read_at", "null")
+    authenticated_user_id = str(current_user["id"])
+    client = get_supabase_service_role_client()
+
+    rows = (
+        client.table("notifications")
+        .select("*")
+        .eq("user_id", authenticated_user_id)
         .execute()
+        .data
+        or []
     )
+
+    if not rows:
+        return {"message": "Notifications marked as read"}
+
+    if _uses_read_at_column(rows[0]):
+        now = datetime.now(timezone.utc).isoformat()
+        (
+            client.table("notifications")
+            .update({"read_at": now})
+            .eq("user_id", authenticated_user_id)
+            .is_("read_at", "null")
+            .execute()
+        )
+    else:
+        (
+            client.table("notifications")
+            .update({"is_read": True})
+            .eq("user_id", authenticated_user_id)
+            .eq("is_read", False)
+            .execute()
+        )
+
     return {"message": "Notifications marked as read"}
 
 
@@ -234,18 +291,29 @@ def mark_notification_read(
     notification_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    now = datetime.now(timezone.utc).isoformat()
-    response = (
-        get_supabase_service_role_client()
-        .table("notifications")
-        .update({"read_at": now})
+    authenticated_user_id = str(current_user["id"])
+    client = get_supabase_service_role_client()
+
+    existing = (
+        client.table("notifications")
+        .select("*")
         .eq("id", notification_id)
-        .eq("user_id", current_user["id"])
+        .eq("user_id", authenticated_user_id)
+        .limit(1)
         .execute()
     )
 
-    if not response.data:
+    if not existing.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    response = (
+        client.table("notifications")
+        .update(_mark_read_payload(existing.data[0], now))
+        .eq("id", notification_id)
+        .eq("user_id", authenticated_user_id)
+        .execute()
+    )
 
     return response.data[0]
 
