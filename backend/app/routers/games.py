@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
 from app.routers.notifications import create_game_created_notifications
 
@@ -23,7 +23,21 @@ class GameCreate(BaseModel):
 
 
 def _get_single(table: str, item_id: str, not_found_detail: str) -> dict[str, Any]:
-    response = get_supabase_client().table(table).select("*").eq("id", item_id).limit(1).execute()
+    return _get_single_with_client(
+        get_supabase_client(),
+        table,
+        item_id,
+        not_found_detail,
+    )
+
+
+def _get_single_with_client(
+    supabase: Any,
+    table: str,
+    item_id: str,
+    not_found_detail: str,
+) -> dict[str, Any]:
+    response = supabase.table(table).select("*").eq("id", item_id).limit(1).execute()
     if not response.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail)
     return response.data[0]
@@ -189,7 +203,8 @@ def leave_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
 
 @router.post("/{game_id}/close")
 def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
-    game = _get_single("games", game_id, "Game not found")
+    supabase = get_supabase_service_role_client()
+    game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
 
     if game.get("created_by") != current_user["id"]:
@@ -199,8 +214,7 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
         )
 
     response = (
-        get_supabase_client()
-        .table("games")
+        supabase.table("games")
         .update({"status": "finished"})
         .eq("id", game_id)
         .execute()

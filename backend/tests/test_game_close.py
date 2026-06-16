@@ -118,6 +118,7 @@ def make_client(monkeypatch, tables: dict[str, list[dict[str, Any]]]) -> TestCli
     fake_client = FakeSupabaseClient(tables)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.routers.games.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_client)
     return TestClient(app)
 
@@ -174,6 +175,43 @@ def test_non_creator_cannot_close_game(monkeypatch) -> None:
 
     assert response.status_code == 403
     assert tables["games"][0]["status"] == "open"
+
+
+def test_close_game_reads_and_updates_with_service_role_client(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    creator = make_user("creator")
+    auth_tables = {
+        "users": [creator],
+        "games": [],
+        "game_players": [],
+    }
+    service_tables = {
+        "users": [],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": creator["id"],
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+            }
+        ],
+        "game_players": [],
+    }
+    auth_client = FakeSupabaseClient(auth_tables)
+    service_client = FakeSupabaseClient(service_tables)
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: auth_client)
+    monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: auth_client)
+    monkeypatch.setattr("app.routers.games.get_supabase_service_role_client", lambda: service_client)
+    monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: auth_client)
+    client = TestClient(app)
+
+    response = client.post("/games/game-1/close", headers=auth_headers(creator))
+
+    assert response.status_code == 200
+    assert response.json()["game"]["status"] == "finished"
+    assert service_tables["games"][0]["status"] == "finished"
+    assert auth_tables["games"] == []
 
 
 def test_closed_game_is_not_returned_as_active(monkeypatch) -> None:
