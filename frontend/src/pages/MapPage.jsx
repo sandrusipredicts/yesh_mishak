@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-
+import { Bell } from 'lucide-react'
 import { getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
@@ -193,7 +193,7 @@ function MapPage() {
         aria-label="Notifications"
         onClick={() => setIsNotificationsOpen(true)}
       >
-        Bell
+        <Bell size={22} />
       </button>
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
