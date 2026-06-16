@@ -74,7 +74,10 @@ def _ensure_unique(column: str, value: str, message: str) -> None:
 
 
 def _update_last_login(user_id: str) -> None:
-    get_supabase_client().table("users").update({"last_login": _now_iso()}).eq("id", user_id).execute()
+    try:
+        get_supabase_client().table("users").update({"last_login": _now_iso()}).eq("id", user_id).execute()
+    except Exception as exc:
+        print(f"Failed to update users.last_login for {user_id}: {exc!r}")
 
 
 @router.post("/google", response_model=TokenResponse)
