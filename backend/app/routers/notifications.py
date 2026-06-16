@@ -203,11 +203,12 @@ def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
 
 @router.get("/unread-count")
 def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_current_user)):
+    authenticated_user_id = str(current_user["id"])
     response = (
         get_supabase_service_role_client()
         .table("notifications")
         .select("id")
-        .eq("user_id", current_user["id"])
+        .eq("user_id", authenticated_user_id)
         .is_("read_at", "null")
         .execute()
     )

@@ -311,6 +311,40 @@ def test_unread_count_returns_current_users_unread_notifications(
     assert response.json() == {"unread_count": 1}
 
 
+def test_unread_count_uses_service_role_client_for_existing_notifications(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    service_supabase = FakeSupabase(
+        {
+            "notifications": [
+                {"id": "own-unread-1", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-2", "user_id": users["candidate"]["id"], "read_at": None},
+                {
+                    "id": "own-read",
+                    "user_id": users["candidate"]["id"],
+                    "read_at": "2026-06-16T10:00:00+00:00",
+                },
+                {"id": "other-unread", "user_id": users["other"]["id"], "read_at": None},
+            ]
+        }
+    )
+    fake_supabase.tables["notifications"] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: service_supabase,
+    )
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 2}
+
+
 def test_mark_notification_read_sets_read_at(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
