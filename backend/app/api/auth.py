@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import logging
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -19,6 +21,7 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -73,20 +76,37 @@ def _ensure_unique(column: str, value: str, message: str) -> None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
 
 
-def _update_last_login(user_id: str) -> None:
+def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
     try:
         get_supabase_client().table("users").update({"last_login": _now_iso()}).eq("id", user_id).execute()
+        logger.info("google_login[%s] users.last_login updated user_id=%s", attempt_id, user_id)
     except Exception as exc:
-        print(f"Failed to update users.last_login for {user_id}: {exc!r}")
+        logger.warning(
+            "google_login[%s] users.last_login update failed but login will continue user_id=%s error=%r",
+            attempt_id,
+            user_id,
+            exc,
+        )
 
 
 @router.post("/google", response_model=TokenResponse)
 def google_login(payload: GoogleAuthRequest) -> TokenResponse:
-    google_user = verify_google_token(payload.token)
-    user = find_or_create_google_user(google_user)
+    attempt_id = uuid4().hex[:10]
+    logger.info("google_login[%s] request started", attempt_id)
+    google_user = verify_google_token(payload.token, attempt_id=attempt_id)
+    user = find_or_create_google_user(google_user, attempt_id=attempt_id)
 
-    _update_last_login(str(user["id"]))
-    return _create_token_response(user)
+    _update_last_login(str(user["id"]), attempt_id=attempt_id)
+    token_response = _create_token_response(user)
+    logger.info(
+        "google_login[%s] login succeeded user_id=%s email=%s username_is_null=%s phone_is_null=%s",
+        attempt_id,
+        token_response.user.id,
+        token_response.user.email,
+        token_response.user.username is None,
+        token_response.user.phone_number is None,
+    )
+    return token_response
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -129,7 +149,7 @@ def login(payload: LoginRequest) -> TokenResponse:
             detail="Invalid username or password",
         )
 
-    _update_last_login(str(user["id"]))
+    _update_last_login(str(user["id"]), attempt_id="password")
     return _create_token_response(user)
 
 
