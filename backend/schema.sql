@@ -73,6 +73,18 @@ create table if not exists notification_preferences (
     created_at timestamptz not null default now()
 );
 
+create table if not exists notifications (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references users(id) on delete cascade,
+    type text not null,
+    title text not null,
+    body text not null,
+    related_game_id uuid references games(id) on delete set null,
+    related_field_id uuid references fields(id) on delete set null,
+    is_read boolean not null default false,
+    created_at timestamptz not null default now()
+);
+
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_created_by on games(created_by);
@@ -81,3 +93,8 @@ create index if not exists idx_game_players_user_id on game_players(user_id);
 create index if not exists idx_notification_preferences_user_id on notification_preferences(user_id);
 create index if not exists idx_notification_preferences_field_id on notification_preferences(field_id);
 create index if not exists idx_notification_preferences_enabled on notification_preferences(enabled);
+create index if not exists idx_notifications_user_id on notifications(user_id);
+create index if not exists idx_notifications_is_read on notifications(is_read);
+create index if not exists idx_notifications_created_at on notifications(created_at);
+create index if not exists idx_notifications_related_game_id on notifications(related_game_id);
+create index if not exists idx_notifications_related_field_id on notifications(related_field_id);
