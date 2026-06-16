@@ -33,13 +33,14 @@ def verify_google_token(token: str) -> dict[str, Any]:
 
     email = token_info.get("email")
     google_sub = token_info.get("sub")
-    name = token_info.get("name")
 
-    if not email or not google_sub or not name:
+    if not email or not google_sub:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token",
         )
+
+    name = token_info.get("name") or email.split("@", maxsplit=1)[0]
 
     return {
         "google_sub": google_sub,
@@ -56,7 +57,7 @@ def find_or_create_google_user(google_user: dict[str, Any]) -> dict[str, Any]:
     try:
         existing_user = (
             supabase.table("users")
-            .select("id,email,name,username,phone_number")
+            .select("id,email,name")
             .eq("email", email)
             .limit(1)
             .execute()
