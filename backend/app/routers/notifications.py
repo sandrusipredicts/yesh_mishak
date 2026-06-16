@@ -2,17 +2,78 @@ from datetime import datetime, timezone
 import logging
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
+from app.core.config import get_settings
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 logger = logging.getLogger(__name__)
 
 NOTIFICATION_DEBUG_EXPECTED_USER_ID = "5b03fef8-20c1-49bc-a4fb-7879edf449e1"
+
+
+def _supabase_project_ref(supabase_url: str) -> str:
+    hostname = urlparse(supabase_url).hostname or ""
+    return hostname.split(".")[0] if hostname.endswith(".supabase.co") else hostname
+
+
+def _response_debug(response: Any) -> dict[str, Any]:
+    return {
+        "data": getattr(response, "data", None),
+        "error": getattr(response, "error", None),
+        "count": getattr(response, "count", None),
+    }
+
+
+def _query_notifications_for_debug(supabase: Any, user_id: str) -> dict[str, Any]:
+    try:
+        response = (
+            supabase.table("notifications")
+            .select("*", count="exact")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return _response_debug(response)
+    except Exception as error:
+        logger.exception("Notification debug query failed")
+        return {"data": None, "error": str(error), "count": None}
+
+
+def _query_rls_catalog_for_debug(supabase: Any) -> dict[str, Any]:
+    try:
+        response = (
+            supabase.schema("pg_catalog")
+            .table("pg_class")
+            .select("relname,relrowsecurity,relforcerowsecurity")
+            .eq("relname", "notifications")
+            .limit(1)
+            .execute()
+        )
+        return _response_debug(response)
+    except Exception as error:
+        logger.info("Notification RLS catalog debug query unavailable: %s", error)
+        return {"data": None, "error": str(error), "count": None}
+
+
+def _query_rls_policies_for_debug(supabase: Any) -> dict[str, Any]:
+    try:
+        response = (
+            supabase.schema("pg_catalog")
+            .table("pg_policies")
+            .select("schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check")
+            .eq("tablename", "notifications")
+            .execute()
+        )
+        return _response_debug(response)
+    except Exception as error:
+        logger.info("Notification RLS policy debug query unavailable: %s", error)
+        return {"data": None, "error": str(error), "count": None}
 
 
 class NotificationPreference(BaseModel):
@@ -197,6 +258,8 @@ def get_notifications(
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
     authenticated_user_id = str(current_user["id"])
+    settings = get_settings()
+    supabase_project_ref = _supabase_project_ref(settings.supabase_url)
     query_description = {
         "table": "notifications",
         "select": "*",
@@ -210,17 +273,56 @@ def get_notifications(
         authenticated_user_id == NOTIFICATION_DEBUG_EXPECTED_USER_ID,
         query_description,
     )
+    anon_supabase = get_supabase_client()
     response = (
-        get_supabase_client()
-        .table("notifications")
+        anon_supabase.table("notifications")
         .select("*")
         .eq("user_id", authenticated_user_id)
         .order("created_at", desc=True)
         .execute()
     )
+    logger.info(
+        "GET /notifications raw notifications query result data=%s error=%s",
+        getattr(response, "data", None),
+        getattr(response, "error", None),
+    )
 
     if debug:
-        return {
+        anon_query_result = _query_notifications_for_debug(anon_supabase, authenticated_user_id)
+        service_role_configured = bool(settings.supabase_service_role_key)
+        service_role_query_result = None
+        rls_catalog_query_result = None
+
+        if service_role_configured:
+            service_supabase = get_supabase_service_role_client()
+            service_role_query_result = _query_notifications_for_debug(
+                service_supabase,
+                authenticated_user_id,
+            )
+            rls_catalog_query_result = _query_rls_catalog_for_debug(service_supabase)
+
+        anon_count = len(anon_query_result.get("data") or [])
+        service_count = (
+            len(service_role_query_result.get("data") or [])
+            if service_role_query_result is not None
+            else None
+        )
+        likely_rls_blocking = service_count is not None and service_count > anon_count
+        debug_payload = {
+            "supabase": {
+                "project_ref": supabase_project_ref,
+                "url_host": urlparse(settings.supabase_url).hostname,
+            },
+            "client_used_by_endpoint": {
+                "client": "get_supabase_client",
+                "env_var": "SUPABASE_KEY",
+                "type": "anon key / publishable key",
+                "is_service_role": False,
+            },
+            "clients_checked": {
+                "anon_key": True,
+                "service_role_key": service_role_configured,
+            },
             "authenticated_user": {
                 "id": authenticated_user_id,
                 "email": current_user.get("email"),
@@ -229,7 +331,34 @@ def get_notifications(
             "expected_user_id": NOTIFICATION_DEBUG_EXPECTED_USER_ID,
             "matches_expected_user_id": authenticated_user_id == NOTIFICATION_DEBUG_EXPECTED_USER_ID,
             "query": query_description,
+            "table_column_check": {
+                "table": "notifications",
+                "user_id_column": "user_id",
+            },
+            "raw_supabase_results": {
+                "actual_endpoint_query": {
+                    "response_data": getattr(response, "data", None),
+                    "response_error": getattr(response, "error", None),
+                    "response_count": getattr(response, "count", None),
+                },
+                "endpoint_anon_response": _response_debug(response),
+                "anon_exact_count_response": anon_query_result,
+                "service_role_exact_count_response": service_role_query_result,
+            },
+            "rls_check": {
+                "catalog_query_result": rls_catalog_query_result,
+                "likely_blocked_by_rls_or_policy": likely_rls_blocking,
+                "reason": (
+                    "Service role can read more rows than anon endpoint client for the same user_id filter."
+                    if likely_rls_blocking
+                    else "No anon/service-role row-count difference observed, or service role is unavailable."
+                ),
+            },
             "notifications": response.data,
+        }
+        logger.info("GET /notifications debug payload=%s", debug_payload)
+        return {
+            **debug_payload,
         }
 
     return response.data
