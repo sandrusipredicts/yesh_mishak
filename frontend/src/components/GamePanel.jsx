@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { joinGame, leaveGame, extendGame } from '../api/games'
+import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
+
+const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
 function getGameId(game) {
   return game?.id || game?.game_id || ''
@@ -36,9 +38,12 @@ function hasParticipantsPayload(game) {
 
 function GamePanel({ game, currentUserId, onUpdate }) {
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   const gameId = getGameId(game)
+  const gameStatus = String(game?.status || '').toLowerCase()
+  const isActiveGame = !gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)
   const participants = getParticipants(game)
   const hasParticipants = hasParticipantsPayload(game)
   const normalizedCurrentUserId = String(currentUserId || '')
@@ -49,11 +54,12 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   const isParticipant = participants.some(
     (participant) => getParticipantUserId(participant) === normalizedCurrentUserId,
   )
-  const cannotAct = isLoading || !gameId || !normalizedCurrentUserId
+  const cannotAct = isLoading || !gameId || !normalizedCurrentUserId || !isActiveGame
 
   async function handleJoin() {
     setIsLoading(true)
     setError('')
+    setSuccessMessage('')
     try {
       await joinGame(gameId, normalizedCurrentUserId)
       onUpdate?.()
@@ -67,6 +73,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   async function handleLeave() {
     setIsLoading(true)
     setError('')
+    setSuccessMessage('')
     try {
       await leaveGame(gameId, normalizedCurrentUserId)
       onUpdate?.()
@@ -80,11 +87,31 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   async function handleExtend() {
     setIsLoading(true)
     setError('')
+    setSuccessMessage('')
     try {
       await extendGame(gameId)
       onUpdate?.()
     } catch {
       setError('Could not extend game. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleCloseGame() {
+    if (!window.confirm('Close this game? Players will no longer be able to join it.')) {
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      await closeGame(gameId)
+      setSuccessMessage('Game closed successfully.')
+      onUpdate?.()
+    } catch {
+      setError('Could not close game. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -110,6 +137,10 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         <p className="panel-warning">Set a current user before joining this game.</p>
       ) : null}
 
+      {!isActiveGame ? (
+        <p className="panel-closed">This game is closed.</p>
+      ) : null}
+
       {hasParticipants ? (
         <ul className="participants-list" aria-label="Participants">
           {participants.map((participant) => {
@@ -127,8 +158,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         <p className="panel-warning">Participant list is not available yet.</p>
       )}
 
-      <div className="game-actions">
-        {hasParticipants && isParticipant ? null : (
+      <div className="game-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {isActiveGame && (!hasParticipants || !isParticipant) ? (
           <button
             type="button"
             className="primary-panel-button"
@@ -137,9 +168,9 @@ function GamePanel({ game, currentUserId, onUpdate }) {
           >
             I'm coming
           </button>
-        )}
+        ) : null}
 
-        {hasParticipants && !isParticipant ? null : (
+        {isActiveGame && (!hasParticipants || isParticipant) ? (
           <button
             type="button"
             className="secondary-panel-button"
@@ -148,9 +179,9 @@ function GamePanel({ game, currentUserId, onUpdate }) {
           >
             Leave
           </button>
-        )}
+        ) : null}
 
-        {isCreator ? (
+        {isActiveGame && isCreator ? (
           <button
             type="button"
             className="secondary-panel-button"
@@ -160,8 +191,20 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             Extra round
           </button>
         ) : null}
+
+        {isActiveGame && isCreator ? (
+          <button
+            type="button"
+            className="danger-panel-button"
+            onClick={handleCloseGame}
+            disabled={cannotAct}
+          >
+            Close game
+          </button>
+        ) : null}
       </div>
 
+      {successMessage ? <p className="panel-success">{successMessage}</p> : null}
       {error ? <p className="panel-error">{error}</p> : null}
     </div>
   )
