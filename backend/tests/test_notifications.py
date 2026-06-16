@@ -189,6 +189,11 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
     return fake
 
 
+@pytest.fixture
+def fake_service_supabase() -> FakeSupabase:
+    return FakeSupabase({"notifications": []})
+
+
 def auth_headers(user: dict[str, Any]) -> dict[str, str]:
     token = create_access_token(subject=user["id"], email=user["email"])
     return {"Authorization": f"Bearer {token}"}
@@ -277,8 +282,14 @@ def test_read_all_marks_only_current_users_notifications(
 
 def test_create_game_generates_notifications_for_matching_candidates_except_organizer(
     fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
     users: dict[str, dict[str, Any]],
 ) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
     fake_supabase.tables["notification_preferences"] = [
         {
             "id": "pref-organizer",
@@ -310,7 +321,8 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
     )
 
     assert response.status_code == 200
-    notifications = fake_supabase.tables["notifications"]
+    assert fake_supabase.tables["notifications"] == []
+    notifications = fake_service_supabase.tables["notifications"]
     assert len(notifications) == 1
     assert notifications[0]["user_id"] == users["candidate"]["id"]
     assert notifications[0]["type"] == "game_created"
@@ -320,8 +332,14 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
 
 def test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type(
     fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
     users: dict[str, dict[str, Any]],
 ) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
     fake_supabase.tables["notification_preferences"] = [
         {
             "id": "pref-candidate-specific-field",
@@ -353,8 +371,9 @@ def test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type(
     )
 
     assert response.status_code == 200
-    assert len(fake_supabase.tables["notifications"]) == 1
-    assert fake_supabase.tables["notifications"][0]["user_id"] == users["candidate"]["id"]
+    assert fake_supabase.tables["notifications"] == []
+    assert len(fake_service_supabase.tables["notifications"]) == 1
+    assert fake_service_supabase.tables["notifications"][0]["user_id"] == users["candidate"]["id"]
 
 
 def test_notification_candidates_endpoint_rejects_regular_users(

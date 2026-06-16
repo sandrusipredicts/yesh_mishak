@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -145,8 +145,9 @@ def create_game_created_notifications(
     if not recipient_ids:
         return []
 
+    service_supabase = get_supabase_service_role_client()
     existing_response = (
-        supabase.table("notifications")
+        service_supabase.table("notifications")
         .select("user_id")
         .eq("type", "game_created")
         .eq("related_game_id", game["id"])
@@ -172,7 +173,7 @@ def create_game_created_notifications(
     if not rows:
         return []
 
-    return supabase.table("notifications").insert(rows).execute().data or []
+    return service_supabase.table("notifications").insert(rows).execute().data or []
 
 
 @router.get("")
