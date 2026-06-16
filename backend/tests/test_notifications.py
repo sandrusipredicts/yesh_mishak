@@ -246,6 +246,47 @@ def test_get_notifications_returns_only_current_user_notifications(
     assert [row["id"] for row in response.json()] == ["notification-newer", "notification-older"]
 
 
+def test_get_notifications_debug_returns_authenticated_user_and_query(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-own",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Own",
+            "body": "Own body",
+            "read_at": None,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        }
+    ]
+
+    response = TestClient(app).get(
+        "/notifications?debug=true",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["authenticated_user"]["id"] == users["candidate"]["id"]
+    assert body["expected_user_id"] == "5b03fef8-20c1-49bc-a4fb-7879edf449e1"
+    assert body["matches_expected_user_id"] is False
+    assert body["query"] == {
+        "table": "notifications",
+        "select": "*",
+        "filters": [
+            {
+                "column": "user_id",
+                "operator": "eq",
+                "value": users["candidate"]["id"],
+            }
+        ],
+        "order": {"column": "created_at", "desc": True},
+    }
+    assert [notification["id"] for notification in body["notifications"]] == ["notification-own"]
+
+
 def test_unread_count_returns_current_users_unread_notifications(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],

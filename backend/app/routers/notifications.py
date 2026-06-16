@@ -1,14 +1,18 @@
 from datetime import datetime, timezone
+import logging
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+logger = logging.getLogger(__name__)
+
+NOTIFICATION_DEBUG_EXPECTED_USER_ID = "5b03fef8-20c1-49bc-a4fb-7879edf449e1"
 
 
 class NotificationPreference(BaseModel):
@@ -188,15 +192,46 @@ def create_game_created_notifications(
 
 
 @router.get("")
-def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
+def get_notifications(
+    debug: bool = Query(default=False),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    authenticated_user_id = str(current_user["id"])
+    query_description = {
+        "table": "notifications",
+        "select": "*",
+        "filters": [{"column": "user_id", "operator": "eq", "value": authenticated_user_id}],
+        "order": {"column": "created_at", "desc": True},
+    }
+    logger.info(
+        "GET /notifications authenticated_user_id=%s expected_user_id=%s matches_expected=%s query=%s",
+        authenticated_user_id,
+        NOTIFICATION_DEBUG_EXPECTED_USER_ID,
+        authenticated_user_id == NOTIFICATION_DEBUG_EXPECTED_USER_ID,
+        query_description,
+    )
     response = (
         get_supabase_client()
         .table("notifications")
         .select("*")
-        .eq("user_id", current_user["id"])
+        .eq("user_id", authenticated_user_id)
         .order("created_at", desc=True)
         .execute()
     )
+
+    if debug:
+        return {
+            "authenticated_user": {
+                "id": authenticated_user_id,
+                "email": current_user.get("email"),
+                "name": current_user.get("name"),
+            },
+            "expected_user_id": NOTIFICATION_DEBUG_EXPECTED_USER_ID,
+            "matches_expected_user_id": authenticated_user_id == NOTIFICATION_DEBUG_EXPECTED_USER_ID,
+            "query": query_description,
+            "notifications": response.data,
+        }
+
     return response.data
 
 
