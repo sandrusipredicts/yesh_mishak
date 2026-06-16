@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client
 from app.routers.fields import FieldStatusUpdate, update_field_status_record
-from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
+from app.routers.game_lifecycle import (
+    ACTIVE_GAME_STATUSES,
+    ensure_game_is_actionable,
+    finish_expired_games,
+)
+from app.routers.game_payloads import attach_participants_to_games
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -57,6 +62,18 @@ def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -
 
 
 def _count_rows_in(table_name: str, column: str, values: list[str]) -> int:
+    if table_name == "games" and column == "status" and values == ACTIVE_GAME_STATUSES:
+        supabase = get_supabase_client()
+        games = (
+            supabase
+            .table("games")
+            .select("*")
+            .in_(column, values)
+            .execute()
+            .data
+        )
+        return len(finish_expired_games(games, supabase=supabase))
+
     response = (
         get_supabase_client()
         .table(table_name)
@@ -195,8 +212,9 @@ def _get_games_by_statuses(
     *,
     limit: Optional[int] = None,
 ) -> list[dict[str, Any]]:
+    supabase = get_supabase_client()
     query = (
-        get_supabase_client()
+        supabase
         .table("games")
         .select("*")
         .in_("status", statuses)
@@ -206,7 +224,11 @@ def _get_games_by_statuses(
     if limit is not None:
         query = query.limit(limit)
 
-    return _format_admin_games(query.execute().data)
+    games = query.execute().data
+    if statuses == ACTIVE_GAME_STATUSES:
+        games = finish_expired_games(games, supabase=supabase)
+
+    return _format_admin_games(games)
 
 
 def _get_game(game_id: str) -> dict[str, Any]:
@@ -226,11 +248,13 @@ def _get_game(game_id: str) -> dict[str, Any]:
 
 
 def _ensure_admin_active_game(game: dict[str, Any]) -> None:
-    if game.get("status") not in ACTIVE_GAME_STATUSES:
+    try:
+        ensure_game_is_actionable(game, supabase=get_supabase_client())
+    except HTTPException as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Game is not active",
-        )
+        ) from exc
 
 
 @router.get("/games")
@@ -283,7 +307,7 @@ def extend_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
             detail="Game expires_at is missing",
         )
 
-    current_expires = datetime.fromisoformat(expires_at)
+    current_expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
     new_expires = current_expires + timedelta(hours=1)
     response = (
         get_supabase_client()
