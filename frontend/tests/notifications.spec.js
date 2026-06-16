@@ -44,7 +44,9 @@ test('notification button shows unread count and clicking a notification marks i
       type: 'game_created',
       title: 'נפתח משחק חדש',
       body: 'נפתח משחק football במגרש Central Court',
-      is_read: false,
+      read_at: null,
+      game_id: 'game-1',
+      field_id: 'field-1',
       created_at: '2026-06-16T10:00:00.000Z',
     },
     {
@@ -52,7 +54,9 @@ test('notification button shows unread count and clicking a notification marks i
       type: 'game_created',
       title: 'משחק נוסף',
       body: 'נפתח משחק basketball במגרש North Court',
-      is_read: false,
+      read_at: null,
+      game_id: 'game-2',
+      field_id: 'field-2',
       created_at: '2026-06-16T09:00:00.000Z',
     },
   ]
@@ -64,8 +68,14 @@ test('notification button shows unread count and clicking a notification marks i
       return fulfillJson(route, notifications)
     }
 
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, {
+        unread_count: notifications.filter((notification) => !notification.read_at).length,
+      })
+    }
+
     if (route.request().method() === 'PATCH' && url.pathname === '/notifications/notification-1/read') {
-      notifications[0] = { ...notifications[0], is_read: true }
+      notifications[0] = { ...notifications[0], read_at: '2026-06-16T10:05:00.000Z' }
       return fulfillJson(route, notifications[0])
     }
 
@@ -93,7 +103,7 @@ test('mark all as read clears the unread notification count', async ({ page }) =
       type: 'game_created',
       title: 'נפתח משחק חדש',
       body: 'נפתח משחק football במגרש Central Court',
-      is_read: false,
+      read_at: null,
       created_at: '2026-06-16T10:00:00.000Z',
     },
   ]
@@ -105,8 +115,14 @@ test('mark all as read clears the unread notification count', async ({ page }) =
       return fulfillJson(route, notifications)
     }
 
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, {
+        unread_count: notifications.filter((notification) => !notification.read_at).length,
+      })
+    }
+
     if (route.request().method() === 'PATCH' && url.pathname === '/notifications/read-all') {
-      notifications[0] = { ...notifications[0], is_read: true }
+      notifications[0] = { ...notifications[0], read_at: '2026-06-16T10:05:00.000Z' }
       return fulfillJson(route, { message: 'Notifications marked as read' })
     }
 

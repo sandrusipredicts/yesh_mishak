@@ -15,6 +15,11 @@ export async function getNotifications() {
   return response.data
 }
 
+export async function getUnreadNotificationCount() {
+  const response = await api.get('/notifications/unread-count')
+  return response.data
+}
+
 export async function markNotificationRead(notificationId) {
   const response = await api.patch(`/notifications/${notificationId}/read`)
   return response.data

@@ -38,6 +38,13 @@ class FakeQuery:
         self.filters.append((column, value))
         return self
 
+    def is_(self, column: str, value: Any) -> "FakeQuery":
+        if value == "null":
+            self.filters.append((column, None))
+        else:
+            self.filters.append((column, value))
+        return self
+
     def in_(self, column: str, values: list[Any]) -> "FakeQuery":
         self.in_filters.append((column, values))
         return self
@@ -210,7 +217,7 @@ def test_get_notifications_returns_only_current_user_notifications(
             "type": "game_created",
             "title": "Older",
             "body": "Older body",
-            "is_read": False,
+            "read_at": None,
             "created_at": "2026-06-15T10:00:00+00:00",
         },
         {
@@ -219,7 +226,7 @@ def test_get_notifications_returns_only_current_user_notifications(
             "type": "game_created",
             "title": "Other",
             "body": "Other body",
-            "is_read": False,
+            "read_at": None,
             "created_at": "2026-06-16T10:00:00+00:00",
         },
         {
@@ -228,7 +235,7 @@ def test_get_notifications_returns_only_current_user_notifications(
             "type": "game_created",
             "title": "Newer",
             "body": "Newer body",
-            "is_read": True,
+            "read_at": "2026-06-16T11:30:00+00:00",
             "created_at": "2026-06-16T11:00:00+00:00",
         },
     ]
@@ -237,6 +244,55 @@ def test_get_notifications_returns_only_current_user_notifications(
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()] == ["notification-newer", "notification-older"]
+
+
+def test_unread_count_returns_current_users_unread_notifications(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {"id": "own-unread", "user_id": users["candidate"]["id"], "read_at": None},
+        {
+            "id": "own-read",
+            "user_id": users["candidate"]["id"],
+            "read_at": "2026-06-16T10:00:00+00:00",
+        },
+        {"id": "other-unread", "user_id": users["other"]["id"], "read_at": None},
+    ]
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 1}
+
+
+def test_mark_notification_read_sets_read_at(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-own",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Own",
+            "body": "Own body",
+            "read_at": None,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        }
+    ]
+
+    response = TestClient(app).patch(
+        "/notifications/notification-own/read",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["read_at"] is not None
+    assert fake_supabase.tables["notifications"][0]["read_at"] is not None
 
 
 def test_read_notification_cannot_mark_another_users_notification(
@@ -250,7 +306,7 @@ def test_read_notification_cannot_mark_another_users_notification(
             "type": "game_created",
             "title": "Other",
             "body": "Other body",
-            "is_read": False,
+            "read_at": None,
             "created_at": "2026-06-16T10:00:00+00:00",
         }
     ]
@@ -261,7 +317,7 @@ def test_read_notification_cannot_mark_another_users_notification(
     )
 
     assert response.status_code == 404
-    assert fake_supabase.tables["notifications"][0]["is_read"] is False
+    assert fake_supabase.tables["notifications"][0]["read_at"] is None
 
 
 def test_read_all_marks_only_current_users_notifications(
@@ -269,15 +325,15 @@ def test_read_all_marks_only_current_users_notifications(
     users: dict[str, dict[str, Any]],
 ) -> None:
     fake_supabase.tables["notifications"] = [
-        {"id": "own", "user_id": users["candidate"]["id"], "is_read": False},
-        {"id": "other", "user_id": users["other"]["id"], "is_read": False},
+        {"id": "own", "user_id": users["candidate"]["id"], "read_at": None},
+        {"id": "other", "user_id": users["other"]["id"], "read_at": None},
     ]
 
     response = TestClient(app).patch("/notifications/read-all", headers=auth_headers(users["candidate"]))
 
     assert response.status_code == 200
-    assert fake_supabase.tables["notifications"][0]["is_read"] is True
-    assert fake_supabase.tables["notifications"][1]["is_read"] is False
+    assert fake_supabase.tables["notifications"][0]["read_at"] is not None
+    assert fake_supabase.tables["notifications"][1]["read_at"] is None
 
 
 def test_create_game_generates_notifications_for_matching_candidates_except_organizer(
@@ -328,6 +384,55 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
     assert notifications[0]["type"] == "game_created"
     assert notifications[0]["title"] == "נפתח משחק חדש"
     assert notifications[0]["body"] == "נפתח משחק football במגרש Central Court"
+    assert notifications[0]["game_id"] == response.json()["game"]["id"]
+    assert notifications[0]["field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert notifications[0]["read_at"] is None
+
+
+def test_create_game_matches_by_city(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate-city",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": " ירוחם ",
+        },
+        {
+            "id": "pref-other-city",
+            "user_id": users["other"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "תל אביב",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = fake_service_supabase.tables["notifications"]
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
 
 
 def test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type(

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
@@ -109,15 +110,25 @@ def _find_notification_candidates(
             if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
                 reason = "city_and_sport_match"
         elif pref.get("notification_type") == "radius":
-            if pref.get("lat") is None or pref.get("lng") is None or pref.get("radius_km") is None:
+            if (
+                pref.get("lat") is None
+                or pref.get("lng") is None
+                or pref.get("radius_km") is None
+                or field.get("lat") is None
+                or field.get("lng") is None
+            ):
                 continue
 
-            distance = _distance_km(
-                float(pref["lat"]),
-                float(pref["lng"]),
-                float(field["lat"]),
-                float(field["lng"]),
-            )
+            try:
+                distance = _distance_km(
+                    float(pref["lat"]),
+                    float(pref["lng"]),
+                    float(field["lat"]),
+                    float(field["lng"]),
+                )
+            except (TypeError, ValueError):
+                continue
+
             if distance <= float(pref["radius_km"]):
                 reason = "within_radius_and_sport_match"
 
@@ -150,7 +161,7 @@ def create_game_created_notifications(
         service_supabase.table("notifications")
         .select("user_id")
         .eq("type", "game_created")
-        .eq("related_game_id", game["id"])
+        .eq("game_id", game["id"])
         .in_("user_id", recipient_ids)
         .execute()
     )
@@ -162,9 +173,9 @@ def create_game_created_notifications(
             "type": "game_created",
             "title": "נפתח משחק חדש",
             "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
-            "related_game_id": game["id"],
-            "related_field_id": field.get("id"),
-            "is_read": False,
+            "game_id": game["id"],
+            "field_id": field.get("id"),
+            "read_at": None,
         }
         for user_id in recipient_ids
         if user_id not in existing_user_ids
@@ -189,13 +200,28 @@ def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
     return response.data
 
 
+@router.get("/unread-count")
+def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_current_user)):
+    response = (
+        get_supabase_client()
+        .table("notifications")
+        .select("id")
+        .eq("user_id", current_user["id"])
+        .is_("read_at", "null")
+        .execute()
+    )
+    return {"unread_count": len(response.data or [])}
+
+
 @router.patch("/read-all")
 def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_current_user)):
+    now = datetime.now(timezone.utc).isoformat()
     (
         get_supabase_client()
         .table("notifications")
-        .update({"is_read": True})
+        .update({"read_at": now})
         .eq("user_id", current_user["id"])
+        .is_("read_at", "null")
         .execute()
     )
     return {"message": "Notifications marked as read"}
@@ -206,10 +232,11 @@ def mark_notification_read(
     notification_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    now = datetime.now(timezone.utc).isoformat()
     response = (
         get_supabase_client()
         .table("notifications")
-        .update({"is_read": True})
+        .update({"read_at": now})
         .eq("id", notification_id)
         .eq("user_id", current_user["id"])
         .execute()

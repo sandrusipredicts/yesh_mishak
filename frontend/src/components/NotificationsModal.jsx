@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { getFields } from '../api/fields'
 import {
   getNotificationPreferences,
-  markAllNotificationsRead,
-  markNotificationRead,
   updateNotificationPreferences,
 } from '../api/notifications'
 
@@ -81,14 +79,10 @@ function parsePreferences(preferences) {
 
 function NotificationsModal({
   fields = [],
-  notifications = [],
   onClose,
-  onNotificationsChange,
-  onRefreshNotifications,
 }) {
   const isSavingRef = useRef(false)
   const locationAttemptRef = useRef(0)
-  const [activeTab, setActiveTab] = useState('notifications')
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -100,22 +94,6 @@ function NotificationsModal({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
-  const [notificationsError, setNotificationsError] = useState('')
-  const [readingNotificationId, setReadingNotificationId] = useState('')
-  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false)
-
-  const unreadCount = notifications.filter((notification) => !notification.is_read).length
-
-  useEffect(() => {
-    if (!onRefreshNotifications) {
-      return
-    }
-
-    onRefreshNotifications().catch(() => {
-      setNotificationsError('Could not load notifications.')
-    })
-  }, [onRefreshNotifications])
-
   useEffect(() => {
     let isMounted = true
 
@@ -311,119 +289,21 @@ function NotificationsModal({
     }
   }
 
-  async function handleNotificationClick(notification) {
-    if (notification.is_read || readingNotificationId) {
-      return
-    }
-
-    setNotificationsError('')
-    setReadingNotificationId(notification.id)
-
-    try {
-      const updatedNotification = await markNotificationRead(notification.id)
-      onNotificationsChange?.(
-        notifications.map((currentNotification) =>
-          currentNotification.id === notification.id
-            ? { ...currentNotification, ...updatedNotification, is_read: true }
-            : currentNotification,
-        ),
-      )
-    } catch {
-      setNotificationsError('Could not mark notification as read.')
-    } finally {
-      setReadingNotificationId('')
-    }
-  }
-
-  async function handleMarkAllRead() {
-    setNotificationsError('')
-    setIsMarkingAllRead(true)
-
-    try {
-      await markAllNotificationsRead()
-      onNotificationsChange?.(
-        notifications.map((notification) => ({
-          ...notification,
-          is_read: true,
-        })),
-      )
-    } catch {
-      setNotificationsError('Could not mark notifications as read.')
-    } finally {
-      setIsMarkingAllRead(false)
-    }
-  }
-
   return (
     <div className="modal-backdrop" role="presentation">
       <section
         className="notifications-modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="notifications-title"
+        aria-labelledby="notification-preferences-title"
       >
         <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
           x
         </button>
 
-        <h2 id="notifications-title">Notifications</h2>
+        <h2 id="notification-preferences-title">Notification Preferences</h2>
 
-        <div className="notifications-tabs" role="tablist" aria-label="Notification sections">
-          <button
-            className={activeTab === 'notifications' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'notifications'}
-            onClick={() => setActiveTab('notifications')}
-          >
-            Notifications
-          </button>
-          <button
-            className={activeTab === 'preferences' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'preferences'}
-            onClick={() => setActiveTab('preferences')}
-          >
-            Preferences
-          </button>
-        </div>
-
-        {activeTab === 'notifications' ? (
-          <section className="notifications-list-section">
-            <div className="notifications-list-header">
-              <p>{unreadCount ? `${unreadCount} unread` : 'No unread notifications'}</p>
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                disabled={!unreadCount || isMarkingAllRead}
-              >
-                {isMarkingAllRead ? 'Marking...' : 'Mark all as read'}
-              </button>
-            </div>
-
-            {notificationsError ? <p className="modal-error">{notificationsError}</p> : null}
-
-            <div className="notifications-list">
-              {notifications.length ? (
-                notifications.map((notification) => (
-                  <button
-                    className={`notification-list-item${notification.is_read ? '' : ' unread'}`}
-                    type="button"
-                    key={notification.id}
-                    onClick={() => handleNotificationClick(notification)}
-                    disabled={readingNotificationId === notification.id}
-                  >
-                    <span>{notification.title}</span>
-                    <small>{notification.body}</small>
-                  </button>
-                ))
-              ) : (
-                <p className="notifications-empty">No notifications yet.</p>
-              )}
-            </div>
-          </section>
-        ) : isLoading ? (
+        {isLoading ? (
           <p className="settings-loading">Loading preferences...</p>
         ) : (
           <form className="notifications-form" onSubmit={handleSubmit}>
