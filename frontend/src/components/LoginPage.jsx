@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { loginWithGoogle } from '../api/auth'
+import {
+  loginWithGoogle,
+  loginWithPassword,
+  registerWithPassword,
+  saveAuthSession,
+} from '../api/auth'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -38,9 +43,27 @@ function loadGoogleScript() {
 
 function LoginPage({ onLogin }) {
   const buttonRef = useRef(null)
+  const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [loginForm, setLoginForm] = useState({
+    username: '',
+    password: '',
+  })
+  const [registerForm, setRegisterForm] = useState({
+    full_name: '',
+    username: '',
+    email: '',
+    phone_number: '',
+    password: '',
+    password_confirm: '',
+  })
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+
+  const handleAuthSuccess = useCallback((authData) => {
+    saveAuthSession(authData)
+    onLogin?.(authData.user)
+  }, [onLogin])
 
   useEffect(() => {
     let isMounted = true
@@ -81,11 +104,7 @@ function LoginPage({ onLogin }) {
 
             try {
               const authData = await loginWithGoogle(response.credential)
-              localStorage.setItem('access_token', authData.access_token)
-              localStorage.setItem('currentUserId', authData.user.id)
-              localStorage.setItem('currentUserName', authData.user.name)
-              localStorage.setItem('currentUserEmail', authData.user.email)
-              onLogin?.(authData.user)
+              handleAuthSuccess(authData)
             } catch {
               setError('Could not sign in with Google. Please try again.')
             } finally {
@@ -118,13 +137,200 @@ function LoginPage({ onLogin }) {
     return () => {
       isMounted = false
     }
-  }, [googleClientId, onLogin])
+  }, [googleClientId, handleAuthSuccess])
+
+  function updateLoginForm(event) {
+    const { name, value } = event.target
+    setLoginForm((current) => ({ ...current, [name]: value }))
+  }
+
+  function updateRegisterForm(event) {
+    const { name, value } = event.target
+    setRegisterForm((current) => ({ ...current, [name]: value }))
+  }
+
+  function getApiErrorMessage(apiError, fallback) {
+    const detail = apiError?.response?.data?.detail
+    if (typeof detail === 'string') {
+      return detail
+    }
+
+    if (Array.isArray(detail) && detail.length > 0) {
+      return detail[0]?.msg || fallback
+    }
+
+    return fallback
+  }
+
+  async function handlePasswordLogin(event) {
+    event.preventDefault()
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const authData = await loginWithPassword(loginForm)
+      handleAuthSuccess(authData)
+    } catch (apiError) {
+      setError(getApiErrorMessage(apiError, 'Could not sign in. Please check your details.'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleRegister(event) {
+    event.preventDefault()
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const authData = await registerWithPassword(registerForm)
+      handleAuthSuccess(authData)
+    } catch (apiError) {
+      setError(getApiErrorMessage(apiError, 'Could not create your account.'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <main className="login-page">
       <section className="login-panel" aria-labelledby="login-title">
         <h1 id="login-title">yesh_mishak</h1>
         <p>Sign in to open and join games.</p>
+
+        <div className="auth-mode-tabs" role="tablist" aria-label="Authentication method">
+          <button
+            type="button"
+            className={mode === 'login' ? 'active' : ''}
+            onClick={() => {
+              setMode('login')
+              setError('')
+            }}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            className={mode === 'register' ? 'active' : ''}
+            onClick={() => {
+              setMode('register')
+              setError('')
+            }}
+          >
+            Register
+          </button>
+        </div>
+
+        {mode === 'login' ? (
+          <form className="auth-form" onSubmit={handlePasswordLogin}>
+            <label>
+              <span>Username</span>
+              <input
+                autoComplete="username"
+                name="username"
+                onChange={updateLoginForm}
+                required
+                type="text"
+                value={loginForm.username}
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                autoComplete="current-password"
+                name="password"
+                onChange={updateLoginForm}
+                required
+                type="password"
+                value={loginForm.password}
+              />
+            </label>
+            <button className="auth-submit" disabled={isLoading} type="submit">
+              Sign in
+            </button>
+          </form>
+        ) : (
+          <form className="auth-form" onSubmit={handleRegister}>
+            <label>
+              <span>Full name</span>
+              <input
+                autoComplete="name"
+                name="full_name"
+                onChange={updateRegisterForm}
+                required
+                type="text"
+                value={registerForm.full_name}
+              />
+            </label>
+            <label>
+              <span>Username</span>
+              <input
+                autoComplete="username"
+                minLength={3}
+                name="username"
+                onChange={updateRegisterForm}
+                required
+                type="text"
+                value={registerForm.username}
+              />
+            </label>
+            <label>
+              <span>Email</span>
+              <input
+                autoComplete="email"
+                name="email"
+                onChange={updateRegisterForm}
+                required
+                type="email"
+                value={registerForm.email}
+              />
+            </label>
+            <label>
+              <span>Phone number</span>
+              <input
+                autoComplete="tel"
+                name="phone_number"
+                onChange={updateRegisterForm}
+                required
+                type="tel"
+                value={registerForm.phone_number}
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                name="password"
+                onChange={updateRegisterForm}
+                required
+                type="password"
+                value={registerForm.password}
+              />
+            </label>
+            <label>
+              <span>Confirm password</span>
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                name="password_confirm"
+                onChange={updateRegisterForm}
+                required
+                type="password"
+                value={registerForm.password_confirm}
+              />
+            </label>
+            <button className="auth-submit" disabled={isLoading} type="submit">
+              Create account
+            </button>
+          </form>
+        )}
+
+        <div className="auth-divider" aria-hidden="true">
+          <span />
+          <strong>or</strong>
+          <span />
+        </div>
         <div ref={buttonRef} className="google-login-button" />
         {isLoading ? <p className="login-status">Signing in...</p> : null}
         {error ? <p className="login-error">{error}</p> : null}
