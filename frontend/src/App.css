@@ -449,6 +449,14 @@
   font-size: 14px;
 }
 
+.panel-success,
+.panel-closed {
+  margin: 0;
+  color: #0f766e;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .active-game-summary button,
 .primary-panel-button {
   width: 100%;
@@ -795,6 +803,23 @@
 .admin-sidebar-button.active {
   background: #172033;
   color: #ffffff;
+}
+
+.danger-panel-button {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #b42318;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.danger-panel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .admin-content {
