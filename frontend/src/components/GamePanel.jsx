@@ -158,7 +158,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         <p className="panel-warning">Participant list is not available yet.</p>
       )}
 
-      <div className="game-actions">
+      <div className="game-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {isActiveGame && (!hasParticipants || !isParticipant) ? (
           <button
             type="button"
