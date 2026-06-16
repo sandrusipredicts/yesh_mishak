@@ -192,6 +192,7 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.notifications.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: fake)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
     return fake
 
@@ -246,45 +247,45 @@ def test_get_notifications_returns_only_current_user_notifications(
     assert [row["id"] for row in response.json()] == ["notification-newer", "notification-older"]
 
 
-def test_get_notifications_debug_returns_authenticated_user_and_query(
+def test_get_notifications_uses_service_role_client_and_filters_current_user(
     fake_supabase: FakeSupabase,
+    monkeypatch,
     users: dict[str, dict[str, Any]],
 ) -> None:
-    fake_supabase.tables["notifications"] = [
+    service_supabase = FakeSupabase(
         {
-            "id": "notification-own",
-            "user_id": users["candidate"]["id"],
-            "type": "game_created",
-            "title": "Own",
-            "body": "Own body",
-            "read_at": None,
-            "created_at": "2026-06-16T10:00:00+00:00",
+            "notifications": [
+                {
+                    "id": "notification-own",
+                    "user_id": users["candidate"]["id"],
+                    "type": "game_created",
+                    "title": "Own",
+                    "body": "Own body",
+                    "read_at": None,
+                    "created_at": "2026-06-16T10:00:00+00:00",
+                },
+                {
+                    "id": "notification-other",
+                    "user_id": users["other"]["id"],
+                    "type": "game_created",
+                    "title": "Other",
+                    "body": "Other body",
+                    "read_at": None,
+                    "created_at": "2026-06-16T11:00:00+00:00",
+                },
+            ]
         }
-    ]
-
-    response = TestClient(app).get(
-        "/notifications?debug=true",
-        headers=auth_headers(users["candidate"]),
+    )
+    fake_supabase.tables["notifications"] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: service_supabase,
     )
 
+    response = TestClient(app).get("/notifications", headers=auth_headers(users["candidate"]))
+
     assert response.status_code == 200
-    body = response.json()
-    assert body["authenticated_user"]["id"] == users["candidate"]["id"]
-    assert body["expected_user_id"] == "5b03fef8-20c1-49bc-a4fb-7879edf449e1"
-    assert body["matches_expected_user_id"] is False
-    assert body["query"] == {
-        "table": "notifications",
-        "select": "*",
-        "filters": [
-            {
-                "column": "user_id",
-                "operator": "eq",
-                "value": users["candidate"]["id"],
-            }
-        ],
-        "order": {"column": "created_at", "desc": True},
-    }
-    assert [notification["id"] for notification in body["notifications"]] == ["notification-own"]
+    assert [row["id"] for row in response.json()] == ["notification-own"]
 
 
 def test_unread_count_returns_current_users_unread_notifications(
