@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 
@@ -41,14 +41,59 @@ function hasParticipantsPayload(game) {
   )
 }
 
+function parseDate(value) {
+  if (!value) {
+    return null
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatTime(value) {
+  const date = parseDate(value)
+  if (!date) {
+    return 'Not set'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function formatRemainingTime(milliseconds) {
+  if (milliseconds <= 0) {
+    return 'Ended'
+  }
+
+  const totalMinutes = Math.ceil(milliseconds / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours && minutes) {
+    return `${hours}h ${minutes}m`
+  }
+
+  if (hours) {
+    return `${hours}h`
+  }
+
+  return `${minutes}m`
+}
+
 function GamePanel({ game, currentUserId, onUpdate }) {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   const gameId = getGameId(game)
   const gameStatus = String(game?.status || '').toLowerCase()
-  const isActiveGame = !gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)
+  const expiresAt = useMemo(() => parseDate(game?.expires_at), [game?.expires_at])
+  const remainingMilliseconds = expiresAt ? expiresAt.getTime() - now : null
+  const isExpiredByTime = remainingMilliseconds !== null && remainingMilliseconds <= 0
+  const isActiveGame = (!gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)) && !isExpiredByTime
   const participants = getParticipants(game)
   const hasParticipants = hasParticipantsPayload(game)
   const normalizedCurrentUserId = normalizeUserId(getStoredSessionUserId() || currentUserId)
@@ -60,6 +105,26 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     (participant) => getParticipantUserId(participant) === normalizedCurrentUserId,
   )
   const cannotAct = isLoading || !gameId || !normalizedCurrentUserId || !isActiveGame
+
+  useEffect(() => {
+    if (!expiresAt) {
+      return undefined
+    }
+
+    const refreshTimer = window.setTimeout(() => {
+      setNow(Date.now())
+      onUpdate?.()
+    }, Math.max(0, expiresAt.getTime() - Date.now()) + 1000)
+
+    const tickTimer = window.setInterval(() => {
+      setNow(Date.now())
+    }, 30000)
+
+    return () => {
+      window.clearTimeout(refreshTimer)
+      window.clearInterval(tickTimer)
+    }
+  }, [expiresAt, onUpdate])
 
   async function handleJoin() {
     setIsLoading(true)
@@ -130,6 +195,25 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         {game.players_present} / {game.max_players} players
       </p>
 
+      <dl className="game-time-list" aria-label="Game schedule">
+        <div>
+          <dt>Start</dt>
+          <dd>{formatTime(game.started_at)}</dd>
+        </div>
+        <div>
+          <dt>End</dt>
+          <dd>{formatTime(game.expires_at)}</dd>
+        </div>
+        <div>
+          <dt>Ends in</dt>
+          <dd>
+            {remainingMilliseconds === null
+              ? 'Not set'
+              : formatRemainingTime(remainingMilliseconds)}
+          </dd>
+        </div>
+      </dl>
+
       {game.age_note ? (
         <p className="game-age-note">{game.age_note}</p>
       ) : null}
@@ -143,7 +227,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       ) : null}
 
       {!isActiveGame ? (
-        <p className="panel-closed">This game is closed.</p>
+        <p className="panel-closed">This game has ended.</p>
       ) : null}
 
       {hasParticipants ? (

@@ -6,7 +6,12 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.db.supabase import get_supabase_client
-from app.routers.game_payloads import ACTIVE_GAME_STATUSES, attach_participants_to_games
+from app.routers.game_lifecycle import (
+    ACTIVE_GAME_STATUSES,
+    ensure_game_is_actionable,
+    finish_expired_games,
+)
+from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import create_game_created_notifications
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -44,8 +49,7 @@ def _get_single_with_client(
 
 
 def _ensure_active_game(game: dict[str, Any]) -> None:
-    if game.get("status") not in ACTIVE_GAME_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Game already closed")
+    ensure_game_is_actionable(game, supabase=get_supabase_client())
 
 
 @router.post("/")
@@ -77,14 +81,14 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
 
     existing = (
         supabase.table("games")
-        .select("id")
+        .select("*")
         .eq("field_id", game.field_id)
         .eq("sport_type", game.sport_type)
         .in_("status", ACTIVE_GAME_STATUSES)
         .limit(1)
         .execute()
     )
-    if existing.data:
+    if finish_expired_games(existing.data, supabase=supabase):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Active game already exists for this field",
@@ -125,14 +129,16 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
 
 @router.get("/active")
 def get_active_games():
+    supabase = get_supabase_client()
     response = (
-        get_supabase_client()
+        supabase
         .table("games")
         .select("*")
         .in_("status", ACTIVE_GAME_STATUSES)
         .execute()
     )
-    return attach_participants_to_games(response.data)
+    active_games = finish_expired_games(response.data, supabase=supabase)
+    return attach_participants_to_games(active_games)
 
 
 @router.post("/{game_id}/join")
@@ -245,7 +251,7 @@ def extend_game(game_id: str, current_user: dict[str, Any] = Depends(get_current
             detail="Only the organizer can extend game",
         )
 
-    current_expires = datetime.fromisoformat(game["expires_at"])
+    current_expires = datetime.fromisoformat(game["expires_at"].replace("Z", "+00:00"))
     new_expires = current_expires + timedelta(hours=1)
 
     get_supabase_client().table("games").update(

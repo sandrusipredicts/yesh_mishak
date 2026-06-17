@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -120,7 +121,9 @@ def make_client(monkeypatch, tables: dict[str, list[dict[str, Any]]]) -> TestCli
     fake_client = FakeSupabaseClient(tables)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_supabase_client", lambda: fake_client)
     return TestClient(app)
 
 
@@ -248,6 +251,146 @@ def test_closed_game_is_not_returned_as_active(monkeypatch) -> None:
     assert [game["id"] for game in response.json()] == ["game-open"]
 
 
+def test_game_before_end_time_is_returned_as_active(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-active",
+                "field_id": "field-1",
+                "status": "open",
+                "started_at": "2026-06-16T17:00:00+00:00",
+                "expires_at": "2026-06-16T19:00:00+00:00",
+            },
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/active")
+
+    assert response.status_code == 200
+    assert [game["id"] for game in response.json()] == ["game-active"]
+    assert tables["games"][0]["status"] == "open"
+
+
+def test_game_at_end_time_is_finished_and_hidden_from_active_games(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 20, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-expired",
+                "field_id": "field-1",
+                "status": "open",
+                "started_at": "2026-06-16T18:00:00+00:00",
+                "expires_at": "2026-06-16T20:00:00+00:00",
+            },
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/active")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    assert tables["games"][0]["status"] == "finished"
+
+
+def test_expired_game_is_not_returned_as_field_active_game(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 20, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "fields": [
+            {
+                "id": "field-1",
+                "name": "Central Field",
+                "verified": True,
+                "approval_status": "approved",
+            },
+        ],
+        "games": [
+            {
+                "id": "game-expired",
+                "field_id": "field-1",
+                "status": "open",
+                "started_at": "2026-06-16T18:00:00+00:00",
+                "expires_at": "2026-06-16T20:00:00+00:00",
+            },
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/fields/field-1")
+
+    assert response.status_code == 200
+    assert response.json()["active_game"] is None
+    assert tables["games"][0]["status"] == "finished"
+
+
+def test_expired_game_does_not_block_new_game_creation(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 20, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "fields": [
+            {
+                "id": "field-1",
+                "name": "Central Field",
+                "sport_type": "football",
+                "verified": True,
+                "approval_status": "approved",
+            },
+        ],
+        "games": [
+            {
+                "id": "game-expired",
+                "field_id": "field-1",
+                "created_by": "other-user",
+                "sport_type": "football",
+                "status": "open",
+                "players_present": 3,
+                "max_players": 5,
+                "started_at": "2026-06-16T18:00:00+00:00",
+                "expires_at": "2026-06-16T20:00:00+00:00",
+            },
+        ],
+        "game_players": [],
+        "notification_preferences": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/",
+        json={
+            "field_id": "field-1",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+        },
+        headers=auth_headers(creator),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["game"]["field_id"] == "field-1"
+    assert tables["games"][0]["status"] == "finished"
+    assert len(tables["games"]) == 2
+
+
 def test_user_cannot_join_closed_game(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = make_user("user")
@@ -270,6 +413,34 @@ def test_user_cannot_join_closed_game(monkeypatch) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Game already closed"
+
+
+def test_user_cannot_join_game_after_end_time(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 20, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": "creator",
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+                "expires_at": "2026-06-16T20:00:00+00:00",
+            }
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post("/games/game-1/join", headers=auth_headers(user))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Game already closed"
+    assert tables["games"][0]["status"] == "finished"
 
 
 def test_join_game_uses_authenticated_user_not_request_body(monkeypatch) -> None:
@@ -360,3 +531,31 @@ def test_creator_cannot_extend_closed_game(monkeypatch) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Game already closed"
+
+
+def test_creator_cannot_extend_game_after_end_time(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 20, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": creator["id"],
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+                "expires_at": "2026-06-16T20:00:00+00:00",
+            }
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post("/games/game-1/extend", headers=auth_headers(creator))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Game already closed"
+    assert tables["games"][0]["status"] == "finished"

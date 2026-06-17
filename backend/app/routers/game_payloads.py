@@ -1,8 +1,7 @@
 from typing import Any
 
 from app.db.supabase import get_supabase_client
-
-ACTIVE_GAME_STATUSES = ["open", "full"]
+from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, finish_expired_games
 
 
 def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -62,8 +61,9 @@ def get_active_games_for_fields(field_ids: list[str]) -> dict[str, dict[str, Any
     if not field_ids:
         return {}
 
+    supabase = get_supabase_client()
     games = (
-        get_supabase_client()
+        supabase
         .table("games")
         .select("*")
         .in_("field_id", field_ids)
@@ -71,6 +71,7 @@ def get_active_games_for_fields(field_ids: list[str]) -> dict[str, dict[str, Any
         .execute()
         .data
     )
+    games = finish_expired_games(games, supabase=supabase)
 
     games_with_participants = attach_participants_to_games(games)
     return {
