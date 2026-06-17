@@ -124,7 +124,6 @@ def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(get_
         response = supabase.table("fields").insert(data).execute()
     except Exception as exc:
         error = _format_supabase_error(exc)
-        print(f"Supabase fields insert failed: {error}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

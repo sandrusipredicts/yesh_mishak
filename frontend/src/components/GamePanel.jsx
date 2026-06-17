@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
+import { getStoredSessionUserId } from '../api/auth'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
+
+function normalizeUserId(value) {
+  return String(value ?? '').trim().toLowerCase()
+}
 
 function getGameId(game) {
   return game?.id || game?.game_id || ''
@@ -13,7 +18,7 @@ function getParticipants(game) {
 }
 
 function getParticipantUserId(participant) {
-  return String(participant?.user_id || participant?.id || participant?.user?.id || '')
+  return normalizeUserId(participant?.user_id || participant?.id || participant?.user?.id)
 }
 
 function getParticipantName(participant) {
@@ -91,8 +96,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   const isActiveGame = (!gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)) && !isExpiredByTime
   const participants = getParticipants(game)
   const hasParticipants = hasParticipantsPayload(game)
-  const normalizedCurrentUserId = String(currentUserId || '')
-  const creatorId = String(game?.created_by || '')
+  const normalizedCurrentUserId = normalizeUserId(getStoredSessionUserId() || currentUserId)
+  const creatorId = normalizeUserId(game?.created_by)
   const isCreator = Boolean(
     normalizedCurrentUserId && creatorId === normalizedCurrentUserId,
   )
@@ -127,7 +132,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     setSuccessMessage('')
     try {
       await joinGame(gameId, normalizedCurrentUserId)
-      onUpdate?.()
+      await onUpdate?.()
     } catch {
       setError('Could not join game. Please try again.')
     } finally {
@@ -141,7 +146,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     setSuccessMessage('')
     try {
       await leaveGame(gameId, normalizedCurrentUserId)
-      onUpdate?.()
+      await onUpdate?.()
     } catch {
       setError('Could not leave game. Please try again.')
     } finally {
@@ -155,7 +160,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     setSuccessMessage('')
     try {
       await extendGame(gameId)
-      onUpdate?.()
+      await onUpdate?.()
     } catch {
       setError('Could not extend game. Please try again.')
     } finally {
@@ -174,7 +179,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     try {
       await closeGame(gameId)
       setSuccessMessage('Game closed successfully.')
-      onUpdate?.()
+      await onUpdate?.()
     } catch {
       setError('Could not close game. Please try again.')
     } finally {
@@ -293,5 +298,4 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     </div>
   )
 }
-// test deploy
 export default GamePanel

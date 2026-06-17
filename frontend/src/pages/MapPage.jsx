@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import { Bell } from 'lucide-react'
-import { getFields } from '../api/fields'
+import { Bell, Settings } from 'lucide-react'
+import { getFieldById, getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
+import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
-import { getNotifications } from '../api/notifications'
+import { getStoredSessionUserId } from '../api/auth'
+import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -17,12 +19,7 @@ function getStoredCurrentUserId() {
     return ''
   }
 
-  return (
-    localStorage.getItem('currentUserId') ||
-    localStorage.getItem('current_user_id') ||
-    localStorage.getItem('user_id') ||
-    ''
-  )
+  return getStoredSessionUserId()
 }
 
 function getFieldPosition(field) {
@@ -127,15 +124,17 @@ function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
   return null
 }
 
-function MapPage() {
+function MapPage({ currentUserId: authenticatedUserId }) {
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [fields, setFields] = useState([])
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [isNotificationPreferencesOpen, setIsNotificationPreferencesOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
-  const [currentUserId] = useState(getStoredCurrentUserId)
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
+  const currentUserId = authenticatedUserId || getStoredCurrentUserId()
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
   const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
 
@@ -156,25 +155,32 @@ function MapPage() {
 
   const refreshNotifications = useCallback(async () => {
     try {
-      const loadedNotifications = await getNotifications()
+      const [loadedNotifications, unreadCountResult] = await Promise.all([
+        getNotifications(),
+        getUnreadNotificationCount(),
+      ])
       setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
+      setUnreadNotificationCount(Number(unreadCountResult?.unread_count ?? 0))
     } catch {
       setNotifications([])
+      setUnreadNotificationCount(0)
     }
   }, [])
 
   useEffect(() => {
     let isMounted = true
 
-    getNotifications()
-      .then((loadedNotifications) => {
+    Promise.all([getNotifications(), getUnreadNotificationCount()])
+      .then(([loadedNotifications, unreadCountResult]) => {
         if (isMounted) {
           setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
+          setUnreadNotificationCount(Number(unreadCountResult?.unread_count ?? 0))
         }
       })
       .catch(() => {
         if (isMounted) {
           setNotifications([])
+          setUnreadNotificationCount(0)
         }
       })
 
@@ -208,12 +214,68 @@ function MapPage() {
     setReloadKey((currentReloadKey) => currentReloadKey + 1)
   }
 
+  const refreshFieldState = useCallback(
+    async (fieldId) => {
+      const targetFieldId = fieldId || selectedField?.id
+
+      if (!targetFieldId) {
+        refreshFields()
+        return
+      }
+
+      try {
+        const updatedField = await getFieldById(targetFieldId)
+        setFields((currentFields) => {
+          const existingIndex = currentFields.findIndex((field) => field.id === updatedField.id)
+
+          if (existingIndex === -1) {
+            return [...currentFields, updatedField]
+          }
+
+          return currentFields.map((field) =>
+            field.id === updatedField.id ? updatedField : field,
+          )
+        })
+        setSelectedField(updatedField)
+      } catch {
+        refreshFields()
+      }
+    },
+    [selectedField?.id],
+  )
+
   function handleFieldCreated() {
     setFieldSubmitMessage('Sent for VAR approval')
     refreshFields()
   }
 
-  const unreadNotificationCount = notifications.filter((notification) => !notification.is_read).length
+  async function handleNotificationTarget(notification) {
+    const targetFieldId = notification.field_id
+    const targetGameId = notification.game_id
+    const findTargetField = (candidateFields) => candidateFields.find((field) => {
+      const activeGame = getActiveGame(field)
+      return field.id === targetFieldId || activeGame?.id === targetGameId
+    })
+
+    let targetField = findTargetField(fields)
+
+    if (!targetField) {
+      try {
+        const loadedFields = await getFields()
+        const nextFields = Array.isArray(loadedFields) ? loadedFields : []
+        setFields(nextFields)
+        targetField = findTargetField(nextFields)
+      } catch {
+        targetField = null
+      }
+    }
+
+    if (targetField) {
+      setSelectedField(targetField)
+      setIsNotificationsOpen(false)
+    }
+  }
+
   const notificationsLabel = unreadNotificationCount
     ? `Notifications, ${unreadNotificationCount} unread`
     : 'Notifications'
@@ -235,6 +297,15 @@ function MapPage() {
             {unreadNotificationCount}
           </span>
         ) : null}
+      </button>
+
+      <button
+        className="floating-button preferences"
+        type="button"
+        aria-label="Notification preferences"
+        onClick={() => setIsNotificationPreferencesOpen(true)}
+      >
+        <Settings size={22} />
       </button>
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
@@ -298,17 +369,25 @@ function MapPage() {
       <FieldDetailsPanel
         field={selectedField}
         onClose={() => setSelectedField(null)}
-        onGameCreated={refreshFields}
+        onGameCreated={refreshFieldState}
         currentUserId={currentUserId}
       />
 
       {isNotificationsOpen ? (
-        <NotificationsModal
-          fields={fields}
+        <NotificationInboxModal
           notifications={notifications}
           onClose={() => setIsNotificationsOpen(false)}
           onNotificationsChange={setNotifications}
           onRefreshNotifications={refreshNotifications}
+          onUnreadCountChange={setUnreadNotificationCount}
+          onOpenTarget={handleNotificationTarget}
+        />
+      ) : null}
+
+      {isNotificationPreferencesOpen ? (
+        <NotificationsModal
+          fields={fields}
+          onClose={() => setIsNotificationPreferencesOpen(false)}
         />
       ) : null}
 

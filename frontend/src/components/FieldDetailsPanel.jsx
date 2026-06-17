@@ -49,6 +49,10 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const status = field.approval_status ?? field.status ?? 'Not specified'
   const isPending = String(status).toLowerCase() === 'pending'
 
+  function handleGameStateChanged() {
+    return onGameCreated?.(field.id)
+  }
+
   return (
     <aside className="field-details-panel" aria-label="Field details">
       <button className="panel-close-button" type="button" onClick={onClose} aria-label="Close">
@@ -93,7 +97,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
           <GamePanel
             game={activeGame}
             currentUserId={currentUserId}
-            onUpdate={onGameCreated}
+            onUpdate={handleGameStateChanged}
           />
         </div>
       ) : (
@@ -110,7 +114,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         <OpenGameModal
           field={field}
           onClose={() => setIsOpenGameModalOpen(false)}
-          onCreated={onGameCreated}
+          onCreated={handleGameStateChanged}
         />
       ) : null}
     </aside>

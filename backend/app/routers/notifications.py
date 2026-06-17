@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
@@ -83,6 +85,64 @@ def _normalize_city(value: Any) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
+def _is_notification_unread(notification: dict[str, Any]) -> bool:
+    """Return True when a notification has not been read.
+
+    Supports both the ``read_at`` timestamp column and the legacy ``is_read``
+    boolean column so the endpoint stays resilient regardless of which schema
+    the live database currently has, and never crashes on missing metadata.
+    """
+    if notification.get("read_at"):
+        return False
+    if notification.get("is_read"):
+        return False
+    return True
+
+
+def _uses_read_at_column(sample: dict[str, Any]) -> bool:
+    """Decide which read-state column the live table exposes.
+
+    Prefers the canonical ``read_at`` column, falls back to the legacy
+    ``is_read`` boolean, and defaults to ``read_at`` when the row carries
+    neither marker so behaviour stays correct once the migration is applied.
+    """
+    if "read_at" in sample:
+        return True
+    if "is_read" in sample:
+        return False
+    return True
+
+
+def _mark_read_payload(sample: dict[str, Any], now: str) -> dict[str, Any]:
+    if _uses_read_at_column(sample):
+        return {"read_at": now}
+    return {"is_read": True}
+
+
+def _is_missing_column_error(error: APIError, column_name: str) -> bool:
+    details = getattr(error, "args", [{}])[0]
+    message = str(error)
+    code = ""
+
+    if isinstance(details, dict):
+        message = f"{message} {details.get('message') or ''}"
+        code = str(details.get("code") or "")
+
+    return (code == "42703" or "42703" in message) and column_name in message
+
+
+def _with_notification_target_aliases(notification: dict[str, Any]) -> dict[str, Any]:
+    normalized_notification = dict(notification)
+
+    if "game_id" not in normalized_notification and "related_game_id" in normalized_notification:
+        normalized_notification["game_id"] = normalized_notification.get("related_game_id")
+
+    if "field_id" not in normalized_notification and "related_field_id" in normalized_notification:
+        normalized_notification["field_id"] = normalized_notification.get("related_field_id")
+
+    return normalized_notification
+
+
 def _find_notification_candidates(
     supabase: Any,
     field: dict[str, Any],
@@ -109,15 +169,25 @@ def _find_notification_candidates(
             if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
                 reason = "city_and_sport_match"
         elif pref.get("notification_type") == "radius":
-            if pref.get("lat") is None or pref.get("lng") is None or pref.get("radius_km") is None:
+            if (
+                pref.get("lat") is None
+                or pref.get("lng") is None
+                or pref.get("radius_km") is None
+                or field.get("lat") is None
+                or field.get("lng") is None
+            ):
                 continue
 
-            distance = _distance_km(
-                float(pref["lat"]),
-                float(pref["lng"]),
-                float(field["lat"]),
-                float(field["lng"]),
-            )
+            try:
+                distance = _distance_km(
+                    float(pref["lat"]),
+                    float(pref["lng"]),
+                    float(field["lat"]),
+                    float(field["lng"]),
+                )
+            except (TypeError, ValueError):
+                continue
+
             if distance <= float(pref["radius_km"]):
                 reason = "within_radius_and_sport_match"
 
@@ -146,14 +216,33 @@ def create_game_created_notifications(
         return []
 
     service_supabase = get_supabase_service_role_client()
-    existing_response = (
-        service_supabase.table("notifications")
-        .select("user_id")
-        .eq("type", "game_created")
-        .eq("related_game_id", game["id"])
-        .in_("user_id", recipient_ids)
-        .execute()
-    )
+    game_id_column = "game_id"
+    field_id_column = "field_id"
+
+    try:
+        existing_response = (
+            service_supabase.table("notifications")
+            .select("user_id")
+            .eq("type", "game_created")
+            .eq(game_id_column, game["id"])
+            .in_("user_id", recipient_ids)
+            .execute()
+        )
+    except APIError as error:
+        if not _is_missing_column_error(error, "notifications.game_id"):
+            raise
+
+        game_id_column = "related_game_id"
+        field_id_column = "related_field_id"
+        existing_response = (
+            service_supabase.table("notifications")
+            .select("user_id")
+            .eq("type", "game_created")
+            .eq(game_id_column, game["id"])
+            .in_("user_id", recipient_ids)
+            .execute()
+        )
+
     existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
     field_name = field.get("name") or "Unknown field"
     rows = [
@@ -162,9 +251,8 @@ def create_game_created_notifications(
             "type": "game_created",
             "title": "נפתח משחק חדש",
             "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
-            "related_game_id": game["id"],
-            "related_field_id": field.get("id"),
-            "is_read": False,
+            game_id_column: game["id"],
+            field_id_column: field.get("id"),
         }
         for user_id in recipient_ids
         if user_id not in existing_user_ids
@@ -178,26 +266,67 @@ def create_game_created_notifications(
 
 @router.get("")
 def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
+    authenticated_user_id = str(current_user["id"])
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("notifications")
         .select("*")
-        .eq("user_id", current_user["id"])
+        .eq("user_id", authenticated_user_id)
         .order("created_at", desc=True)
         .execute()
     )
-    return response.data
+    return [_with_notification_target_aliases(row) for row in response.data]
+
+
+@router.get("/unread-count")
+def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_current_user)):
+    authenticated_user_id = str(current_user["id"])
+    response = (
+        get_supabase_service_role_client()
+        .table("notifications")
+        .select("*")
+        .eq("user_id", authenticated_user_id)
+        .execute()
+    )
+    unread = [row for row in (response.data or []) if _is_notification_unread(row)]
+    return {"unread_count": len(unread)}
 
 
 @router.patch("/read-all")
 def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_current_user)):
-    (
-        get_supabase_client()
-        .table("notifications")
-        .update({"is_read": True})
-        .eq("user_id", current_user["id"])
+    authenticated_user_id = str(current_user["id"])
+    client = get_supabase_service_role_client()
+
+    rows = (
+        client.table("notifications")
+        .select("*")
+        .eq("user_id", authenticated_user_id)
         .execute()
+        .data
+        or []
     )
+
+    if not rows:
+        return {"message": "Notifications marked as read"}
+
+    if _uses_read_at_column(rows[0]):
+        now = datetime.now(timezone.utc).isoformat()
+        (
+            client.table("notifications")
+            .update({"read_at": now})
+            .eq("user_id", authenticated_user_id)
+            .is_("read_at", "null")
+            .execute()
+        )
+    else:
+        (
+            client.table("notifications")
+            .update({"is_read": True})
+            .eq("user_id", authenticated_user_id)
+            .eq("is_read", False)
+            .execute()
+        )
+
     return {"message": "Notifications marked as read"}
 
 
@@ -206,17 +335,29 @@ def mark_notification_read(
     notification_id: str,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    response = (
-        get_supabase_client()
-        .table("notifications")
-        .update({"is_read": True})
+    authenticated_user_id = str(current_user["id"])
+    client = get_supabase_service_role_client()
+
+    existing = (
+        client.table("notifications")
+        .select("*")
         .eq("id", notification_id)
-        .eq("user_id", current_user["id"])
+        .eq("user_id", authenticated_user_id)
+        .limit(1)
         .execute()
     )
 
-    if not response.data:
+    if not existing.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    response = (
+        client.table("notifications")
+        .update(_mark_read_payload(existing.data[0], now))
+        .eq("id", notification_id)
+        .eq("user_id", authenticated_user_id)
+        .execute()
+    )
 
     return response.data[0]
 
@@ -399,17 +540,9 @@ def save_preferences(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")
 
     is_settings_payload = _is_settings_payload(body)
-    print(
-        "PUT /notifications/preferences",
-        {
-            "body_keys": list(body.keys()),
-            "is_settings_payload": is_settings_payload,
-        },
-    )
 
     try:
         if is_settings_payload:
-            print("PUT /notifications/preferences routing to settings handler")
             return _save_settings(body, current_user)
 
         pref = NotificationPreference(**body)

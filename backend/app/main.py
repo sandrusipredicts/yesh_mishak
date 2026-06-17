@@ -13,7 +13,12 @@ cors_origins = [
     for origin in settings.cors_origins.split(",")
     if origin.strip()
 ]
-for local_origin in ("http://localhost:5174", "http://127.0.0.1:5174"):
+for local_origin in (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+):
     if local_origin not in cors_origins:
         cors_origins.append(local_origin)
 

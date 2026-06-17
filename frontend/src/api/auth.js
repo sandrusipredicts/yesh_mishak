@@ -1,5 +1,54 @@
 import { api } from './client'
 
+function decodeBase64Url(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4)
+
+  return atob(`${base64}${padding}`)
+}
+
+export function getJwtSubject(token) {
+  if (!token) {
+    return ''
+  }
+
+  try {
+    const payload = token.split('.')[1]
+
+    if (!payload) {
+      return ''
+    }
+
+    return JSON.parse(decodeBase64Url(payload)).sub || ''
+  } catch {
+    return ''
+  }
+}
+
+export function getStoredSessionUserId() {
+  const accessToken = localStorage.getItem('access_token')
+
+  if (accessToken) {
+    return getJwtSubject(accessToken)
+  }
+
+  return (
+    localStorage.getItem('currentUserId') ||
+    localStorage.getItem('current_user_id') ||
+    localStorage.getItem('user_id') ||
+    ''
+  )
+}
+
+export function getSessionUserFromAuthData(authData) {
+  const user = authData?.user || {}
+
+  return {
+    ...user,
+    id: getJwtSubject(authData?.access_token) || user.id,
+  }
+}
+
 export async function loginWithGoogle(googleIdToken) {
   const response = await api.post('/auth/google', {
     token: googleIdToken,
@@ -33,14 +82,20 @@ export async function checkEmail(email) {
 }
 
 export function saveAuthSession(authData) {
-  localStorage.setItem('access_token', authData.access_token)
-  localStorage.setItem('currentUserId', authData.user.id)
-  localStorage.setItem('currentUserName', authData.user.name)
-  localStorage.setItem('currentUserEmail', authData.user.email)
+  const sessionUser = getSessionUserFromAuthData(authData)
 
-  if (authData.user.username) {
-    localStorage.setItem('currentUsername', authData.user.username)
+  localStorage.setItem('access_token', authData.access_token)
+  localStorage.setItem('currentUserId', sessionUser.id)
+  localStorage.setItem('currentUserName', sessionUser.name)
+  localStorage.setItem('currentUserEmail', sessionUser.email)
+
+  if (sessionUser.username) {
+    localStorage.setItem('currentUsername', sessionUser.username)
   } else {
     localStorage.removeItem('currentUsername')
   }
+
+  window.dispatchEvent(new Event('auth-session-changed'))
+
+  return sessionUser
 }

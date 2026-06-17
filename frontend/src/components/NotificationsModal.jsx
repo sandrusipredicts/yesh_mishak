@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { getFields } from '../api/fields'
 import {
   getNotificationPreferences,
-  markAllNotificationsRead,
-  markNotificationRead,
   updateNotificationPreferences,
 } from '../api/notifications'
 
@@ -81,14 +79,9 @@ function parsePreferences(preferences) {
 
 function NotificationsModal({
   fields = [],
-  notifications = [],
   onClose,
-  onNotificationsChange,
-  onRefreshNotifications,
 }) {
   const isSavingRef = useRef(false)
-  const locationAttemptRef = useRef(0)
-  const [activeTab, setActiveTab] = useState('notifications')
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -100,22 +93,6 @@ function NotificationsModal({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
-  const [notificationsError, setNotificationsError] = useState('')
-  const [readingNotificationId, setReadingNotificationId] = useState('')
-  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false)
-
-  const unreadCount = notifications.filter((notification) => !notification.is_read).length
-
-  useEffect(() => {
-    if (!onRefreshNotifications) {
-      return
-    }
-
-    onRefreshNotifications().catch(() => {
-      setNotificationsError('Could not load notifications.')
-    })
-  }, [onRefreshNotifications])
-
   useEffect(() => {
     let isMounted = true
 
@@ -174,18 +151,11 @@ function NotificationsModal({
         return
       }
 
-      const attemptId = locationAttemptRef.current + 1
-      locationAttemptRef.current = attemptId
       let isSettled = false
       let pendingErrorTimer = null
-      console.log('Requesting geolocation for radius notifications')
-      console.log('getCurrentLocation started', { attemptId })
-      console.log('Calling navigator.geolocation.getCurrentPosition')
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          console.log('Raw browser geolocation success', position)
           if (isSettled) {
-            console.log('Ignored late geolocation success after settlement', { attemptId })
             return
           }
 
@@ -197,31 +167,20 @@ function NotificationsModal({
           isSettled = true
           const lat = position.coords.latitude
           const lng = position.coords.longitude
-          console.log('Geolocation success', lat, lng)
-          console.log('getCurrentLocation resolved SUCCESS', { attemptId, lat, lng })
           resolve({
             lat,
             lng,
           })
         },
         (geolocationError) => {
-          console.log('Raw browser geolocation error', geolocationError)
           if (isSettled) {
-            console.log('Ignored late geolocation error after settlement', { attemptId })
             return
           }
 
           if (pendingErrorTimer) {
-            console.log('Ignored duplicate geolocation error while waiting for success', { attemptId })
             return
           }
 
-          const details = getGeolocationErrorDetails(geolocationError)
-          console.error('Geolocation failed', {
-            code: details.code,
-            label: details.label,
-            message: details.message,
-          })
           pendingErrorTimer = setTimeout(() => {
             if (isSettled) {
               return
@@ -229,12 +188,6 @@ function NotificationsModal({
 
             isSettled = true
             pendingErrorTimer = null
-            console.log('getCurrentLocation resolved ERROR', {
-              attemptId,
-              code: details.code,
-              label: details.label,
-              message: details.message,
-            })
             reject(new Error(formatGeolocationError(geolocationError)))
           }, GEOLOCATION_ERROR_GRACE_MS)
         },
@@ -251,7 +204,6 @@ function NotificationsModal({
     event.preventDefault()
 
     if (isSavingRef.current) {
-      console.log('Notification preferences save already in progress')
       return
     }
 
@@ -259,8 +211,6 @@ function NotificationsModal({
     setIsSaving(true)
     setError('')
     setSavedMessage('')
-    console.log('Save clicked')
-    console.log('Radius enabled', distanceEnabled)
 
     try {
       let nextDistanceLat = null
@@ -274,7 +224,6 @@ function NotificationsModal({
           nextDistanceLat = currentLocation.lat
           nextDistanceLng = currentLocation.lng
           nextDistanceEnabled = true
-          console.log('Geolocation success used for payload', nextDistanceLat, nextDistanceLng)
         } catch (locationError) {
           locationErrorMessage = locationError.message
           nextDistanceEnabled = false
@@ -294,8 +243,6 @@ function NotificationsModal({
         selected_field_ids: selectedFieldIds,
       }
 
-      console.log('about to send payload')
-      console.log('Final notification payload sent to backend', notificationPayload)
       await updateNotificationPreferences(notificationPayload)
       if (locationErrorMessage) {
         setError(`${locationErrorMessage} Distance notifications were not enabled.`)
@@ -311,119 +258,21 @@ function NotificationsModal({
     }
   }
 
-  async function handleNotificationClick(notification) {
-    if (notification.is_read || readingNotificationId) {
-      return
-    }
-
-    setNotificationsError('')
-    setReadingNotificationId(notification.id)
-
-    try {
-      const updatedNotification = await markNotificationRead(notification.id)
-      onNotificationsChange?.(
-        notifications.map((currentNotification) =>
-          currentNotification.id === notification.id
-            ? { ...currentNotification, ...updatedNotification, is_read: true }
-            : currentNotification,
-        ),
-      )
-    } catch {
-      setNotificationsError('Could not mark notification as read.')
-    } finally {
-      setReadingNotificationId('')
-    }
-  }
-
-  async function handleMarkAllRead() {
-    setNotificationsError('')
-    setIsMarkingAllRead(true)
-
-    try {
-      await markAllNotificationsRead()
-      onNotificationsChange?.(
-        notifications.map((notification) => ({
-          ...notification,
-          is_read: true,
-        })),
-      )
-    } catch {
-      setNotificationsError('Could not mark notifications as read.')
-    } finally {
-      setIsMarkingAllRead(false)
-    }
-  }
-
   return (
     <div className="modal-backdrop" role="presentation">
       <section
         className="notifications-modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="notifications-title"
+        aria-labelledby="notification-preferences-title"
       >
         <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
           x
         </button>
 
-        <h2 id="notifications-title">Notifications</h2>
+        <h2 id="notification-preferences-title">Notification Preferences</h2>
 
-        <div className="notifications-tabs" role="tablist" aria-label="Notification sections">
-          <button
-            className={activeTab === 'notifications' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'notifications'}
-            onClick={() => setActiveTab('notifications')}
-          >
-            Notifications
-          </button>
-          <button
-            className={activeTab === 'preferences' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'preferences'}
-            onClick={() => setActiveTab('preferences')}
-          >
-            Preferences
-          </button>
-        </div>
-
-        {activeTab === 'notifications' ? (
-          <section className="notifications-list-section">
-            <div className="notifications-list-header">
-              <p>{unreadCount ? `${unreadCount} unread` : 'No unread notifications'}</p>
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                disabled={!unreadCount || isMarkingAllRead}
-              >
-                {isMarkingAllRead ? 'Marking...' : 'Mark all as read'}
-              </button>
-            </div>
-
-            {notificationsError ? <p className="modal-error">{notificationsError}</p> : null}
-
-            <div className="notifications-list">
-              {notifications.length ? (
-                notifications.map((notification) => (
-                  <button
-                    className={`notification-list-item${notification.is_read ? '' : ' unread'}`}
-                    type="button"
-                    key={notification.id}
-                    onClick={() => handleNotificationClick(notification)}
-                    disabled={readingNotificationId === notification.id}
-                  >
-                    <span>{notification.title}</span>
-                    <small>{notification.body}</small>
-                  </button>
-                ))
-              ) : (
-                <p className="notifications-empty">No notifications yet.</p>
-              )}
-            </div>
-          </section>
-        ) : isLoading ? (
+        {isLoading ? (
           <p className="settings-loading">Loading preferences...</p>
         ) : (
           <form className="notifications-form" onSubmit={handleSubmit}>
