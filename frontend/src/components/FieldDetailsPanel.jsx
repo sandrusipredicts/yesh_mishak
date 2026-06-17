@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MapPin } from 'lucide-react'
 import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 
@@ -37,8 +38,27 @@ function getWaterCoolerValue(field) {
   return field.has_water_cooler ?? field.has_water
 }
 
+function getNavigationCoordinates(field) {
+  const latitude = Number(field?.lat ?? field?.latitude)
+  const longitude = Number(field?.lng ?? field?.longitude)
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null
+  }
+
+  return { latitude, longitude }
+}
+
 function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const [isOpenGameModalOpen, setIsOpenGameModalOpen] = useState(false)
+  const [isNavigationModalOpen, setIsNavigationModalOpen] = useState(false)
 
   if (!field) {
     return null
@@ -48,6 +68,24 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const playerCount = getPlayerCount(activeGame)
   const status = field.approval_status ?? field.status ?? 'Not specified'
   const isPending = String(status).toLowerCase() === 'pending'
+  const navigationCoordinates = getNavigationCoordinates(field)
+
+  function openNavigation(provider) {
+    if (!navigationCoordinates) {
+      setIsNavigationModalOpen(false)
+      return
+    }
+
+    const { latitude, longitude } = navigationCoordinates
+    const destination = `${latitude},${longitude}`
+    const url =
+      provider === 'waze'
+        ? `https://waze.com/ul?ll=${destination}&navigate=yes`
+        : `https://www.google.com/maps/dir/?api=1&destination=${destination}`
+
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setIsNavigationModalOpen(false)
+  }
 
   function handleGameStateChanged() {
     return onGameCreated?.(field.id)
@@ -110,12 +148,71 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         </button>
       )}
 
+      {navigationCoordinates ? (
+        <button
+          className="primary-panel-button navigation-panel-button"
+          type="button"
+          onClick={() => setIsNavigationModalOpen(true)}
+        >
+          <MapPin size={18} aria-hidden="true" />
+          <span>נווט למגרש</span>
+        </button>
+      ) : null}
+
       {isOpenGameModalOpen && !activeGame ? (
         <OpenGameModal
           field={field}
           onClose={() => setIsOpenGameModalOpen(false)}
           onCreated={handleGameStateChanged}
         />
+      ) : null}
+
+      {isNavigationModalOpen && navigationCoordinates ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="navigation-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="navigation-modal-title"
+          >
+            <button
+              className="modal-close-button"
+              type="button"
+              onClick={() => setIsNavigationModalOpen(false)}
+              aria-label="Close"
+            >
+              x
+            </button>
+
+            <h2 id="navigation-modal-title">פתח ניווט</h2>
+
+            <div className="navigation-options">
+              <button
+                className="navigation-option-button waze"
+                type="button"
+                onClick={() => openNavigation('waze')}
+              >
+                <span className="navigation-provider-dot" aria-hidden="true" />
+                Waze
+              </button>
+              <button
+                className="navigation-option-button google"
+                type="button"
+                onClick={() => openNavigation('google')}
+              >
+                <span className="navigation-provider-dot" aria-hidden="true" />
+                Google Maps
+              </button>
+              <button
+                className="navigation-cancel-button"
+                type="button"
+                onClick={() => setIsNavigationModalOpen(false)}
+              >
+                ביטול
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
     </aside>
   )
