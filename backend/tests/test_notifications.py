@@ -548,12 +548,58 @@ def test_save_push_token_stores_token_for_current_user(
     ]
 
 
+def test_save_push_token_supports_multiple_devices_for_same_user(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+
+    first = client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+    second = client.post(
+        "/notifications/push-token",
+        json={"token": "edge-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    tokens = fake_supabase.tables["push_tokens"]
+    assert {row["token"] for row in tokens} == {"chrome-token", "edge-token"}
+    assert all(row["user_id"] == users["candidate"]["id"] for row in tokens)
+
+
+def test_save_push_token_reregistering_same_token_does_not_duplicate(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+
+    client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+    client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    tokens = fake_supabase.tables["push_tokens"]
+    assert [row["token"] for row in tokens] == ["chrome-token"]
+
+
 def test_delete_push_token_removes_current_users_token(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
 ) -> None:
     fake_supabase.tables["push_tokens"] = [
         {"id": "own-token", "user_id": users["candidate"]["id"], "token": "own-token"},
+        {"id": "own-other-device", "user_id": users["candidate"]["id"], "token": "own-other-device"},
         {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"},
     ]
 
@@ -565,9 +611,33 @@ def test_delete_push_token_removes_current_users_token(
     )
 
     assert response.status_code == 200
+    # Only the current device token is removed; the user's other device and
+    # other users' tokens are untouched.
     assert fake_supabase.tables["push_tokens"] == [
-        {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"}
+        {"id": "own-other-device", "user_id": users["candidate"]["id"], "token": "own-other-device"},
+        {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"},
     ]
+
+
+def test_delete_push_token_requires_token_and_keeps_all_when_missing(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "device-a", "user_id": users["candidate"]["id"], "token": "device-a"},
+        {"id": "device-b", "user_id": users["candidate"]["id"], "token": "device-b"},
+    ]
+
+    response = TestClient(app).request(
+        "DELETE",
+        "/notifications/push-token",
+        json={},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 400
+    # Nothing deleted when no token is supplied.
+    assert len(fake_supabase.tables["push_tokens"]) == 2
 
 
 def test_test_push_requires_authentication(fake_supabase: FakeSupabase) -> None:

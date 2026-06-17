@@ -444,13 +444,23 @@ def delete_push_token(
     payload: PushTokenDeleteRequest | None = Body(default=None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
+    token = payload.token.strip() if payload and payload.token else ""
+    if not token:
+        # Without a token we cannot tell which device to remove. Refuse rather
+        # than deleting every token the user has registered on other browsers.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Push token is required",
+        )
+
     client = get_supabase_service_role_client()
-    query = client.table("push_tokens").delete().eq("user_id", str(current_user["id"]))
-
-    if payload and payload.token:
-        query = query.eq("token", payload.token.strip())
-
-    query.execute()
+    (
+        client.table("push_tokens")
+        .delete()
+        .eq("user_id", str(current_user["id"]))
+        .eq("token", token)
+        .execute()
+    )
     return {"message": "Push token deleted"}
 
 
