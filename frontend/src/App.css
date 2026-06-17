@@ -506,6 +506,10 @@
 
 .active-game-summary button,
 .primary-panel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   border: 0;
   border-radius: 6px;
@@ -514,6 +518,10 @@
   color: #ffffff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.navigation-panel-button {
+  margin-top: 12px;
 }
 
 .modal-backdrop {
@@ -529,6 +537,16 @@
 .open-game-modal {
   position: relative;
   width: min(420px, 100%);
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
+.navigation-modal {
+  position: relative;
+  width: min(340px, 100%);
   border-radius: 8px;
   padding: 22px;
   background: #ffffff;
@@ -560,7 +578,8 @@
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
 }
 
-.open-game-modal h2 {
+.open-game-modal h2,
+.navigation-modal h2 {
   margin: 0 0 18px;
   font-size: 22px;
 }
@@ -585,6 +604,53 @@
 .open-game-form {
   display: grid;
   gap: 14px;
+}
+
+.navigation-options {
+  display: grid;
+  gap: 10px;
+}
+
+.navigation-option-button,
+.navigation-cancel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.navigation-option-button:hover,
+.navigation-cancel-button:hover {
+  background: #f8fafc;
+}
+
+.navigation-provider-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.navigation-option-button.waze {
+  color: #15803d;
+}
+
+.navigation-option-button.google {
+  color: #2563eb;
+}
+
+.navigation-cancel-button {
+  color: #b42318;
 }
 
 .notifications-form {
