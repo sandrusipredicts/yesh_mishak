@@ -210,6 +210,7 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
             "game_players": [],
             "notification_preferences": [],
             "notifications": [],
+            "push_tokens": [],
         }
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
@@ -221,7 +222,7 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
 
 @pytest.fixture
 def fake_service_supabase() -> FakeSupabase:
-    return FakeSupabase({"notifications": []})
+    return FakeSupabase({"notifications": [], "push_tokens": []})
 
 
 def auth_headers(user: dict[str, Any]) -> dict[str, str]:
@@ -527,6 +528,283 @@ def test_read_all_sets_is_read_on_legacy_schema(
     assert "read_at" not in fake_supabase.tables["notifications"][0]
 
 
+def test_save_push_token_stores_token_for_current_user(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    response = TestClient(app).post(
+        "/notifications/push-token",
+        json={"token": "fcm-token-1"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_supabase.tables["push_tokens"] == [
+        {
+            "id": "push_tokens-1",
+            "user_id": users["candidate"]["id"],
+            "token": "fcm-token-1",
+        }
+    ]
+
+
+def test_save_push_token_supports_multiple_devices_for_same_user(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+
+    first = client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+    second = client.post(
+        "/notifications/push-token",
+        json={"token": "edge-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    tokens = fake_supabase.tables["push_tokens"]
+    assert {row["token"] for row in tokens} == {"chrome-token", "edge-token"}
+    assert all(row["user_id"] == users["candidate"]["id"] for row in tokens)
+
+
+def test_save_push_token_reregistering_same_token_does_not_duplicate(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+
+    client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+    client.post(
+        "/notifications/push-token",
+        json={"token": "chrome-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    tokens = fake_supabase.tables["push_tokens"]
+    assert [row["token"] for row in tokens] == ["chrome-token"]
+
+
+def test_delete_push_token_removes_current_users_token(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "own-token", "user_id": users["candidate"]["id"], "token": "own-token"},
+        {"id": "own-other-device", "user_id": users["candidate"]["id"], "token": "own-other-device"},
+        {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"},
+    ]
+
+    response = TestClient(app).request(
+        "DELETE",
+        "/notifications/push-token",
+        json={"token": "own-token"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    # Only the current device token is removed; the user's other device and
+    # other users' tokens are untouched.
+    assert fake_supabase.tables["push_tokens"] == [
+        {"id": "own-other-device", "user_id": users["candidate"]["id"], "token": "own-other-device"},
+        {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"},
+    ]
+
+
+def test_delete_push_token_requires_token_and_keeps_all_when_missing(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "device-a", "user_id": users["candidate"]["id"], "token": "device-a"},
+        {"id": "device-b", "user_id": users["candidate"]["id"], "token": "device-b"},
+    ]
+
+    response = TestClient(app).request(
+        "DELETE",
+        "/notifications/push-token",
+        json={},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 400
+    # Nothing deleted when no token is supplied.
+    assert len(fake_supabase.tables["push_tokens"]) == 2
+
+
+def test_test_push_requires_authentication(fake_supabase: FakeSupabase) -> None:
+    response = TestClient(app).post("/notifications/test-push")
+
+    assert response.status_code == 401
+
+
+def test_test_push_sends_to_current_users_tokens(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    sent_tokens: list[str] = []
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "own-token", "user_id": users["candidate"]["id"], "token": "own-token"},
+        {"id": "other-token", "user_id": users["other"]["id"], "token": "other-token"},
+    ]
+
+    def fake_send(token: str, title: str, body: str, data: dict[str, Any]) -> dict[str, Any]:
+        sent_tokens.append(token)
+        assert title == "Test notification"
+        assert body == "Push notifications are ready."
+        assert data == {"type": "test_push"}
+        return {"ok": True}
+
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", fake_send)
+
+    response = TestClient(app).post(
+        "/notifications/test-push",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"sent": 1, "invalid_tokens": 0}
+    assert sent_tokens == ["own-token"]
+
+
+def test_save_settings_deletes_unchecked_specific_field_preferences(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    unchecked_field_id = "00000000-0000-0000-0000-000000000101"
+    kept_field_id = "00000000-0000-0000-0000-000000000202"
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-radius",
+            "user_id": users["candidate"]["id"],
+            "enabled": False,
+            "sport_type": "both",
+            "notification_type": "radius",
+        },
+        {
+            "id": "pref-city",
+            "user_id": users["candidate"]["id"],
+            "enabled": False,
+            "sport_type": "both",
+            "notification_type": "city",
+        },
+        {
+            "id": "pref-unchecked-field",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": unchecked_field_id,
+        },
+        {
+            "id": "pref-kept-field",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": kept_field_id,
+        },
+    ]
+
+    response = TestClient(app).put(
+        "/notifications/preferences",
+        json={
+            "distance_enabled": False,
+            "distance_radius_km": 5,
+            "distance_lat": None,
+            "distance_lng": None,
+            "city_enabled": False,
+            "city_name": "ירוחם",
+            "specific_fields_enabled": True,
+            "selected_field_ids": [kept_field_id],
+        },
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    remaining_specific_fields = [
+        preference.get("field_id")
+        for preference in fake_supabase.tables["notification_preferences"]
+        if preference.get("notification_type") == "specific_field"
+    ]
+    assert remaining_specific_fields == [kept_field_id]
+
+
+def test_create_game_does_not_notify_for_unchecked_specific_field(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    sent_tokens: list[str] = []
+    unchecked_field_id = "00000000-0000-0000-0000-000000000101"
+    selected_field_id = "00000000-0000-0000-0000-000000000202"
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-radius-disabled",
+            "user_id": users["candidate"]["id"],
+            "enabled": False,
+            "sport_type": "both",
+            "notification_type": "radius",
+            "radius_km": 100,
+            "lat": 30.9872,
+            "lng": 34.9314,
+        },
+        {
+            "id": "pref-city-disabled",
+            "user_id": users["candidate"]["id"],
+            "enabled": False,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "ירוחם",
+        },
+        {
+            "id": "pref-selected-other-field",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": selected_field_id,
+        },
+    ]
+    fake_service_supabase.tables["push_tokens"] = [
+        {"id": "candidate-token", "user_id": users["candidate"]["id"], "token": "candidate-token"}
+    ]
+
+    monkeypatch.setattr(
+        "app.routers.notifications.send_fcm_notification",
+        lambda token, title, body, data: sent_tokens.append(token) or {"ok": True},
+    )
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": unchecked_field_id,
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_service_supabase.tables["notifications"] == []
+    assert sent_tokens == []
+
+
 def test_create_game_generates_notifications_for_matching_candidates_except_organizer(
     fake_supabase: FakeSupabase,
     fake_service_supabase: FakeSupabase,
@@ -581,6 +859,67 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
     # either schema (read_at NULL / is_read false).
     assert notifications[0].get("read_at") is None
     assert "read_at" not in notifications[0]
+
+
+def test_create_game_sends_push_to_matching_candidate_and_removes_invalid_tokens(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    sent_tokens: list[str] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-organizer",
+            "user_id": users["organizer"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": "00000000-0000-0000-0000-000000000101",
+        },
+        {
+            "id": "pref-candidate",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": "00000000-0000-0000-0000-000000000101",
+        },
+    ]
+    fake_service_supabase.tables["push_tokens"] = [
+        {"id": "candidate-token", "user_id": users["candidate"]["id"], "token": "invalid-token"},
+        {"id": "organizer-token", "user_id": users["organizer"]["id"], "token": "organizer-token"},
+    ]
+
+    def fake_send(token: str, title: str, body: str, data: dict[str, Any]) -> dict[str, Any]:
+        sent_tokens.append(token)
+        assert title == "נפתח משחק חדש"
+        assert body == "נפתח משחק football במגרש Central Court"
+        assert data["type"] == "game_created"
+        return {"ok": False, "invalid_token": True}
+
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", fake_send)
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert sent_tokens == ["invalid-token"]
+    assert fake_service_supabase.tables["push_tokens"] == [
+        {"id": "organizer-token", "user_id": users["organizer"]["id"], "token": "organizer-token"}
+    ]
 
 
 def test_create_game_notifications_support_legacy_related_game_columns(

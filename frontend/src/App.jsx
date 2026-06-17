@@ -7,6 +7,7 @@ import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId } from './api/auth'
+import { startForegroundPushNotifications } from './firebaseMessaging'
 
 function getStoredUser() {
   const accessToken = localStorage.getItem('access_token')
@@ -56,6 +57,14 @@ function App() {
       window.removeEventListener('auth-session-changed', refreshStoredUser)
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) {
+      return
+    }
+
+    startForegroundPushNotifications().catch(() => {})
+  }, [currentUser])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('access_token')

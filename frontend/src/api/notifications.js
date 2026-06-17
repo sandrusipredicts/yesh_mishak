@@ -29,3 +29,20 @@ export async function markAllNotificationsRead() {
   const response = await api.patch('/notifications/read-all')
   return response.data
 }
+
+export async function savePushToken(token) {
+  const response = await api.post('/notifications/push-token', { token })
+  return response.data
+}
+
+export async function deletePushToken(token) {
+  const response = await api.delete('/notifications/push-token', {
+    data: token ? { token } : {},
+  })
+  return response.data
+}
+
+export async function sendTestPush() {
+  const response = await api.post('/notifications/test-push')
+  return response.data
+}

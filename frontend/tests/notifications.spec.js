@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { Buffer } from 'node:buffer'
 
 const user = {
   id: 'regular-user-1',
@@ -15,18 +16,30 @@ function fulfillJson(route, body, status = 200) {
   })
 }
 
+function encodeBase64Url(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+function makeJwtWithSubject(userId) {
+  return [
+    encodeBase64Url(JSON.stringify({ alg: 'none', typ: 'JWT' })),
+    encodeBase64Url(JSON.stringify({ sub: userId })),
+    'signature',
+  ].join('.')
+}
+
 async function seedAuthenticatedUser(page) {
   await page.addInitScript((storedUser) => {
-    localStorage.setItem('access_token', `${storedUser.role}-token`)
+    localStorage.setItem('access_token', storedUser.token)
     localStorage.setItem('currentUserId', storedUser.id)
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
-  }, user)
+  }, { ...user, token: makeJwtWithSubject(user.id) })
 }
 
 async function mockMapRequests(page) {
-  await page.route('http://localhost:8001/fields**', (route) => fulfillJson(route, []))
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/fields.*/, (route) => fulfillJson(route, []))
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
@@ -65,7 +78,7 @@ test('notification button shows unread count and clicking a notification marks i
     },
   ]
 
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications') {
@@ -112,7 +125,7 @@ test('mark all as read clears the unread notification count', async ({ page }) =
     },
   ]
 
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications') {
@@ -163,7 +176,7 @@ test('legacy is_read notifications use the correct read state', async ({ page })
     },
   ]
 
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications') {
@@ -198,7 +211,7 @@ test('legacy is_read notifications use the correct read state', async ({ page })
 test('notification preferences modal loads and saves settings', async ({ page }) => {
   let savedPayload
 
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications') {

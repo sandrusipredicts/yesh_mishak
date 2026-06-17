@@ -32,7 +32,37 @@ JWT_SECRET=
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=10080
+FIREBASE_PROJECT_ID=
+FIREBASE_SERVICE_ACCOUNT_JSON=
+FIREBASE_SERVICE_ACCOUNT_FILE=
 ```
+
+For Firebase Cloud Messaging, set `FIREBASE_PROJECT_ID`. The current Firebase
+project is:
+
+```text
+FIREBASE_PROJECT_ID=yesh-mishak
+```
+
+The backend supports these credential sources, in order:
+
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: the full Firebase service account JSON as an environment variable.
+- `FIREBASE_SERVICE_ACCOUNT_FILE`: an absolute or backend-relative path to a service account JSON file.
+- Application Default Credentials (ADC), used when neither service account variable is configured.
+
+For local ADC without a service account JSON key:
+
+```bash
+gcloud auth application-default login
+gcloud config set project yesh-mishak
+```
+
+The signed-in Google account must have permission to send Firebase Cloud
+Messaging messages for the `yesh-mishak` project. Keep
+`FIREBASE_SERVICE_ACCOUNT_JSON` and `FIREBASE_SERVICE_ACCOUNT_FILE` empty when
+using ADC locally.
+
+Do not expose Firebase service account JSON or private keys to the frontend.
 
 Run the API locally:
 
