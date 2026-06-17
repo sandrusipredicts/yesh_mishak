@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 const FIELD_ID = 'field-codex-notification-test'
 const FIELD_NAME = 'Codex notification test field'
 const CITY = 'ירוחם'
+const CITY_PREFIX = 'יר'
 
 const users = {
   userA: {
@@ -313,7 +314,8 @@ async function saveCityPreference(page) {
   await openPreferences(page)
   await page.getByLabel('Distance notifications').uncheck()
   await page.getByLabel('City notifications').check()
-  await page.getByRole('textbox', { name: 'City' }).fill(CITY)
+  await page.getByRole('combobox', { name: 'City' }).fill(CITY_PREFIX)
+  await page.getByRole('option', { name: CITY, exact: true }).click()
   await page.getByLabel('Specific fields notifications').uncheck()
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('Notification preferences saved.')).toBeVisible()

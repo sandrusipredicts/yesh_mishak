@@ -8,7 +8,9 @@ import {
   sendTestPush,
   updateNotificationPreferences,
 } from '../api/notifications'
+import { israelCities } from '../data/israelCities'
 import { requestFirebasePushToken } from '../firebaseMessaging'
+import CityAutocomplete from './CityAutocomplete'
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
@@ -224,6 +226,14 @@ function NotificationsModal({
     setSavedMessage('')
 
     try {
+      const trimmedCity = cityName.trim()
+      const isValidCity = israelCities.includes(trimmedCity)
+
+      if (cityEnabled && !isValidCity) {
+        setError('Please pick a city from the suggestions.')
+        return
+      }
+
       let nextDistanceLat = null
       let nextDistanceLng = null
       let nextDistanceEnabled = false
@@ -249,7 +259,7 @@ function NotificationsModal({
         distance_lat: nextDistanceLat,
         distance_lng: nextDistanceLng,
         city_enabled: cityEnabled,
-        city_name: cityName.trim() || DEFAULT_CITY,
+        city_name: isValidCity ? trimmedCity : DEFAULT_CITY,
         specific_fields_enabled: specificFieldsEnabled,
         selected_field_ids: selectedFieldIds,
       }
@@ -392,15 +402,16 @@ function NotificationsModal({
                   />
                   City notifications
                 </label>
-                <label className="settings-input">
-                  City
-                  <input
-                    type="text"
+                <div className="settings-input">
+                  <label htmlFor="notifications-city-input">City</label>
+                  <CityAutocomplete
+                    id="notifications-city-input"
                     value={cityName}
-                    onChange={(event) => setCityName(event.target.value)}
+                    onChange={setCityName}
                     disabled={!cityEnabled}
+                    cities={israelCities}
                   />
-                </label>
+                </div>
               </section>
 
               <section className="settings-section">
