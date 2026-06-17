@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { Buffer } from 'node:buffer'
 
 const adminUser = {
   id: 'admin-user-1',
@@ -29,6 +30,18 @@ function fulfillJson(route, body, status = 200) {
   })
 }
 
+function encodeBase64Url(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+function makeJwtWithSubject(userId) {
+  return [
+    encodeBase64Url(JSON.stringify({ alg: 'none', typ: 'JWT' })),
+    encodeBase64Url(JSON.stringify({ sub: userId })),
+    'signature',
+  ].join('.')
+}
+
 async function mockGoogleLoginScript(page) {
   await page.route('https://accounts.google.com/gsi/client', (route) =>
     route.fulfill({
@@ -52,12 +65,12 @@ async function mockGoogleLoginScript(page) {
 
 async function seedAuthenticatedUser(page, user) {
   await page.addInitScript((storedUser) => {
-    localStorage.setItem('access_token', `${storedUser.role}-token`)
+    localStorage.setItem('access_token', storedUser.token)
     localStorage.setItem('currentUserId', storedUser.id)
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
-  }, user)
+  }, { ...user, token: makeJwtWithSubject(user.id) })
 }
 
 async function mockMapRequests(page) {
@@ -65,6 +78,19 @@ async function mockMapRequests(page) {
     const url = new URL(route.request().url())
 
     if (url.pathname === '/fields') {
+      return fulfillJson(route, [])
+    }
+
+    return route.continue()
+  })
+  await page.route('**/notifications**', (route) => {
+    const url = new URL(route.request().url())
+
+    if (url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, { unread_count: 0 })
+    }
+
+    if (url.pathname === '/notifications') {
       return fulfillJson(route, [])
     }
 

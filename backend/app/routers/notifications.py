@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -37,6 +38,14 @@ class NotificationSettings(BaseModel):
     city_name: str = "ירוחם"
     specific_fields_enabled: bool = False
     selected_field_ids: list[str] = Field(default_factory=list)
+
+
+class PushTokenRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class PushTokenDeleteRequest(BaseModel):
+    token: str | None = None
 
 
 SETTINGS_PAYLOAD_KEYS = {
@@ -143,6 +152,99 @@ def _with_notification_target_aliases(notification: dict[str, Any]) -> dict[str,
     return normalized_notification
 
 
+def _push_data(notification: dict[str, Any]) -> dict[str, Any]:
+    normalized_notification = _with_notification_target_aliases(notification)
+    return {
+        "notification_id": normalized_notification.get("id"),
+        "type": normalized_notification.get("type"),
+        "game_id": normalized_notification.get("game_id"),
+        "field_id": normalized_notification.get("field_id"),
+    }
+
+
+def _delete_push_token(client: Any, token: str) -> None:
+    client.table("push_tokens").delete().eq("token", token).execute()
+
+
+def _send_push_to_tokens(
+    client: Any,
+    tokens: list[dict[str, Any]],
+    title: str,
+    body: str,
+    data: dict[str, Any] | None = None,
+    suppress_config_error: bool = True,
+) -> dict[str, int]:
+    sent = 0
+    invalid_tokens = 0
+
+    for token_row in tokens:
+        token = token_row.get("token")
+        if not token:
+            continue
+
+        try:
+            result = send_fcm_notification(token, title, body, data)
+        except FirebaseConfigError:
+            if not suppress_config_error:
+                raise
+            return {"sent": sent, "invalid_tokens": invalid_tokens}
+        except Exception:
+            continue
+
+        if result.get("invalid_token"):
+            invalid_tokens += 1
+            _delete_push_token(client, token)
+        elif result.get("ok"):
+            sent += 1
+
+    return {"sent": sent, "invalid_tokens": invalid_tokens}
+
+
+def _send_push_for_notifications(
+    client: Any,
+    notifications: list[dict[str, Any]],
+) -> dict[str, int]:
+    if not notifications:
+        return {"sent": 0, "invalid_tokens": 0}
+
+    user_ids = list(
+        dict.fromkeys(
+            str(notification["user_id"])
+            for notification in notifications
+            if notification.get("user_id")
+        )
+    )
+    if not user_ids:
+        return {"sent": 0, "invalid_tokens": 0}
+
+    tokens = (
+        client.table("push_tokens")
+        .select("*")
+        .in_("user_id", user_ids)
+        .execute()
+        .data
+        or []
+    )
+    tokens_by_user_id: dict[str, list[dict[str, Any]]] = {}
+    for token in tokens:
+        tokens_by_user_id.setdefault(str(token.get("user_id")), []).append(token)
+
+    totals = {"sent": 0, "invalid_tokens": 0}
+    for notification in notifications:
+        user_tokens = tokens_by_user_id.get(str(notification.get("user_id")), [])
+        result = _send_push_to_tokens(
+            client,
+            user_tokens,
+            str(notification.get("title") or ""),
+            str(notification.get("body") or ""),
+            _push_data(notification),
+        )
+        totals["sent"] += result["sent"]
+        totals["invalid_tokens"] += result["invalid_tokens"]
+
+    return totals
+
+
 def _find_notification_candidates(
     supabase: Any,
     field: dict[str, Any],
@@ -163,7 +265,11 @@ def _find_notification_candidates(
             continue
 
         reason = None
-        if pref.get("notification_type") == "specific_field" and pref.get("field_id") == field.get("id"):
+        if (
+            pref.get("notification_type") == "specific_field"
+            and _field_key(pref.get("field_id"))
+            and _field_key(pref.get("field_id")) == _field_key(field.get("id"))
+        ):
             reason = "specific_field_and_sport_match"
         elif pref.get("notification_type") == "city":
             if _normalize_city(pref.get("city")) and _normalize_city(pref.get("city")) == _normalize_city(field.get("city")):
@@ -261,7 +367,9 @@ def create_game_created_notifications(
     if not rows:
         return []
 
-    return service_supabase.table("notifications").insert(rows).execute().data or []
+    notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
 
 
 @router.get("")
@@ -290,6 +398,99 @@ def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_cur
     )
     unread = [row for row in (response.data or []) if _is_notification_unread(row)]
     return {"unread_count": len(unread)}
+
+
+@router.post("/push-token")
+def save_push_token(
+    payload: PushTokenRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    client = get_supabase_service_role_client()
+    token = payload.token.strip()
+    user_id = str(current_user["id"])
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Push token is required")
+
+    existing = (
+        client.table("push_tokens")
+        .select("*")
+        .eq("token", token)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    row = {
+        "user_id": user_id,
+        "token": token,
+    }
+
+    if existing:
+        response = (
+            client.table("push_tokens")
+            .update(row)
+            .eq("id", existing[0]["id"])
+            .execute()
+        )
+    else:
+        response = client.table("push_tokens").insert(row).execute()
+
+    return {"message": "Push token saved", "push_token": response.data[0]}
+
+
+@router.delete("/push-token")
+def delete_push_token(
+    payload: PushTokenDeleteRequest | None = Body(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    client = get_supabase_service_role_client()
+    query = client.table("push_tokens").delete().eq("user_id", str(current_user["id"]))
+
+    if payload and payload.token:
+        query = query.eq("token", payload.token.strip())
+
+    query.execute()
+    return {"message": "Push token deleted"}
+
+
+@router.post("/test-push")
+def send_test_push(current_user: dict[str, Any] = Depends(get_current_user)):
+    client = get_supabase_service_role_client()
+    tokens = (
+        client.table("push_tokens")
+        .select("*")
+        .eq("user_id", str(current_user["id"]))
+        .execute()
+        .data
+        or []
+    )
+
+    if not tokens:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No push token registered")
+
+    try:
+        result = _send_push_to_tokens(
+            client,
+            tokens,
+            "Test notification",
+            "Push notifications are ready.",
+            {"type": "test_push"},
+            suppress_config_error=False,
+        )
+    except FirebaseConfigError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+
+    if result["sent"] == 0 and result["invalid_tokens"] == 0:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Push notification could not be sent",
+        )
+
+    return result
 
 
 @router.patch("/read-all")
@@ -365,7 +566,7 @@ def mark_notification_read(
 @router.get("/preferences")
 def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("notification_preferences")
         .select("*")
         .eq("user_id", current_user["id"])
@@ -411,7 +612,7 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
         settings_data["selected_field_ids"] = []
 
     settings = NotificationSettings(**settings_data)
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_role_client()
     user_id = current_user["id"]
 
     existing_response = (
@@ -471,7 +672,11 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
         )
     )
 
-    selected_field_ids = list(dict.fromkeys(settings.selected_field_ids))
+    selected_field_ids = [
+        field_id
+        for field_id in dict.fromkeys(settings.selected_field_ids)
+        if _field_key(field_id)
+    ]
     desired_specific_rows = [
         {
             "user_id": user_id,
@@ -485,22 +690,8 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
             "field_id": field_id,
         }
         for field_id in selected_field_ids
+        if settings.specific_fields_enabled
     ]
-
-    if not desired_specific_rows:
-        desired_specific_rows.append(
-            {
-                "user_id": user_id,
-                "enabled": settings.specific_fields_enabled,
-                "sport_type": "both",
-                "notification_type": "specific_field",
-                "radius_km": None,
-                "lat": None,
-                "lng": None,
-                "city": None,
-                "field_id": None,
-            }
-        )
 
     kept_specific_ids: set[str] = set()
 
@@ -550,7 +741,7 @@ def save_preferences(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.errors()) from error
 
     _validate_preference(pref)
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_role_client()
 
     existing = (
         supabase.table("notification_preferences")

@@ -39,8 +39,8 @@ function makeJwtWithSubject(userId) {
 }
 
 async function mockSharedRequests(page, fields) {
-  await page.route('http://localhost:8001/fields**', (route) => fulfillJson(route, fields))
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/fields.*/, (route) => fulfillJson(route, fields))
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname === '/notifications/unread-count') {
@@ -100,7 +100,7 @@ function makeActiveGame(createdBy = 'organizer-user', participants = []) {
 }
 
 async function mockNotificationsAndTiles(page) {
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname === '/notifications/unread-count') {
@@ -113,7 +113,7 @@ async function mockNotificationsAndTiles(page) {
 }
 
 async function mockFieldState(page, getField) {
-  await page.route('http://localhost:8001/fields**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/fields.*/, (route) => {
     const url = new URL(route.request().url())
     const field = getField()
 
@@ -139,7 +139,7 @@ test('non-organizer does not see the close game button', async ({ page }) => {
     token: 'current-token',
   })
   await mockSharedRequests(page, makeFieldWithActiveGame('organizer-user'))
-  await page.route('http://localhost:8001/games/game-1/close', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/close/, (route) => {
     closeRequestCount += 1
     return fulfillJson(route, { detail: 'Forbidden' }, 403)
   })
@@ -164,7 +164,7 @@ test('non-organizer token subject cannot see or trigger close with stale organiz
     token: makeJwtWithSubject(tokenUserId),
   })
   await mockSharedRequests(page, makeFieldWithActiveGame(organizerId))
-  await page.route('http://localhost:8001/games/game-1/close', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/close/, (route) => {
     closeRequestCount += 1
     return fulfillJson(route, { detail: 'Forbidden' }, 403)
   })
@@ -204,7 +204,7 @@ test('organizer close game request sends authorization and no body', async ({ pa
 
   await seedAuthenticatedUser(page, user)
   await mockSharedRequests(page, makeFieldWithActiveGame(user.id))
-  await page.route('http://localhost:8001/games/game-1/close', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/close/, (route) => {
     closeRequest = route.request()
     return fulfillJson(route, {
       message: 'Game closed',
@@ -239,11 +239,11 @@ test('participant sees leave and leave request refreshes fields', async ({ page 
   ])
 
   await seedAuthenticatedUser(page, user)
-  await page.route('http://localhost:8001/fields**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/fields.*/, (route) => {
     fieldRequestCount += 1
     return fulfillJson(route, fields)
   })
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname === '/notifications/unread-count') {
@@ -252,7 +252,7 @@ test('participant sees leave and leave request refreshes fields', async ({ page 
 
     return fulfillJson(route, [])
   })
-  await page.route('http://localhost:8001/games/game-1/leave', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/leave/, (route) => {
     leaveRequest = route.request()
     return fulfillJson(route, {
       message: 'Left successfully',
@@ -365,11 +365,11 @@ test('non-participant sees im coming and join request refreshes fields', async (
   ])
 
   await seedAuthenticatedUser(page, user)
-  await page.route('http://localhost:8001/fields**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/fields.*/, (route) => {
     fieldRequestCount += 1
     return fulfillJson(route, fields)
   })
-  await page.route('http://localhost:8001/notifications**', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname === '/notifications/unread-count') {
@@ -378,7 +378,7 @@ test('non-participant sees im coming and join request refreshes fields', async (
 
     return fulfillJson(route, [])
   })
-  await page.route('http://localhost:8001/games/game-1/join', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/join/, (route) => {
     joinRequest = route.request()
     return fulfillJson(route, {
       message: 'Joined successfully',
@@ -430,7 +430,7 @@ test('after close game selected field refreshes to no active game', async ({ pag
   await seedAuthenticatedUser(page, user)
   await mockFieldState(page, () => makeField(isActive ? makeActiveGame(user.id) : null))
   await mockNotificationsAndTiles(page)
-  await page.route('http://localhost:8001/games/game-1/close', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/close/, (route) => {
     isActive = false
     return fulfillJson(route, {
       message: 'Game closed',
@@ -472,7 +472,7 @@ test('after open game selected field refreshes to active game', async ({ page })
     ),
   )
   await mockNotificationsAndTiles(page)
-  await page.route('http://localhost:8001/games/', (route) => {
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\//, (route) => {
     isActive = true
     return fulfillJson(route, {
       message: 'Game created',

@@ -93,6 +93,8 @@ create index if not exists idx_game_players_user_id on game_players(user_id);
 create index if not exists idx_notification_preferences_user_id on notification_preferences(user_id);
 create index if not exists idx_notification_preferences_field_id on notification_preferences(field_id);
 create index if not exists idx_notification_preferences_enabled on notification_preferences(enabled);
+grant usage on schema public to service_role;
+grant select, insert, update, delete on table public.notification_preferences to service_role;
 create index if not exists idx_notifications_user_id on notifications(user_id);
 create index if not exists idx_notifications_read_at on notifications(read_at);
 create index if not exists idx_notifications_created_at on notifications(created_at);

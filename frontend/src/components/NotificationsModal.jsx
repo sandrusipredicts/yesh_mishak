@@ -2,14 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 
 import { getFields } from '../api/fields'
 import {
+  deletePushToken,
   getNotificationPreferences,
+  savePushToken,
+  sendTestPush,
   updateNotificationPreferences,
 } from '../api/notifications'
+import { requestFirebasePushToken } from '../firebaseMessaging'
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
 const GEOLOCATION_TIMEOUT_MS = 15000
 const GEOLOCATION_ERROR_GRACE_MS = 1200
+const STORED_PUSH_TOKEN_KEY = 'firebase_push_token'
 
 function getGeolocationErrorDetails(error) {
   if (!error || typeof error.code !== 'number') {
@@ -72,6 +77,7 @@ function parsePreferences(preferences) {
     cityName: cityPreference?.city ?? DEFAULT_CITY,
     specificFieldsEnabled: fieldPreferences.some((preference) => preference.enabled),
     selectedFieldIds: fieldPreferences
+      .filter((preference) => preference.enabled)
       .map((preference) => preference.field_id)
       .filter(Boolean),
   }
@@ -91,8 +97,13 @@ function NotificationsModal({
   const [selectedFieldIds, setSelectedFieldIds] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isPushSaving, setIsPushSaving] = useState(false)
+  const [pushToken, setPushToken] = useState(
+    () => localStorage.getItem(STORED_PUSH_TOKEN_KEY) || '',
+  )
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
+  const [pushMessage, setPushMessage] = useState('')
   useEffect(() => {
     let isMounted = true
 
@@ -258,6 +269,57 @@ function NotificationsModal({
     }
   }
 
+  async function handleEnablePush() {
+    setIsPushSaving(true)
+    setError('')
+    setPushMessage('')
+
+    try {
+      const token = await requestFirebasePushToken()
+      await savePushToken(token)
+      localStorage.setItem(STORED_PUSH_TOKEN_KEY, token)
+      setPushToken(token)
+      setPushMessage('Push notifications enabled on this browser.')
+    } catch (pushError) {
+      setError(pushError.message || 'Could not enable push notifications.')
+    } finally {
+      setIsPushSaving(false)
+    }
+  }
+
+  async function handleDisablePush() {
+    setIsPushSaving(true)
+    setError('')
+    setPushMessage('')
+
+    try {
+      await deletePushToken(pushToken)
+      localStorage.removeItem(STORED_PUSH_TOKEN_KEY)
+      setPushToken('')
+      setPushMessage('Push notifications disabled on this browser.')
+    } catch (pushError) {
+      setError(pushError.message || 'Could not disable push notifications.')
+    } finally {
+      setIsPushSaving(false)
+    }
+  }
+
+  async function handleTestPush() {
+    setIsPushSaving(true)
+    setError('')
+    setPushMessage('')
+
+    try {
+      await sendTestPush()
+      setPushMessage('Test push sent.')
+    } catch (pushError) {
+      const detail = pushError?.response?.data?.detail
+      setError(detail || pushError.message || 'Could not send test push.')
+    } finally {
+      setIsPushSaving(false)
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section
@@ -275,85 +337,109 @@ function NotificationsModal({
         {isLoading ? (
           <p className="settings-loading">Loading preferences...</p>
         ) : (
-          <form className="notifications-form" onSubmit={handleSubmit}>
+          <>
             <section className="settings-section">
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={distanceEnabled}
-                  onChange={(event) => setDistanceEnabled(event.target.checked)}
-                />
-                Distance notifications
-              </label>
-              <label className="settings-range">
-                Radius: {distanceRadiusKm} km
-                <input
-                  type="range"
-                  min="1"
-                  max="20"
-                  value={distanceRadiusKm}
-                  onChange={(event) => setDistanceRadiusKm(event.target.value)}
-                  disabled={!distanceEnabled}
-                />
-              </label>
-            </section>
-
-            <section className="settings-section">
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={cityEnabled}
-                  onChange={(event) => setCityEnabled(event.target.checked)}
-                />
-                City notifications
-              </label>
-              <label className="settings-input">
-                City
-                <input
-                  type="text"
-                  value={cityName}
-                  onChange={(event) => setCityName(event.target.value)}
-                  disabled={!cityEnabled}
-                />
-              </label>
-            </section>
-
-            <section className="settings-section">
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={specificFieldsEnabled}
-                  onChange={(event) => setSpecificFieldsEnabled(event.target.checked)}
-                />
-                Specific fields notifications
-              </label>
-
-              <div className="field-selection-list">
-                {availableFields.length ? (
-                  availableFields.map((field) => (
-                    <label className="field-selection-option" key={field.id}>
-                      <input
-                        type="checkbox"
-                        checked={selectedFieldIds.includes(field.id)}
-                        onChange={() => toggleSelectedField(field.id)}
-                        disabled={!specificFieldsEnabled}
-                      />
-                      {getFieldLabel(field)}
-                    </label>
-                  ))
-                ) : (
-                  <p>No fields available.</p>
-                )}
+              <div className="push-actions">
+                <button
+                  className="secondary-panel-button"
+                  type="button"
+                  onClick={pushToken ? handleDisablePush : handleEnablePush}
+                  disabled={isPushSaving}
+                >
+                  {pushToken ? 'Disable push' : 'Enable push'}
+                </button>
+                <button
+                  className="secondary-panel-button"
+                  type="button"
+                  onClick={handleTestPush}
+                  disabled={isPushSaving || !pushToken}
+                >
+                  Test push
+                </button>
               </div>
+              {pushMessage ? <p className="modal-success">{pushMessage}</p> : null}
             </section>
 
-            {error ? <p className="modal-error">{error}</p> : null}
-            {savedMessage ? <p className="modal-success">{savedMessage}</p> : null}
+            <form className="notifications-form" onSubmit={handleSubmit}>
+              <section className="settings-section">
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={distanceEnabled}
+                    onChange={(event) => setDistanceEnabled(event.target.checked)}
+                  />
+                  Distance notifications
+                </label>
+                <label className="settings-range">
+                  Radius: {distanceRadiusKm} km
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
+                    value={distanceRadiusKm}
+                    onChange={(event) => setDistanceRadiusKm(event.target.value)}
+                    disabled={!distanceEnabled}
+                  />
+                </label>
+              </section>
 
-            <button className="primary-panel-button" type="submit" disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save'}
-            </button>
-          </form>
+              <section className="settings-section">
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={cityEnabled}
+                    onChange={(event) => setCityEnabled(event.target.checked)}
+                  />
+                  City notifications
+                </label>
+                <label className="settings-input">
+                  City
+                  <input
+                    type="text"
+                    value={cityName}
+                    onChange={(event) => setCityName(event.target.value)}
+                    disabled={!cityEnabled}
+                  />
+                </label>
+              </section>
+
+              <section className="settings-section">
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={specificFieldsEnabled}
+                    onChange={(event) => setSpecificFieldsEnabled(event.target.checked)}
+                  />
+                  Specific fields notifications
+                </label>
+
+                <div className="field-selection-list">
+                  {availableFields.length ? (
+                    availableFields.map((field) => (
+                      <label className="field-selection-option" key={field.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedFieldIds.includes(field.id)}
+                          onChange={() => toggleSelectedField(field.id)}
+                          disabled={!specificFieldsEnabled}
+                        />
+                        {getFieldLabel(field)}
+                      </label>
+                    ))
+                  ) : (
+                    <p>No fields available.</p>
+                  )}
+                </div>
+              </section>
+
+              {error ? <p className="modal-error">{error}</p> : null}
+              {savedMessage ? <p className="modal-success">{savedMessage}</p> : null}
+
+              <button className="primary-panel-button" type="submit" disabled={isSaving}>
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </form>
+          </>
         )}
       </section>
     </div>

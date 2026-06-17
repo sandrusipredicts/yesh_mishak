@@ -752,6 +752,12 @@
   padding: 14px;
 }
 
+.push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .settings-toggle,
 .settings-range,
 .settings-input,

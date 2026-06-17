@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expire_minutes: int = Field(default=10080, alias="JWT_EXPIRE_MINUTES")
+    firebase_project_id: str | None = Field(default=None, alias="FIREBASE_PROJECT_ID")
+    firebase_service_account_json: str | None = Field(
+        default=None,
+        alias="FIREBASE_SERVICE_ACCOUNT_JSON",
+    )
+    firebase_service_account_file: str | None = Field(
+        default=None,
+        alias="FIREBASE_SERVICE_ACCOUNT_FILE",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
