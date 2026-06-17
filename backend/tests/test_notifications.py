@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from postgrest.exceptions import APIError
 
 from app.auth.jwt import create_access_token
 from app.core.config import get_settings
@@ -35,6 +36,7 @@ class FakeQuery:
         return self
 
     def eq(self, column: str, value: Any) -> "FakeQuery":
+        self.database.raise_if_missing_column(self.table_name, column)
         self.filters.append((column, value))
         return self
 
@@ -58,6 +60,10 @@ class FakeQuery:
         return self
 
     def insert(self, payload: dict[str, Any] | list[dict[str, Any]]) -> "FakeQuery":
+        payloads = payload if isinstance(payload, list) else [payload]
+        for row in payloads:
+            for column in row:
+                self.database.raise_if_missing_column(self.table_name, column)
         self.insert_payload = payload
         return self
 
@@ -118,13 +124,29 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
+    def __init__(
+        self,
+        tables: dict[str, list[dict[str, Any]]],
+        missing_columns: dict[str, set[str]] | None = None,
+    ) -> None:
         self.tables = tables
         self.counters: dict[str, int] = {}
+        self.missing_columns = missing_columns or {}
 
     def table(self, table_name: str) -> FakeQuery:
         self.tables.setdefault(table_name, [])
         return FakeQuery(self, table_name)
+
+    def raise_if_missing_column(self, table_name: str, column_name: str) -> None:
+        if column_name in self.missing_columns.get(table_name, set()):
+            raise APIError(
+                {
+                    "code": "42703",
+                    "details": None,
+                    "hint": None,
+                    "message": f"column {table_name}.{column_name} does not exist",
+                }
+            )
 
     def next_id(self, table_name: str) -> str:
         self.counters[table_name] = self.counters.get(table_name, 0) + 1
@@ -288,6 +310,31 @@ def test_get_notifications_uses_service_role_client_and_filters_current_user(
     assert [row["id"] for row in response.json()] == ["notification-own"]
 
 
+def test_get_notifications_normalizes_legacy_related_targets(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-legacy",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Legacy",
+            "body": "Legacy body",
+            "related_game_id": "game-1",
+            "related_field_id": "field-1",
+            "is_read": False,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        }
+    ]
+
+    response = TestClient(app).get("/notifications", headers=auth_headers(users["candidate"]))
+
+    assert response.status_code == 200
+    assert response.json()[0]["game_id"] == "game-1"
+    assert response.json()[0]["field_id"] == "field-1"
+
+
 def test_unread_count_returns_current_users_unread_notifications(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
@@ -343,6 +390,25 @@ def test_unread_count_uses_service_role_client_for_existing_notifications(
 
     assert response.status_code == 200
     assert response.json() == {"unread_count": 2}
+
+
+def test_unread_count_supports_legacy_is_read_schema(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {"id": "own-unread", "user_id": users["candidate"]["id"], "is_read": False},
+        {"id": "own-read", "user_id": users["candidate"]["id"], "is_read": True},
+        {"id": "other-unread", "user_id": users["other"]["id"], "is_read": False},
+    ]
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 1}
 
 
 def test_mark_notification_read_sets_read_at(
@@ -515,6 +581,50 @@ def test_create_game_generates_notifications_for_matching_candidates_except_orga
     # either schema (read_at NULL / is_read false).
     assert notifications[0].get("read_at") is None
     assert "read_at" not in notifications[0]
+
+
+def test_create_game_notifications_support_legacy_related_game_columns(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    legacy_service_supabase = FakeSupabase(
+        {"notifications": []},
+        missing_columns={"notifications": {"game_id", "field_id"}},
+    )
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: legacy_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "ירוחם",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = legacy_service_supabase.tables["notifications"]
+    assert len(notifications) == 1
+    assert notifications[0]["related_game_id"] == response.json()["game"]["id"]
+    assert notifications[0]["related_field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert "game_id" not in notifications[0]
+    assert "field_id" not in notifications[0]
 
 
 def test_create_game_matches_by_city(

@@ -12,7 +12,6 @@ export async function updateNotificationPreferences(data) {
 
 export async function getNotifications() {
   const response = await api.get('/notifications')
-  console.log('GET /notifications response.data', response.data)
   return response.data
 }
 

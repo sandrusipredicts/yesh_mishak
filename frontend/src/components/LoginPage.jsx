@@ -61,8 +61,8 @@ function LoginPage({ onLogin }) {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
   const handleAuthSuccess = useCallback((authData) => {
-    saveAuthSession(authData)
-    onLogin?.(authData.user)
+    const sessionUser = saveAuthSession(authData)
+    onLogin?.(sessionUser)
   }, [onLogin])
 
   useEffect(() => {

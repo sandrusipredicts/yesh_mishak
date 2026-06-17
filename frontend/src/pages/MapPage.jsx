@@ -3,11 +3,12 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { Bell, Settings } from 'lucide-react'
-import { getFields } from '../api/fields'
+import { getFieldById, getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
 import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
+import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
@@ -18,12 +19,7 @@ function getStoredCurrentUserId() {
     return ''
   }
 
-  return (
-    localStorage.getItem('currentUserId') ||
-    localStorage.getItem('current_user_id') ||
-    localStorage.getItem('user_id') ||
-    ''
-  )
+  return getStoredSessionUserId()
 }
 
 function getFieldPosition(field) {
@@ -128,7 +124,7 @@ function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
   return null
 }
 
-function MapPage() {
+function MapPage({ currentUserId: authenticatedUserId }) {
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [fields, setFields] = useState([])
   const [error, setError] = useState('')
@@ -138,7 +134,7 @@ function MapPage() {
   const [isNotificationPreferencesOpen, setIsNotificationPreferencesOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
-  const [currentUserId] = useState(getStoredCurrentUserId)
+  const currentUserId = authenticatedUserId || getStoredCurrentUserId()
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
   const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
 
@@ -217,6 +213,36 @@ function MapPage() {
   function refreshFields() {
     setReloadKey((currentReloadKey) => currentReloadKey + 1)
   }
+
+  const refreshFieldState = useCallback(
+    async (fieldId) => {
+      const targetFieldId = fieldId || selectedField?.id
+
+      if (!targetFieldId) {
+        refreshFields()
+        return
+      }
+
+      try {
+        const updatedField = await getFieldById(targetFieldId)
+        setFields((currentFields) => {
+          const existingIndex = currentFields.findIndex((field) => field.id === updatedField.id)
+
+          if (existingIndex === -1) {
+            return [...currentFields, updatedField]
+          }
+
+          return currentFields.map((field) =>
+            field.id === updatedField.id ? updatedField : field,
+          )
+        })
+        setSelectedField(updatedField)
+      } catch {
+        refreshFields()
+      }
+    },
+    [selectedField?.id],
+  )
 
   function handleFieldCreated() {
     setFieldSubmitMessage('Sent for VAR approval')
@@ -343,7 +369,7 @@ function MapPage() {
       <FieldDetailsPanel
         field={selectedField}
         onClose={() => setSelectedField(null)}
-        onGameCreated={refreshFields}
+        onGameCreated={refreshFieldState}
         currentUserId={currentUserId}
       />
 

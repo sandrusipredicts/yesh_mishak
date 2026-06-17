@@ -30,6 +30,10 @@ async function mockMapRequests(page) {
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
+function isNotificationUnread(notification) {
+  return !notification.read_at && notification.is_read !== true
+}
+
 test.beforeEach(async ({ page }) => {
   await seedAuthenticatedUser(page)
   await mockMapRequests(page)
@@ -70,7 +74,7 @@ test('notification button shows unread count and clicking a notification marks i
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
       return fulfillJson(route, {
-        unread_count: notifications.filter((notification) => !notification.read_at).length,
+        unread_count: notifications.filter(isNotificationUnread).length,
       })
     }
 
@@ -117,7 +121,7 @@ test('mark all as read clears the unread notification count', async ({ page }) =
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
       return fulfillJson(route, {
-        unread_count: notifications.filter((notification) => !notification.read_at).length,
+        unread_count: notifications.filter(isNotificationUnread).length,
       })
     }
 
@@ -137,4 +141,108 @@ test('mark all as read clears the unread notification count', async ({ page }) =
   await page.getByRole('button', { name: 'Mark all as read' }).click()
 
   await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible()
+})
+
+test('legacy is_read notifications use the correct read state', async ({ page }) => {
+  const notifications = [
+    {
+      id: 'legacy-unread',
+      type: 'game_created',
+      title: 'Legacy unread',
+      body: 'Unread legacy notification',
+      is_read: false,
+      created_at: '2026-06-16T10:00:00.000Z',
+    },
+    {
+      id: 'legacy-read',
+      type: 'game_created',
+      title: 'Legacy read',
+      body: 'Read legacy notification',
+      is_read: true,
+      created_at: '2026-06-16T09:00:00.000Z',
+    },
+  ]
+
+  await page.route('http://localhost:8001/notifications**', (route) => {
+    const url = new URL(route.request().url())
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications') {
+      return fulfillJson(route, notifications)
+    }
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, {
+        unread_count: notifications.filter(isNotificationUnread).length,
+      })
+    }
+
+    if (route.request().method() === 'PATCH' && url.pathname === '/notifications/legacy-unread/read') {
+      notifications[0] = { ...notifications[0], is_read: true }
+      return fulfillJson(route, notifications[0])
+    }
+
+    return fulfillJson(route, { detail: 'Unhandled notification mock' }, 404)
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /Notifications/ }).click()
+
+  await expect(page.getByText('1 unread')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Legacy read/ })).toContainText('Read')
+
+  await page.getByRole('button', { name: /Legacy unread/ }).click()
+
+  await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible()
+})
+
+test('notification preferences modal loads and saves settings', async ({ page }) => {
+  let savedPayload
+
+  await page.route('http://localhost:8001/notifications**', (route) => {
+    const url = new URL(route.request().url())
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications') {
+      return fulfillJson(route, [])
+    }
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, { unread_count: 0 })
+    }
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/preferences') {
+      return fulfillJson(route, [
+        {
+          id: 'pref-city',
+          notification_type: 'city',
+          enabled: true,
+          city: 'ירוחם',
+        },
+      ])
+    }
+
+    if (route.request().method() === 'PUT' && url.pathname === '/notifications/preferences') {
+      savedPayload = route.request().postDataJSON()
+      return fulfillJson(route, {
+        message: 'Preferences saved',
+        preferences: [],
+      })
+    }
+
+    return fulfillJson(route, { detail: 'Unhandled notification mock' }, 404)
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Notification preferences' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Notification Preferences' })).toBeVisible()
+
+  await page.getByLabel('Distance notifications').uncheck()
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  await expect(page.getByText('Notification preferences saved.')).toBeVisible()
+  expect(savedPayload).toMatchObject({
+    distance_enabled: false,
+    city_enabled: true,
+    city_name: 'ירוחם',
+  })
 })

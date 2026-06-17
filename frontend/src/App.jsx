@@ -6,10 +6,11 @@ import LoginPage from './components/LoginPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import OnboardingPage from './pages/OnboardingPage'
+import { getStoredSessionUserId } from './api/auth'
 
 function getStoredUser() {
   const accessToken = localStorage.getItem('access_token')
-  const id = localStorage.getItem('currentUserId')
+  const id = getStoredSessionUserId()
 
   if (!accessToken || !id) {
     return null
@@ -39,6 +40,20 @@ function App() {
 
     return () => {
       window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
+
+  useEffect(() => {
+    function refreshStoredUser() {
+      setCurrentUser(getStoredUser())
+    }
+
+    window.addEventListener('storage', refreshStoredUser)
+    window.addEventListener('auth-session-changed', refreshStoredUser)
+
+    return () => {
+      window.removeEventListener('storage', refreshStoredUser)
+      window.removeEventListener('auth-session-changed', refreshStoredUser)
     }
   }, [])
 
@@ -82,7 +97,7 @@ function App() {
 
   return (
     <>
-      <MapPage />
+      <MapPage currentUserId={currentUser.id} />
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
         <button type="button" onClick={handleLogout}>

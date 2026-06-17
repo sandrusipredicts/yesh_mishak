@@ -66,7 +66,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
         max_players: maxPlayersNumber,
         age_note: ageNote.trim(),
       })
-      onCreated?.()
+      await onCreated?.()
       onClose()
     } catch (createError) {
       setError(getErrorMessage(createError))

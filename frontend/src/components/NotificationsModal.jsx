@@ -82,7 +82,6 @@ function NotificationsModal({
   onClose,
 }) {
   const isSavingRef = useRef(false)
-  const locationAttemptRef = useRef(0)
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -152,18 +151,11 @@ function NotificationsModal({
         return
       }
 
-      const attemptId = locationAttemptRef.current + 1
-      locationAttemptRef.current = attemptId
       let isSettled = false
       let pendingErrorTimer = null
-      console.log('Requesting geolocation for radius notifications')
-      console.log('getCurrentLocation started', { attemptId })
-      console.log('Calling navigator.geolocation.getCurrentPosition')
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          console.log('Raw browser geolocation success', position)
           if (isSettled) {
-            console.log('Ignored late geolocation success after settlement', { attemptId })
             return
           }
 
@@ -175,31 +167,20 @@ function NotificationsModal({
           isSettled = true
           const lat = position.coords.latitude
           const lng = position.coords.longitude
-          console.log('Geolocation success', lat, lng)
-          console.log('getCurrentLocation resolved SUCCESS', { attemptId, lat, lng })
           resolve({
             lat,
             lng,
           })
         },
         (geolocationError) => {
-          console.log('Raw browser geolocation error', geolocationError)
           if (isSettled) {
-            console.log('Ignored late geolocation error after settlement', { attemptId })
             return
           }
 
           if (pendingErrorTimer) {
-            console.log('Ignored duplicate geolocation error while waiting for success', { attemptId })
             return
           }
 
-          const details = getGeolocationErrorDetails(geolocationError)
-          console.error('Geolocation failed', {
-            code: details.code,
-            label: details.label,
-            message: details.message,
-          })
           pendingErrorTimer = setTimeout(() => {
             if (isSettled) {
               return
@@ -207,12 +188,6 @@ function NotificationsModal({
 
             isSettled = true
             pendingErrorTimer = null
-            console.log('getCurrentLocation resolved ERROR', {
-              attemptId,
-              code: details.code,
-              label: details.label,
-              message: details.message,
-            })
             reject(new Error(formatGeolocationError(geolocationError)))
           }, GEOLOCATION_ERROR_GRACE_MS)
         },
@@ -229,7 +204,6 @@ function NotificationsModal({
     event.preventDefault()
 
     if (isSavingRef.current) {
-      console.log('Notification preferences save already in progress')
       return
     }
 
@@ -237,8 +211,6 @@ function NotificationsModal({
     setIsSaving(true)
     setError('')
     setSavedMessage('')
-    console.log('Save clicked')
-    console.log('Radius enabled', distanceEnabled)
 
     try {
       let nextDistanceLat = null
@@ -252,7 +224,6 @@ function NotificationsModal({
           nextDistanceLat = currentLocation.lat
           nextDistanceLng = currentLocation.lng
           nextDistanceEnabled = true
-          console.log('Geolocation success used for payload', nextDistanceLat, nextDistanceLng)
         } catch (locationError) {
           locationErrorMessage = locationError.message
           nextDistanceEnabled = false
@@ -272,8 +243,6 @@ function NotificationsModal({
         selected_field_ids: selectedFieldIds,
       }
 
-      console.log('about to send payload')
-      console.log('Final notification payload sent to backend', notificationPayload)
       await updateNotificationPreferences(notificationPayload)
       if (locationErrorMessage) {
         setError(`${locationErrorMessage} Distance notifications were not enabled.`)

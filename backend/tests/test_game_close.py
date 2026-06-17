@@ -61,6 +61,8 @@ class FakeTableQuery:
         if self.update_payload is not None:
             for row in rows:
                 row.update(self.update_payload)
+            if any(row.get("_return_empty_on_update") for row in rows):
+                return FakeResponse([])
             return FakeResponse(rows)
 
         if self.delete_requested:
@@ -176,10 +178,10 @@ def test_non_creator_cannot_close_game(monkeypatch) -> None:
     assert tables["games"][0]["status"] == "open"
 
 
-def test_close_game_reads_and_updates_with_standard_client(monkeypatch) -> None:
+def test_close_game_reads_and_updates_with_standard_game_client(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     creator = make_user("creator")
-    game_tables = {
+    tables = {
         "users": [creator],
         "games": [
             {
@@ -192,17 +194,39 @@ def test_close_game_reads_and_updates_with_standard_client(monkeypatch) -> None:
         ],
         "game_players": [],
     }
-    game_client = FakeSupabaseClient(game_tables)
-    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: game_client)
-    monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: game_client)
-    monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: game_client)
-    client = TestClient(app)
+    client = make_client(monkeypatch, tables)
 
     response = client.post("/games/game-1/close", headers=auth_headers(creator))
 
     assert response.status_code == 200
     assert response.json()["game"]["status"] == "finished"
-    assert game_tables["games"][0]["status"] == "finished"
+    assert tables["games"][0]["status"] == "finished"
+
+
+def test_close_game_refetches_when_update_returns_no_rows(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": creator["id"],
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+                "_return_empty_on_update": True,
+            }
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post("/games/game-1/close", headers=auth_headers(creator))
+
+    assert response.status_code == 200
+    assert response.json()["game"]["status"] == "finished"
+    assert tables["games"][0]["status"] == "finished"
 
 
 def test_closed_game_is_not_returned_as_active(monkeypatch) -> None:
@@ -246,6 +270,71 @@ def test_user_cannot_join_closed_game(monkeypatch) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Game already closed"
+
+
+def test_join_game_uses_authenticated_user_not_request_body(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user_a = make_user("user-a")
+    user_b = make_user("user-b")
+    tables = {
+        "users": [user_a, user_b],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": "creator",
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+            }
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/game-1/join",
+        headers=auth_headers(user_a),
+        json={"user_id": user_b["id"]},
+    )
+
+    assert response.status_code == 200
+    assert tables["game_players"] == [
+        {
+            "id": "inserted-1",
+            "game_id": "game-1",
+            "user_id": user_a["id"],
+        }
+    ]
+
+
+def test_two_jwt_users_join_independently(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user_a = make_user("user-a")
+    user_b = make_user("user-b")
+    tables = {
+        "users": [user_a, user_b],
+        "games": [
+            {
+                "id": "game-1",
+                "created_by": "creator",
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+            }
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    first_response = client.post("/games/game-1/join", headers=auth_headers(user_a))
+    second_response = client.post("/games/game-1/join", headers=auth_headers(user_b))
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert [player["user_id"] for player in tables["game_players"]] == [
+        user_a["id"],
+        user_b["id"],
+    ]
 
 
 def test_creator_cannot_extend_closed_game(monkeypatch) -> None:

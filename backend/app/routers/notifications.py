@@ -3,6 +3,7 @@ from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
@@ -118,6 +119,30 @@ def _mark_read_payload(sample: dict[str, Any], now: str) -> dict[str, Any]:
     return {"is_read": True}
 
 
+def _is_missing_column_error(error: APIError, column_name: str) -> bool:
+    details = getattr(error, "args", [{}])[0]
+    message = str(error)
+    code = ""
+
+    if isinstance(details, dict):
+        message = f"{message} {details.get('message') or ''}"
+        code = str(details.get("code") or "")
+
+    return (code == "42703" or "42703" in message) and column_name in message
+
+
+def _with_notification_target_aliases(notification: dict[str, Any]) -> dict[str, Any]:
+    normalized_notification = dict(notification)
+
+    if "game_id" not in normalized_notification and "related_game_id" in normalized_notification:
+        normalized_notification["game_id"] = normalized_notification.get("related_game_id")
+
+    if "field_id" not in normalized_notification and "related_field_id" in normalized_notification:
+        normalized_notification["field_id"] = normalized_notification.get("related_field_id")
+
+    return normalized_notification
+
+
 def _find_notification_candidates(
     supabase: Any,
     field: dict[str, Any],
@@ -191,14 +216,33 @@ def create_game_created_notifications(
         return []
 
     service_supabase = get_supabase_service_role_client()
-    existing_response = (
-        service_supabase.table("notifications")
-        .select("user_id")
-        .eq("type", "game_created")
-        .eq("game_id", game["id"])
-        .in_("user_id", recipient_ids)
-        .execute()
-    )
+    game_id_column = "game_id"
+    field_id_column = "field_id"
+
+    try:
+        existing_response = (
+            service_supabase.table("notifications")
+            .select("user_id")
+            .eq("type", "game_created")
+            .eq(game_id_column, game["id"])
+            .in_("user_id", recipient_ids)
+            .execute()
+        )
+    except APIError as error:
+        if not _is_missing_column_error(error, "notifications.game_id"):
+            raise
+
+        game_id_column = "related_game_id"
+        field_id_column = "related_field_id"
+        existing_response = (
+            service_supabase.table("notifications")
+            .select("user_id")
+            .eq("type", "game_created")
+            .eq(game_id_column, game["id"])
+            .in_("user_id", recipient_ids)
+            .execute()
+        )
+
     existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
     field_name = field.get("name") or "Unknown field"
     rows = [
@@ -207,8 +251,8 @@ def create_game_created_notifications(
             "type": "game_created",
             "title": "נפתח משחק חדש",
             "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
-            "game_id": game["id"],
-            "field_id": field.get("id"),
+            game_id_column: game["id"],
+            field_id_column: field.get("id"),
         }
         for user_id in recipient_ids
         if user_id not in existing_user_ids
@@ -231,7 +275,7 @@ def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
         .order("created_at", desc=True)
         .execute()
     )
-    return response.data
+    return [_with_notification_target_aliases(row) for row in response.data]
 
 
 @router.get("/unread-count")
@@ -496,17 +540,9 @@ def save_preferences(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")
 
     is_settings_payload = _is_settings_payload(body)
-    print(
-        "PUT /notifications/preferences",
-        {
-            "body_keys": list(body.keys()),
-            "is_settings_payload": is_settings_payload,
-        },
-    )
 
     try:
         if is_settings_payload:
-            print("PUT /notifications/preferences routing to settings handler")
             return _save_settings(body, current_user)
 
         pref = NotificationPreference(**body)
