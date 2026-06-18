@@ -23,6 +23,9 @@ function getErrorMessage(error) {
 function OpenGameModal({ field, onClose, onCreated }) {
   const fieldSportType = field?.sport_type ?? ''
   const [sportType, setSportType] = useState(fieldSportType === 'both' ? '' : fieldSportType)
+  const [gameTiming, setGameTiming] = useState('now')
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [scheduledTime, setScheduledTime] = useState('')
   const [playersPresent, setPlayersPresent] = useState('1')
   const [maxPlayers, setMaxPlayers] = useState('10')
   const [ageNote, setAgeNote] = useState('')
@@ -55,17 +58,44 @@ function OpenGameModal({ field, onClose, onCreated }) {
       return
     }
 
+    let scheduledAt
+    if (gameTiming === 'future') {
+      if (!scheduledDate || !scheduledTime) {
+        setError('יש לבחור תאריך ושעה למשחק עתידי')
+        return
+      }
+
+      const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`)
+      if (Number.isNaN(scheduledDateTime.getTime())) {
+        setError('התאריך או השעה אינם תקינים')
+        return
+      }
+
+      if (scheduledDateTime.getTime() <= Date.now()) {
+        setError('אי אפשר לקבוע משחק בזמן שעבר')
+        return
+      }
+
+      scheduledAt = scheduledDateTime.toISOString()
+    }
+
     setError('')
     setIsSubmitting(true)
 
     try {
-      await createGame({
+      const payload = {
         field_id: field.id,
         sport_type: sportType.trim(),
         players_present: playersPresentNumber,
         max_players: maxPlayersNumber,
         age_note: ageNote.trim(),
-      })
+      }
+
+      if (scheduledAt) {
+        payload.scheduled_at = scheduledAt
+      }
+
+      await createGame(payload)
       await onCreated?.()
       onClose()
     } catch (createError) {
@@ -85,6 +115,53 @@ function OpenGameModal({ field, onClose, onCreated }) {
         <h2 id="open-game-title">Open Game</h2>
 
         <form className="open-game-form" onSubmit={handleSubmit}>
+          <div className="schedule-mode-options" role="radiogroup" aria-label="Game timing">
+            <label>
+              <input
+                type="radio"
+                name="gameTiming"
+                value="now"
+                checked={gameTiming === 'now'}
+                onChange={(event) => setGameTiming(event.target.value)}
+              />
+              משחק עכשיו
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="gameTiming"
+                value="future"
+                checked={gameTiming === 'future'}
+                onChange={(event) => setGameTiming(event.target.value)}
+              />
+              משחק עתידי
+            </label>
+          </div>
+
+          {gameTiming === 'future' ? (
+            <div className="future-game-fields">
+              <label>
+                תאריך
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(event) => setScheduledDate(event.target.value)}
+                  required
+                />
+              </label>
+
+              <label>
+                שעה
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(event) => setScheduledTime(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
+          ) : null}
+
           <label>
             Sport type
             <select

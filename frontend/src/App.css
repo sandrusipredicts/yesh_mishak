@@ -487,6 +487,39 @@
   font-weight: 700;
 }
 
+.upcoming-games-section {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.upcoming-games-section h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.upcoming-games-list {
+  display: grid;
+  max-height: 320px;
+  overflow: auto;
+  gap: 10px;
+}
+
+.upcoming-game-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.upcoming-game-card > p {
+  margin: 0;
+  color: #172033;
+  font-weight: 800;
+}
+
 .game-time-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -642,6 +675,25 @@
 .open-game-form {
   display: grid;
   gap: 14px;
+}
+
+.schedule-mode-options,
+.future-game-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.schedule-mode-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #172033;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .navigation-options {
@@ -1488,7 +1540,9 @@
     border-radius: 12px 12px 0 0;
   }
 
-  .form-toggle-row {
+  .form-toggle-row,
+  .schedule-mode-options,
+  .future-game-fields {
     grid-template-columns: 1fr;
   }
 

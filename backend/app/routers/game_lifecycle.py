@@ -40,6 +40,24 @@ def is_game_expired(game: dict[str, Any], now: datetime | None = None) -> bool:
     return expires_at <= current_time.astimezone(timezone.utc)
 
 
+def is_game_started(game: dict[str, Any], now: datetime | None = None) -> bool:
+    scheduled_at = parse_game_datetime(game.get("scheduled_at"))
+    if scheduled_at is None:
+        return True
+
+    current_time = now or get_now()
+    return scheduled_at <= current_time.astimezone(timezone.utc)
+
+
+def is_game_upcoming(game: dict[str, Any], now: datetime | None = None) -> bool:
+    scheduled_at = parse_game_datetime(game.get("scheduled_at"))
+    if scheduled_at is None:
+        return False
+
+    current_time = now or get_now()
+    return scheduled_at > current_time.astimezone(timezone.utc)
+
+
 def finish_game(game_id: str, supabase: Any | None = None) -> dict[str, Any] | None:
     client = supabase or get_supabase_client()
     response = (

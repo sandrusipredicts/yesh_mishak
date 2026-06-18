@@ -131,6 +131,260 @@ def auth_headers(user: dict[str, str]) -> dict[str, str]:
     return {"Authorization": f"Bearer {make_token(user)}"}
 
 
+def make_approved_field(field_id: str = "field-1", sport_type: str = "football") -> dict[str, Any]:
+    return {
+        "id": field_id,
+        "name": "Central Field",
+        "sport_type": sport_type,
+        "verified": True,
+        "approval_status": "approved",
+    }
+
+
+def freeze_game_time(monkeypatch, now: datetime) -> None:
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    monkeypatch.setattr("app.routers.games.get_now", lambda: now)
+
+
+def test_create_current_game_without_scheduled_at_still_works(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "fields": [make_approved_field()],
+        "games": [],
+        "game_players": [],
+        "notification_preferences": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/",
+        json={
+            "field_id": "field-1",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+        },
+        headers=auth_headers(creator),
+    )
+
+    assert response.status_code == 200
+    created_game = response.json()["game"]
+    assert created_game["scheduled_at"] is None
+    assert created_game["started_at"] == "2026-06-16T18:00:00+00:00"
+    assert tables["game_players"][0]["user_id"] == creator["id"]
+
+
+def test_create_scheduled_game_in_future_works(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "fields": [make_approved_field()],
+        "games": [],
+        "game_players": [],
+        "notification_preferences": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/",
+        json={
+            "field_id": "field-1",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+            "scheduled_at": "2026-06-17T18:30:00Z",
+        },
+        headers=auth_headers(creator),
+    )
+
+    assert response.status_code == 200
+    created_game = response.json()["game"]
+    assert created_game["scheduled_at"] == "2026-06-17T18:30:00+00:00"
+    assert created_game["started_at"] == "2026-06-17T18:30:00+00:00"
+    assert created_game["expires_at"] == "2026-06-17T20:30:00+00:00"
+    assert tables["game_players"][0]["user_id"] == creator["id"]
+
+
+def test_create_scheduled_game_in_past_fails(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "fields": [make_approved_field()],
+        "games": [],
+        "game_players": [],
+        "notification_preferences": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/",
+        json={
+            "field_id": "field-1",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+            "scheduled_at": "2026-06-16T17:59:00Z",
+        },
+        headers=auth_headers(creator),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "scheduled_at must be in the future"
+    assert tables["games"] == []
+
+
+def test_upcoming_endpoint_returns_future_games(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-now",
+                "field_id": "field-1",
+                "status": "open",
+                "scheduled_at": None,
+            },
+            {
+                "id": "game-future",
+                "field_id": "field-1",
+                "status": "open",
+                "scheduled_at": "2026-06-17T18:30:00+00:00",
+                "players_present": 1,
+                "max_players": 5,
+            },
+        ],
+        "game_players": [{"game_id": "game-future", "user_id": user["id"]}],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/upcoming")
+
+    assert response.status_code == 200
+    assert [game["id"] for game in response.json()] == ["game-future"]
+    assert response.json()[0]["participants"] == [{"user_id": user["id"], "name": user["name"]}]
+
+
+def test_active_endpoint_excludes_future_scheduled_games(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-active",
+                "field_id": "field-1",
+                "status": "open",
+                "scheduled_at": None,
+                "expires_at": "2026-06-16T19:00:00+00:00",
+            },
+            {
+                "id": "game-future",
+                "field_id": "field-1",
+                "status": "open",
+                "scheduled_at": "2026-06-17T18:30:00+00:00",
+                "expires_at": "2026-06-17T20:30:00+00:00",
+            },
+        ],
+        "game_players": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/active")
+
+    assert response.status_code == 200
+    assert [game["id"] for game in response.json()] == ["game-active"]
+
+
+def test_field_details_include_upcoming_but_not_as_active_game(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    user = make_user("user")
+    tables = {
+        "users": [user],
+        "fields": [make_approved_field()],
+        "games": [
+            {
+                "id": "game-future",
+                "field_id": "field-1",
+                "sport_type": "football",
+                "status": "open",
+                "scheduled_at": "2026-06-17T18:30:00+00:00",
+                "expires_at": "2026-06-17T20:30:00+00:00",
+            },
+        ],
+        "game_players": [{"game_id": "game-future", "user_id": user["id"]}],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/fields/field-1")
+
+    assert response.status_code == 200
+    field = response.json()
+    assert field["active_game"] is None
+    assert [game["id"] for game in field["upcoming_games"]] == ["game-future"]
+    assert field["upcoming_games"][0]["participants"] == [
+        {"user_id": user["id"], "name": user["name"]}
+    ]
+
+
+def test_duplicate_exact_scheduled_game_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
+    freeze_game_time(monkeypatch, now)
+    creator = make_user("creator")
+    tables = {
+        "users": [creator],
+        "fields": [make_approved_field()],
+        "games": [
+            {
+                "id": "game-existing",
+                "field_id": "field-1",
+                "sport_type": "football",
+                "status": "open",
+                "scheduled_at": "2026-06-17T18:30:00+00:00",
+                "expires_at": "2026-06-17T20:30:00+00:00",
+            },
+        ],
+        "game_players": [],
+        "notification_preferences": [],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.post(
+        "/games/",
+        json={
+            "field_id": "field-1",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+            "scheduled_at": "2026-06-17T18:30:00Z",
+        },
+        headers=auth_headers(creator),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Scheduled game already exists for this field and sport at this time"
+    )
+    assert len(tables["games"]) == 1
+
+
 def test_game_creator_can_close_game(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     creator = make_user("creator")

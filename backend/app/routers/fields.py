@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client
-from app.routers.game_payloads import get_active_games_for_fields
+from app.routers.game_payloads import get_active_games_for_fields, get_upcoming_games_for_fields
 
 router = APIRouter(prefix="/fields", tags=["fields"])
 
@@ -78,12 +78,14 @@ def get_fields():
         .execute()
     )
     fields = response.data
-    active_games_by_field_id = get_active_games_for_fields(
-        [str(field["id"]) for field in fields if field.get("id")]
-    )
+    field_ids = [str(field["id"]) for field in fields if field.get("id")]
+    active_games_by_field_id = get_active_games_for_fields(field_ids)
+    upcoming_games_by_field_id = get_upcoming_games_for_fields(field_ids)
 
     for field in fields:
-        field["active_game"] = active_games_by_field_id.get(str(field.get("id")))
+        field_id = str(field.get("id"))
+        field["active_game"] = active_games_by_field_id.get(field_id)
+        field["upcoming_games"] = upcoming_games_by_field_id.get(field_id, [])
 
     return fields
 
@@ -97,7 +99,9 @@ def get_field(field_id: str):
     field = response.data[0]
 
     active_games_by_field_id = get_active_games_for_fields([field_id])
+    upcoming_games_by_field_id = get_upcoming_games_for_fields([field_id])
     field["active_game"] = active_games_by_field_id.get(field_id)
+    field["upcoming_games"] = upcoming_games_by_field_id.get(field_id, [])
     return field
 
 

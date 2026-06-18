@@ -1,7 +1,13 @@
 from typing import Any
 
 from app.db.supabase import get_supabase_client
-from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, finish_expired_games
+from app.routers.game_lifecycle import (
+    ACTIVE_GAME_STATUSES,
+    finish_expired_games,
+    is_game_started,
+    is_game_upcoming,
+    parse_game_datetime,
+)
 
 
 def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -71,7 +77,10 @@ def get_active_games_for_fields(field_ids: list[str]) -> dict[str, dict[str, Any
         .execute()
         .data
     )
-    games = finish_expired_games(games, supabase=supabase)
+    games = [
+        game for game in finish_expired_games(games, supabase=supabase)
+        if is_game_started(game)
+    ]
 
     games_with_participants = attach_participants_to_games(games)
     return {
@@ -79,3 +88,33 @@ def get_active_games_for_fields(field_ids: list[str]) -> dict[str, dict[str, Any
         for game in games_with_participants
         if game.get("field_id")
     }
+
+
+def get_upcoming_games_for_fields(field_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not field_ids:
+        return {}
+
+    supabase = get_supabase_client()
+    games = (
+        supabase
+        .table("games")
+        .select("*")
+        .in_("field_id", field_ids)
+        .in_("status", ACTIVE_GAME_STATUSES)
+        .execute()
+        .data
+    )
+    games = finish_expired_games(games, supabase=supabase)
+    upcoming_games = [game for game in games if is_game_upcoming(game)]
+    upcoming_games.sort(
+        key=lambda game: parse_game_datetime(game.get("scheduled_at")),
+    )
+
+    games_with_participants = attach_participants_to_games(upcoming_games)
+    upcoming_games_by_field_id = {field_id: [] for field_id in field_ids}
+    for game in games_with_participants:
+        field_id = str(game.get("field_id") or "")
+        if field_id:
+            upcoming_games_by_field_id.setdefault(field_id, []).append(game)
+
+    return upcoming_games_by_field_id
