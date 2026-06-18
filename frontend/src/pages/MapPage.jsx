@@ -13,6 +13,7 @@ import { getNotifications, getUnreadNotificationCount } from '../api/notificatio
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
+const UNREAD_COUNT_POLL_MS = import.meta.env.DEV ? 1000 : 20000
 
 function getStoredCurrentUserId() {
   if (typeof localStorage === 'undefined') {
@@ -167,6 +168,15 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     }
   }, [])
 
+  const refreshUnreadCount = useCallback(async () => {
+    try {
+      const unreadCountResult = await getUnreadNotificationCount()
+      setUnreadNotificationCount(Number(unreadCountResult?.unread_count ?? 0))
+    } catch {
+      setUnreadNotificationCount(0)
+    }
+  }, [])
+
   useEffect(() => {
     let isMounted = true
 
@@ -188,6 +198,22 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUserId) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshUnreadCount()
+      }
+    }, UNREAD_COUNT_POLL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [currentUserId, refreshUnreadCount])
 
   const markerIcons = useMemo(
     () => ({
@@ -220,6 +246,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
       if (!targetFieldId) {
         refreshFields()
+        await refreshUnreadCount()
         return
       }
 
@@ -237,11 +264,13 @@ function MapPage({ currentUserId: authenticatedUserId }) {
           )
         })
         setSelectedField(updatedField)
+        await refreshUnreadCount()
       } catch {
         refreshFields()
+        await refreshUnreadCount()
       }
     },
-    [selectedField?.id],
+    [refreshUnreadCount, selectedField?.id],
   )
 
   function handleFieldCreated() {
@@ -289,7 +318,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         className="floating-button top"
         type="button"
         aria-label={notificationsLabel}
-        onClick={() => setIsNotificationsOpen(true)}
+        onClick={() => {
+          setIsNotificationsOpen(true)
+          refreshNotifications()
+        }}
       >
         <Bell size={22} />
         {unreadNotificationCount ? (
@@ -379,6 +411,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
           onClose={() => setIsNotificationsOpen(false)}
           onNotificationsChange={setNotifications}
           onRefreshNotifications={refreshNotifications}
+          onRefreshUnreadCount={refreshUnreadCount}
           onUnreadCountChange={setUnreadNotificationCount}
           onOpenTarget={handleNotificationTarget}
         />
@@ -388,6 +421,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         <NotificationsModal
           fields={fields}
           onClose={() => setIsNotificationPreferencesOpen(false)}
+          onPreferencesSaved={refreshUnreadCount}
         />
       ) : null}
 

@@ -5,7 +5,6 @@ import {
   deletePushToken,
   getNotificationPreferences,
   savePushToken,
-  sendTestPush,
   updateNotificationPreferences,
 } from '../api/notifications'
 import { israelCities } from '../data/israelCities'
@@ -17,6 +16,7 @@ const DEFAULT_RADIUS_KM = 5
 const GEOLOCATION_TIMEOUT_MS = 15000
 const GEOLOCATION_ERROR_GRACE_MS = 1200
 const STORED_PUSH_TOKEN_KEY = 'firebase_push_token'
+const SHOW_TEST_PUSH = import.meta.env.DEV && import.meta.env.VITE_SHOW_TEST_PUSH === 'true'
 
 function getGeolocationErrorDetails(error) {
   if (!error || typeof error.code !== 'number') {
@@ -88,8 +88,10 @@ function parsePreferences(preferences) {
 function NotificationsModal({
   fields = [],
   onClose,
+  onPreferencesSaved,
 }) {
   const isSavingRef = useRef(false)
+  const isPushSavingRef = useRef(false)
   const [availableFields, setAvailableFields] = useState(fields)
   const [distanceEnabled, setDistanceEnabled] = useState(true)
   const [distanceRadiusKm, setDistanceRadiusKm] = useState(DEFAULT_RADIUS_KM)
@@ -265,6 +267,7 @@ function NotificationsModal({
       }
 
       await updateNotificationPreferences(notificationPayload)
+      await onPreferencesSaved?.()
       if (locationErrorMessage) {
         setError(`${locationErrorMessage} Distance notifications were not enabled.`)
         setSavedMessage('City and specific field preferences saved.')
@@ -280,6 +283,11 @@ function NotificationsModal({
   }
 
   async function handleEnablePush() {
+    if (isPushSavingRef.current) {
+      return
+    }
+
+    isPushSavingRef.current = true
     setIsPushSaving(true)
     setError('')
     setPushMessage('')
@@ -291,13 +299,20 @@ function NotificationsModal({
       setPushToken(token)
       setPushMessage('Push notifications enabled on this browser.')
     } catch (pushError) {
+      console.error('Could not enable push notifications.', pushError)
       setError(pushError.message || 'Could not enable push notifications.')
     } finally {
+      isPushSavingRef.current = false
       setIsPushSaving(false)
     }
   }
 
   async function handleDisablePush() {
+    if (isPushSavingRef.current) {
+      return
+    }
+
+    isPushSavingRef.current = true
     setIsPushSaving(true)
     setError('')
     setPushMessage('')
@@ -308,24 +323,34 @@ function NotificationsModal({
       setPushToken('')
       setPushMessage('Push notifications disabled on this browser.')
     } catch (pushError) {
+      console.error('Could not disable push notifications.', pushError)
       setError(pushError.message || 'Could not disable push notifications.')
     } finally {
+      isPushSavingRef.current = false
       setIsPushSaving(false)
     }
   }
 
   async function handleTestPush() {
+    if (isPushSavingRef.current) {
+      return
+    }
+
+    isPushSavingRef.current = true
     setIsPushSaving(true)
     setError('')
     setPushMessage('')
 
     try {
+      const { sendTestPush } = await import('../api/notifications')
       await sendTestPush()
       setPushMessage('Test push sent.')
     } catch (pushError) {
       const detail = pushError?.response?.data?.detail
+      console.error('Could not send test push.', pushError)
       setError(detail || pushError.message || 'Could not send test push.')
     } finally {
+      isPushSavingRef.current = false
       setIsPushSaving(false)
     }
   }
@@ -358,14 +383,16 @@ function NotificationsModal({
                 >
                   {pushToken ? 'Disable push' : 'Enable push'}
                 </button>
-                <button
-                  className="secondary-panel-button"
-                  type="button"
-                  onClick={handleTestPush}
-                  disabled={isPushSaving || !pushToken}
-                >
-                  Test push
-                </button>
+                {SHOW_TEST_PUSH ? (
+                  <button
+                    className="secondary-panel-button"
+                    type="button"
+                    onClick={handleTestPush}
+                    disabled={isPushSaving || !pushToken}
+                  >
+                    Test push
+                  </button>
+                ) : null}
               </div>
               {pushMessage ? <p className="modal-success">{pushMessage}</p> : null}
             </section>
