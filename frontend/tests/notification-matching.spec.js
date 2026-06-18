@@ -353,8 +353,6 @@ async function openGameOnField(page, user) {
 }
 
 async function expectNotificationCount(page, count) {
-  await page.reload()
-
   if (count) {
     await expect(page.getByRole('button', { name: new RegExp(`Notifications, ${count} unread`) })).toBeVisible()
   } else {

@@ -36,6 +36,7 @@ function NotificationInboxModal({
   onClose,
   onNotificationsChange,
   onRefreshNotifications,
+  onRefreshUnreadCount,
   onUnreadCountChange,
   onOpenTarget,
 }) {
@@ -65,6 +66,7 @@ function NotificationInboxModal({
       )
       onNotificationsChange?.(nextNotifications)
       onUnreadCountChange?.(nextNotifications.filter(isNotificationUnread).length)
+      await onRefreshUnreadCount?.()
       return { ...notification, ...updatedNotification }
     } catch {
       setError('Could not mark notification as read.')
@@ -93,6 +95,7 @@ function NotificationInboxModal({
       onNotificationsChange?.(nextNotifications)
       onUnreadCountChange?.(0)
       await onRefreshNotifications?.()
+      await onRefreshUnreadCount?.()
     } catch {
       setError('Could not mark notifications as read.')
     } finally {

@@ -1012,6 +1012,78 @@ def test_create_game_matches_by_city(
     assert notifications[0]["user_id"] == users["candidate"]["id"]
 
 
+def test_create_game_does_not_notify_non_matching_city(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate-city",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "תל אביב",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_service_supabase.tables["notifications"] == []
+
+
+def test_create_game_does_not_notify_organizer_for_own_matching_city(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-organizer-city",
+            "user_id": users["organizer"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "ירוחם",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_service_supabase.tables["notifications"] == []
+
+
 def test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type(
     fake_supabase: FakeSupabase,
     fake_service_supabase: FakeSupabase,
