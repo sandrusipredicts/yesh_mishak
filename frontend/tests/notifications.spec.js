@@ -210,6 +210,7 @@ test('legacy is_read notifications use the correct read state', async ({ page })
 
 test('notification preferences modal loads and saves settings', async ({ page }) => {
   let savedPayload
+  let unreadCount = 0
 
   await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
@@ -219,7 +220,7 @@ test('notification preferences modal loads and saves settings', async ({ page })
     }
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
-      return fulfillJson(route, { unread_count: 0 })
+      return fulfillJson(route, { unread_count: unreadCount })
     }
 
     if (route.request().method() === 'GET' && url.pathname === '/notifications/preferences') {
@@ -235,6 +236,7 @@ test('notification preferences modal loads and saves settings', async ({ page })
 
     if (route.request().method() === 'PUT' && url.pathname === '/notifications/preferences') {
       savedPayload = route.request().postDataJSON()
+      unreadCount = 1
       return fulfillJson(route, {
         message: 'Preferences saved',
         preferences: [],
@@ -248,11 +250,13 @@ test('notification preferences modal loads and saves settings', async ({ page })
   await page.getByRole('button', { name: 'Notification preferences' }).click()
 
   await expect(page.getByRole('heading', { name: 'Notification Preferences' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Test push' })).toHaveCount(0)
 
   await page.getByLabel('Distance notifications').uncheck()
   await page.getByRole('button', { name: 'Save' }).click()
 
   await expect(page.getByText('Notification preferences saved.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Notifications, 1 unread/ })).toBeVisible()
   expect(savedPayload).toMatchObject({
     distance_enabled: false,
     city_enabled: true,

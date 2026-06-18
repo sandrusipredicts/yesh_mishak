@@ -65,6 +65,45 @@ async function getFirebaseMessaging() {
   return getMessaging(firebaseApp)
 }
 
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    throw new Error('Notification permission is not supported in this browser.')
+  }
+
+  if (Notification.permission === 'granted') {
+    return 'granted'
+  }
+
+  if (Notification.permission === 'denied') {
+    throw new Error('Push notification permission was denied. Enable it in your browser settings.')
+  }
+
+  const permission = await Notification.requestPermission()
+
+  if (permission === 'denied') {
+    throw new Error('Push notification permission was denied. Enable it in your browser settings.')
+  }
+
+  if (permission !== 'granted') {
+    throw new Error('Push notification permission was not granted.')
+  }
+
+  return permission
+}
+
+async function registerFirebaseServiceWorker() {
+  const workerParams = new URLSearchParams(
+    Object.entries(FIREBASE_CONFIG).filter(([, value]) => Boolean(value)),
+  )
+  const registration = await navigator.serviceWorker.register(
+    `/firebase-messaging-sw.js?${workerParams.toString()}`,
+  )
+
+  await navigator.serviceWorker.ready
+
+  return registration
+}
+
 export async function startForegroundPushNotifications() {
   if (foregroundUnsubscribe) {
     return foregroundUnsubscribe
@@ -90,23 +129,10 @@ export async function startForegroundPushNotifications() {
 }
 
 export async function requestFirebasePushToken() {
+  assertFirebaseConfig()
+  await requestNotificationPermission()
+  const registration = await registerFirebaseServiceWorker()
   const messaging = await getFirebaseMessaging()
-  const permission = await Notification.requestPermission()
-
-  if (permission === 'denied') {
-    throw new Error('Push notification permission was denied.')
-  }
-
-  if (permission !== 'granted') {
-    throw new Error('Push notification permission was not granted.')
-  }
-
-  const workerParams = new URLSearchParams(
-    Object.entries(FIREBASE_CONFIG).filter(([, value]) => Boolean(value)),
-  )
-  const registration = await navigator.serviceWorker.register(
-    `/firebase-messaging-sw.js?${workerParams.toString()}`,
-  )
   const token = await getToken(messaging, {
     vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
     serviceWorkerRegistration: registration,
