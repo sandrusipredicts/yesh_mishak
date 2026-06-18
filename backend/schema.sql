@@ -46,6 +46,7 @@ create table if not exists games (
     age_note text,
     min_age integer check (min_age is null or min_age >= 0),
     max_age integer check (max_age is null or max_age >= 0),
+    scheduled_at timestamptz,
     started_at timestamptz not null default now(),
     expires_at timestamptz,
     check (min_age is null or max_age is null or min_age <= max_age)
@@ -88,6 +89,10 @@ create table if not exists notifications (
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_created_by on games(created_by);
+create index if not exists idx_games_scheduled_at on games(scheduled_at);
+create unique index if not exists idx_games_unique_scheduled_slot
+    on games(field_id, sport_type, scheduled_at)
+    where scheduled_at is not null and status in ('open', 'full');
 create index if not exists idx_game_players_game_id on game_players(game_id);
 create index if not exists idx_game_players_user_id on game_players(user_id);
 create index if not exists idx_notification_preferences_user_id on notification_preferences(user_id);

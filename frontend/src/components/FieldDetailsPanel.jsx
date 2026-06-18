@@ -19,6 +19,11 @@ function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
 }
 
+function getUpcomingGames(field) {
+  const upcomingGames = field?.upcoming_games ?? field?.upcomingGames ?? []
+  return Array.isArray(upcomingGames) ? upcomingGames : []
+}
+
 function getPlayerCount(activeGame) {
   if (!activeGame) {
     return null
@@ -32,6 +37,22 @@ function getPlayerCount(activeGame) {
   }
 
   return `${playersPresent} מתוך ${maxPlayers} שחקנים`
+}
+
+function formatScheduledAt(value) {
+  if (!value) {
+    return 'מועד לא נקבע'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'מועד לא תקין'
+  }
+
+  return new Intl.DateTimeFormat('he-IL', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
 }
 
 function getWaterCoolerValue(field) {
@@ -65,6 +86,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   }
 
   const activeGame = getActiveGame(field)
+  const upcomingGames = getUpcomingGames(field)
   const playerCount = getPlayerCount(activeGame)
   const status = field.approval_status ?? field.status ?? 'Not specified'
   const isPending = String(status).toLowerCase() === 'pending'
@@ -138,15 +160,33 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
             onUpdate={handleGameStateChanged}
           />
         </div>
-      ) : (
-        <button
-          className="primary-panel-button"
-          type="button"
-          onClick={() => setIsOpenGameModalOpen(true)}
-        >
-          Open Game
-        </button>
-      )}
+      ) : null}
+
+      {upcomingGames.length ? (
+        <section className="upcoming-games-section" aria-labelledby="upcoming-games-title">
+          <h3 id="upcoming-games-title">משחקים עתידיים</h3>
+          <div className="upcoming-games-list">
+            {upcomingGames.map((game) => (
+              <article className="upcoming-game-card" key={game.id}>
+                <p>{formatScheduledAt(game.scheduled_at)}</p>
+                <GamePanel
+                  game={game}
+                  currentUserId={currentUserId}
+                  onUpdate={handleGameStateChanged}
+                />
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <button
+        className="primary-panel-button"
+        type="button"
+        onClick={() => setIsOpenGameModalOpen(true)}
+      >
+        Open Game
+      </button>
 
       {navigationCoordinates ? (
         <button
@@ -159,7 +199,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         </button>
       ) : null}
 
-      {isOpenGameModalOpen && !activeGame ? (
+      {isOpenGameModalOpen ? (
         <OpenGameModal
           field={field}
           onClose={() => setIsOpenGameModalOpen(false)}

@@ -10,6 +10,10 @@ from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     ensure_game_is_actionable,
     finish_expired_games,
+    get_now,
+    is_game_started,
+    is_game_upcoming,
+    parse_game_datetime,
 )
 from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import create_game_created_notifications
@@ -25,6 +29,7 @@ class GameCreate(BaseModel):
     age_note: Optional[str] = None
     min_age: Optional[int] = Field(default=None, ge=0)
     max_age: Optional[int] = Field(default=None, ge=0)
+    scheduled_at: Optional[datetime] = None
 
 
 def _get_single(table: str, item_id: str, not_found_detail: str) -> dict[str, Any]:
@@ -52,6 +57,14 @@ def _ensure_active_game(game: dict[str, Any]) -> None:
     ensure_game_is_actionable(game, supabase=get_supabase_client())
 
 
+def _normalize_scheduled_at(value: datetime | None) -> datetime | None:
+    scheduled_at = parse_game_datetime(value)
+    if scheduled_at is None:
+        return None
+
+    return scheduled_at
+
+
 @router.post("/")
 def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_current_user)):
     if game.sport_type not in ("football", "basketball"):
@@ -71,6 +84,15 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
 
     supabase = get_supabase_client()
     field = _get_single("fields", game.field_id, "Field not found")
+    now = get_now()
+    scheduled_at = _normalize_scheduled_at(game.scheduled_at)
+    is_scheduled_game = scheduled_at is not None
+
+    if scheduled_at is not None and scheduled_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="scheduled_at must be in the future",
+        )
 
     if not field.get("verified") or field.get("approval_status") != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field not approved")
@@ -79,23 +101,35 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
     if field_sport not in (game.sport_type, "both"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field does not support this sport")
 
-    existing = (
+    existing_games = (
         supabase.table("games")
         .select("*")
         .eq("field_id", game.field_id)
         .eq("sport_type", game.sport_type)
         .in_("status", ACTIVE_GAME_STATUSES)
-        .limit(1)
         .execute()
+        .data
     )
-    if finish_expired_games(existing.data, supabase=supabase):
+
+    existing_active_games = finish_expired_games(existing_games, supabase=supabase, now=now)
+
+    if is_scheduled_game:
+        if any(
+            parse_game_datetime(existing_game.get("scheduled_at")) == scheduled_at
+            for existing_game in existing_active_games
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Scheduled game already exists for this field and sport at this time",
+            )
+    elif any(is_game_started(existing_game, now) for existing_game in existing_active_games):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Active game already exists for this field",
         )
 
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=2)
+    started_at = scheduled_at or now
+    expires_at = started_at + timedelta(hours=2)
     data = {
         "field_id": game.field_id,
         "created_by": current_user["id"],
@@ -106,7 +140,8 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
         "age_note": game.age_note,
         "min_age": game.min_age,
         "max_age": game.max_age,
-        "started_at": now.isoformat(),
+        "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+        "started_at": started_at.isoformat(),
         "expires_at": expires_at.isoformat(),
     }
 
@@ -137,8 +172,30 @@ def get_active_games():
         .in_("status", ACTIVE_GAME_STATUSES)
         .execute()
     )
-    active_games = finish_expired_games(response.data, supabase=supabase)
+    active_games = [
+        game for game in finish_expired_games(response.data, supabase=supabase)
+        if is_game_started(game)
+    ]
     return attach_participants_to_games(active_games)
+
+
+@router.get("/upcoming")
+def get_upcoming_games():
+    supabase = get_supabase_client()
+    response = (
+        supabase
+        .table("games")
+        .select("*")
+        .in_("status", ACTIVE_GAME_STATUSES)
+        .execute()
+    )
+    active_games = finish_expired_games(response.data, supabase=supabase)
+    upcoming_games = [game for game in active_games if is_game_upcoming(game)]
+    latest_datetime = datetime.max.replace(tzinfo=timezone.utc)
+    upcoming_games.sort(
+        key=lambda game: parse_game_datetime(game.get("scheduled_at")) or latest_datetime,
+    )
+    return attach_participants_to_games(upcoming_games)
 
 
 @router.post("/{game_id}/join")

@@ -5,6 +5,11 @@ export async function getActiveGames() {
   return response.data
 }
 
+export async function getUpcomingGames() {
+  const response = await api.get('/games/upcoming/')
+  return response.data
+}
+
 export async function createGame(data) {
   const response = await api.post('/games/', data)
   return response.data
