@@ -99,6 +99,16 @@ function makeActiveGame(createdBy = 'organizer-user', participants = []) {
   }
 }
 
+function makeScheduledGame(createdBy = 'organizer-user', participants = []) {
+  return {
+    ...makeActiveGame(createdBy, participants),
+    id: 'scheduled-game-1',
+    scheduled_at: '2099-06-17T18:30:00.000Z',
+    started_at: '2099-06-17T18:30:00.000Z',
+    expires_at: '2099-06-17T20:30:00.000Z',
+  }
+}
+
 async function mockNotificationsAndTiles(page) {
   await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
     const url = new URL(route.request().url())
@@ -416,6 +426,31 @@ test('existing active game displays open state and hides open game button', asyn
   await expect(page.getByText('Active game: open')).toBeVisible()
   await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open Game' })).toHaveCount(0)
+})
+
+test('future scheduled game shows upcoming join flow without active controls', async ({ page }) => {
+  await seedAuthenticatedUser(page, {
+    id: 'current-user',
+    email: 'current@example.com',
+    name: 'Current User',
+    token: 'current-token',
+  })
+  await mockFieldState(page, () => ({
+    ...makeField(null),
+    upcoming_games: [makeScheduledGame()],
+  }))
+  await mockNotificationsAndTiles(page)
+
+  await page.goto('/')
+  await page.locator('.field-marker').first().click()
+
+  await expect(page.getByRole('heading', { name: 'משחקים עתידיים' })).toBeVisible()
+  await expect(page.getByText('Scheduled')).toBeVisible()
+  await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
+  await expect(page.getByText('Ends in')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Extra round' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Close game' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open Game' })).toBeVisible()
 })
 
 test('after close game selected field refreshes to no active game', async ({ page }) => {

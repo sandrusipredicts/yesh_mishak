@@ -180,13 +180,15 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         </section>
       ) : null}
 
-      <button
-        className="primary-panel-button"
-        type="button"
-        onClick={() => setIsOpenGameModalOpen(true)}
-      >
-        Open Game
-      </button>
+      {!activeGame ? (
+        <button
+          className="primary-panel-button"
+          type="button"
+          onClick={() => setIsOpenGameModalOpen(true)}
+        >
+          Open Game
+        </button>
+      ) : null}
 
       {navigationCoordinates ? (
         <button

@@ -62,6 +62,18 @@ function formatTime(value) {
   }).format(date)
 }
 
+function formatDateTime(value) {
+  const date = parseDate(value)
+  if (!date) {
+    return 'Not set'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+}
+
 function formatRemainingTime(milliseconds) {
   if (milliseconds <= 0) {
     return 'Ended'
@@ -90,10 +102,18 @@ function GamePanel({ game, currentUserId, onUpdate }) {
 
   const gameId = getGameId(game)
   const gameStatus = String(game?.status || '').toLowerCase()
+  const scheduledAt = useMemo(() => parseDate(game?.scheduled_at), [game?.scheduled_at])
   const expiresAt = useMemo(() => parseDate(game?.expires_at), [game?.expires_at])
   const remainingMilliseconds = expiresAt ? expiresAt.getTime() - now : null
   const isExpiredByTime = remainingMilliseconds !== null && remainingMilliseconds <= 0
-  const isActiveGame = (!gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)) && !isExpiredByTime
+  const isUpcomingGame = scheduledAt ? scheduledAt.getTime() > now : false
+  const isActionableGame = (!gameStatus || ACTIVE_GAME_STATUSES.has(gameStatus)) && !isExpiredByTime
+  const isActiveGame = isActionableGame && !isUpcomingGame
+  const playersPresent = Number(game?.players_present)
+  const maxPlayers = Number(game?.max_players)
+  const isFull = Number.isFinite(playersPresent) && Number.isFinite(maxPlayers)
+    ? playersPresent >= maxPlayers
+    : gameStatus === 'full'
   const participants = getParticipants(game)
   const hasParticipants = hasParticipantsPayload(game)
   const normalizedCurrentUserId = normalizeUserId(getStoredSessionUserId() || currentUserId)
@@ -104,17 +124,20 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   const isParticipant = participants.some(
     (participant) => getParticipantUserId(participant) === normalizedCurrentUserId,
   )
-  const cannotAct = isLoading || !gameId || !normalizedCurrentUserId || !isActiveGame
+  const cannotJoinOrLeave = isLoading || !gameId || !normalizedCurrentUserId || !isActionableGame
+  const cannotUseActiveControls = isLoading || !gameId || !normalizedCurrentUserId || !isActiveGame
 
   useEffect(() => {
-    if (!expiresAt) {
+    const refreshAt = isUpcomingGame ? scheduledAt : expiresAt
+
+    if (!refreshAt) {
       return undefined
     }
 
     const refreshTimer = window.setTimeout(() => {
       setNow(Date.now())
       onUpdate?.()
-    }, Math.max(0, expiresAt.getTime() - Date.now()) + 1000)
+    }, Math.max(0, refreshAt.getTime() - Date.now()) + 1000)
 
     const tickTimer = window.setInterval(() => {
       setNow(Date.now())
@@ -124,7 +147,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       window.clearTimeout(refreshTimer)
       window.clearInterval(tickTimer)
     }
-  }, [expiresAt, onUpdate])
+  }, [expiresAt, isUpcomingGame, onUpdate, scheduledAt])
 
   async function handleJoin() {
     setIsLoading(true)
@@ -195,24 +218,33 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         {game.players_present} / {game.max_players} players
       </p>
 
-      <dl className="game-time-list" aria-label="Game schedule">
-        <div>
-          <dt>Start</dt>
-          <dd>{formatTime(game.started_at)}</dd>
-        </div>
-        <div>
-          <dt>End</dt>
-          <dd>{formatTime(game.expires_at)}</dd>
-        </div>
-        <div>
-          <dt>Ends in</dt>
-          <dd>
-            {remainingMilliseconds === null
-              ? 'Not set'
-              : formatRemainingTime(remainingMilliseconds)}
-          </dd>
-        </div>
-      </dl>
+      {isUpcomingGame ? (
+        <dl className="game-time-list" aria-label="Game schedule">
+          <div>
+            <dt>Scheduled</dt>
+            <dd>{formatDateTime(game.scheduled_at)}</dd>
+          </div>
+        </dl>
+      ) : (
+        <dl className="game-time-list" aria-label="Game schedule">
+          <div>
+            <dt>Start</dt>
+            <dd>{formatTime(game.started_at)}</dd>
+          </div>
+          <div>
+            <dt>End</dt>
+            <dd>{formatTime(game.expires_at)}</dd>
+          </div>
+          <div>
+            <dt>Ends in</dt>
+            <dd>
+              {remainingMilliseconds === null
+                ? 'Not set'
+                : formatRemainingTime(remainingMilliseconds)}
+            </dd>
+          </div>
+        </dl>
+      )}
 
       {game.age_note ? (
         <p className="game-age-note">{game.age_note}</p>
@@ -226,7 +258,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         <p className="panel-warning">Set a current user before joining this game.</p>
       ) : null}
 
-      {!isActiveGame ? (
+      {!isActionableGame ? (
         <p className="panel-closed">This game has ended.</p>
       ) : null}
 
@@ -248,23 +280,23 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       )}
 
       <div className="game-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {isActiveGame && (!hasParticipants || !isParticipant) ? (
+        {isActionableGame && (!hasParticipants || (!isParticipant && !isFull)) ? (
           <button
             type="button"
             className="primary-panel-button"
             onClick={handleJoin}
-            disabled={cannotAct}
+            disabled={cannotJoinOrLeave || isFull}
           >
             I'm coming
           </button>
         ) : null}
 
-        {isActiveGame && (!hasParticipants || isParticipant) ? (
+        {isActionableGame && isParticipant ? (
           <button
             type="button"
             className="secondary-panel-button"
             onClick={handleLeave}
-            disabled={cannotAct}
+            disabled={cannotJoinOrLeave}
           >
             Leave
           </button>
@@ -275,7 +307,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             type="button"
             className="secondary-panel-button"
             onClick={handleExtend}
-            disabled={cannotAct}
+            disabled={cannotUseActiveControls}
           >
             Extra round
           </button>
@@ -286,7 +318,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             type="button"
             className="danger-panel-button"
             onClick={handleCloseGame}
-            disabled={cannotAct}
+            disabled={cannotUseActiveControls}
           >
             Close game
           </button>

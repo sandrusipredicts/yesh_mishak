@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { Buffer } from 'node:buffer'
 
 const user = {
   id: 'regular-user-1',
@@ -30,13 +31,27 @@ function fulfillJson(route, body, status = 200) {
 }
 
 async function seedAuthenticatedUser(page) {
+  const token = makeJwtWithSubject(user.id)
+
   await page.addInitScript((storedUser) => {
-    localStorage.setItem('access_token', `${storedUser.role}-token`)
+    localStorage.setItem('access_token', storedUser.token)
     localStorage.setItem('currentUserId', storedUser.id)
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
-  }, user)
+  }, { ...user, token })
+}
+
+function encodeBase64Url(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+function makeJwtWithSubject(userId) {
+  return [
+    encodeBase64Url(JSON.stringify({ alg: 'none', typ: 'JWT' })),
+    encodeBase64Url(JSON.stringify({ sub: userId })),
+    'signature',
+  ].join('.')
 }
 
 async function mockGeolocation(page) {
