@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import { Bell, Settings } from 'lucide-react'
+import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { Bell, LocateFixed, Settings } from 'lucide-react'
 import { getFieldById, getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
 import FieldDetailsPanel from '../components/FieldDetailsPanel'
@@ -14,6 +14,7 @@ import { getNotifications, getUnreadNotificationCount } from '../api/notificatio
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
 const UNREAD_COUNT_POLL_MS = import.meta.env.DEV ? 1000 : 20000
+const USER_LOCATION_ZOOM = 16
 
 function getStoredCurrentUserId() {
   if (typeof localStorage === 'undefined') {
@@ -78,6 +79,15 @@ function createMarkerIcon(color) {
   })
 }
 
+function createUserLocationIcon() {
+  return L.divIcon({
+    className: 'user-location-marker-icon',
+    html: '<div class="user-location-marker"></div>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  })
+}
+
 function mapBoundsToParams(bounds) {
   return {
     north: bounds.getNorth(),
@@ -93,6 +103,20 @@ function RecenterMap({ center }) {
   useEffect(() => {
     map.setView(center)
   }, [center, map])
+
+  return null
+}
+
+function UserLocationFlyTo({ requestId, userLocation }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!requestId || !userLocation) {
+      return
+    }
+
+    map.flyTo(userLocation.position, USER_LOCATION_ZOOM)
+  }, [map, requestId, userLocation])
 
   return null
 }
@@ -127,6 +151,8 @@ function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
 
 function MapPage({ currentUserId: authenticatedUserId }) {
   const [center, setCenter] = useState(DEFAULT_CENTER)
+  const [userLocation, setUserLocation] = useState(null)
+  const [userLocationRequestId, setUserLocationRequestId] = useState(0)
   const [fields, setFields] = useState([])
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
@@ -144,14 +170,37 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       return
     }
 
+    let isMounted = true
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setCenter([position.coords.latitude, position.coords.longitude])
+        if (!isMounted) {
+          return
+        }
+
+        const nextUserLocation = {
+          position: [position.coords.latitude, position.coords.longitude],
+          accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        }
+
+        setUserLocation(nextUserLocation)
+        setCenter(nextUserLocation.position)
       },
       () => {
-        setCenter(DEFAULT_CENTER)
+        if (isMounted) {
+          setUserLocation(null)
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
       },
     )
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const refreshNotifications = useCallback(async () => {
@@ -224,6 +273,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     }),
     [],
   )
+  const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
   const handleFieldsLoaded = useCallback((loadedFields) => {
     setFields(loadedFields)
@@ -340,18 +390,55 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         <Settings size={22} />
       </button>
 
+      {userLocation ? (
+        <button
+          className="floating-button my-location"
+          type="button"
+          aria-label="My Location"
+          onClick={() => setUserLocationRequestId((currentRequestId) => currentRequestId + 1)}
+        >
+          <LocateFixed size={22} />
+        </button>
+      ) : null}
+
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <RecenterMap center={center} />
+        <UserLocationFlyTo requestId={userLocationRequestId} userLocation={userLocation} />
         <FieldLoader
           center={center}
           onError={setError}
           onFieldsLoaded={handleFieldsLoaded}
           reloadKey={reloadKey}
         />
+
+        {userLocation ? (
+          <>
+            {userLocation.accuracy ? (
+              <Circle
+                center={userLocation.position}
+                pathOptions={{
+                  color: '#2563eb',
+                  fillColor: '#3b82f6',
+                  fillOpacity: 0.12,
+                  opacity: 0.24,
+                  weight: 1,
+                }}
+                radius={userLocation.accuracy}
+              />
+            ) : null}
+            <Marker
+              icon={userLocationIcon}
+              interactive={false}
+              keyboard={false}
+              position={userLocation.position}
+              zIndexOffset={1000}
+            />
+          </>
+        ) : null}
 
         {fields.map((field) => {
           const position = getFieldPosition(field)
