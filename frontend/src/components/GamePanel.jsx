@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 
@@ -21,7 +22,7 @@ function getParticipantUserId(participant) {
   return normalizeUserId(participant?.user_id || participant?.id || participant?.user?.id)
 }
 
-function getParticipantName(participant) {
+function getParticipantName(participant, fallback) {
   return (
     participant?.username ||
     participant?.name ||
@@ -31,7 +32,7 @@ function getParticipantName(participant) {
     participant?.user?.name ||
     participant?.user?.full_name ||
     participant?.user?.display_name ||
-    'משתמש'
+    fallback
   )
 }
 
@@ -52,33 +53,33 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function formatTime(value) {
+function formatTime(value, locale, fallback) {
   const date = parseDate(value)
   if (!date) {
-    return 'Not set'
+    return fallback
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
 }
 
-function formatDateTime(value) {
+function formatDateTime(value, locale, fallback) {
   const date = parseDate(value)
   if (!date) {
-    return 'Not set'
+    return fallback
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
 }
 
-function formatRemainingTime(milliseconds) {
+function formatRemainingTime(milliseconds, t) {
   if (milliseconds <= 0) {
-    return 'Ended'
+    return t('game.ended')
   }
 
   const totalMinutes = Math.ceil(milliseconds / 60000)
@@ -86,17 +87,18 @@ function formatRemainingTime(milliseconds) {
   const minutes = totalMinutes % 60
 
   if (hours && minutes) {
-    return `${hours}h ${minutes}m`
+    return t('game.hoursMinutes', { hours, minutes })
   }
 
   if (hours) {
-    return `${hours}h`
+    return t('game.hours', { hours })
   }
 
-  return `${minutes}m`
+  return t('game.minutes', { minutes })
 }
 
 function GamePanel({ game, currentUserId, onUpdate }) {
+  const { i18n, t } = useTranslation()
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -106,6 +108,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   })
   const [now, setNow] = useState(() => Date.now())
 
+  const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
   const gameId = getGameId(game)
   const gameStatus = String(game?.status || '').toLowerCase()
   const scheduledAt = useMemo(() => parseDate(game?.scheduled_at), [game?.scheduled_at])
@@ -169,7 +172,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       await joinGame(gameId, normalizedCurrentUserId)
       await onUpdate?.()
     } catch {
-      setError('Could not join game. Please try again.')
+      setError(t('game.joinFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -183,7 +186,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       await leaveGame(gameId, normalizedCurrentUserId)
       await onUpdate?.()
     } catch {
-      setError('Could not leave game. Please try again.')
+      setError(t('game.leaveFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -197,14 +200,14 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       await extendGame(gameId)
       await onUpdate?.()
     } catch {
-      setError('Could not extend game. Please try again.')
+      setError(t('game.extendFailed'))
     } finally {
       setIsLoading(false)
     }
   }
 
   async function handleCloseGame() {
-    if (!window.confirm('Close this game? Players will no longer be able to join it.')) {
+    if (!window.confirm(t('game.closeConfirm'))) {
       return
     }
 
@@ -213,10 +216,10 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     setSuccessMessage('')
     try {
       await closeGame(gameId)
-      setSuccessMessage('Game closed successfully.')
+      setSuccessMessage(t('game.closeSuccess'))
       await onUpdate?.()
     } catch {
-      setError('Could not close game. Please try again.')
+      setError(t('game.closeFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -227,32 +230,32 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   return (
     <div className="game-panel">
       <p className="game-player-count">
-        {game.players_present} / {game.max_players} players
+        {t('game.players', { current: game.players_present, max: game.max_players })}
       </p>
 
       {isUpcomingGame ? (
-        <dl className="game-time-list" aria-label="Game schedule">
+        <dl className="game-time-list" aria-label={t('game.schedule')}>
           <div>
-            <dt>Scheduled</dt>
-            <dd>{formatDateTime(game.scheduled_at)}</dd>
+            <dt>{t('game.scheduled')}</dt>
+            <dd>{formatDateTime(game.scheduled_at, locale, t('game.notSet'))}</dd>
           </div>
         </dl>
       ) : (
-        <dl className="game-time-list" aria-label="Game schedule">
+        <dl className="game-time-list" aria-label={t('game.schedule')}>
           <div>
-            <dt>Start</dt>
-            <dd>{formatTime(game.started_at)}</dd>
+            <dt>{t('game.start')}</dt>
+            <dd>{formatTime(game.started_at, locale, t('game.notSet'))}</dd>
           </div>
           <div>
-            <dt>End</dt>
-            <dd>{formatTime(game.expires_at)}</dd>
+            <dt>{t('game.end')}</dt>
+            <dd>{formatTime(game.expires_at, locale, t('game.notSet'))}</dd>
           </div>
           <div>
-            <dt>Ends in</dt>
+            <dt>{t('game.endsIn')}</dt>
             <dd>
               {remainingMilliseconds === null
-                ? 'Not set'
-                : formatRemainingTime(remainingMilliseconds)}
+                ? t('game.notSet')
+                : formatRemainingTime(remainingMilliseconds, t)}
             </dd>
           </div>
         </dl>
@@ -263,15 +266,15 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       ) : null}
 
       {!gameId ? (
-        <p className="panel-warning">This game is missing an id. Please refresh and try again.</p>
+        <p className="panel-warning">{t('game.missingId')}</p>
       ) : null}
 
       {!normalizedCurrentUserId ? (
-        <p className="panel-warning">Set a current user before joining this game.</p>
+        <p className="panel-warning">{t('game.missingUser')}</p>
       ) : null}
 
       {!isActionableGame ? (
-        <p className="panel-closed">This game has ended.</p>
+        <p className="panel-closed">{t('game.endedMessage')}</p>
       ) : null}
 
       <div className="participants-section">
@@ -282,24 +285,23 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             setParticipantsToggleState((state) => ({
               gameId,
               isOpen: state.gameId === gameId ? !state.isOpen : true,
-            }))
-          }
+            }))}
           aria-expanded={areParticipantsOpen}
           aria-controls="game-participants-list"
         >
-          <span>משתתפים ({participantCount})</span>
-          <span className="participants-toggle-icon" aria-hidden="true">▼</span>
+          <span>{t('game.participants', { count: participantCount })}</span>
+          <span className="participants-toggle-icon" aria-hidden="true">▾</span>
         </button>
 
         {areParticipantsOpen && hasParticipants ? (
           <ul
             className="participants-list"
             id="game-participants-list"
-            aria-label="Participants"
+            aria-label={t('game.participantsLabel')}
           >
             {participants.map((participant, index) => {
               const participantUserId = getParticipantUserId(participant)
-              const participantName = getParticipantName(participant)
+              const participantName = getParticipantName(participant, t('game.userFallback'))
 
               return (
                 <li key={participantUserId || `${participantName}-${index}`}>
@@ -311,11 +313,11 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         ) : null}
 
         {areParticipantsOpen && !hasParticipants ? (
-          <p className="panel-warning">Participant list is not available yet.</p>
+          <p className="panel-warning">{t('game.participantsUnavailable')}</p>
         ) : null}
       </div>
 
-      <div className="game-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div className="game-actions">
         {isActionableGame && (!hasParticipants || (!isParticipant && !isFull)) ? (
           <button
             type="button"
@@ -323,7 +325,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             onClick={handleJoin}
             disabled={cannotJoinOrLeave || isFull}
           >
-            I'm coming
+            {t('game.join')}
           </button>
         ) : null}
 
@@ -334,7 +336,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             onClick={handleLeave}
             disabled={cannotJoinOrLeave}
           >
-            Leave
+            {t('game.leave')}
           </button>
         ) : null}
 
@@ -345,7 +347,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             onClick={handleExtend}
             disabled={cannotUseActiveControls}
           >
-            Extra round
+            {t('game.extend')}
           </button>
         ) : null}
 
@@ -356,7 +358,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             onClick={handleCloseGame}
             disabled={cannotUseActiveControls}
           >
-            Close game
+            {t('game.closeGame')}
           </button>
         ) : null}
       </div>

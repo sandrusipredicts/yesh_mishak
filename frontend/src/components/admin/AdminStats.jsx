@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { getAdminStats } from '../../api/admin'
 
 const STAT_ITEMS = [
-  { key: 'verified_fields', label: 'Verified fields' },
-  { key: 'pending_fields', label: 'Pending fields' },
-  { key: 'active_games', label: 'Active games' },
-  { key: 'total_users', label: 'Total users' },
+  { key: 'verified_fields', labelKey: 'admin.verifiedFields' },
+  { key: 'pending_fields', labelKey: 'admin.pendingFields' },
+  { key: 'active_games', labelKey: 'admin.activeGamesStat' },
+  { key: 'total_users', labelKey: 'admin.totalUsers' },
 ]
 
 function AdminStats() {
+  const { t } = useTranslation()
   const [stats, setStats] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -29,7 +31,7 @@ function AdminStats() {
         }
       } catch {
         if (isMounted) {
-          setError('Could not load admin stats.')
+          setError(t('admin.loadStatsFailed'))
         }
       } finally {
         if (isMounted) {
@@ -43,10 +45,10 @@ function AdminStats() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [t])
 
   if (isLoading) {
-    return <p className="admin-stats-status">Loading stats...</p>
+    return <p className="admin-stats-status">{t('admin.loadingStats')}</p>
   }
 
   if (error) {
@@ -57,7 +59,7 @@ function AdminStats() {
     <div className="admin-stats-grid">
       {STAT_ITEMS.map((item) => (
         <article className="admin-stat-card" key={item.key}>
-          <span>{item.label}</span>
+          <span>{t(item.labelKey)}</span>
           <strong>{stats?.[item.key] ?? ''}</strong>
         </article>
       ))}

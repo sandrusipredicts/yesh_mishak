@@ -1,26 +1,28 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { createGame } from '../api/games'
 
-function getErrorMessage(error) {
+function getErrorMessage(error, t) {
   if (error?.response?.status === 401) {
-    return 'צריך להתחבר כדי לפתוח משחק'
+    return t('openGame.authRequired')
   }
 
   const detail = error?.response?.data?.detail ?? error?.response?.data?.message ?? ''
 
   if (String(detail).toLowerCase().includes('active game already exists')) {
-    return 'כבר יש משחק פעיל במגרש הזה'
+    return t('openGame.alreadyExists')
   }
 
   if (detail) {
     return String(detail)
   }
 
-  return 'Could not open game. Please try again.'
+  return t('openGame.failed')
 }
 
 function OpenGameModal({ field, onClose, onCreated }) {
+  const { t } = useTranslation()
   const fieldSportType = field?.sport_type ?? ''
   const [sportType, setSportType] = useState(fieldSportType === 'both' ? '' : fieldSportType)
   const [gameTiming, setGameTiming] = useState('now')
@@ -39,40 +41,40 @@ function OpenGameModal({ field, onClose, onCreated }) {
     const maxPlayersNumber = Number(maxPlayers)
 
     if (!sportType.trim()) {
-      setError('Sport type is required.')
+      setError(t('openGame.sportRequired'))
       return
     }
 
     if (!['football', 'basketball'].includes(sportType.trim())) {
-      setError('Choose football or basketball.')
+      setError(t('openGame.chooseFootballOrBasketball'))
       return
     }
 
     if (!Number.isFinite(playersPresentNumber) || playersPresentNumber < 1) {
-      setError('Players present must be at least 1.')
+      setError(t('openGame.playersMin'))
       return
     }
 
     if (!Number.isFinite(maxPlayersNumber) || maxPlayersNumber < playersPresentNumber) {
-      setError('Max players must be greater than or equal to players present.')
+      setError(t('openGame.maxPlayersInvalid'))
       return
     }
 
     let scheduledAt
     if (gameTiming === 'future') {
       if (!scheduledDate || !scheduledTime) {
-        setError('יש לבחור תאריך ושעה למשחק עתידי')
+        setError(t('openGame.futureDateRequired'))
         return
       }
 
       const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`)
       if (Number.isNaN(scheduledDateTime.getTime())) {
-        setError('התאריך או השעה אינם תקינים')
+        setError(t('openGame.invalidDateTime'))
         return
       }
 
       if (scheduledDateTime.getTime() <= Date.now()) {
-        setError('אי אפשר לקבוע משחק בזמן שעבר')
+        setError(t('openGame.pastDate'))
         return
       }
 
@@ -99,7 +101,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
       await onCreated?.()
       onClose()
     } catch (createError) {
-      setError(getErrorMessage(createError))
+      setError(getErrorMessage(createError, t))
     } finally {
       setIsSubmitting(false)
     }
@@ -108,14 +110,14 @@ function OpenGameModal({ field, onClose, onCreated }) {
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="open-game-modal" role="dialog" aria-modal="true" aria-labelledby="open-game-title">
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
+        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
           x
         </button>
 
-        <h2 id="open-game-title">Open Game</h2>
+        <h2 id="open-game-title">{t('openGame.title')}</h2>
 
         <form className="open-game-form" onSubmit={handleSubmit}>
-          <div className="schedule-mode-options" role="radiogroup" aria-label="Game timing">
+          <div className="schedule-mode-options" role="radiogroup" aria-label={t('openGame.timing')}>
             <label>
               <input
                 type="radio"
@@ -124,7 +126,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
                 checked={gameTiming === 'now'}
                 onChange={(event) => setGameTiming(event.target.value)}
               />
-              משחק עכשיו
+              {t('openGame.now')}
             </label>
             <label>
               <input
@@ -134,14 +136,14 @@ function OpenGameModal({ field, onClose, onCreated }) {
                 checked={gameTiming === 'future'}
                 onChange={(event) => setGameTiming(event.target.value)}
               />
-              משחק עתידי
+              {t('openGame.future')}
             </label>
           </div>
 
           {gameTiming === 'future' ? (
             <div className="future-game-fields">
               <label>
-                תאריך
+                {t('openGame.date')}
                 <input
                   type="date"
                   value={scheduledDate}
@@ -151,7 +153,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
               </label>
 
               <label>
-                שעה
+                {t('openGame.time')}
                 <input
                   type="time"
                   value={scheduledTime}
@@ -163,24 +165,24 @@ function OpenGameModal({ field, onClose, onCreated }) {
           ) : null}
 
           <label>
-            Sport type
+            {t('openGame.sportType')}
             <select
               value={sportType}
               onChange={(event) => setSportType(event.target.value)}
               required
             >
-              {fieldSportType === 'both' ? <option value="">Choose sport</option> : null}
+              {fieldSportType === 'both' ? <option value="">{t('openGame.chooseSport')}</option> : null}
               {(fieldSportType === 'football' || fieldSportType === 'both') ? (
-                <option value="football">Football</option>
+                <option value="football">{t('openGame.football')}</option>
               ) : null}
               {(fieldSportType === 'basketball' || fieldSportType === 'both') ? (
-                <option value="basketball">Basketball</option>
+                <option value="basketball">{t('openGame.basketball')}</option>
               ) : null}
             </select>
           </label>
 
           <label>
-            Players present
+            {t('openGame.playersPresent')}
             <input
               type="number"
               min="1"
@@ -191,7 +193,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
           </label>
 
           <label>
-            Max players
+            {t('openGame.maxPlayers')}
             <input
               type="number"
               min="2"
@@ -202,7 +204,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
           </label>
 
           <label>
-            Age note
+            {t('openGame.ageNote')}
             <input
               type="text"
               value={ageNote}
@@ -214,7 +216,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
           {error ? <p className="modal-error">{error}</p> : null}
 
           <button className="primary-panel-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Opening...' : 'Open Game'}
+            {isSubmitting ? t('openGame.opening') : t('openGame.title')}
           </button>
         </form>
       </section>

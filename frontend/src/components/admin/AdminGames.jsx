@@ -1,61 +1,62 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { adminCloseGame, adminExtendGame, getAdminGames } from '../../api/admin'
 
-function formatValue(value, fallback = '—') {
-  return value || fallback
-}
-
-function formatDate(value) {
-  if (!value) {
-    return '—'
+function GamesTable({ games, isActive, onExtend, onClose, workingGameId, locale, t }) {
+  function formatValue(value, fallback = t('admin.missing')) {
+    return value ? t(`values.${value}`, value) : fallback
   }
 
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return '—'
+  function formatDate(value) {
+    if (!value) {
+      return t('admin.missing')
+    }
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return t('admin.missing')
+    }
+
+    return date.toLocaleString(locale)
   }
 
-  return date.toLocaleString()
-}
+  function formatPlayers(game) {
+    if (
+      game.players_present === null ||
+      game.players_present === undefined ||
+      game.max_players === null ||
+      game.max_players === undefined
+    ) {
+      return t('admin.missing')
+    }
 
-function formatPlayers(game) {
-  if (
-    game.players_present === null ||
-    game.players_present === undefined ||
-    game.max_players === null ||
-    game.max_players === undefined
-  ) {
-    return '—'
+    return `${game.players_present} / ${game.max_players}`
   }
 
-  return `${game.players_present} / ${game.max_players}`
-}
+  function getParticipantsCount(game) {
+    return game.participants?.length || 0
+  }
 
-function getParticipantsCount(game) {
-  return game.participants?.length || 0
-}
-
-function GamesTable({ games, isActive, onExtend, onClose, workingGameId }) {
   return (
     <div className="admin-table-wrap">
       <table className="admin-table admin-games-table">
         <thead>
           <tr>
-            <th>Field</th>
-            <th>Sport</th>
-            <th>Players</th>
-            <th>Status</th>
-            <th>Started</th>
-            <th>Expires</th>
-            <th>Participants</th>
-            {isActive ? <th>Actions</th> : null}
+            <th>{t('admin.field')}</th>
+            <th>{t('admin.sport')}</th>
+            <th>{t('admin.players')}</th>
+            <th>{t('admin.status')}</th>
+            <th>{t('admin.started')}</th>
+            <th>{t('admin.expires')}</th>
+            <th>{t('admin.participants')}</th>
+            {isActive ? <th>{t('admin.actions')}</th> : null}
           </tr>
         </thead>
         <tbody>
           {games.map((game) => (
             <tr key={game.id}>
-              <td>{formatValue(game.field_name, 'Unknown field')}</td>
+              <td>{formatValue(game.field_name, t('admin.unknownField'))}</td>
               <td>{formatValue(game.sport_type)}</td>
               <td>{formatPlayers(game)}</td>
               <td>{formatValue(game.status)}</td>
@@ -71,7 +72,7 @@ function GamesTable({ games, isActive, onExtend, onClose, workingGameId }) {
                       onClick={() => onExtend(game.id)}
                       disabled={workingGameId === game.id}
                     >
-                      Extend
+                      {t('admin.extend')}
                     </button>
                     <button
                       className="admin-danger-button"
@@ -79,7 +80,7 @@ function GamesTable({ games, isActive, onExtend, onClose, workingGameId }) {
                       onClick={() => onClose(game.id)}
                       disabled={workingGameId === game.id}
                     >
-                      Close
+                      {t('admin.close')}
                     </button>
                   </div>
                 </td>
@@ -93,12 +94,14 @@ function GamesTable({ games, isActive, onExtend, onClose, workingGameId }) {
 }
 
 function AdminGames() {
+  const { i18n, t } = useTranslation()
   const [activeGames, setActiveGames] = useState([])
   const [finishedGames, setFinishedGames] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [actionError, setActionError] = useState('')
   const [workingGameId, setWorkingGameId] = useState('')
+  const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   async function loadGames() {
     setIsLoading(true)
@@ -109,7 +112,7 @@ function AdminGames() {
       setActiveGames(Array.isArray(games.active) ? games.active : [])
       setFinishedGames(Array.isArray(games.finished) ? games.finished : [])
     } catch {
-      setLoadError('Failed to load games.')
+      setLoadError(t('admin.failedLoadGames'))
     } finally {
       setIsLoading(false)
     }
@@ -127,7 +130,7 @@ function AdminGames() {
         }
       } catch {
         if (isMounted) {
-          setLoadError('Failed to load games.')
+          setLoadError(t('admin.failedLoadGames'))
         }
       } finally {
         if (isMounted) {
@@ -141,7 +144,7 @@ function AdminGames() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [t])
 
   async function handleExtend(gameId) {
     setWorkingGameId(gameId)
@@ -151,7 +154,7 @@ function AdminGames() {
       await adminExtendGame(gameId)
       await loadGames()
     } catch {
-      setActionError('Failed to extend game.')
+      setActionError(t('admin.failedExtendGame'))
     } finally {
       setWorkingGameId('')
     }
@@ -165,7 +168,7 @@ function AdminGames() {
       await adminCloseGame(gameId)
       await loadGames()
     } catch {
-      setActionError('Failed to close game.')
+      setActionError(t('admin.failedCloseGame'))
     } finally {
       setWorkingGameId('')
     }
@@ -173,14 +176,14 @@ function AdminGames() {
 
   return (
     <div className="admin-games">
-      {isLoading ? <p className="admin-loading">Loading games...</p> : null}
+      {isLoading ? <p className="admin-loading">{t('admin.loadingGames')}</p> : null}
       {loadError ? <p className="admin-error">{loadError}</p> : null}
       {actionError ? <p className="admin-error">{actionError}</p> : null}
 
       {!isLoading && !loadError ? (
         <>
           <section className="admin-games-section" aria-labelledby="active-games-title">
-            <h3 id="active-games-title">Active Games</h3>
+            <h3 id="active-games-title">{t('admin.activeGames')}</h3>
             {activeGames.length ? (
               <GamesTable
                 games={activeGames}
@@ -188,18 +191,26 @@ function AdminGames() {
                 onExtend={handleExtend}
                 onClose={handleClose}
                 workingGameId={workingGameId}
+                locale={locale}
+                t={t}
               />
             ) : (
-              <p className="admin-empty-state">No active games.</p>
+              <p className="admin-empty-state">{t('admin.noActiveGames')}</p>
             )}
           </section>
 
           <section className="admin-games-section" aria-labelledby="finished-games-title">
-            <h3 id="finished-games-title">Recently Finished Games</h3>
+            <h3 id="finished-games-title">{t('admin.finishedGames')}</h3>
             {finishedGames.length ? (
-              <GamesTable games={finishedGames} isActive={false} workingGameId={workingGameId} />
+              <GamesTable
+                games={finishedGames}
+                isActive={false}
+                workingGameId={workingGameId}
+                locale={locale}
+                t={t}
+              />
             ) : (
-              <p className="admin-empty-state">No finished games found.</p>
+              <p className="admin-empty-state">{t('admin.noFinishedGames')}</p>
             )}
           </section>
         </>

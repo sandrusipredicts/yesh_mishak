@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import './App.css'
 import AdminRoute from './components/AdminRoute'
+import LanguageSwitcher from './components/LanguageSwitcher'
 import LoginPage from './components/LoginPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
@@ -26,6 +28,7 @@ function getStoredUser() {
 }
 
 function App() {
+  const { t } = useTranslation()
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const [isOnboardingDone, setIsOnboardingDone] = useState(
@@ -109,8 +112,9 @@ function App() {
       <MapPage currentUserId={currentUser.id} />
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
+        <LanguageSwitcher className="toolbar-language-switcher" />
         <button type="button" onClick={handleLogout}>
-          Logout
+          {t('app.logout')}
         </button>
       </div>
     </>

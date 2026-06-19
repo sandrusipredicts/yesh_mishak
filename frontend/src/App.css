@@ -1,3 +1,66 @@
+.app-shell,
+.login-page,
+.onboarding-page,
+.map-page,
+.admin-page {
+  direction: inherit;
+  text-align: start;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  text-align: start;
+}
+
+.language-switcher {
+  display: inline-grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.language-switcher select {
+  min-width: 108px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: #ffffff;
+  color: #172033;
+}
+
+.panel-language-switcher {
+  justify-self: end;
+}
+
+.map-language-switcher {
+  position: absolute;
+  z-index: 1000;
+  top: 20px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+[dir='rtl'] .map-language-switcher {
+  transform: translateX(50%);
+}
+
+.toolbar-language-switcher {
+  min-width: 108px;
+}
+
 .login-page {
   display: grid;
   min-height: 100vh;
@@ -149,8 +212,8 @@
   display: grid;
   gap: 10px;
   margin: 0;
-  padding: 0 20px 0 0;
-  direction: rtl;
+  padding: 0;
+  padding-inline-start: 20px;
   font-size: 18px;
 }
 
@@ -164,7 +227,6 @@
   position: relative;
   display: grid;
   gap: 6px;
-  direction: rtl;
 }
 
 .onboarding-form label {
@@ -178,18 +240,16 @@
   border-radius: 6px;
   padding: 14px 16px;
   color: #172033;
-  direction: rtl;
   font: inherit;
   font-size: 18px;
-  text-align: right;
+  text-align: start;
 }
 
 .city-suggestions {
   position: absolute;
   z-index: 10;
   top: calc(100% + 6px);
-  right: 0;
-  left: 0;
+  inset-inline: 0;
   display: grid;
   max-height: 288px;
   overflow: auto;
@@ -212,7 +272,7 @@
   color: #172033;
   cursor: pointer;
   font: inherit;
-  text-align: right;
+  text-align: start;
 }
 
 .city-suggestions button:hover,
@@ -231,7 +291,7 @@
   position: absolute;
   z-index: 1200;
   top: 20px;
-  left: 20px;
+  inset-inline-end: 20px;
   display: flex;
   max-width: min(360px, calc(100% - 96px));
   align-items: center;
@@ -258,6 +318,10 @@
   color: #ffffff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.auth-toolbar .language-switcher span {
+  display: none;
 }
 
 .map-page {
@@ -291,7 +355,7 @@
 .notification-badge {
   position: absolute;
   top: -4px;
-  right: -4px;
+  inset-inline-end: -4px;
   display: grid;
   min-width: 22px;
   height: 22px;
@@ -308,27 +372,31 @@
 
 .floating-button.top {
   top: 20px;
-  right: 20px;
+  inset-inline-start: 20px;
   font-size: 24px;
 }
 
 .floating-button.preferences {
   top: 84px;
-  right: 20px;
+  inset-inline-start: 20px;
   font-size: 24px;
   font-weight: 800;
 }
 
 .floating-button.my-location {
-  right: 20px;
+  inset-inline-start: 20px;
   bottom: 24px;
   font-size: 24px;
 }
 
 .floating-button.bottom {
   bottom: 24px;
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translateX(-50%);
+}
+
+[dir='rtl'] .floating-button.bottom {
+  transform: translateX(50%);
 }
 
 .field-popup {
@@ -374,7 +442,7 @@
 
 .field-marker-status {
   position: absolute;
-  right: -3px;
+  inset-inline-end: -3px;
   bottom: 1px;
   display: block;
   width: 16px;
@@ -470,7 +538,7 @@
   position: absolute;
   z-index: 1000;
   top: 20px;
-  left: 20px;
+  inset-inline-end: 20px;
   max-width: 280px;
   border-radius: 6px;
   padding: 10px 12px;
@@ -484,7 +552,7 @@
   position: absolute;
   z-index: 1000;
   top: 20px;
-  left: 20px;
+  inset-inline-end: 20px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -516,7 +584,7 @@
 .field-details-panel {
   position: absolute;
   z-index: 1100;
-  right: 20px;
+  inset-inline-start: 20px;
   bottom: 20px;
   width: min(360px, calc(100% - 40px));
   border-radius: 8px;
@@ -529,7 +597,7 @@
 .panel-close-button {
   position: absolute;
   top: 12px;
-  right: 12px;
+  inset-inline-end: 12px;
   border: 0;
   background: transparent;
   color: #475569;
@@ -538,7 +606,7 @@
 }
 
 .panel-header {
-  padding-right: 28px;
+  padding-inline-end: 28px;
 }
 
 .panel-header h2 {
@@ -823,7 +891,7 @@
 .modal-close-button {
   position: absolute;
   top: 12px;
-  right: 12px;
+  inset-inline-end: 12px;
   border: 0;
   background: transparent;
   color: #475569;
@@ -993,7 +1061,34 @@
   color: inherit;
   cursor: pointer;
   font: inherit;
-  text-align: left;
+  text-align: start;
+}
+
+.game-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.secondary-panel-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.secondary-panel-button:disabled,
+.primary-panel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .notification-list-item.unread {
@@ -1118,8 +1213,7 @@
 .city-autocomplete-suggestions {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   z-index: 20;
   margin: 0;
   padding: 4px 0;
@@ -1267,7 +1361,7 @@
   position: absolute;
   z-index: 1000;
   top: 20px;
-  left: 20px;
+  inset-inline-end: 20px;
   max-width: 280px;
   border-radius: 6px;
   padding: 10px 12px;
@@ -1291,6 +1385,15 @@
   gap: 18px;
   margin: 0 auto 24px;
   max-width: 1180px;
+}
+
+.admin-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .admin-header h1 {
@@ -1343,7 +1446,7 @@
   cursor: pointer;
   font: inherit;
   font-weight: 700;
-  text-align: left;
+  text-align: start;
 }
 
 .admin-sidebar-button:hover,
@@ -1499,7 +1602,7 @@
 .admin-table td {
   border-bottom: 1px solid #e2e8f0;
   padding: 11px 12px;
-  text-align: left;
+  text-align: start;
   vertical-align: top;
 }
 
@@ -1693,7 +1796,7 @@
 
 @media (max-width: 640px) {
   .field-details-panel {
-    right: 0;
+    inset-inline-start: 0;
     bottom: 0;
     width: 100%;
     border-radius: 12px 12px 0 0;
@@ -1711,6 +1814,10 @@
 
   .admin-header {
     display: grid;
+  }
+
+  .admin-header-actions {
+    justify-content: flex-start;
   }
 
   .admin-shell {

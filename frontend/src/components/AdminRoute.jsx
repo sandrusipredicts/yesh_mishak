@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { getAdminMe } from '../api/admin'
 import LoginPage from './LoginPage'
@@ -15,6 +16,7 @@ function clearAuthStorage() {
 }
 
 function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState(() => (hasAccessToken() ? 'checking' : 'logged-out'))
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
@@ -56,7 +58,7 @@ function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
           return
         }
 
-        setError('Could not verify admin access.')
+        setError(t('admin.verifyAccessFailed'))
         setStatus('error')
       }
     }
@@ -66,7 +68,7 @@ function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
     return () => {
       isMounted = false
     }
-  }, [onForbidden, onUnauthorized, retryKey])
+  }, [onForbidden, onUnauthorized, retryKey, t])
 
   if (status === 'logged-out') {
     return (
@@ -81,7 +83,7 @@ function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
   }
 
   if (status === 'checking') {
-    return <p className="admin-route-status">Checking admin access...</p>
+    return <p className="admin-route-status">{t('admin.checkingAccess')}</p>
   }
 
   if (status === 'error') {
@@ -89,7 +91,7 @@ function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
       <main className="admin-route-error">
         <p>{error}</p>
         <button type="button" onClick={() => setRetryKey((currentKey) => currentKey + 1)}>
-          Retry
+          {t('admin.retry')}
         </button>
       </main>
     )

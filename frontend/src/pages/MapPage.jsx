@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
@@ -10,6 +11,7 @@ import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
 import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
+import LanguageSwitcher from '../components/LanguageSwitcher'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -85,10 +87,7 @@ function writeCachedFields(fields) {
   }
 }
 
-function createMarkerIcon(status) {
-  const isActive = status === 'active'
-  const label = isActive ? 'Active field' : 'Inactive field'
-
+function createMarkerIcon(status, label) {
   return L.divIcon({
     className: 'field-marker-icon',
     html: `
@@ -145,6 +144,7 @@ function UserLocationFlyTo({ requestId, userLocation }) {
 }
 
 function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
+  const { t } = useTranslation()
   const latestRequestId = useRef(0)
 
   const loadFields = useCallback(
@@ -166,14 +166,14 @@ function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
           return
         }
 
-        onError('Could not load fields from the backend.')
+        onError(t('map.loadFieldsError'))
       } finally {
         if (requestId === latestRequestId.current) {
           onLoadingChange(false)
         }
       }
     },
-    [onError, onFieldsLoaded, onLoadingChange],
+    [onError, onFieldsLoaded, onLoadingChange, t],
   )
 
   const map = useMapEvents({
@@ -190,6 +190,7 @@ function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
 }
 
 const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectField }) {
+  const { t } = useTranslation()
   const position = useMemo(() => getFieldPosition(field), [field])
   const activeGame = getActiveGame(field)
   const markerStatus = hasActiveGame(field) ? 'active' : 'inactive'
@@ -216,8 +217,8 @@ const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectFiel
       <Popup>
         <div className="field-popup">
           <h2>{field.name}</h2>
-          {field.sport_type ? <p>Sport: {field.sport_type}</p> : null}
-          <p>Active game: {activeGame?.status ?? 'none'}</p>
+          {field.sport_type ? <p>{t('map.sport')}: {t(`values.${field.sport_type}`, field.sport_type)}</p> : null}
+          <p>{t('map.activeGame')}: {activeGame?.status ? t(`values.${activeGame.status}`, activeGame.status) : t('map.none')}</p>
         </div>
       </Popup>
     </Marker>
@@ -225,6 +226,7 @@ const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectFiel
 })
 
 function MapPage({ currentUserId: authenticatedUserId }) {
+  const { t } = useTranslation()
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [userLocation, setUserLocation] = useState(null)
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
@@ -343,10 +345,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   const markerIcons = useMemo(
     () => ({
-      active: createMarkerIcon('active'),
-      inactive: createMarkerIcon('inactive'),
+      active: createMarkerIcon('active', t('map.activeField')),
+      inactive: createMarkerIcon('inactive', t('map.inactiveField')),
     }),
-    [],
+    [t],
   )
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
@@ -374,10 +376,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   const fieldMarkers = useMemo(
     () =>
-      fields.map((field) => (
+      fields.map((field, index) => (
         <FieldMarker
           field={field}
-          key={field.id}
+          key={`${field.id ?? field.name ?? 'field'}-${index}`}
           markerIcons={markerIcons}
           onSelectField={handleSelectField}
         />
@@ -423,7 +425,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   )
 
   function handleFieldCreated() {
-    setFieldSubmitMessage('Sent for VAR approval')
+    setFieldSubmitMessage(t('map.sentForApproval'))
     refreshFields()
   }
 
@@ -455,11 +457,12 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   }
 
   const notificationsLabel = unreadNotificationCount
-    ? `Notifications, ${unreadNotificationCount} unread`
-    : 'Notifications'
+    ? t('map.notificationsUnread', { count: unreadNotificationCount })
+    : t('map.notifications')
 
   return (
     <main className="map-page">
+      <LanguageSwitcher className="map-language-switcher" />
       {error ? <div className="map-error">{error}</div> : null}
       {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
 
@@ -483,7 +486,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       <button
         className="floating-button preferences"
         type="button"
-        aria-label="Notification preferences"
+        aria-label={t('map.notificationPreferences')}
         onClick={() => setIsNotificationPreferencesOpen(true)}
       >
         <Settings size={22} />
@@ -493,7 +496,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         <button
           className="floating-button my-location"
           type="button"
-          aria-label="My Location"
+          aria-label={t('map.myLocation')}
           onClick={() => setUserLocationRequestId((currentRequestId) => currentRequestId + 1)}
         >
           <LocateFixed size={22} />
@@ -515,7 +518,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         />
 
         {userLocation ? (
-          <>
+          <Fragment key="user-location-layer">
             {userLocation.accuracy ? (
               <Circle
                 center={userLocation.position}
@@ -536,7 +539,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
               position={userLocation.position}
               zIndexOffset={1000}
             />
-          </>
+          </Fragment>
         ) : null}
 
         {fieldMarkers}
@@ -545,14 +548,14 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       {isFieldsLoading && !fields.length ? (
         <div className="map-loading" role="status" aria-live="polite">
           <span className="map-loading-spinner" aria-hidden="true" />
-          <span>Loading fields...</span>
+          <span>{t('map.loadingFields')}</span>
         </div>
       ) : null}
 
       <button
         className="floating-button bottom"
         type="button"
-        aria-label="Add field"
+        aria-label={t('map.addField')}
         onClick={() => {
           setFieldSubmitMessage('')
           setIsAddFieldOpen(true)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import {
   loginWithGoogle,
@@ -6,6 +7,7 @@ import {
   registerWithPassword,
   saveAuthSession,
 } from '../api/auth'
+import LanguageSwitcher from './LanguageSwitcher'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -42,6 +44,7 @@ function loadGoogleScript() {
 }
 
 function LoginPage({ onLogin }) {
+  const { t } = useTranslation()
   const buttonRef = useRef(null)
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
@@ -70,7 +73,7 @@ function LoginPage({ onLogin }) {
 
     async function initializeGoogleLogin() {
       if (!googleClientId) {
-        setError('Google login is missing VITE_GOOGLE_CLIENT_ID.')
+        setError(t('auth.googleMissingClient'))
         return
       }
 
@@ -82,12 +85,12 @@ function LoginPage({ onLogin }) {
         }
 
         if (!window.google?.accounts?.id) {
-          setError('Google login loaded but is not ready yet.')
+          setError(t('auth.googleNotReady'))
           return
         }
 
         if (!buttonRef.current) {
-          setError('Google login button could not be mounted.')
+          setError(t('auth.googleButtonMountFailed'))
           return
         }
 
@@ -95,7 +98,7 @@ function LoginPage({ onLogin }) {
           client_id: googleClientId,
           callback: async (response) => {
             if (!response.credential) {
-              setError('Google did not return a credential.')
+              setError(t('auth.googleNoCredential'))
               return
             }
 
@@ -106,7 +109,7 @@ function LoginPage({ onLogin }) {
               const authData = await loginWithGoogle(response.credential)
               handleAuthSuccess(authData)
             } catch {
-              setError('Could not sign in with Google. Please try again.')
+              setError(t('auth.googleSignInFailed'))
             } finally {
               setIsLoading(false)
             }
@@ -122,12 +125,12 @@ function LoginPage({ onLogin }) {
 
         window.setTimeout(() => {
           if (isMounted && buttonRef.current && buttonRef.current.childElementCount === 0) {
-            setError('Google login button could not be rendered.')
+            setError(t('auth.googleRenderFailed'))
           }
         }, 0)
       } catch {
         if (isMounted) {
-          setError('Could not load Google login.')
+          setError(t('auth.googleLoadFailed'))
         }
       }
     }
@@ -137,7 +140,7 @@ function LoginPage({ onLogin }) {
     return () => {
       isMounted = false
     }
-  }, [googleClientId, handleAuthSuccess])
+  }, [googleClientId, handleAuthSuccess, t])
 
   function updateLoginForm(event) {
     const { name, value } = event.target
@@ -171,7 +174,7 @@ function LoginPage({ onLogin }) {
       const authData = await loginWithPassword(loginForm)
       handleAuthSuccess(authData)
     } catch (apiError) {
-      setError(getApiErrorMessage(apiError, 'Could not sign in. Please check your details.'))
+      setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -186,7 +189,7 @@ function LoginPage({ onLogin }) {
       const authData = await registerWithPassword(registerForm)
       handleAuthSuccess(authData)
     } catch (apiError) {
-      setError(getApiErrorMessage(apiError, 'Could not create your account.'))
+      setError(getApiErrorMessage(apiError, t('auth.accountCreateFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -195,10 +198,11 @@ function LoginPage({ onLogin }) {
   return (
     <main className="login-page">
       <section className="login-panel" aria-labelledby="login-title">
+        <LanguageSwitcher className="panel-language-switcher" />
         <h1 id="login-title">yesh_mishak</h1>
-        <p>Sign in to open and join games.</p>
+        <p>{t('app.tagline')}</p>
 
-        <div className="auth-mode-tabs" role="tablist" aria-label="Authentication method">
+        <div className="auth-mode-tabs" role="tablist" aria-label={t('auth.method')}>
           <button
             type="button"
             className={mode === 'login' ? 'active' : ''}
@@ -207,7 +211,7 @@ function LoginPage({ onLogin }) {
               setError('')
             }}
           >
-            Login
+            {t('auth.login')}
           </button>
           <button
             type="button"
@@ -217,14 +221,14 @@ function LoginPage({ onLogin }) {
               setError('')
             }}
           >
-            Register
+            {t('auth.register')}
           </button>
         </div>
 
         {mode === 'login' ? (
           <form className="auth-form" onSubmit={handlePasswordLogin}>
             <label>
-              <span>Username</span>
+              <span>{t('auth.username')}</span>
               <input
                 autoComplete="username"
                 name="username"
@@ -235,7 +239,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Password</span>
+              <span>{t('auth.password')}</span>
               <input
                 autoComplete="current-password"
                 name="password"
@@ -246,13 +250,13 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <button className="auth-submit" disabled={isLoading} type="submit">
-              Sign in
+              {t('auth.signIn')}
             </button>
           </form>
         ) : (
           <form className="auth-form" onSubmit={handleRegister}>
             <label>
-              <span>Full name</span>
+              <span>{t('auth.fullName')}</span>
               <input
                 autoComplete="name"
                 name="full_name"
@@ -263,7 +267,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Username</span>
+              <span>{t('auth.username')}</span>
               <input
                 autoComplete="username"
                 minLength={3}
@@ -275,7 +279,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Email</span>
+              <span>{t('auth.email')}</span>
               <input
                 autoComplete="email"
                 name="email"
@@ -286,7 +290,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Phone number</span>
+              <span>{t('auth.phoneNumber')}</span>
               <input
                 autoComplete="tel"
                 name="phone_number"
@@ -297,7 +301,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Password</span>
+              <span>{t('auth.password')}</span>
               <input
                 autoComplete="new-password"
                 minLength={8}
@@ -309,7 +313,7 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <label>
-              <span>Confirm password</span>
+              <span>{t('auth.confirmPassword')}</span>
               <input
                 autoComplete="new-password"
                 minLength={8}
@@ -321,18 +325,18 @@ function LoginPage({ onLogin }) {
               />
             </label>
             <button className="auth-submit" disabled={isLoading} type="submit">
-              Create account
+              {t('auth.createAccount')}
             </button>
           </form>
         )}
 
         <div className="auth-divider" aria-hidden="true">
           <span />
-          <strong>or</strong>
+          <strong>{t('auth.or')}</strong>
           <span />
         </div>
         <div ref={buttonRef} className="google-login-button" />
-        {isLoading ? <p className="login-status">Signing in...</p> : null}
+        {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
         {error ? <p className="login-error">{error}</p> : null}
       </section>
     </main>
