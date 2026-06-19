@@ -23,13 +23,15 @@ function getParticipantUserId(participant) {
 
 function getParticipantName(participant) {
   return (
+    participant?.username ||
     participant?.name ||
     participant?.full_name ||
     participant?.display_name ||
+    participant?.user?.username ||
     participant?.user?.name ||
     participant?.user?.full_name ||
     participant?.user?.display_name ||
-    'Unknown player'
+    'משתמש'
   )
 }
 
@@ -98,6 +100,10 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [participantsToggleState, setParticipantsToggleState] = useState({
+    gameId: '',
+    isOpen: false,
+  })
   const [now, setNow] = useState(() => Date.now())
 
   const gameId = getGameId(game)
@@ -116,6 +122,12 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     : gameStatus === 'full'
   const participants = getParticipants(game)
   const hasParticipants = hasParticipantsPayload(game)
+  const participantCount = hasParticipants
+    ? participants.length
+    : Number(game?.players_present ?? 0)
+  const areParticipantsOpen = participantsToggleState.gameId === gameId
+    ? participantsToggleState.isOpen
+    : false
   const normalizedCurrentUserId = normalizeUserId(getStoredSessionUserId() || currentUserId)
   const creatorId = normalizeUserId(game?.created_by)
   const isCreator = Boolean(
@@ -262,22 +274,46 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         <p className="panel-closed">This game has ended.</p>
       ) : null}
 
-      {hasParticipants ? (
-        <ul className="participants-list" aria-label="Participants">
-          {participants.map((participant) => {
-            const participantUserId = getParticipantUserId(participant)
-            const participantName = getParticipantName(participant)
+      <div className="participants-section">
+        <button
+          type="button"
+          className="participants-toggle-button"
+          onClick={() =>
+            setParticipantsToggleState((state) => ({
+              gameId,
+              isOpen: state.gameId === gameId ? !state.isOpen : true,
+            }))
+          }
+          aria-expanded={areParticipantsOpen}
+          aria-controls="game-participants-list"
+        >
+          <span>משתתפים ({participantCount})</span>
+          <span className="participants-toggle-icon" aria-hidden="true">▼</span>
+        </button>
 
-            return (
-              <li key={participantUserId || participantName}>
-                {participantName}
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <p className="panel-warning">Participant list is not available yet.</p>
-      )}
+        {areParticipantsOpen && hasParticipants ? (
+          <ul
+            className="participants-list"
+            id="game-participants-list"
+            aria-label="Participants"
+          >
+            {participants.map((participant, index) => {
+              const participantUserId = getParticipantUserId(participant)
+              const participantName = getParticipantName(participant)
+
+              return (
+                <li key={participantUserId || `${participantName}-${index}`}>
+                  {participantName}
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
+
+        {areParticipantsOpen && !hasParticipants ? (
+          <p className="panel-warning">Participant list is not available yet.</p>
+        ) : null}
+      </div>
 
       <div className="game-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {isActionableGame && (!hasParticipants || (!isParticipant && !isFull)) ? (
