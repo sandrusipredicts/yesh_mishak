@@ -16,7 +16,10 @@ from app.routers.game_lifecycle import (
     parse_game_datetime,
 )
 from app.routers.game_payloads import attach_participants_to_games
-from app.routers.notifications import create_game_created_notifications
+from app.routers.notifications import (
+    create_game_created_notifications,
+    create_player_joined_game_notification,
+)
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -230,6 +233,25 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_u
         .eq("id", game_id)
         .execute()
     )
+
+    if game.get("field_id"):
+        field_response = (
+            supabase.table("fields")
+            .select("*")
+            .eq("id", game.get("field_id"))
+            .limit(1)
+            .execute()
+        )
+        field = (
+            field_response.data[0]
+            if field_response.data
+            else {"id": game.get("field_id"), "name": "Unknown field"}
+        )
+        create_player_joined_game_notification(
+            game=game,
+            field=field,
+            joined_user=current_user,
+        )
 
     return {"message": "Joined successfully", "game": response.data[0]}
 

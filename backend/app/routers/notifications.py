@@ -142,24 +142,34 @@ def _is_missing_column_error(error: APIError, column_name: str) -> bool:
 
 def _with_notification_target_aliases(notification: dict[str, Any]) -> dict[str, Any]:
     normalized_notification = dict(notification)
+    data = normalized_notification.get("data")
+    if not isinstance(data, dict):
+        data = {}
 
-    if "game_id" not in normalized_notification and "related_game_id" in normalized_notification:
+    if not normalized_notification.get("game_id") and "related_game_id" in normalized_notification:
         normalized_notification["game_id"] = normalized_notification.get("related_game_id")
+    if not normalized_notification.get("game_id") and data.get("game_id"):
+        normalized_notification["game_id"] = data.get("game_id")
 
-    if "field_id" not in normalized_notification and "related_field_id" in normalized_notification:
+    if not normalized_notification.get("field_id") and "related_field_id" in normalized_notification:
         normalized_notification["field_id"] = normalized_notification.get("related_field_id")
+    if not normalized_notification.get("field_id") and data.get("field_id"):
+        normalized_notification["field_id"] = data.get("field_id")
 
     return normalized_notification
 
 
 def _push_data(notification: dict[str, Any]) -> dict[str, Any]:
     normalized_notification = _with_notification_target_aliases(notification)
-    return {
+    data = normalized_notification.get("data")
+    push_payload = dict(data) if isinstance(data, dict) else {}
+    push_payload.update({
         "notification_id": normalized_notification.get("id"),
         "type": normalized_notification.get("type"),
         "game_id": normalized_notification.get("game_id"),
         "field_id": normalized_notification.get("field_id"),
-    }
+    })
+    return push_payload
 
 
 def _delete_push_token(client: Any, token: str) -> None:
@@ -368,6 +378,71 @@ def create_game_created_notifications(
         return []
 
     notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
+
+
+def create_player_joined_game_notification(
+    game: dict[str, Any],
+    field: dict[str, Any],
+    joined_user: dict[str, Any],
+) -> list[dict[str, Any]]:
+    organizer_id = game.get("created_by")
+    joined_user_id = joined_user.get("id")
+
+    if not organizer_id or not joined_user_id or str(organizer_id) == str(joined_user_id):
+        return []
+
+    service_supabase = get_supabase_service_role_client()
+    field_name = field.get("name") or "Unknown field"
+    player_name = str(joined_user.get("name") or "").strip()
+    body = (
+        f"{player_name} הצטרף למשחק שלך ב-{field_name}"
+        if player_name
+        else f"שחקן חדש הצטרף למשחק שלך ב-{field_name}"
+    )
+    payload = {
+        "game_id": game.get("id"),
+        "field_id": field.get("id") or game.get("field_id"),
+        "type": "player_joined_game",
+        "joined_user_id": joined_user_id,
+    }
+    row = {
+        "user_id": organizer_id,
+        "type": "player_joined_game",
+        "title": "שחקן חדש הצטרף למשחק שלך",
+        "body": body,
+        "data": payload,
+    }
+
+    try:
+        notifications = service_supabase.table("notifications").insert(row).execute().data or []
+    except APIError as error:
+        if not _is_missing_column_error(error, "notifications.data"):
+            raise
+
+        game_id_column = "game_id"
+        field_id_column = "field_id"
+        legacy_row = {
+            key: value
+            for key, value in row.items()
+            if key != "data"
+        }
+
+        try:
+            legacy_row[game_id_column] = game.get("id")
+            legacy_row[field_id_column] = field.get("id") or game.get("field_id")
+            notifications = service_supabase.table("notifications").insert(legacy_row).execute().data or []
+        except APIError as legacy_error:
+            if not _is_missing_column_error(legacy_error, "notifications.game_id"):
+                raise
+
+            legacy_row.pop(game_id_column, None)
+            legacy_row.pop(field_id_column, None)
+            legacy_row["related_game_id"] = game.get("id")
+            legacy_row["related_field_id"] = field.get("id") or game.get("field_id")
+            notifications = service_supabase.table("notifications").insert(legacy_row).execute().data or []
+
     _send_push_for_notifications(service_supabase, notifications)
     return notifications
 

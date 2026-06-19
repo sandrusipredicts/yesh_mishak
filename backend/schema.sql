@@ -82,6 +82,7 @@ create table if not exists notifications (
     body text not null,
     game_id uuid references games(id) on delete set null,
     field_id uuid references fields(id) on delete set null,
+    data jsonb,
     read_at timestamptz,
     created_at timestamptz not null default now()
 );
@@ -105,6 +106,7 @@ create index if not exists idx_notifications_read_at on notifications(read_at);
 create index if not exists idx_notifications_created_at on notifications(created_at);
 create index if not exists idx_notifications_game_id on notifications(game_id);
 create index if not exists idx_notifications_field_id on notifications(field_id);
+create index if not exists idx_notifications_data_type on notifications((data ->> 'type'));
 create unique index if not exists idx_notifications_user_type_game_unique
     on notifications(user_id, type, game_id)
-    where game_id is not null;
+    where game_id is not null and type = 'game_created';

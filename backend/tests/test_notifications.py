@@ -336,6 +336,37 @@ def test_get_notifications_normalizes_legacy_related_targets(
     assert response.json()[0]["field_id"] == "field-1"
 
 
+def test_get_notifications_normalizes_data_payload_targets(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-player-joined",
+            "user_id": users["organizer"]["id"],
+            "type": "player_joined_game",
+            "title": "שחקן חדש הצטרף למשחק שלך",
+            "body": "Candidate הצטרף למשחק שלך ב-Central Court",
+            "game_id": None,
+            "field_id": None,
+            "data": {
+                "game_id": "game-1",
+                "field_id": "field-1",
+                "type": "player_joined_game",
+                "joined_user_id": users["candidate"]["id"],
+            },
+            "read_at": None,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        }
+    ]
+
+    response = TestClient(app).get("/notifications", headers=auth_headers(users["organizer"]))
+
+    assert response.status_code == 200
+    assert response.json()[0]["game_id"] == "game-1"
+    assert response.json()[0]["field_id"] == "field-1"
+
+
 def test_unread_count_returns_current_users_unread_notifications(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
@@ -1128,6 +1159,164 @@ def test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type(
     assert fake_supabase.tables["notifications"] == []
     assert len(fake_service_supabase.tables["notifications"]) == 1
     assert fake_service_supabase.tables["notifications"][0]["user_id"] == users["candidate"]["id"]
+
+
+def make_open_game(users: dict[str, dict[str, Any]], **overrides: Any) -> dict[str, Any]:
+    game = {
+        "id": "00000000-0000-0000-0000-000000000301",
+        "field_id": "00000000-0000-0000-0000-000000000101",
+        "created_by": users["organizer"]["id"],
+        "sport_type": "football",
+        "players_present": 1,
+        "max_players": 5,
+        "status": "open",
+    }
+    game.update(overrides)
+    return game
+
+
+def player_joined_notifications(fake_supabase: FakeSupabase) -> list[dict[str, Any]]:
+    return [
+        notification
+        for notification in fake_supabase.tables["notifications"]
+        if notification.get("type") == "player_joined_game"
+    ]
+
+
+def test_join_game_notifies_organizer_when_another_user_joins(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users)]
+    fake_supabase.tables["game_players"] = [
+        {"id": "membership-organizer", "game_id": "00000000-0000-0000-0000-000000000301", "user_id": users["organizer"]["id"]}
+    ]
+
+    response = TestClient(app).post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    notifications = player_joined_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["organizer"]["id"]
+    assert notifications[0]["title"] == "שחקן חדש הצטרף למשחק שלך"
+    assert notifications[0]["body"] == "Candidate הצטרף למשחק שלך ב-Central Court"
+    assert notifications[0]["data"] == {
+        "game_id": "00000000-0000-0000-0000-000000000301",
+        "field_id": "00000000-0000-0000-0000-000000000101",
+        "type": "player_joined_game",
+        "joined_user_id": users["candidate"]["id"],
+    }
+
+
+def test_joining_user_does_not_receive_player_joined_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users)]
+
+    response = TestClient(app).post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    notifications = player_joined_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] != users["candidate"]["id"]
+
+
+def test_duplicate_join_does_not_create_duplicate_player_joined_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users)]
+    client = TestClient(app)
+
+    first_response = client.post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+    second_response = client.post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 400
+    assert second_response.json()["detail"] == "User already joined"
+    assert len(player_joined_notifications(fake_supabase)) == 1
+
+
+def test_organizer_joining_own_game_does_not_create_player_joined_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users, players_present=0)]
+
+    response = TestClient(app).post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert player_joined_notifications(fake_supabase) == []
+
+
+@pytest.mark.parametrize(
+    ("game", "expected_status", "expected_detail"),
+    [
+        (make_open_game({"organizer": {"id": "00000000-0000-0000-0000-000000000001"}}, players_present=5, max_players=5), 400, "Game is full"),
+        (make_open_game({"organizer": {"id": "00000000-0000-0000-0000-000000000001"}}, status="finished"), 400, "Game already closed"),
+        (None, 404, "Game not found"),
+    ],
+)
+def test_failed_join_does_not_create_player_joined_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+    game: dict[str, Any] | None,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    fake_supabase.tables["games"] = [game] if game else []
+
+    response = TestClient(app).post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail
+    assert player_joined_notifications(fake_supabase) == []
+
+
+def test_join_game_increases_organizer_unread_notification_count(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users)]
+    client = TestClient(app)
+
+    before_response = client.get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["organizer"]),
+    )
+    join_response = client.post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+    after_response = client.get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert before_response.status_code == 200
+    assert join_response.status_code == 200
+    assert after_response.status_code == 200
+    assert before_response.json() == {"unread_count": 0}
+    assert after_response.json() == {"unread_count": 1}
 
 
 def test_notification_candidates_endpoint_rejects_regular_users(
