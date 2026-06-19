@@ -6,8 +6,13 @@ const he = {
   },
   language: {
     label: 'שפה',
+    current: 'שפה נוכחית',
+    chooseTitle: 'בחירת שפה',
+    chooseSubtitle: 'אפשר לשנות את הבחירה בהמשך דרך ההגדרות.',
     hebrew: 'עברית',
-    english: 'English',
+    english: 'אנגלית',
+    hebrewHelper: 'עברית וממשק מימין לשמאל',
+    englishHelper: 'אנגלית וממשק משמאל לימין',
   },
   auth: {
     method: 'שיטת התחברות',

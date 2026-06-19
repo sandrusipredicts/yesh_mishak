@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
+import { persistLanguageSelection } from '../i18n'
+
 const LANGUAGES = [
   { code: 'he', labelKey: 'language.hebrew' },
   { code: 'en', labelKey: 'language.english' },
@@ -10,7 +12,9 @@ function LanguageSwitcher({ className = '' }) {
   const currentLanguage = i18n.resolvedLanguage || i18n.language || 'he'
 
   function handleLanguageChange(event) {
-    i18n.changeLanguage(event.target.value)
+    const nextLanguage = event.target.value
+    persistLanguageSelection(nextLanguage)
+    i18n.changeLanguage(nextLanguage)
   }
 
   return (

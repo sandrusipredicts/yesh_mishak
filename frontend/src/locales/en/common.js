@@ -6,8 +6,13 @@ const en = {
   },
   language: {
     label: 'Language',
-    hebrew: 'עברית',
+    current: 'Current language',
+    chooseTitle: 'Choose your language',
+    chooseSubtitle: 'You can change this later from Settings.',
+    hebrew: 'Hebrew',
     english: 'English',
+    hebrewHelper: 'Use Hebrew and right-to-left layout',
+    englishHelper: 'Use English and left-to-right layout',
   },
   auth: {
     method: 'Authentication method',

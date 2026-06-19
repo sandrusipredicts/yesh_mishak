@@ -5,13 +5,14 @@ import en from '../locales/en/common'
 import he from '../locales/he/common'
 
 export const LANGUAGE_STORAGE_KEY = 'app_language'
+export const LANGUAGE_SELECTED_STORAGE_KEY = 'language_selected'
 export const SUPPORTED_LANGUAGES = ['he', 'en']
 export const LANGUAGE_DIRECTIONS = {
   he: 'rtl',
   en: 'ltr',
 }
 
-function normalizeLanguage(language) {
+export function normalizeLanguage(language) {
   const normalizedLanguage = String(language || '').toLowerCase()
 
   if (normalizedLanguage.startsWith('he')) {
@@ -57,6 +58,30 @@ export function applyDocumentLanguage(language) {
   document.documentElement.lang = normalizedLanguage
   document.documentElement.dir = direction
   document.body.dir = direction
+}
+
+export function hasSelectedLanguage() {
+  if (typeof localStorage === 'undefined') {
+    return false
+  }
+
+  if (localStorage.getItem(LANGUAGE_SELECTED_STORAGE_KEY) === 'true') {
+    return true
+  }
+
+  if (normalizeLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY))) {
+    localStorage.setItem(LANGUAGE_SELECTED_STORAGE_KEY, 'true')
+    return true
+  }
+
+  return false
+}
+
+export function persistLanguageSelection(language) {
+  const normalizedLanguage = normalizeLanguage(language) || 'he'
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, normalizedLanguage)
+  localStorage.setItem(LANGUAGE_SELECTED_STORAGE_KEY, 'true')
+  applyDocumentLanguage(normalizedLanguage)
 }
 
 i18n

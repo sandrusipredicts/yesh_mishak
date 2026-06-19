@@ -5,7 +5,6 @@ import AdminFields from '../components/admin/AdminFields'
 import AdminGames from '../components/admin/AdminGames'
 import AdminStats from '../components/admin/AdminStats'
 import AdminUsers from '../components/admin/AdminUsers'
-import LanguageSwitcher from '../components/LanguageSwitcher'
 
 function AdminPage() {
   const { t } = useTranslation()
@@ -47,7 +46,6 @@ function AdminPage() {
           <p>{t('admin.description')}</p>
         </div>
         <div className="admin-header-actions">
-          <LanguageSwitcher />
           <a className="admin-back-link" href="/">
             {t('admin.backToMap')}
           </a>

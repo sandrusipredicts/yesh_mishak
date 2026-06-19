@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import LanguageSwitcher from '../components/LanguageSwitcher'
 import { israelCities } from '../data/israelCities'
 
 function normalizeSearchValue(value) {
@@ -114,7 +113,6 @@ function OnboardingPage({ onComplete }) {
   return (
     <main className="onboarding-page">
       <section className="onboarding-panel" aria-labelledby="onboarding-title">
-        <LanguageSwitcher className="panel-language-switcher" />
         <h1 id="onboarding-title">{t('app.name')}</h1>
 
         <ul className="onboarding-lines">

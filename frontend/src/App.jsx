@@ -3,13 +3,14 @@ import { useTranslation } from 'react-i18next'
 
 import './App.css'
 import AdminRoute from './components/AdminRoute'
-import LanguageSwitcher from './components/LanguageSwitcher'
+import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId } from './api/auth'
 import { startForegroundPushNotifications } from './firebaseMessaging'
+import { hasSelectedLanguage } from './i18n'
 
 function getStoredUser() {
   const accessToken = localStorage.getItem('access_token')
@@ -34,6 +35,7 @@ function App() {
   const [isOnboardingDone, setIsOnboardingDone] = useState(
     () => localStorage.getItem('onboarding_done') === 'true',
   )
+  const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
 
   useEffect(() => {
     function handlePopState() {
@@ -87,6 +89,10 @@ function App() {
     setPathname('/')
   }, [])
 
+  if (!isLanguageSelected) {
+    return <LanguageSelectionScreen onSelected={() => setIsLanguageSelected(true)} />
+  }
+
   if (pathname === '/admin') {
     return (
       <AdminRoute
@@ -112,7 +118,6 @@ function App() {
       <MapPage currentUserId={currentUser.id} />
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
-        <LanguageSwitcher className="toolbar-language-switcher" />
         <button type="button" onClick={handleLogout}>
           {t('app.logout')}
         </button>

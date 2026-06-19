@@ -7,7 +7,6 @@ import {
   registerWithPassword,
   saveAuthSession,
 } from '../api/auth'
-import LanguageSwitcher from './LanguageSwitcher'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -198,7 +197,6 @@ function LoginPage({ onLogin }) {
   return (
     <main className="login-page">
       <section className="login-panel" aria-labelledby="login-title">
-        <LanguageSwitcher className="panel-language-switcher" />
         <h1 id="login-title">yesh_mishak</h1>
         <p>{t('app.tagline')}</p>
 

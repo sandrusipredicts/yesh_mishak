@@ -44,6 +44,8 @@ async function seedAuthenticatedUser(page) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('app_language', 'en')
+    localStorage.setItem('language_selected', 'true')
   }, { ...user, token })
 }
 

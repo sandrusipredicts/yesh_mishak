@@ -11,6 +11,7 @@ import {
 import { israelCities } from '../data/israelCities'
 import { requestFirebasePushToken } from '../firebaseMessaging'
 import CityAutocomplete from './CityAutocomplete'
+import LanguageSwitcher from './LanguageSwitcher'
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
@@ -18,6 +19,10 @@ const GEOLOCATION_TIMEOUT_MS = 15000
 const GEOLOCATION_ERROR_GRACE_MS = 1200
 const STORED_PUSH_TOKEN_KEY = 'firebase_push_token'
 const SHOW_TEST_PUSH = import.meta.env.DEV && import.meta.env.VITE_SHOW_TEST_PUSH === 'true'
+const LANGUAGE_LABEL_KEYS = {
+  he: 'language.hebrew',
+  en: 'language.english',
+}
 
 function getGeolocationErrorDetails(error, t) {
   if (!error || typeof error.code !== 'number') {
@@ -91,7 +96,7 @@ function NotificationsModal({
   onClose,
   onPreferencesSaved,
 }) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const isSavingRef = useRef(false)
   const isPushSavingRef = useRef(false)
   const [availableFields, setAvailableFields] = useState(fields)
@@ -110,6 +115,8 @@ function NotificationsModal({
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
   const [pushMessage, setPushMessage] = useState('')
+  const currentLanguage = i18n.resolvedLanguage || i18n.language || 'he'
+  const currentLanguageLabelKey = LANGUAGE_LABEL_KEYS[currentLanguage] || LANGUAGE_LABEL_KEYS.he
 
   useEffect(() => {
     let isMounted = true
@@ -376,6 +383,16 @@ function NotificationsModal({
           <p className="settings-loading">{t('notifications.loadingPreferences')}</p>
         ) : (
           <>
+            <section className="settings-section language-settings-section">
+              <div>
+                <h3>{t('language.label')}</h3>
+                <p>
+                  {t('language.current')}: {t(currentLanguageLabelKey)}
+                </p>
+              </div>
+              <LanguageSwitcher />
+            </section>
+
             <section className="settings-section">
               <div className="push-actions">
                 <button

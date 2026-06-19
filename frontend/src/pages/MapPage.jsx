@@ -11,7 +11,6 @@ import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
 import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
-import LanguageSwitcher from '../components/LanguageSwitcher'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -462,7 +461,6 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   return (
     <main className="map-page">
-      <LanguageSwitcher className="map-language-switcher" />
       {error ? <div className="map-error">{error}</div> : null}
       {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
 

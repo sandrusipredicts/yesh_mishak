@@ -1,4 +1,5 @@
 .app-shell,
+.language-selection-page,
 .login-page,
 .onboarding-page,
 .map-page,
@@ -37,28 +38,69 @@ select {
   color: #172033;
 }
 
-.panel-language-switcher {
-  justify-self: end;
+.language-selection-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f5f7fb;
 }
 
-.map-language-switcher {
-  position: absolute;
-  z-index: 1000;
-  top: 20px;
-  inset-inline-start: 50%;
-  transform: translateX(-50%);
-  border-radius: 6px;
-  padding: 6px 8px;
+.language-selection-panel {
+  display: grid;
+  width: min(460px, 100%);
+  gap: 18px;
+  border-radius: 8px;
+  padding: 28px;
   background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  color: #172033;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
 }
 
-[dir='rtl'] .map-language-switcher {
-  transform: translateX(50%);
+.language-selection-panel h1,
+.language-selection-panel p {
+  margin: 0;
 }
 
-.toolbar-language-switcher {
-  min-width: 108px;
+.language-selection-panel h1 {
+  font-size: 28px;
+}
+
+.language-selection-panel p {
+  color: #64748b;
+}
+
+.language-selection-options {
+  display: grid;
+  gap: 10px;
+}
+
+.language-selection-option {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  text-align: start;
+}
+
+.language-selection-option:hover,
+.language-selection-option:focus {
+  border-color: #172033;
+  outline: 3px solid rgba(23, 32, 51, 0.12);
+}
+
+.language-selection-option strong {
+  font-size: 18px;
+}
+
+.language-selection-option span {
+  color: #64748b;
+  font-size: 14px;
 }
 
 .login-page {
@@ -318,10 +360,6 @@ select {
   color: #ffffff;
   cursor: pointer;
   font-weight: 700;
-}
-
-.auth-toolbar .language-switcher span {
-  display: none;
 }
 
 .map-page {
@@ -1155,6 +1193,25 @@ select {
   padding: 14px;
 }
 
+.language-settings-section {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.language-settings-section h3,
+.language-settings-section p {
+  margin: 0;
+}
+
+.language-settings-section h3 {
+  font-size: 16px;
+}
+
+.language-settings-section p {
+  color: #64748b;
+  font-size: 14px;
+}
+
 .push-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1803,6 +1860,7 @@ select {
   }
 
   .form-toggle-row,
+  .language-settings-section,
   .schedule-mode-options,
   .future-game-fields {
     grid-template-columns: 1fr;

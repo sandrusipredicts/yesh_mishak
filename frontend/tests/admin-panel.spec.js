@@ -70,6 +70,8 @@ async function seedAuthenticatedUser(page, user) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('app_language', 'en')
+    localStorage.setItem('language_selected', 'true')
   }, { ...user, token: makeJwtWithSubject(user.id) })
 }
 
@@ -178,6 +180,10 @@ async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {})
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('app_language', 'en')
+    localStorage.setItem('language_selected', 'true')
+  })
   await mockGoogleLoginScript(page)
   await mockMapRequests(page)
 })
