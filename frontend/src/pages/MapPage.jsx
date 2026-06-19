@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
@@ -17,6 +17,8 @@ const UNREAD_COUNT_POLL_MS = import.meta.env.DEV ? 1000 : 20000
 const USER_LOCATION_ZOOM = 16
 const STADIUM_MARKER_SIZE = 54
 const STADIUM_MARKER_ANCHOR = [STADIUM_MARKER_SIZE / 2, STADIUM_MARKER_SIZE / 2]
+const CACHED_FIELDS_KEY = 'cached_fields'
+const CACHED_FIELDS_TIMESTAMP_KEY = 'cached_fields_timestamp'
 const STADIUM_MARKER_ASSETS = {
   active: '/stadium-active.png',
   inactive: '/stadium-inactive.png',
@@ -47,6 +49,40 @@ function getActiveGame(field) {
 
 function hasActiveGame(field) {
   return Boolean(getActiveGame(field))
+}
+
+function readCachedFields() {
+  if (typeof localStorage === 'undefined') {
+    return { fields: [], timestamp: '' }
+  }
+
+  try {
+    const cachedFields = JSON.parse(localStorage.getItem(CACHED_FIELDS_KEY) ?? '[]')
+    const timestamp = localStorage.getItem(CACHED_FIELDS_TIMESTAMP_KEY) ?? ''
+
+    return {
+      fields: Array.isArray(cachedFields) ? cachedFields : [],
+      timestamp,
+    }
+  } catch {
+    return { fields: [], timestamp: '' }
+  }
+}
+
+function writeCachedFields(fields) {
+  if (typeof localStorage === 'undefined' || !Array.isArray(fields)) {
+    return ''
+  }
+
+  const timestamp = new Date().toISOString()
+
+  try {
+    localStorage.setItem(CACHED_FIELDS_KEY, JSON.stringify(fields))
+    localStorage.setItem(CACHED_FIELDS_TIMESTAMP_KEY, timestamp)
+    return timestamp
+  } catch {
+    return ''
+  }
 }
 
 function createMarkerIcon(status) {
@@ -108,19 +144,36 @@ function UserLocationFlyTo({ requestId, userLocation }) {
   return null
 }
 
-function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
+function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
+  const latestRequestId = useRef(0)
+
   const loadFields = useCallback(
     async (bounds) => {
+      const requestId = latestRequestId.current + 1
+      latestRequestId.current = requestId
+      onLoadingChange(true)
+
       try {
         const fields = await getFields(bounds ? mapBoundsToParams(bounds) : undefined)
+        if (requestId !== latestRequestId.current) {
+          return
+        }
+
         onFieldsLoaded(Array.isArray(fields) ? fields : [])
         onError('')
       } catch {
+        if (requestId !== latestRequestId.current) {
+          return
+        }
+
         onError('Could not load fields from the backend.')
-        onFieldsLoaded([])
+      } finally {
+        if (requestId === latestRequestId.current) {
+          onLoadingChange(false)
+        }
       }
     },
-    [onError, onFieldsLoaded],
+    [onError, onFieldsLoaded, onLoadingChange],
   )
 
   const map = useMapEvents({
@@ -131,16 +184,53 @@ function FieldLoader({ center, onError, onFieldsLoaded, reloadKey }) {
 
   useEffect(() => {
     loadFields(map.getBounds())
-  }, [center, loadFields, map, reloadKey])
+  }, [loadFields, map, reloadKey])
 
   return null
 }
+
+const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectField }) {
+  const position = useMemo(() => getFieldPosition(field), [field])
+  const activeGame = getActiveGame(field)
+  const markerStatus = hasActiveGame(field) ? 'active' : 'inactive'
+  const handleClick = useCallback(() => {
+    onSelectField(field)
+  }, [field, onSelectField])
+  const eventHandlers = useMemo(
+    () => ({
+      click: handleClick,
+    }),
+    [handleClick],
+  )
+
+  if (!position) {
+    return null
+  }
+
+  return (
+    <Marker
+      eventHandlers={eventHandlers}
+      icon={markerIcons[markerStatus]}
+      position={position}
+    >
+      <Popup>
+        <div className="field-popup">
+          <h2>{field.name}</h2>
+          {field.sport_type ? <p>Sport: {field.sport_type}</p> : null}
+          <p>Active game: {activeGame?.status ?? 'none'}</p>
+        </div>
+      </Popup>
+    </Marker>
+  )
+})
 
 function MapPage({ currentUserId: authenticatedUserId }) {
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [userLocation, setUserLocation] = useState(null)
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
-  const [fields, setFields] = useState([])
+  const cachedFieldsState = useMemo(() => readCachedFields(), [])
+  const [fields, setFields] = useState(cachedFieldsState.fields)
+  const [isFieldsLoading, setIsFieldsLoading] = useState(!cachedFieldsState.fields.length)
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -261,7 +351,14 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
   const handleFieldsLoaded = useCallback((loadedFields) => {
-    setFields(loadedFields)
+    setFields((currentFields) => {
+      if (JSON.stringify(currentFields) === JSON.stringify(loadedFields)) {
+        return currentFields
+      }
+
+      return loadedFields
+    })
+    writeCachedFields(loadedFields)
     setSelectedField((currentField) => {
       if (!currentField) {
         return currentField
@@ -270,6 +367,23 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       return loadedFields.find((field) => field.id === currentField.id) ?? currentField
     })
   }, [])
+
+  const handleSelectField = useCallback((field) => {
+    setSelectedField(field)
+  }, [])
+
+  const fieldMarkers = useMemo(
+    () =>
+      fields.map((field) => (
+        <FieldMarker
+          field={field}
+          key={field.id}
+          markerIcons={markerIcons}
+          onSelectField={handleSelectField}
+        />
+      )),
+    [fields, handleSelectField, markerIcons],
+  )
 
   function refreshFields() {
     setReloadKey((currentReloadKey) => currentReloadKey + 1)
@@ -394,9 +508,9 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         <RecenterMap center={center} />
         <UserLocationFlyTo requestId={userLocationRequestId} userLocation={userLocation} />
         <FieldLoader
-          center={center}
           onError={setError}
           onFieldsLoaded={handleFieldsLoaded}
+          onLoadingChange={setIsFieldsLoading}
           reloadKey={reloadKey}
         />
 
@@ -425,38 +539,15 @@ function MapPage({ currentUserId: authenticatedUserId }) {
           </>
         ) : null}
 
-        {fields.map((field) => {
-          const position = getFieldPosition(field)
-          const activeGame = getActiveGame(field)
-
-          if (!position) {
-            return null
-          }
-
-          const markerStatus = hasActiveGame(field) ? 'active' : 'inactive'
-
-          return (
-            <Marker
-              eventHandlers={{
-                click: () => {
-                  setSelectedField(field)
-                },
-              }}
-              icon={markerIcons[markerStatus]}
-              key={field.id}
-              position={position}
-            >
-              <Popup>
-                <div className="field-popup">
-                  <h2>{field.name}</h2>
-                  {field.sport_type ? <p>Sport: {field.sport_type}</p> : null}
-                  <p>Active game: {activeGame?.status ?? 'none'}</p>
-                </div>
-              </Popup>
-            </Marker>
-          )
-        })}
+        {fieldMarkers}
       </MapContainer>
+
+      {isFieldsLoading && !fields.length ? (
+        <div className="map-loading" role="status" aria-live="polite">
+          <span className="map-loading-spinner" aria-hidden="true" />
+          <span>Loading fields...</span>
+        </div>
+      ) : null}
 
       <button
         className="floating-button bottom"

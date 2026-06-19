@@ -480,6 +480,39 @@
   font-size: 14px;
 }
 
+.map-loading {
+  position: absolute;
+  z-index: 1000;
+  top: 20px;
+  left: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(280px, calc(100% - 40px));
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #475569;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 14px;
+}
+
+.map-loading-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: map-loading-spin 800ms linear infinite;
+}
+
+@keyframes map-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .field-details-panel {
   position: absolute;
   z-index: 1100;

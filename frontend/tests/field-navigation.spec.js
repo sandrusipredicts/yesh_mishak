@@ -22,6 +22,11 @@ const navigableField = {
   status: 'approved',
 }
 
+const cachedNavigableField = {
+  ...navigableField,
+  name: 'Cached Court',
+}
+
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -200,6 +205,39 @@ test('uses stadium markers for active and inactive fields', async ({ page }) => 
   await page.getByRole('button', { name: 'Zoom out' }).click()
   await page.getByRole('button', { name: 'Zoom out' }).click()
   await expect(page.locator('.field-marker--inactive')).toBeVisible()
+})
+
+test('shows cached fields immediately while refreshing fields in the background', async ({
+  page,
+}) => {
+  await page.addInitScript((field) => {
+    localStorage.setItem('cached_fields', JSON.stringify([field]))
+    localStorage.setItem('cached_fields_timestamp', '2026-06-19T08:00:00.000Z')
+  }, cachedNavigableField)
+
+  await page.route(/\/fields\/?(\?.*)?$/, async (route) => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 250)
+    })
+
+    return fulfillJson(route, [navigableField])
+  })
+  await page.route(/\/notifications\/?(\?.*)?$/, (route) => fulfillJson(route, []))
+  await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
+
+  await page.goto('/')
+
+  await expect(page.locator('.field-marker-icon')).toHaveCount(1)
+  await page.locator('.field-marker-icon').first().click()
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: cachedNavigableField.name }),
+  ).toBeVisible()
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(localStorage.getItem('cached_fields') ?? '[]')[0]?.name),
+    )
+    .toBe(navigableField.name)
 })
 
 test('keeps navigation dialog usable on a mobile viewport', async ({ page }) => {
