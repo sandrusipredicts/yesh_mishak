@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from app.routers.notifications import (
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
+logger = logging.getLogger(__name__)
 
 
 class GameCreate(BaseModel):
@@ -247,11 +249,22 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_u
             if field_response.data
             else {"id": game.get("field_id"), "name": "Unknown field"}
         )
-        create_player_joined_game_notification(
-            game=game,
-            field=field,
-            joined_user=current_user,
-        )
+        try:
+            create_player_joined_game_notification(
+                game=game,
+                field=field,
+                joined_user=current_user,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create player joined game notification after successful join",
+                extra={
+                    "game_id": game_id,
+                    "organizer_id": game.get("created_by"),
+                    "joined_user_id": current_user.get("id"),
+                    "field_id": game.get("field_id"),
+                },
+            )
 
     return {"message": "Joined successfully", "game": response.data[0]}
 

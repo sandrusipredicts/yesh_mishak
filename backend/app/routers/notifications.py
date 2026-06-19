@@ -412,6 +412,8 @@ def create_player_joined_game_notification(
         "type": "player_joined_game",
         "title": "שחקן חדש הצטרף למשחק שלך",
         "body": body,
+        "game_id": game.get("id"),
+        "field_id": field.get("id") or game.get("field_id"),
         "data": payload,
     }
 
@@ -430,8 +432,6 @@ def create_player_joined_game_notification(
         }
 
         try:
-            legacy_row[game_id_column] = game.get("id")
-            legacy_row[field_id_column] = field.get("id") or game.get("field_id")
             notifications = service_supabase.table("notifications").insert(legacy_row).execute().data or []
         except APIError as legacy_error:
             if not _is_missing_column_error(legacy_error, "notifications.game_id"):

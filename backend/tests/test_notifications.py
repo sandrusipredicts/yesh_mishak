@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from typing import Any
 
@@ -1200,9 +1201,12 @@ def test_join_game_notifies_organizer_when_another_user_joins(
     assert response.status_code == 200
     notifications = player_joined_notifications(fake_supabase)
     assert len(notifications) == 1
+    assert notifications[0]["type"] == "player_joined_game"
     assert notifications[0]["user_id"] == users["organizer"]["id"]
     assert notifications[0]["title"] == "שחקן חדש הצטרף למשחק שלך"
     assert notifications[0]["body"] == "Candidate הצטרף למשחק שלך ב-Central Court"
+    assert notifications[0]["game_id"] == "00000000-0000-0000-0000-000000000301"
+    assert notifications[0]["field_id"] == "00000000-0000-0000-0000-000000000101"
     assert notifications[0]["data"] == {
         "game_id": "00000000-0000-0000-0000-000000000301",
         "field_id": "00000000-0000-0000-0000-000000000101",
@@ -1317,6 +1321,88 @@ def test_join_game_increases_organizer_unread_notification_count(
     assert after_response.status_code == 200
     assert before_response.json() == {"unread_count": 0}
     assert after_response.json() == {"unread_count": 1}
+
+
+def test_join_game_succeeds_when_player_joined_notification_fails(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    caplog,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["games"] = [make_open_game(users)]
+    monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_supabase)
+
+    def fail_notification(*_: Any, **__: Any) -> None:
+        raise RuntimeError("notifications insert failed")
+
+    monkeypatch.setattr(
+        "app.routers.games.create_player_joined_game_notification",
+        fail_notification,
+    )
+
+    client = TestClient(app)
+    caplog.set_level(logging.ERROR, logger="app.routers.games")
+
+    join_response = client.post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+    active_response = client.get("/games/active")
+
+    assert join_response.status_code == 200
+    assert join_response.json()["message"] == "Joined successfully"
+    assert {
+        "game_id": "00000000-0000-0000-0000-000000000301",
+        "user_id": users["candidate"]["id"],
+    }.items() <= fake_supabase.tables["game_players"][0].items()
+    assert active_response.status_code == 200
+    assert active_response.json()[0]["participants"] == [
+        {"user_id": users["candidate"]["id"], "name": users["candidate"]["name"]}
+    ]
+    assert "Failed to create player joined game notification after successful join" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("game", "existing_players", "expected_status", "expected_detail"),
+    [
+        (make_open_game({"organizer": {"id": "00000000-0000-0000-0000-000000000001"}}, players_present=5, max_players=5), [], 400, "Game is full"),
+        (make_open_game({"organizer": {"id": "00000000-0000-0000-0000-000000000001"}}, status="finished"), [], 400, "Game already closed"),
+        (
+            make_open_game({"organizer": {"id": "00000000-0000-0000-0000-000000000001"}}),
+            [{"id": "membership-candidate", "game_id": "00000000-0000-0000-0000-000000000301", "user_id": "00000000-0000-0000-0000-000000000002"}],
+            400,
+            "User already joined",
+        ),
+        (None, [], 404, "Game not found"),
+    ],
+)
+def test_real_join_failures_still_return_errors_when_notification_would_fail(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+    game: dict[str, Any] | None,
+    existing_players: list[dict[str, Any]],
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    fake_supabase.tables["games"] = [game] if game else []
+    fake_supabase.tables["game_players"] = existing_players
+
+    def fail_if_called(*_: Any, **__: Any) -> None:
+        raise AssertionError("notification side effect should not run for failed joins")
+
+    monkeypatch.setattr(
+        "app.routers.games.create_player_joined_game_notification",
+        fail_if_called,
+    )
+
+    response = TestClient(app).post(
+        "/games/00000000-0000-0000-0000-000000000301/join",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail
 
 
 def test_notification_candidates_endpoint_rejects_regular_users(
