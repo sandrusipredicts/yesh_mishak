@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { getFields } from '../api/fields'
 import {
@@ -10,6 +11,7 @@ import {
 import { israelCities } from '../data/israelCities'
 import { requestFirebasePushToken } from '../firebaseMessaging'
 import CityAutocomplete from './CityAutocomplete'
+import LanguageSwitcher from './LanguageSwitcher'
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
@@ -17,13 +19,17 @@ const GEOLOCATION_TIMEOUT_MS = 15000
 const GEOLOCATION_ERROR_GRACE_MS = 1200
 const STORED_PUSH_TOKEN_KEY = 'firebase_push_token'
 const SHOW_TEST_PUSH = import.meta.env.DEV && import.meta.env.VITE_SHOW_TEST_PUSH === 'true'
+const LANGUAGE_LABEL_KEYS = {
+  he: 'language.hebrew',
+  en: 'language.english',
+}
 
-function getGeolocationErrorDetails(error) {
+function getGeolocationErrorDetails(error, t) {
   if (!error || typeof error.code !== 'number') {
     return {
       code: 'UNKNOWN',
       label: 'UNKNOWN',
-      message: 'Location failed without a browser error message.',
+      message: t('notifications.locationNoMessage'),
     }
   }
 
@@ -36,30 +42,30 @@ function getGeolocationErrorDetails(error) {
   return {
     code: error.code,
     label: labels[error.code] ?? 'UNKNOWN',
-    message: error.message || 'The browser did not provide more details.',
+    message: error.message || t('notifications.noBrowserMessage'),
   }
 }
 
-function formatGeolocationError(error) {
-  const details = getGeolocationErrorDetails(error)
+function formatGeolocationError(error, t) {
+  const details = getGeolocationErrorDetails(error, t)
 
   if (details.label === 'PERMISSION_DENIED') {
-    return `Location permission was denied. (${details.label}: ${details.message})`
+    return t('notifications.permissionDenied', details)
   }
 
   if (details.label === 'POSITION_UNAVAILABLE') {
-    return `The browser could not determine your current location. (${details.label}: ${details.message})`
+    return t('notifications.positionUnavailable', details)
   }
 
   if (details.label === 'TIMEOUT') {
-    return `Location lookup timed out. (${details.label}: ${details.message})`
+    return t('notifications.timeout', details)
   }
 
-  return `Could not get current location. (${details.label}: ${details.message})`
+  return t('notifications.unknownLocation', details)
 }
 
-function getFieldLabel(field) {
-  return field.name ?? field.title ?? `Field ${field.id}`
+function getFieldLabel(field, t) {
+  return field.name ?? field.title ?? t('notifications.fieldLabel', { id: field.id })
 }
 
 function parsePreferences(preferences) {
@@ -90,6 +96,7 @@ function NotificationsModal({
   onClose,
   onPreferencesSaved,
 }) {
+  const { i18n, t } = useTranslation()
   const isSavingRef = useRef(false)
   const isPushSavingRef = useRef(false)
   const [availableFields, setAvailableFields] = useState(fields)
@@ -108,6 +115,9 @@ function NotificationsModal({
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
   const [pushMessage, setPushMessage] = useState('')
+  const currentLanguage = i18n.resolvedLanguage || i18n.language || 'he'
+  const currentLanguageLabelKey = LANGUAGE_LABEL_KEYS[currentLanguage] || LANGUAGE_LABEL_KEYS.he
+
   useEffect(() => {
     let isMounted = true
 
@@ -135,7 +145,7 @@ function NotificationsModal({
         setAvailableFields(Array.isArray(loadedFields) ? loadedFields : [])
       } catch {
         if (isMounted) {
-          setError('Could not load notification preferences.')
+          setError(t('notifications.loadFailed'))
         }
       } finally {
         if (isMounted) {
@@ -149,7 +159,7 @@ function NotificationsModal({
     return () => {
       isMounted = false
     }
-  }, [fields])
+  }, [fields, t])
 
   function toggleSelectedField(fieldId) {
     setSelectedFieldIds((currentFieldIds) =>
@@ -162,7 +172,7 @@ function NotificationsModal({
   function getCurrentLocation() {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error('Browser location is not available.'))
+        reject(new Error(t('addField.locationUnavailable')))
         return
       }
 
@@ -203,7 +213,7 @@ function NotificationsModal({
 
             isSettled = true
             pendingErrorTimer = null
-            reject(new Error(formatGeolocationError(geolocationError)))
+            reject(new Error(formatGeolocationError(geolocationError, t)))
           }, GEOLOCATION_ERROR_GRACE_MS)
         },
         {
@@ -232,7 +242,7 @@ function NotificationsModal({
       const isValidCity = israelCities.includes(trimmedCity)
 
       if (cityEnabled && !isValidCity) {
-        setError('Please pick a city from the suggestions.')
+        setError(t('notifications.pickCity'))
         return
       }
 
@@ -269,13 +279,13 @@ function NotificationsModal({
       await updateNotificationPreferences(notificationPayload)
       await onPreferencesSaved?.()
       if (locationErrorMessage) {
-        setError(`${locationErrorMessage} Distance notifications were not enabled.`)
-        setSavedMessage('City and specific field preferences saved.')
+        setError(t('notifications.distanceNotEnabled', { message: locationErrorMessage }))
+        setSavedMessage(t('notifications.citySpecificSaved'))
       } else {
-        setSavedMessage('Notification preferences saved.')
+        setSavedMessage(t('notifications.saved'))
       }
     } catch (saveError) {
-      setError(saveError.message || 'Could not save notification preferences.')
+      setError(saveError.message || t('notifications.saveFailed'))
     } finally {
       isSavingRef.current = false
       setIsSaving(false)
@@ -297,10 +307,10 @@ function NotificationsModal({
       await savePushToken(token)
       localStorage.setItem(STORED_PUSH_TOKEN_KEY, token)
       setPushToken(token)
-      setPushMessage('Push notifications enabled on this browser.')
+      setPushMessage(t('notifications.pushEnabled'))
     } catch (pushError) {
       console.error('Could not enable push notifications.', pushError)
-      setError(pushError.message || 'Could not enable push notifications.')
+      setError(pushError.message || t('notifications.pushEnableFailed'))
     } finally {
       isPushSavingRef.current = false
       setIsPushSaving(false)
@@ -321,10 +331,10 @@ function NotificationsModal({
       await deletePushToken(pushToken)
       localStorage.removeItem(STORED_PUSH_TOKEN_KEY)
       setPushToken('')
-      setPushMessage('Push notifications disabled on this browser.')
+      setPushMessage(t('notifications.pushDisabled'))
     } catch (pushError) {
       console.error('Could not disable push notifications.', pushError)
-      setError(pushError.message || 'Could not disable push notifications.')
+      setError(pushError.message || t('notifications.pushDisableFailed'))
     } finally {
       isPushSavingRef.current = false
       setIsPushSaving(false)
@@ -344,11 +354,11 @@ function NotificationsModal({
     try {
       const { sendTestPush } = await import('../api/notifications')
       await sendTestPush()
-      setPushMessage('Test push sent.')
+      setPushMessage(t('notifications.testPushSent'))
     } catch (pushError) {
       const detail = pushError?.response?.data?.detail
       console.error('Could not send test push.', pushError)
-      setError(detail || pushError.message || 'Could not send test push.')
+      setError(detail || pushError.message || t('notifications.testPushFailed'))
     } finally {
       isPushSavingRef.current = false
       setIsPushSaving(false)
@@ -363,16 +373,26 @@ function NotificationsModal({
         aria-modal="true"
         aria-labelledby="notification-preferences-title"
       >
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
+        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
           x
         </button>
 
-        <h2 id="notification-preferences-title">Notification Preferences</h2>
+        <h2 id="notification-preferences-title">{t('notifications.preferencesTitle')}</h2>
 
         {isLoading ? (
-          <p className="settings-loading">Loading preferences...</p>
+          <p className="settings-loading">{t('notifications.loadingPreferences')}</p>
         ) : (
           <>
+            <section className="settings-section language-settings-section">
+              <div>
+                <h3>{t('language.label')}</h3>
+                <p>
+                  {t('language.current')}: {t(currentLanguageLabelKey)}
+                </p>
+              </div>
+              <LanguageSwitcher />
+            </section>
+
             <section className="settings-section">
               <div className="push-actions">
                 <button
@@ -381,7 +401,7 @@ function NotificationsModal({
                   onClick={pushToken ? handleDisablePush : handleEnablePush}
                   disabled={isPushSaving}
                 >
-                  {pushToken ? 'Disable push' : 'Enable push'}
+                  {pushToken ? t('notifications.disablePush') : t('notifications.enablePush')}
                 </button>
                 {SHOW_TEST_PUSH ? (
                   <button
@@ -390,7 +410,7 @@ function NotificationsModal({
                     onClick={handleTestPush}
                     disabled={isPushSaving || !pushToken}
                   >
-                    Test push
+                    {t('notifications.testPush')}
                   </button>
                 ) : null}
               </div>
@@ -405,10 +425,10 @@ function NotificationsModal({
                     checked={distanceEnabled}
                     onChange={(event) => setDistanceEnabled(event.target.checked)}
                   />
-                  Distance notifications
+                  {t('notifications.distance')}
                 </label>
                 <label className="settings-range">
-                  Radius: {distanceRadiusKm} km
+                  {t('notifications.radius', { count: distanceRadiusKm })}
                   <input
                     type="range"
                     min="1"
@@ -427,10 +447,10 @@ function NotificationsModal({
                     checked={cityEnabled}
                     onChange={(event) => setCityEnabled(event.target.checked)}
                   />
-                  City notifications
+                  {t('notifications.cityNotifications')}
                 </label>
                 <div className="settings-input">
-                  <label htmlFor="notifications-city-input">City</label>
+                  <label htmlFor="notifications-city-input">{t('notifications.city')}</label>
                   <CityAutocomplete
                     id="notifications-city-input"
                     value={cityName}
@@ -448,7 +468,7 @@ function NotificationsModal({
                     checked={specificFieldsEnabled}
                     onChange={(event) => setSpecificFieldsEnabled(event.target.checked)}
                   />
-                  Specific fields notifications
+                  {t('notifications.specificFields')}
                 </label>
 
                 <div className="field-selection-list">
@@ -461,11 +481,11 @@ function NotificationsModal({
                           onChange={() => toggleSelectedField(field.id)}
                           disabled={!specificFieldsEnabled}
                         />
-                        {getFieldLabel(field)}
+                        {getFieldLabel(field, t)}
                       </label>
                     ))
                   ) : (
-                    <p>No fields available.</p>
+                    <p>{t('notifications.noFields')}</p>
                   )}
                 </div>
               </section>
@@ -474,7 +494,7 @@ function NotificationsModal({
               {savedMessage ? <p className="modal-success">{savedMessage}</p> : null}
 
               <button className="primary-panel-button" type="submit" disabled={isSaving}>
-                {isSaving ? 'Saving...' : 'Save'}
+                {isSaving ? t('notifications.saving') : t('notifications.save')}
               </button>
             </form>
           </>

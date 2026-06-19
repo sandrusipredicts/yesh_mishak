@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import './App.css'
 import AdminRoute from './components/AdminRoute'
+import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId } from './api/auth'
 import { startForegroundPushNotifications } from './firebaseMessaging'
+import { hasSelectedLanguage } from './i18n'
 
 function getStoredUser() {
   const accessToken = localStorage.getItem('access_token')
@@ -26,11 +29,13 @@ function getStoredUser() {
 }
 
 function App() {
+  const { t } = useTranslation()
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [currentUser, setCurrentUser] = useState(getStoredUser)
   const [isOnboardingDone, setIsOnboardingDone] = useState(
     () => localStorage.getItem('onboarding_done') === 'true',
   )
+  const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
 
   useEffect(() => {
     function handlePopState() {
@@ -84,6 +89,10 @@ function App() {
     setPathname('/')
   }, [])
 
+  if (!isLanguageSelected) {
+    return <LanguageSelectionScreen onSelected={() => setIsLanguageSelected(true)} />
+  }
+
   if (pathname === '/admin') {
     return (
       <AdminRoute
@@ -110,7 +119,7 @@ function App() {
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
         <button type="button" onClick={handleLogout}>
-          Logout
+          {t('app.logout')}
         </button>
       </div>
     </>

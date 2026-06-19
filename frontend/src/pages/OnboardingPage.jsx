@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { israelCities } from '../data/israelCities'
 
@@ -35,6 +36,7 @@ function getCitySuggestions(query) {
 }
 
 function OnboardingPage({ onComplete }) {
+  const { t } = useTranslation()
   const selectorRef = useRef(null)
   const [city, setCity] = useState('')
   const [error, setError] = useState('')
@@ -64,7 +66,7 @@ function OnboardingPage({ onComplete }) {
     event.preventDefault()
 
     if (!normalizedCity) {
-      setError('בחר עיר כדי להמשיך.')
+      setError(t('onboarding.chooseCity'))
       return
     }
 
@@ -111,17 +113,17 @@ function OnboardingPage({ onComplete }) {
   return (
     <main className="onboarding-page">
       <section className="onboarding-panel" aria-labelledby="onboarding-title">
-        <h1 id="onboarding-title">yesh_mishak</h1>
+        <h1 id="onboarding-title">{t('app.name')}</h1>
 
         <ul className="onboarding-lines">
-          <li>מצא משחקים לידך</li>
-          <li>פתח משחק בשכונה שלך</li>
-          <li>קבל התראה כשחסרים שחקנים</li>
+          <li>{t('onboarding.findGames')}</li>
+          <li>{t('onboarding.openNeighborhoodGame')}</li>
+          <li>{t('onboarding.getAlert')}</li>
         </ul>
 
         <form className="onboarding-form" onSubmit={handleSubmit}>
           <div className="city-selector" ref={selectorRef}>
-            <label htmlFor="city-input">עיר</label>
+            <label htmlFor="city-input">{t('onboarding.city')}</label>
             <input
               id="city-input"
               type="text"
@@ -138,11 +140,15 @@ function OnboardingPage({ onComplete }) {
               aria-autocomplete="list"
               aria-expanded={isDropdownOpen}
               aria-controls="city-suggestions"
-              placeholder="לדוגמה: ירוחם"
+              placeholder={t('onboarding.cityPlaceholder')}
             />
 
             {isDropdownOpen && suggestions.length > 0 ? (
-              <ul id="city-suggestions" className="city-suggestions" aria-label="City suggestions">
+              <ul
+                id="city-suggestions"
+                className="city-suggestions"
+                aria-label={t('onboarding.citySuggestions')}
+              >
                 {suggestions.map((cityName, index) => (
                   <li key={cityName}>
                     <button
@@ -162,7 +168,7 @@ function OnboardingPage({ onComplete }) {
           {error ? <p className="onboarding-error">{error}</p> : null}
 
           <button className="primary-panel-button" type="submit">
-            Let's go
+            {t('onboarding.letsGo')}
           </button>
         </form>
       </section>

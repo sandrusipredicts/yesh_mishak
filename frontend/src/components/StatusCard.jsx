@@ -1,15 +1,18 @@
+import { useTranslation } from 'react-i18next'
+
 function StatusCard({ error, loading, status }) {
-  let content = 'Checking backend...'
+  const { t } = useTranslation()
+  let content = t('backend.checking')
 
   if (error) {
-    content = 'Backend status unavailable'
+    content = t('backend.unavailable')
   } else if (!loading) {
-    content = `Backend status: ${status}`
+    content = t('backend.status', { status })
   }
 
   return (
     <section className="status-panel">
-      <h1>yesh_mishak</h1>
+      <h1>{t('app.name')}</h1>
       <p className={error ? 'status-line status-error' : 'status-line'}>
         <span className="status-value">{content}</span>
       </p>

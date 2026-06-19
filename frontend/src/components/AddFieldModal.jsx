@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import L from 'leaflet'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
@@ -49,15 +50,16 @@ function LocationMapSync({ position }) {
   return null
 }
 
-function getErrorMessage(error) {
+function getErrorMessage(error, t) {
   if (error?.response?.status === 401) {
-    return 'צריך להתחבר כדי להוסיף מגרש'
+    return t('addField.authRequired')
   }
 
-  return 'Could not submit field. Please try again.'
+  return t('addField.submitFailed')
 }
 
 function AddFieldModal({ onClose, onCreated }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [sportType, setSportType] = useState('football')
   const [surfaceType, setSurfaceType] = useState('asphalt')
@@ -71,7 +73,7 @@ function AddFieldModal({ onClose, onCreated }) {
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
-      setError('Browser location is not available.')
+      setError(t('addField.locationUnavailable'))
       return
     }
 
@@ -81,7 +83,7 @@ function AddFieldModal({ onClose, onCreated }) {
         setError('')
       },
       () => {
-        setError('Could not get current location.')
+        setError(t('addField.locationFailed'))
       },
     )
   }
@@ -90,12 +92,12 @@ function AddFieldModal({ onClose, onCreated }) {
     event.preventDefault()
 
     if (!name.trim()) {
-      setError('Field name is required.')
+      setError(t('addField.nameRequired'))
       return
     }
 
     if (!Number.isFinite(position[0]) || !Number.isFinite(position[1])) {
-      setError('Field location is required.')
+      setError(t('addField.locationRequired'))
       return
     }
 
@@ -118,7 +120,7 @@ function AddFieldModal({ onClose, onCreated }) {
       onCreated?.()
       onClose()
     } catch (submitError) {
-      setError(getErrorMessage(submitError))
+      setError(getErrorMessage(submitError, t))
     } finally {
       setIsSubmitting(false)
     }
@@ -127,40 +129,40 @@ function AddFieldModal({ onClose, onCreated }) {
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="add-field-modal" role="dialog" aria-modal="true" aria-labelledby="add-field-title">
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
+        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
           x
         </button>
 
-        <h2 id="add-field-title">Add Field</h2>
+        <h2 id="add-field-title">{t('addField.title')}</h2>
 
         <form className="add-field-form" onSubmit={handleSubmit}>
           <label>
-            Field name
+            {t('addField.fieldName')}
             <input
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="מגרש שכונה"
+              placeholder={t('addField.fieldNamePlaceholder')}
               required
             />
           </label>
 
           <label>
-            Sport type
+            {t('addField.sportType')}
             <select value={sportType} onChange={(event) => setSportType(event.target.value)}>
-              <option value="football">Football</option>
-              <option value="basketball">Basketball</option>
-              <option value="both">Both</option>
+              <option value="football">{t('addField.football')}</option>
+              <option value="basketball">{t('addField.basketball')}</option>
+              <option value="both">{t('addField.both')}</option>
             </select>
           </label>
 
           <label>
-            Surface type
+            {t('addField.surfaceType')}
             <input
               type="text"
               value={surfaceType}
               onChange={(event) => setSurfaceType(event.target.value)}
-              placeholder="asphalt"
+              placeholder={t('addField.surfacePlaceholder')}
               required
             />
           </label>
@@ -172,7 +174,7 @@ function AddFieldModal({ onClose, onCreated }) {
                 checked={hasNets}
                 onChange={(event) => setHasNets(event.target.checked)}
               />
-              Has nets?
+              {t('addField.hasNets')}
             </label>
             <label>
               <input
@@ -180,35 +182,35 @@ function AddFieldModal({ onClose, onCreated }) {
                 checked={hasWater}
                 onChange={(event) => setHasWater(event.target.checked)}
               />
-              Has water fountain?
+              {t('addField.hasWater')}
             </label>
           </div>
 
           <label>
-            Opening hours
+            {t('addField.openingHours')}
             <input
               type="text"
               value={openingHours}
               onChange={(event) => setOpeningHours(event.target.value)}
-              placeholder="תמיד פתוח"
+              placeholder={t('addField.openingPlaceholder')}
             />
           </label>
 
           <label>
-            Notes
+            {t('addField.notes')}
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              placeholder="יש תאורה בערב"
+              placeholder={t('addField.notesPlaceholder')}
               rows="3"
             />
           </label>
 
           <div className="location-picker">
             <div className="location-picker-header">
-              <span>Location</span>
+              <span>{t('addField.location')}</span>
               <button type="button" onClick={useCurrentLocation}>
-                Use current location
+                {t('addField.useCurrentLocation')}
               </button>
             </div>
             <MapContainer center={position} zoom={15} className="location-picker-map">
@@ -220,14 +222,17 @@ function AddFieldModal({ onClose, onCreated }) {
               <LocationPicker position={position} onPositionChange={setPosition} />
             </MapContainer>
             <p>
-              Lat: {position[0].toFixed(6)}, Lng: {position[1].toFixed(6)}
+              {t('addField.coordinates', {
+                lat: position[0].toFixed(6),
+                lng: position[1].toFixed(6),
+              })}
             </p>
           </div>
 
           {error ? <p className="modal-error">{error}</p> : null}
 
           <button className="primary-panel-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Submitting...' : 'Submit for approval'}
+            {isSubmitting ? t('addField.submitting') : t('addField.submit')}
           </button>
         </form>
       </section>

@@ -9,6 +9,7 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://127.0.0.1:5173',
+    locale: 'en-US',
     screenshot: 'off',
     trace: 'off',
     video: 'off',
@@ -21,7 +22,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], locale: 'en-US' },
     },
   ],
 })

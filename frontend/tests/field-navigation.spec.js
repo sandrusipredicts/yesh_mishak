@@ -44,6 +44,8 @@ async function seedAuthenticatedUser(page) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('app_language', 'en')
+    localStorage.setItem('language_selected', 'true')
   }, { ...user, token })
 }
 
@@ -106,13 +108,13 @@ test('opens Waze and Google Maps navigation links for a field', async ({ page })
   await mockMapPageRequests(page, [navigableField])
   await openFieldDetails(page)
 
-  await page.getByRole('button', { name: 'נווט למגרש' }).click()
-  await expect(page.getByRole('dialog', { name: 'פתח ניווט' })).toBeVisible()
+  await page.getByRole('button', { name: 'Navigate to field' }).click()
+  await expect(page.getByRole('dialog', { name: 'Open navigation' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Waze' }).click()
-  await expect(page.getByRole('dialog', { name: 'פתח ניווט' })).toBeHidden()
+  await expect(page.getByRole('dialog', { name: 'Open navigation' })).toBeHidden()
 
-  await page.getByRole('button', { name: 'נווט למגרש' }).click()
+  await page.getByRole('button', { name: 'Navigate to field' }).click()
   await page.getByRole('button', { name: 'Google Maps' }).click()
 
   await expect
@@ -135,10 +137,10 @@ test('closes the navigation dialog without opening a provider', async ({ page })
   await mockMapPageRequests(page, [navigableField])
   await openFieldDetails(page)
 
-  await page.getByRole('button', { name: 'נווט למגרש' }).click()
-  await page.getByRole('button', { name: 'ביטול' }).click()
+  await page.getByRole('button', { name: 'Navigate to field' }).click()
+  await page.getByRole('button', { name: 'Cancel' }).click()
 
-  await expect(page.getByRole('dialog', { name: 'פתח ניווט' })).toBeHidden()
+  await expect(page.getByRole('dialog', { name: 'Open navigation' })).toBeHidden()
   await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
@@ -151,7 +153,7 @@ test('hides navigation for missing or invalid coordinates', async ({ page }) => 
   await page.goto('/')
 
   await expect(page.locator('.field-marker-icon')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'נווט למגרש' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Navigate to field' })).toHaveCount(0)
 })
 
 test('uses stadium markers for active and inactive fields', async ({ page }) => {
@@ -245,9 +247,9 @@ test('keeps navigation dialog usable on a mobile viewport', async ({ page }) => 
   await mockMapPageRequests(page, [navigableField])
   await openFieldDetails(page)
 
-  await page.getByRole('button', { name: 'נווט למגרש' }).click()
+  await page.getByRole('button', { name: 'Navigate to field' }).click()
 
-  const dialog = page.getByRole('dialog', { name: 'פתח ניווט' })
+  const dialog = page.getByRole('dialog', { name: 'Open navigation' })
   await expect(dialog).toBeVisible()
   await expect(dialog).toBeInViewport()
   await expect(page.getByRole('button', { name: 'Waze' })).toBeInViewport()

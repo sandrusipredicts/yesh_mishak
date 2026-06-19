@@ -1,49 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { getAdminUsers } from '../../api/admin'
 
 const ACTIVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-function formatValue(value, fallback = '—') {
-  return value || fallback
-}
-
-function formatDate(value, fallback = '—') {
-  if (!value) {
-    return fallback
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return fallback
-  }
-
-  return date.toLocaleString()
-}
-
-function getActivityStatus(lastActive) {
-  if (!lastActive) {
-    return {
-      className: 'unknown',
-      label: 'Unknown',
-    }
-  }
-
-  const lastActiveDate = new Date(lastActive)
-  if (Number.isNaN(lastActiveDate.getTime())) {
-    return {
-      className: 'unknown',
-      label: 'Unknown',
-    }
-  }
-
-  const isActive = Date.now() - lastActiveDate.getTime() <= ACTIVE_WINDOW_MS
-
-  return {
-    className: isActive ? 'active' : 'inactive',
-    label: isActive ? 'Active' : 'Inactive',
-  }
-}
 
 function matchesSearch(user, normalizedSearch) {
   if (!normalizedSearch) {
@@ -56,10 +16,54 @@ function matchesSearch(user, normalizedSearch) {
 }
 
 function AdminUsers() {
+  const { i18n, t } = useTranslation()
   const [users, setUsers] = useState([])
   const [searchText, setSearchText] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activityReferenceTime] = useState(() => Date.now())
+  const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
+
+  function formatValue(value, fallback = t('admin.missing')) {
+    return value || fallback
+  }
+
+  function formatDate(value, fallback = t('admin.missing')) {
+    if (!value) {
+      return fallback
+    }
+
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return fallback
+    }
+
+    return date.toLocaleString(locale)
+  }
+
+  function getActivityStatus(lastActive) {
+    if (!lastActive) {
+      return {
+        className: 'unknown',
+        label: t('admin.unknown'),
+      }
+    }
+
+    const lastActiveDate = new Date(lastActive)
+    if (Number.isNaN(lastActiveDate.getTime())) {
+      return {
+        className: 'unknown',
+        label: t('admin.unknown'),
+      }
+    }
+
+    const isActive = activityReferenceTime - lastActiveDate.getTime() <= ACTIVE_WINDOW_MS
+
+    return {
+      className: isActive ? 'active' : 'inactive',
+      label: isActive ? t('admin.active') : t('admin.inactive'),
+    }
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -72,7 +76,7 @@ function AdminUsers() {
         }
       } catch {
         if (isMounted) {
-          setError('Failed to load users.')
+          setError(t('admin.failedLoadUsers'))
         }
       } finally {
         if (isMounted) {
@@ -86,7 +90,7 @@ function AdminUsers() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [t])
 
   const filteredUsers = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase()
@@ -97,30 +101,30 @@ function AdminUsers() {
     <div className="admin-users">
       <header className="admin-users-header">
         <div>
-          <h3>Users</h3>
-          <p>Registered users and activity status.</p>
+          <h3>{t('admin.usersTitle')}</h3>
+          <p>{t('admin.usersDescription')}</p>
         </div>
       </header>
 
       <label className="admin-users-search">
-        <span>Search users</span>
+        <span>{t('admin.searchUsers')}</span>
         <input
           type="search"
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
-          placeholder="Search by name, email, or phone..."
+          placeholder={t('admin.searchPlaceholder')}
         />
       </label>
 
-      {isLoading ? <p className="admin-loading">Loading users...</p> : null}
+      {isLoading ? <p className="admin-loading">{t('admin.loadingUsers')}</p> : null}
       {error ? <p className="admin-error">{error}</p> : null}
 
       {!isLoading && !error && users.length === 0 ? (
-        <p className="admin-empty-state">No users found.</p>
+        <p className="admin-empty-state">{t('admin.noUsers')}</p>
       ) : null}
 
       {!isLoading && !error && users.length > 0 && filteredUsers.length === 0 ? (
-        <p className="admin-empty-state">No users match your search.</p>
+        <p className="admin-empty-state">{t('admin.noUsersMatch')}</p>
       ) : null}
 
       {!isLoading && !error && filteredUsers.length > 0 ? (
@@ -128,13 +132,13 @@ function AdminUsers() {
           <table className="admin-table admin-users-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Joined</th>
-                <th>Last active</th>
-                <th>Role</th>
-                <th>Activity</th>
+                <th>{t('admin.name')}</th>
+                <th>{t('admin.email')}</th>
+                <th>{t('admin.phone')}</th>
+                <th>{t('admin.joined')}</th>
+                <th>{t('admin.lastActive')}</th>
+                <th>{t('admin.role')}</th>
+                <th>{t('admin.activity')}</th>
               </tr>
             </thead>
             <tbody>
@@ -148,7 +152,7 @@ function AdminUsers() {
                     <td>{formatValue(user.phone_number)}</td>
                     <td>{formatDate(user.created_at)}</td>
                     <td>{formatDate(user.last_active)}</td>
-                    <td>{formatValue(user.role, 'user')}</td>
+                    <td>{formatValue(user.role, t('admin.userRoleFallback'))}</td>
                     <td>
                       <span className={`admin-user-status ${activity.className}`}>
                         {activity.label}

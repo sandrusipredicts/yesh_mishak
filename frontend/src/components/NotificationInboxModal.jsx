@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { markAllNotificationsRead, markNotificationRead } from '../api/notifications'
 
@@ -14,7 +15,7 @@ function isNotificationUnread(notification) {
   return true
 }
 
-function formatNotificationTime(value) {
+function formatNotificationTime(value, locale) {
   if (!value) {
     return ''
   }
@@ -25,7 +26,7 @@ function formatNotificationTime(value) {
     return ''
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
@@ -40,9 +41,11 @@ function NotificationInboxModal({
   onUnreadCountChange,
   onOpenTarget,
 }) {
+  const { i18n, t } = useTranslation()
   const [error, setError] = useState('')
   const [readingNotificationId, setReadingNotificationId] = useState('')
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false)
+  const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   const unreadCount = useMemo(
     () => notifications.filter(isNotificationUnread).length,
@@ -69,7 +72,7 @@ function NotificationInboxModal({
       await onRefreshUnreadCount?.()
       return { ...notification, ...updatedNotification }
     } catch {
-      setError('Could not mark notification as read.')
+      setError(t('notifications.markReadFailed'))
       return notification
     } finally {
       setReadingNotificationId('')
@@ -97,7 +100,7 @@ function NotificationInboxModal({
       await onRefreshNotifications?.()
       await onRefreshUnreadCount?.()
     } catch {
-      setError('Could not mark notifications as read.')
+      setError(t('notifications.markAllFailed'))
     } finally {
       setIsMarkingAllRead(false)
     }
@@ -111,21 +114,21 @@ function NotificationInboxModal({
         aria-modal="true"
         aria-labelledby="notification-inbox-title"
       >
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
+        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
           x
         </button>
 
-        <h2 id="notification-inbox-title">Notifications</h2>
+        <h2 id="notification-inbox-title">{t('notifications.inboxTitle')}</h2>
 
         <section className="notifications-list-section">
           <div className="notifications-list-header">
-            <p>{unreadCount ? `${unreadCount} unread` : 'No unread notifications'}</p>
+            <p>{unreadCount ? t('notifications.unreadCount', { count: unreadCount }) : t('notifications.noUnread')}</p>
             <button
               type="button"
               onClick={handleMarkAllRead}
               disabled={!unreadCount || isMarkingAllRead}
             >
-              {isMarkingAllRead ? 'Marking...' : 'Mark all as read'}
+              {isMarkingAllRead ? t('notifications.marking') : t('notifications.markAllRead')}
             </button>
           </div>
 
@@ -135,7 +138,7 @@ function NotificationInboxModal({
             {notifications.length ? (
               notifications.map((notification) => {
                 const isUnread = isNotificationUnread(notification)
-                const createdTime = formatNotificationTime(notification.created_at)
+                const createdTime = formatNotificationTime(notification.created_at, locale)
 
                 return (
                   <article
@@ -150,7 +153,7 @@ function NotificationInboxModal({
                       <span>{notification.title}</span>
                       <small>{notification.body}</small>
                       {createdTime ? <time dateTime={notification.created_at}>{createdTime}</time> : null}
-                      <strong>{isUnread ? 'Unread' : 'Read'}</strong>
+                      <strong>{isUnread ? t('notifications.unread') : t('notifications.read')}</strong>
                     </button>
                     {isUnread ? (
                       <button
@@ -159,14 +162,14 @@ function NotificationInboxModal({
                         onClick={() => handleMarkRead(notification)}
                         disabled={readingNotificationId === notification.id}
                       >
-                        Mark as read
+                        {t('notifications.markAsRead')}
                       </button>
                     ) : null}
                   </article>
                 )
               })
             ) : (
-              <p className="notifications-empty">No notifications yet.</p>
+              <p className="notifications-empty">{t('notifications.empty')}</p>
             )}
           </div>
         </section>

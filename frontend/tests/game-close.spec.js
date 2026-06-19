@@ -21,6 +21,8 @@ async function seedAuthenticatedUser(page, user) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('app_language', 'en')
+    localStorage.setItem('language_selected', 'true')
   }, storedUser)
 
   user.token = storedUser.token
@@ -332,16 +334,16 @@ test('participants list toggles inside the game panel', async ({ page }) => {
   await page.goto('/')
   await page.locator('.field-marker').first().click()
 
-  const toggle = page.getByRole('button', { name: 'משתתפים (2)' })
+  const toggle = page.getByRole('button', { name: 'Participants (2)' })
   await expect(toggle).toBeVisible()
   await expect(page.getByRole('list', { name: 'Participants' })).toHaveCount(0)
 
   await toggle.click()
   await expect(page.getByRole('list', { name: 'Participants' })).toBeVisible()
   await expect(page.getByText('Marom')).toBeVisible()
-  await expect(page.getByText('Avi')).toBeVisible()
+  await expect(page.getByText('Avi', { exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'משתתפים (2)' }).click()
+  await page.getByRole('button', { name: 'Participants (2)' }).click()
   await expect(page.getByRole('list', { name: 'Participants' })).toHaveCount(0)
 })
 
@@ -363,9 +365,9 @@ test('participants list shows fallback when username is missing', async ({ page 
 
   await page.goto('/')
   await page.locator('.field-marker').first().click()
-  await page.getByRole('button', { name: 'משתתפים (1)' }).click()
+  await page.getByRole('button', { name: 'Participants (1)' }).click()
 
-  await expect(page.getByRole('list', { name: 'Participants' })).toContainText('משתמש')
+  await expect(page.getByRole('list', { name: 'Participants' })).toContainText('User')
 })
 
 test('user-specific participant state follows each jwt subject', async ({ page }) => {
@@ -454,13 +456,13 @@ test('joining a game refreshes the opened participants list', async ({ page }) =
 
   await page.goto('/')
   await page.locator('.field-marker').first().click()
-  await page.getByRole('button', { name: 'משתתפים (1)' }).click()
+  await page.getByRole('button', { name: 'Participants (1)' }).click()
   await expect(page.getByText('Marom')).toBeVisible()
 
   await page.getByRole('button', { name: "I'm coming" }).click()
 
-  await expect(page.getByRole('button', { name: 'משתתפים (2)' })).toBeVisible()
-  await expect(page.getByText('Avi')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Participants (2)' })).toBeVisible()
+  await expect(page.getByText('Avi', { exact: true })).toBeVisible()
 })
 
 test('leaving a game refreshes the opened participants list', async ({ page }) => {
@@ -499,13 +501,13 @@ test('leaving a game refreshes the opened participants list', async ({ page }) =
 
   await page.goto('/')
   await page.locator('.field-marker').first().click()
-  await page.getByRole('button', { name: 'משתתפים (2)' }).click()
-  await expect(page.getByText('Avi')).toBeVisible()
+  await page.getByRole('button', { name: 'Participants (2)' }).click()
+  await expect(page.getByText('Avi', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Leave' }).click()
 
-  await expect(page.getByRole('button', { name: 'משתתפים (1)' })).toBeVisible()
-  await expect(page.getByText('Avi')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Participants (1)' })).toBeVisible()
+  await expect(page.getByText('Avi', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Marom')).toBeVisible()
 })
 
@@ -595,7 +597,7 @@ test('future scheduled game shows upcoming join flow without active controls', a
   await page.goto('/')
   await page.locator('.field-marker').first().click()
 
-  await expect(page.getByRole('heading', { name: 'משחקים עתידיים' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Upcoming games' })).toBeVisible()
   await expect(page.getByText('Scheduled')).toBeVisible()
   await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
   await expect(page.getByText('Ends in')).toHaveCount(0)
