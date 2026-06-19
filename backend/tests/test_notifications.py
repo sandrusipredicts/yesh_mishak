@@ -1357,7 +1357,11 @@ def test_join_game_succeeds_when_player_joined_notification_fails(
     }.items() <= fake_supabase.tables["game_players"][0].items()
     assert active_response.status_code == 200
     assert active_response.json()[0]["participants"] == [
-        {"user_id": users["candidate"]["id"], "name": users["candidate"]["name"]}
+        {
+            "user_id": users["candidate"]["id"],
+            "username": None,
+            "name": users["candidate"]["name"],
+        }
     ]
     assert "Failed to create player joined game notification after successful join" in caplog.text
 
