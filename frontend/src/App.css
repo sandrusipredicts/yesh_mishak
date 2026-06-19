@@ -349,29 +349,62 @@
 }
 
 .field-marker {
+  position: relative;
   display: block;
-  width: 24px;
-  height: 24px;
-  border: 2px solid #ffffff;
-  border-radius: 50%;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+  width: 72px;
+  height: 72px;
   cursor: pointer;
 }
 
-.field-marker.gray {
-  background: #6b7280;
+.field-marker-stadium {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 10px rgba(15, 23, 42, 0.35));
+  pointer-events: none;
+  user-select: none;
 }
 
-.field-marker.green {
-  background: #16a34a;
+.field-marker-status {
+  position: absolute;
+  right: 7px;
+  bottom: 9px;
+  display: block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  pointer-events: none;
 }
 
-.field-marker.yellow {
-  background: #eab308;
+.field-marker--inactive .field-marker-status {
+  background: #ef1d1d;
+  color: rgba(239, 29, 29, 0.72);
 }
 
-.field-marker.red {
-  background: #dc2626;
+.field-marker--active .field-marker-status {
+  background: #36f331;
+  color: rgba(54, 243, 49, 0.78);
+  animation: field-marker-active-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes field-marker-active-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 7px currentColor,
+      0 0 0 0 rgba(54, 243, 49, 0.38);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow:
+      0 0 12px currentColor,
+      0 0 0 8px rgba(54, 243, 49, 0);
+    transform: scale(1.12);
+  }
 }
 
 .user-location-marker-icon {

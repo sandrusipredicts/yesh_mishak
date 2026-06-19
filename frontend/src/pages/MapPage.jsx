@@ -15,6 +15,12 @@ const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
 const UNREAD_COUNT_POLL_MS = import.meta.env.DEV ? 1000 : 20000
 const USER_LOCATION_ZOOM = 16
+const STADIUM_MARKER_SIZE = 72
+const STADIUM_MARKER_ANCHOR = [STADIUM_MARKER_SIZE / 2, STADIUM_MARKER_SIZE / 2]
+const STADIUM_MARKER_ASSETS = {
+  active: '/stadium-active.png',
+  inactive: '/stadium-inactive.png',
+}
 
 function getStoredCurrentUserId() {
   if (typeof localStorage === 'undefined') {
@@ -39,43 +45,24 @@ function getActiveGame(field) {
   return field.active_game ?? field.activeGame ?? null
 }
 
-function getMarkerColor(field) {
-  const activeGame = getActiveGame(field)
-
-  if (!activeGame) {
-    return 'gray'
-  }
-
-  const maxPlayers = Number(activeGame.max_players)
-  const playersPresent = Number(activeGame.players_present)
-
-  if (!Number.isFinite(maxPlayers) || !Number.isFinite(playersPresent)) {
-    return 'gray'
-  }
-
-  const missingPlayers = maxPlayers - playersPresent
-
-  if (missingPlayers <= 0) {
-    return 'gray'
-  }
-
-  if (missingPlayers <= 2) {
-    return 'green'
-  }
-
-  if (missingPlayers <= 5) {
-    return 'yellow'
-  }
-
-  return 'red'
+function hasActiveGame(field) {
+  return Boolean(getActiveGame(field))
 }
 
-function createMarkerIcon(color) {
+function createMarkerIcon(status) {
+  const isActive = status === 'active'
+  const label = isActive ? 'Active field' : 'Inactive field'
+
   return L.divIcon({
     className: 'field-marker-icon',
-    html: `<div class="field-marker ${color}"></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    html: `
+      <div class="field-marker field-marker--${status}" aria-label="${label}">
+        <img class="field-marker-stadium" src="${STADIUM_MARKER_ASSETS[status]}" alt="" />
+        <span class="field-marker-status" aria-hidden="true"></span>
+      </div>
+    `,
+    iconSize: [STADIUM_MARKER_SIZE, STADIUM_MARKER_SIZE],
+    iconAnchor: STADIUM_MARKER_ANCHOR,
   })
 }
 
@@ -266,10 +253,8 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   const markerIcons = useMemo(
     () => ({
-      gray: createMarkerIcon('gray'),
-      green: createMarkerIcon('green'),
-      yellow: createMarkerIcon('yellow'),
-      red: createMarkerIcon('red'),
+      active: createMarkerIcon('active'),
+      inactive: createMarkerIcon('inactive'),
     }),
     [],
   )
@@ -448,7 +433,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
             return null
           }
 
-          const color = getMarkerColor(field)
+          const markerStatus = hasActiveGame(field) ? 'active' : 'inactive'
 
           return (
             <Marker
@@ -457,7 +442,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
                   setSelectedField(field)
                 },
               }}
-              icon={markerIcons[color]}
+              icon={markerIcons[markerStatus]}
               key={field.id}
               position={position}
             >

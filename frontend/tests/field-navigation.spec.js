@@ -149,6 +149,59 @@ test('hides navigation for missing or invalid coordinates', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'נווט למגרש' })).toHaveCount(0)
 })
 
+test('uses stadium markers for active and inactive fields', async ({ page }) => {
+  await mockMapPageRequests(page, [
+    {
+      ...navigableField,
+      id: 'field-inactive',
+      active_game: null,
+    },
+    {
+      ...navigableField,
+      id: 'field-active',
+      latitude: 31.226,
+      active_game: {
+        id: 'game-1',
+        status: 'open',
+        players_present: 4,
+        max_players: 10,
+      },
+    },
+  ])
+
+  await page.goto('/')
+
+  await expect(page.locator('.field-marker-icon')).toHaveCount(2)
+  await expect(page.locator('.field-marker--inactive img')).toHaveAttribute(
+    'src',
+    /stadium-inactive\.png$/,
+  )
+  await expect(page.locator('.field-marker--active img')).toHaveAttribute(
+    'src',
+    /stadium-active\.png$/,
+  )
+  await expect
+    .poll(() =>
+      page.locator('.field-marker--active .field-marker-status').evaluate((element) =>
+        window.getComputedStyle(element).animationName,
+      ),
+    )
+    .toBe('field-marker-active-pulse')
+  await expect
+    .poll(() =>
+      page.locator('.field-marker--inactive .field-marker-status').evaluate((element) =>
+        window.getComputedStyle(element).animationName,
+      ),
+    )
+    .toBe('none')
+
+  await page.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(page.locator('.field-marker--active')).toBeVisible()
+  await page.getByRole('button', { name: 'Zoom out' }).click()
+  await page.getByRole('button', { name: 'Zoom out' }).click()
+  await expect(page.locator('.field-marker--inactive')).toBeVisible()
+})
+
 test('keeps navigation dialog usable on a mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockMapPageRequests(page, [navigableField])
