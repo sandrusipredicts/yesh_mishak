@@ -374,8 +374,8 @@
 
 .field-marker-status {
   position: absolute;
-  right: 3px;
-  bottom: 6px;
+  right: -3px;
+  bottom: 1px;
   display: block;
   width: 16px;
   height: 16px;
@@ -383,6 +383,13 @@
   border-radius: 50%;
   box-shadow: 0 0 8px currentColor;
   pointer-events: none;
+}
+
+.field-marker--inactive .field-marker-stadium {
+  filter:
+    brightness(1.12)
+    drop-shadow(0 5px 10px rgba(15, 23, 42, 0.35))
+    drop-shadow(0 0 5px rgba(148, 163, 184, 0.2));
 }
 
 .field-marker--inactive .field-marker-status {
