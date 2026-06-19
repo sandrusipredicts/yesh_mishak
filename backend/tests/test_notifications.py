@@ -1201,9 +1201,12 @@ def test_join_game_notifies_organizer_when_another_user_joins(
     assert response.status_code == 200
     notifications = player_joined_notifications(fake_supabase)
     assert len(notifications) == 1
+    assert notifications[0]["type"] == "player_joined_game"
     assert notifications[0]["user_id"] == users["organizer"]["id"]
     assert notifications[0]["title"] == "שחקן חדש הצטרף למשחק שלך"
     assert notifications[0]["body"] == "Candidate הצטרף למשחק שלך ב-Central Court"
+    assert notifications[0]["game_id"] == "00000000-0000-0000-0000-000000000301"
+    assert notifications[0]["field_id"] == "00000000-0000-0000-0000-000000000101"
     assert notifications[0]["data"] == {
         "game_id": "00000000-0000-0000-0000-000000000301",
         "field_id": "00000000-0000-0000-0000-000000000101",
