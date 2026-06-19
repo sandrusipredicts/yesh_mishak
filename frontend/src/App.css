@@ -351,28 +351,34 @@
 .field-marker {
   position: relative;
   display: block;
-  width: 72px;
-  height: 72px;
+  width: 54px;
+  height: 54px;
   cursor: pointer;
 }
 
 .field-marker-stadium {
   display: block;
-  width: 72px;
-  height: 72px;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
   filter: drop-shadow(0 5px 10px rgba(15, 23, 42, 0.35));
   pointer-events: none;
   user-select: none;
 }
 
+.field-marker--active .field-marker-stadium {
+  filter:
+    drop-shadow(0 5px 10px rgba(15, 23, 42, 0.35))
+    drop-shadow(0 0 9px rgba(54, 243, 49, 0.34));
+}
+
 .field-marker-status {
   position: absolute;
-  right: 7px;
-  bottom: 9px;
+  right: 3px;
+  bottom: 6px;
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   border: 2px solid rgba(255, 255, 255, 0.92);
   border-radius: 50%;
   box-shadow: 0 0 8px currentColor;
@@ -387,7 +393,16 @@
 .field-marker--active .field-marker-status {
   background: #36f331;
   color: rgba(54, 243, 49, 0.78);
-  animation: field-marker-active-pulse 1.8s ease-in-out infinite;
+  animation: field-marker-active-pulse 1.6s ease-in-out infinite;
+}
+
+.field-marker--active .field-marker-status::after {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid rgba(54, 243, 49, 0.52);
+  border-radius: 50%;
+  content: '';
+  animation: field-marker-active-ring 1.6s ease-out infinite;
 }
 
 @keyframes field-marker-active-pulse {
@@ -404,6 +419,18 @@
       0 0 12px currentColor,
       0 0 0 8px rgba(54, 243, 49, 0);
     transform: scale(1.12);
+  }
+}
+
+@keyframes field-marker-active-ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.72);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
   }
 }
 
