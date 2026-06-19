@@ -256,7 +256,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
           aria-controls="game-participants-list"
         >
           <span>משתתפים ({participantCount})</span>
-          <span aria-hidden="true">{areParticipantsOpen ? '▲' : '▼'}</span>
+          <span className="participants-toggle-icon" aria-hidden="true">▼</span>
         </button>
 
         {areParticipantsOpen && hasParticipants ? (

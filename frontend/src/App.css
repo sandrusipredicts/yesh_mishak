@@ -527,20 +527,42 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid #cbd5e1;
+  border: 0;
   border-radius: 6px;
-  padding: 10px 12px;
-  background: #ffffff;
-  color: #172033;
+  padding: 12px 14px;
+  background: #172033;
+  color: #ffffff;
   cursor: pointer;
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
 }
 
 .participants-toggle-button:hover,
 .participants-toggle-button:focus {
-  border-color: #94a3b8;
-  background: #f8fafc;
+  background: #172033;
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  transform: translateY(-2px);
+}
+
+.participants-toggle-button:active {
+  background: #172033;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
+}
+
+.participants-toggle-icon {
+  display: inline-flex;
+  transition: transform 160ms ease;
+}
+
+.participants-toggle-button[aria-expanded='true'] .participants-toggle-icon {
+  transform: rotate(180deg);
 }
 
 .participants-list {
@@ -593,25 +615,6 @@
   color: #ffffff;
   cursor: pointer;
   font-weight: 700;
-}
-
-.active-game-summary .participants-toggle-button {
-  border-color: #cbd5e1;
-  background: #ffffff;
-  color: #172033;
-}
-
-.active-game-summary .participants-toggle-button:hover,
-.active-game-summary .participants-toggle-button:focus {
-  border-color: #94a3b8;
-  background: #f8fafc;
-  color: #172033;
-}
-
-.active-game-summary .participants-toggle-button:active {
-  border-color: #64748b;
-  background: #e2e8f0;
-  color: #172033;
 }
 
 .navigation-panel-button {
