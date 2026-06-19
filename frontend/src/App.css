@@ -516,15 +516,52 @@
   font-weight: 800;
 }
 
+.participants-section {
+  display: grid;
+  gap: 8px;
+}
+
+.participants-toggle-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.participants-toggle-button:hover,
+.participants-toggle-button:focus {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
 .participants-list {
   display: grid;
-  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  gap: 4px;
   margin: 0;
-  padding-left: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px;
+  background: #f8fafc;
+  list-style: none;
 }
 
 .participants-list li {
+  border-radius: 4px;
+  padding: 7px 8px;
+  background: #ffffff;
   color: #172033;
+  font-weight: 700;
 }
 
 .panel-warning,

@@ -278,6 +278,78 @@ def test_game_before_end_time_is_returned_as_active(monkeypatch) -> None:
     assert tables["games"][0]["status"] == "open"
 
 
+def test_active_games_include_participant_usernames(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = {**make_user("user-1"), "username": "Marom"}
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-active",
+                "field_id": "field-1",
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+            },
+        ],
+        "game_players": [
+            {
+                "id": "player-1",
+                "game_id": "game-active",
+                "user_id": user["id"],
+            },
+        ],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/active")
+
+    assert response.status_code == 200
+    assert response.json()[0]["participants"] == [
+        {
+            "user_id": user["id"],
+            "username": "Marom",
+            "name": "Marom",
+        }
+    ]
+
+
+def test_active_games_keep_participant_when_username_is_missing(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = {**make_user("user-1"), "username": None}
+    tables = {
+        "users": [user],
+        "games": [
+            {
+                "id": "game-active",
+                "field_id": "field-1",
+                "status": "open",
+                "players_present": 1,
+                "max_players": 5,
+            },
+        ],
+        "game_players": [
+            {
+                "id": "player-1",
+                "game_id": "game-active",
+                "user_id": user["id"],
+            },
+        ],
+    }
+    client = make_client(monkeypatch, tables)
+
+    response = client.get("/games/active")
+
+    assert response.status_code == 200
+    assert response.json()[0]["participants"] == [
+        {
+            "user_id": user["id"],
+            "username": None,
+            "name": user["name"],
+        }
+    ]
+
+
 def test_game_at_end_time_is_finished_and_hidden_from_active_games(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     now = datetime(2026, 6, 16, 20, 0, tzinfo=timezone.utc)

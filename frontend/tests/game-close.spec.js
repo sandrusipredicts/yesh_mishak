@@ -300,6 +300,64 @@ test('participant detection uses token subject with user_id participants', async
   await expect(page.getByRole('button', { name: "I'm coming" })).toHaveCount(0)
 })
 
+test('participants list toggles inside the game panel', async ({ page }) => {
+  const user = {
+    id: 'organizer-user',
+    email: 'organizer@example.com',
+    name: 'Organizer User',
+  }
+
+  await seedAuthenticatedUser(page, user)
+  await mockSharedRequests(page, makeFieldWithActiveGame(user.id, [
+    {
+      user_id: user.id,
+      username: 'Marom',
+    },
+    {
+      user_id: 'participant-2',
+      username: 'Avi',
+    },
+  ]))
+
+  await page.goto('/')
+  await page.locator('.field-marker').first().click()
+
+  const toggle = page.getByRole('button', { name: 'משתתפים (2)' })
+  await expect(toggle).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Participants' })).toHaveCount(0)
+
+  await toggle.click()
+  await expect(page.getByRole('list', { name: 'Participants' })).toBeVisible()
+  await expect(page.getByText('Marom')).toBeVisible()
+  await expect(page.getByText('Avi')).toBeVisible()
+
+  await page.getByRole('button', { name: 'משתתפים (2)' }).click()
+  await expect(page.getByRole('list', { name: 'Participants' })).toHaveCount(0)
+})
+
+test('participants list shows fallback when username is missing', async ({ page }) => {
+  const user = {
+    id: 'organizer-user',
+    email: 'organizer@example.com',
+    name: 'Organizer User',
+  }
+
+  await seedAuthenticatedUser(page, user)
+  await mockSharedRequests(page, makeFieldWithActiveGame(user.id, [
+    {
+      user_id: user.id,
+      username: '',
+      name: '',
+    },
+  ]))
+
+  await page.goto('/')
+  await page.locator('.field-marker').first().click()
+  await page.getByRole('button', { name: 'משתתפים (1)' }).click()
+
+  await expect(page.getByRole('list', { name: 'Participants' })).toContainText('משתמש')
+})
+
 test('user-specific participant state follows each jwt subject', async ({ page }) => {
   const userAId = 'user-a'
   const userBId = 'user-b'
@@ -346,6 +404,99 @@ test('different jwt user sees join until their own participant row exists', asyn
 
   await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Leave' })).toHaveCount(0)
+})
+
+test('joining a game refreshes the opened participants list', async ({ page }) => {
+  const user = {
+    id: 'current-user',
+    email: 'current@example.com',
+    name: 'Current User',
+    token: 'current-token',
+  }
+  let participants = [
+    {
+      user_id: 'organizer-user',
+      username: 'Marom',
+    },
+  ]
+
+  await seedAuthenticatedUser(page, user)
+  await mockFieldState(page, () =>
+    makeField({
+      ...makeActiveGame('organizer-user', participants),
+      players_present: participants.length,
+    }),
+  )
+  await mockNotificationsAndTiles(page)
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/join/, (route) => {
+    participants = [
+      ...participants,
+      {
+        user_id: user.id,
+        username: 'Avi',
+      },
+    ]
+    return fulfillJson(route, {
+      message: 'Joined successfully',
+      game: { id: 'game-1', status: 'open' },
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('.field-marker').first().click()
+  await page.getByRole('button', { name: 'משתתפים (1)' }).click()
+  await expect(page.getByText('Marom')).toBeVisible()
+
+  await page.getByRole('button', { name: "I'm coming" }).click()
+
+  await expect(page.getByRole('button', { name: 'משתתפים (2)' })).toBeVisible()
+  await expect(page.getByText('Avi')).toBeVisible()
+})
+
+test('leaving a game refreshes the opened participants list', async ({ page }) => {
+  const user = {
+    id: 'current-user',
+    email: 'current@example.com',
+    name: 'Current User',
+    token: 'current-token',
+  }
+  let participants = [
+    {
+      user_id: 'organizer-user',
+      username: 'Marom',
+    },
+    {
+      user_id: user.id,
+      username: 'Avi',
+    },
+  ]
+
+  await seedAuthenticatedUser(page, user)
+  await mockFieldState(page, () =>
+    makeField({
+      ...makeActiveGame('organizer-user', participants),
+      players_present: participants.length,
+    }),
+  )
+  await mockNotificationsAndTiles(page)
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/games\/game-1\/leave/, (route) => {
+    participants = participants.filter((participant) => participant.user_id !== user.id)
+    return fulfillJson(route, {
+      message: 'Left successfully',
+      game: { id: 'game-1', status: 'open' },
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('.field-marker').first().click()
+  await page.getByRole('button', { name: 'משתתפים (2)' }).click()
+  await expect(page.getByText('Avi')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Leave' }).click()
+
+  await expect(page.getByRole('button', { name: 'משתתפים (1)' })).toBeVisible()
+  await expect(page.getByText('Avi')).toHaveCount(0)
+  await expect(page.getByText('Marom')).toBeVisible()
 })
 
 test('non-participant sees im coming and join request refreshes fields', async ({ page }) => {

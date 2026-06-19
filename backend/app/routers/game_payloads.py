@@ -22,17 +22,20 @@ def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, 
     )
 
     user_ids = sorted({str(row["user_id"]) for row in player_rows if row.get("user_id")})
-    users_by_id: dict[str, str] = {}
+    users_by_id: dict[str, dict[str, str | None]] = {}
     if user_ids:
         user_rows = (
             supabase.table("users")
-            .select("id,name")
+            .select("id,username,name")
             .in_("id", user_ids)
             .execute()
             .data
         )
         users_by_id = {
-            str(user["id"]): user.get("name") or "Unknown player"
+            str(user["id"]): {
+                "username": user.get("username"),
+                "name": user.get("name"),
+            }
             for user in user_rows
             if user.get("id")
         }
@@ -44,10 +47,14 @@ def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, 
         if not game_id or not user_id:
             continue
 
+        user = users_by_id.get(user_id, {})
+        username = user.get("username")
+        name = user.get("name")
         participants_by_game_id.setdefault(game_id, []).append(
             {
                 "user_id": user_id,
-                "name": users_by_id.get(user_id, "Unknown player"),
+                "username": username,
+                "name": username or name or "Unknown player",
             }
         )
 
