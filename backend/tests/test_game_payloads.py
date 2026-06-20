@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.routers import game_payloads
+
+
+class FakeResponse:
+    def __init__(self, data: list[dict[str, Any]]) -> None:
+        self.data = data
+
+
+class FakeQuery:
+    def __init__(self, client: "FakeSupabaseClient", table_name: str) -> None:
+        self.client = client
+        self.table_name = table_name
+        self.selected_columns: list[str] | None = None
+        self.filters: list[tuple[str, Any]] = []
+        self.in_filters: list[tuple[str, list[Any]]] = []
+
+    def select(self, columns: str) -> "FakeQuery":
+        self.selected_columns = [column.strip() for column in columns.split(",")]
+        return self
+
+    def eq(self, column: str, value: Any) -> "FakeQuery":
+        self.filters.append((column, value))
+        return self
+
+    def in_(self, column: str, values: list[Any]) -> "FakeQuery":
+        if len(values) > self.client.max_in_values:
+            raise AssertionError(f"{column} in_ batch exceeded {self.client.max_in_values}: {len(values)}")
+        self.client.in_filter_calls.append((self.table_name, column, list(values)))
+        self.in_filters.append((column, values))
+        return self
+
+    def execute(self) -> FakeResponse:
+        rows = self.client.tables.get(self.table_name, [])
+        for column, value in self.filters:
+            rows = [row for row in rows if row.get(column) == value]
+        for column, values in self.in_filters:
+            rows = [row for row in rows if row.get(column) in values]
+        return FakeResponse([self._select(row) for row in rows])
+
+    def _select(self, row: dict[str, Any]) -> dict[str, Any]:
+        if not self.selected_columns or "*" in self.selected_columns:
+            return deepcopy(row)
+        return {column: row.get(column) for column in self.selected_columns}
+
+
+class FakeSupabaseClient:
+    def __init__(self, tables: dict[str, list[dict[str, Any]]], max_in_values: int = 100) -> None:
+        self.tables = tables
+        self.max_in_values = max_in_values
+        self.in_filter_calls: list[tuple[str, str, list[Any]]] = []
+
+    def table(self, table_name: str) -> FakeQuery:
+        return FakeQuery(self, table_name)
+
+
+def field_ids(count: int) -> list[str]:
+    return [f"field-{index}" for index in range(count)]
+
+
+def make_field(field_id: str) -> dict[str, Any]:
+    return {
+        "id": field_id,
+        "name": field_id,
+        "verified": True,
+        "approval_status": "approved",
+        "sport_type": "both",
+    }
+
+
+def test_get_active_games_for_fields_batches_large_field_id_list(monkeypatch) -> None:
+    ids = field_ids(205)
+    fake_client = FakeSupabaseClient(
+        {
+            "games": [
+                {"id": "game-1", "field_id": "field-1", "status": "open", "scheduled_at": None},
+                {"id": "game-2", "field_id": "field-120", "status": "full", "scheduled_at": None},
+                {"id": "finished", "field_id": "field-150", "status": "finished", "scheduled_at": None},
+            ],
+            "game_players": [
+                {"game_id": "game-1", "user_id": "user-1"},
+                {"game_id": "game-2", "user_id": "user-2"},
+            ],
+            "users": [
+                {"id": "user-1", "username": "alice", "name": "Alice"},
+                {"id": "user-2", "username": None, "name": "Bob"},
+            ],
+        }
+    )
+    monkeypatch.setattr(game_payloads, "get_supabase_client", lambda: fake_client)
+
+    games_by_field = game_payloads.get_active_games_for_fields(ids)
+
+    assert set(games_by_field) == {"field-1", "field-120"}
+    assert games_by_field["field-1"]["participants"] == [
+        {"user_id": "user-1", "username": "alice", "name": "alice"}
+    ]
+    assert games_by_field["field-120"]["participants"] == [
+        {"user_id": "user-2", "username": None, "name": "Bob"}
+    ]
+    field_id_batches = [
+        values
+        for table, column, values in fake_client.in_filter_calls
+        if table == "games" and column == "field_id"
+    ]
+    assert [len(batch) for batch in field_id_batches] == [100, 100, 5]
+
+
+def test_get_upcoming_games_for_fields_batches_large_field_id_list(monkeypatch) -> None:
+    ids = field_ids(205)
+    fake_client = FakeSupabaseClient(
+        {
+            "games": [
+                {
+                    "id": "upcoming-1",
+                    "field_id": "field-4",
+                    "status": "open",
+                    "scheduled_at": "2999-01-01T18:00:00+00:00",
+                },
+                {
+                    "id": "upcoming-2",
+                    "field_id": "field-204",
+                    "status": "open",
+                    "scheduled_at": "2999-01-02T18:00:00+00:00",
+                },
+            ],
+            "game_players": [],
+            "users": [],
+        }
+    )
+    monkeypatch.setattr(game_payloads, "get_supabase_client", lambda: fake_client)
+
+    games_by_field = game_payloads.get_upcoming_games_for_fields(ids)
+
+    assert [game["id"] for game in games_by_field["field-4"]] == ["upcoming-1"]
+    assert [game["id"] for game in games_by_field["field-204"]] == ["upcoming-2"]
+    field_id_batches = [
+        values
+        for table, column, values in fake_client.in_filter_calls
+        if table == "games" and column == "field_id"
+    ]
+    assert [len(batch) for batch in field_id_batches] == [100, 100, 5]
+
+
+def test_get_fields_handles_1357_fields_without_large_game_lookup(monkeypatch) -> None:
+    ids = field_ids(1357)
+    fake_client = FakeSupabaseClient(
+        {
+            "fields": [make_field(field_id) for field_id in ids],
+            "games": [
+                {"id": "game-1", "field_id": "field-1", "status": "open", "scheduled_at": None},
+                {
+                    "id": "upcoming-1",
+                    "field_id": "field-1200",
+                    "status": "open",
+                    "scheduled_at": "2999-01-01T18:00:00+00:00",
+                },
+            ],
+            "game_players": [],
+            "users": [],
+        }
+    )
+    monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(game_payloads, "get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).get("/fields/")
+
+    assert response.status_code == 200
+    fields = response.json()
+    assert len(fields) == 1357
+    assert fields[1]["active_game"]["id"] == "game-1"
+    assert fields[1200]["upcoming_games"][0]["id"] == "upcoming-1"
+    field_id_batches = [
+        values
+        for table, column, values in fake_client.in_filter_calls
+        if table == "games" and column == "field_id"
+    ]
+    assert all(len(batch) <= 100 for batch in field_id_batches)

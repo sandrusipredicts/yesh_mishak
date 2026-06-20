@@ -274,7 +274,9 @@ def test_upcoming_endpoint_returns_future_games(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert [game["id"] for game in response.json()] == ["game-future"]
-    assert response.json()[0]["participants"] == [{"user_id": user["id"], "name": user["name"]}]
+    assert response.json()[0]["participants"] == [
+        {"user_id": user["id"], "username": None, "name": user["name"]}
+    ]
 
 
 def test_active_endpoint_excludes_future_scheduled_games(monkeypatch) -> None:
@@ -339,7 +341,7 @@ def test_field_details_include_upcoming_but_not_as_active_game(monkeypatch) -> N
     assert field["active_game"] is None
     assert [game["id"] for game in field["upcoming_games"]] == ["game-future"]
     assert field["upcoming_games"][0]["participants"] == [
-        {"user_id": user["id"], "name": user["name"]}
+        {"user_id": user["id"], "username": None, "name": user["name"]}
     ]
 
 
