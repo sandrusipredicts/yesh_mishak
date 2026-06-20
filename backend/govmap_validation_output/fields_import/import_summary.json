@@ -1,0 +1,270 @@
+{
+  "input_file": "backend\\govmap_validation_output\\approved.csv",
+  "output_dir": "backend\\govmap_validation_output\\fields_import",
+  "input_rows": 1389,
+  "valid_rows": 1357,
+  "rejected_rows": 32,
+  "invalid_coordinates_rows": 32,
+  "converted_itm_coordinate_rows": 1357,
+  "invalid_reason_counts": {
+    "coordinates_outside_israel": 32
+  },
+  "rejected_row_examples": [
+    {
+      "input_line": 77,
+      "source_id": "layer_sport.68845729",
+      "name": "מגרש כדורגל  שחבק",
+      "city": "רמלה",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 78,
+      "source_id": "layer_sport.68845793",
+      "name": "גואריש מתנ\"ס קלור",
+      "city": "רמלה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 112,
+      "source_id": "layer_sport.68848065",
+      "name": "שחבק בית חגי",
+      "city": "הר חברון",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 115,
+      "source_id": "layer_sport.68848129",
+      "name": "מגרש מקורה",
+      "city": "קלנסווה",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 118,
+      "source_id": "layer_sport.68848513",
+      "name": "שחבק",
+      "city": "זרזיר",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 143,
+      "source_id": "layer_sport.68850497",
+      "name": "מ.ספורט מתנ\"ס בלום",
+      "city": "צפת",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 246,
+      "source_id": "layer_sport.68859057",
+      "name": "מגרש משולב חגאגרה",
+      "city": "כעביה-טבאש-חג'אג'רה",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 257,
+      "source_id": "layer_sport.68859473",
+      "name": "מורשת זבולון",
+      "city": "נתניה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1033,
+      "source_id": "layer_sport.68940337",
+      "name": "מגרש שכונתי",
+      "city": "קרית שמונה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1034,
+      "source_id": "layer_sport.68940369",
+      "name": "מגרש שכונתי",
+      "city": "קרית שמונה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1035,
+      "source_id": "layer_sport.68940401",
+      "name": "מגרש שכונתי",
+      "city": "קרית שמונה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1036,
+      "source_id": "layer_sport.68940417",
+      "name": "מיני פיץ",
+      "city": "קרית שמונה",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1037,
+      "source_id": "layer_sport.68940817",
+      "name": "מיני פיץ",
+      "city": "קרית שמונה",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1038,
+      "source_id": "layer_sport.68940865",
+      "name": "מגרש חוץ- החולה",
+      "city": "קרית שמונה",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1063,
+      "source_id": "layer_sport.68947265",
+      "name": "מגרש ספורט ציבורי זיסמן",
+      "city": "רמת גן",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1064,
+      "source_id": "layer_sport.68947297",
+      "name": "מגרש ציבורי חרוזים",
+      "city": "רמת גן",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1065,
+      "source_id": "layer_sport.68947345",
+      "name": "מגרש כדורגל רמת עמידר",
+      "city": "רמת גן",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1066,
+      "source_id": "layer_sport.68947697",
+      "name": "מגרש כדורגל השקמה רמת חן",
+      "city": "רמת גן",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1188,
+      "source_id": "layer_sport.68962001",
+      "name": "מגרש דשא טבעי נאות יצחק",
+      "city": "לוד",
+      "sport_type": "football",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1231,
+      "source_id": "layer_sport.68965233",
+      "name": "מגרש משולב - בי''ס עופרים",
+      "city": "ירושלים",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1236,
+      "source_id": "layer_sport.68965665",
+      "name": "מגרש משולב רחוב חצב עליון",
+      "city": "נוף הגליל",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1246,
+      "source_id": "layer_sport.68966289",
+      "name": "מגרש כדורסל - בי''ס מסילה",
+      "city": "ירושלים",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1267,
+      "source_id": "layer_sport.68967969",
+      "name": "מגרש טיילת",
+      "city": "אלעד",
+      "sport_type": "both",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1270,
+      "source_id": "layer_sport.68968145",
+      "name": "כדורסל אמפי פארק 2",
+      "city": "אלעד",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    },
+    {
+      "input_line": 1273,
+      "source_id": "layer_sport.68968449",
+      "name": "כדורסל אמפי פארק 1",
+      "city": "אלעד",
+      "sport_type": "basketball",
+      "reasons": [
+        "coordinates_outside_israel"
+      ]
+    }
+  ],
+  "output_files": {
+    "fields_import_csv": "backend\\govmap_validation_output\\fields_import\\fields_import.csv",
+    "fields_import_sql": "backend\\govmap_validation_output\\fields_import\\fields_import.sql",
+    "invalid_coordinates_csv": "backend\\govmap_validation_output\\fields_import\\invalid_coordinates.csv",
+    "import_summary_json": "backend\\govmap_validation_output\\fields_import\\import_summary.json"
+  }
+}

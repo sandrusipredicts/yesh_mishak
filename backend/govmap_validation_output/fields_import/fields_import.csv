@@ -1,0 +1,1358 @@
+﻿name,lat,lng,sport_type,surface_type,has_lighting,has_water,opening_hours,status,verified,added_by,notes,image_url,approval_status,city,has_fencing,has_parking
+מגרש כדורגל גילת,31.3293314,34.6502627,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל מסלול,31.3266903,34.5892045,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל ניר משה,31.4775374,34.6258506,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+כדורגל דשא ניר עקיבא,31.4688808,34.6464643,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל פדויים,31.3287148,34.6170759,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל פטיש,31.3286676,34.5584389,football,דשא טבעי,false,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל רנן,31.3376191,34.5982645,football,דשא טבעי,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל שדה צבי,31.4474525,34.7125091,football,דשא טבעי,false,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורגל תלמי בילו,31.4374997,34.6432738,football,דשא טבעי,false,false,,open,true,,,,approved,מרחבים,false,true
+מגרש כדורגל תפרח,31.3236598,34.6740713,football,דשא טבעי,false,false,,open,true,,,,approved,מרחבים,true,true
+יעלים,31.2553864,34.7756387,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+חוגלה,31.2486067,34.7818841,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+גן אליעזר,31.2577187,34.8082062,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+וינגייט,31.2561407,34.8025225,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+התקווה,31.2540198,34.8020590,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+בית סמואל,31.2552343,34.7679649,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+ינשוף,31.2277421,34.7647223,both,אספלט,true,false,,open,true,,,,approved,באר שבע,true,false
+קרל נטר,31.2724529,34.8251555,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+בן יוסף שלמה,31.2706858,34.8133392,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+גד טדסקי,31.2792547,34.7961762,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+גד טדסקי,31.2794802,34.7961858,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+חנה רובינא,31.2693258,34.7690446,basketball,,false,false,,open,true,,,,approved,באר שבע,false,false
+מיניפיץ' שאר ישוב,33.2271909,35.6445735,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מגרש סל- עף,31.6060095,35.2173881,both,מרצפות,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש משולב שאר ישוב,33.2271808,35.6448738,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב כפר יובל,33.2469066,35.5969545,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב מרגליות,33.2162989,35.5439355,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' מרגליות,33.2163169,35.5439355,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' אליפלט,32.9468183,35.5485591,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב רמות נפתלי,33.1007136,35.5518999,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' רמות נפתלי,33.1008860,35.5514935,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב דישון,33.0807094,35.5164991,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' דישון,33.0816999,35.5169953,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב שדה אליעזר,33.0459713,35.5624978,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' שדה אליעזר,33.0459255,35.5627332,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב משמר חדש,33.0063996,35.6005624,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+משולב משמר ישן,33.0032349,35.5948126,both,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיני פיץ',32.3077134,34.9051383,football,דשא סינטטי,true,false,,open,true,,,,approved,פרדסיה,true,false
+מגרש כדורסל אלסראיעה,31.3002788,34.9370234,basketball,אספלט,false,false,,open,true,,,,approved,חורה,true,false
+מגרש משולב שכונה 3 ו 5,31.2936286,34.9354878,both,אספלט,false,false,,open,true,,,,approved,חורה,true,false
+מגרש כדורגל,33.0487118,35.3107498,football,דשא סינטטי,true,false,,open,true,,,,approved,פסוטה,true,true
+מגרש כדורגל יחדיו,31.3695086,34.6354270,football,,true,false,,open,true,,,,approved,בני שמעון,true,true
+שחבק דביר,31.4143889,34.8265941,football,,true,false,,open,true,,,,approved,בני שמעון,true,true
+שחבק כרמים,31.3335480,34.9152106,football,,true,false,,open,true,,,,approved,בני שמעון,true,true
+מגרש כדורסל להב,31.3787740,34.8690279,basketball,,true,false,,open,true,,,,approved,בני שמעון,true,true
+"מגרש כדורגל משמ""ה",31.3655457,34.7178238,football,,false,false,,open,true,,,,approved,בני שמעון,false,true
+מגרש כדורגל שחבק תקומה,31.4475450,34.5768547,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש כדורגל שחבק מגלים,31.3973802,34.5987955,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש כדורגל שחבק בשוקדה,31.4220933,34.5219785,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש כדורגל שחבק זמרת,31.4475813,34.5516384,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש כדורגל שחבק גבעולים,31.3956759,34.5893753,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש סחבק,31.4180126,34.5776298,football,,true,false,,open,true,,,,approved,נתיבות,true,true
+מגרש סחבק,31.5196090,34.5890490,football,,true,false,,open,true,,,,approved,שדרות,true,false
+מגרש שח-בק,32.2225719,35.1593189,football,,true,false,,open,true,,,,approved,קדומים,true,false
+שחבק ניר גלים,31.8249214,34.6828652,football,,false,false,,open,true,,,,approved,חבל יבנה,false,false
+שחבק בני דרום,31.8221921,34.6880877,football,,true,false,,open,true,,,,approved,חבל יבנה,true,true
+מגרש שכ' א',32.5017799,35.4959584,both,,false,false,,open,true,,,,approved,בית שאן,false,false
+מיניפיץ',32.4594279,35.0457566,football,,false,false,,open,true,,,,approved,חריש,false,false
+מגרש משולב בפארק,32.3104999,34.9089943,both,אספלט,true,false,,open,true,,,,approved,פרדסיה,true,true
+מגרש כדורסל בפארק,32.3103448,34.9082409,basketball,אספלט,true,false,,open,true,,,,approved,פרדסיה,true,true
+מגרש שחבק,33.2190977,35.5742714,football,דשא סינטטי,true,false,,open,true,,,,approved,קרית שמונה,true,true
+משולב בימת תל חי,33.2273720,35.5690495,both,,true,false,,open,true,,,,approved,קרית שמונה,true,true
+מיני פיץ המלכים,33.1989621,35.5626472,football,,true,false,,open,true,,,,approved,קרית שמונה,true,true
+מגרש FIFA,31.9396610,34.8412864,football,,false,false,,open,true,,,,approved,באר יעקב,false,false
+מגרש ספורט משולב מקורה,32.6767806,35.3230802,both,אספלט,true,false,,open,true,,,,approved,אכסאל,true,true
+מגרש שחבק,32.8029022,35.1806374,football,דשא סינטטי,true,false,,open,true,,,,approved,שפרעם,true,true
+משולב ואדי אלסקיע,32.7927127,35.1788893,both,,false,false,,open,true,,,,approved,שפרעם,false,false
+נרקיסים,32.7061362,35.3179570,football,,true,false,,open,true,,,,approved,נוף הגליל,false,false
+דליה,32.7292167,35.3308198,football,,true,false,,open,true,,,,approved,נוף הגליל,true,false
+משולב,31.2842625,34.9209377,football,,false,false,,open,true,,,,approved,אל קסום,true,true
+מגרש כדורגל כסרא,32.9725433,35.2934682,football,,true,false,,open,true,,,,approved,כסרא סמיע,true,true
+"שחב""ק עינב",32.2866461,35.1278111,football,,false,false,,open,true,,,,approved,שומרון,false,false
+"שחב""ק נטפים",32.1153252,35.1146144,football,,false,false,,open,true,,,,approved,שומרון,false,false
+"שחב""ק ברקן",32.1086027,35.1090691,football,,false,false,,open,true,,,,approved,שומרון,false,false
+"שחב""ק עלי זהב",32.0695253,35.0671917,football,,false,false,,open,true,,,,approved,שומרון,false,false
+שחבק באר אורה,29.7089323,34.9838890,football,,false,false,,open,true,,,,approved,חבל אילות,false,false
+"מגרש שכונתי אלעין ע""י אשכול גנים",32.7725880,35.2226658,basketball,,false,false,,open,true,,,,approved,ביר אל-מכסור,true,true
+מגרש שחבק,32.6694688,35.2542651,football,,false,false,,open,true,,,,approved,רמת ישי,false,false
+מגרש שחבק גבעת אבני,32.7730619,35.4354044,football,,false,false,,open,true,,,,approved,הגליל התחתון,false,false
+מיכאל אנג'לו,32.7848723,35.5226356,both,,false,false,,open,true,,,,approved,טבריה,false,false
+מגרש ביג,32.7887940,35.5401780,both,,false,false,,open,true,,,,approved,טבריה,false,false
+יד שטרית מגרש ציבורי,32.7878305,35.5363101,both,,false,false,,open,true,,,,approved,טבריה,false,false
+מיניפיצ',32.7905981,35.5330964,football,,false,false,,open,true,,,,approved,טבריה,false,false
+מרכז צעירים,32.7883641,35.5322769,both,,false,false,,open,true,,,,approved,טבריה,false,false
+שמחה ובניו,32.7887521,35.5287129,football,,false,false,,open,true,,,,approved,טבריה,false,false
+נועם בנות,32.7909008,35.5276531,both,,false,false,,open,true,,,,approved,טבריה,false,false
+תפארת טבריה,32.7942406,35.5366755,both,,false,false,,open,true,,,,approved,טבריה,false,false
+מגרש משולב שכונה 8,31.3019816,34.9194036,both,,false,false,,open,true,,,,approved,חורה,false,false
+מגרש כדורסל יזרעאל,32.5634901,35.3207161,basketball,,true,false,,open,true,,,,approved,הגלבוע,true,true
+מגרש שחבק ירוחם,30.9828248,34.9363846,football,,true,false,,open,true,,,,approved,ירוחם,true,false
+מגרש כדורגל שחבק חצרות גנים,32.0950510,34.9032385,football,דשא סינטטי,true,false,,open,true,,,,approved,פתח תקווה,true,false
+פיפא גול,31.0738437,35.0407385,football,,false,false,,open,true,,,,approved,דימונה,false,false
+מגרש קטרגל סינטטי שלום עליכם,32.6780773,35.2349078,football,דשא סינטטי,true,false,,open,true,,,,approved,מגדל העמק,true,true
+אשרת,32.9698144,35.1533264,basketball,,true,false,,open,true,,,,approved,מטה אשר,true,true
+מגרש משולב אפק,32.8360816,35.1279724,both,,true,false,,open,true,,,,approved,מטה אשר,true,true
+מגרש שחבק,32.6504009,35.1013352,football,דשא סינטטי,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+כדורגל בוסתן הגליל,32.9494245,35.0835467,football,,false,false,,open,true,,,,approved,מטה אשר,true,true
+בוסתן הגליל משולב,32.9488744,35.0835154,both,,true,false,,open,true,,,,approved,מטה אשר,true,true
+לימן כדורסל,33.0573522,35.1127054,basketball,,true,false,,open,true,,,,approved,מטה אשר,true,true
+מצובה כדורסל,33.0620477,35.1575134,basketball,,false,false,,open,true,,,,approved,מטה אשר,false,false
+מצובה קטרגל,33.0616150,35.1576421,football,,false,false,,open,true,,,,approved,מטה אשר,false,false
+עמקא כדורגל,32.9832066,35.1592563,football,,false,false,,open,true,,,,approved,מטה אשר,false,false
+עמקא כדורסל,32.9797634,35.1628419,basketball,,false,false,,open,true,,,,approved,מטה אשר,false,false
+מגרש כדורגל אימונים,32.7219799,35.0732623,football,,true,false,,open,true,,,,approved,עספיא,true,true
+מגרש פתוח,32.7166498,35.0640436,football,,true,false,,open,true,,,,approved,עספיא,true,true
+שחבק מעון,31.4131712,35.1617937,football,,false,false,,open,true,,,,approved,הר חברון,false,false
+שחבק כרמל,31.4294739,35.1834956,football,,false,false,,open,true,,,,approved,הר חברון,false,false
+שחבק תלם,31.5629896,35.0304838,football,,false,false,,open,true,,,,approved,הר חברון,false,false
+שחבק בית יתיר,31.3649107,35.1112160,football,,false,false,,open,true,,,,approved,הר חברון,false,false
+מגרש סחבק,32.2809407,34.9743310,football,דשא סינטטי,true,false,,open,true,,,,approved,קלנסווה,true,true
+ספורטק דרום משולב,32.0430546,34.7916360,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+שחבק באקה,32.4092552,35.0463122,football,דשא סינטטי,true,false,,open,true,,,,approved,באקה אל גרביה,true,true
+שכונתי אלבסה,32.4221327,35.0467044,both,אספלט,true,false,,open,true,,,,approved,באקה אל גרביה,true,true
+מיניפיץ,31.6704420,35.1638381,football,,false,false,,open,true,,,,approved,אפרת,false,false
+מגרש כדורסל הזית,31.6708479,35.1641121,basketball,,false,false,,open,true,,,,approved,אפרת,false,false
+מגרש שחבק,33.2432334,35.7277459,football,,true,false,,open,true,,,,approved,עין קנייא,true,true
+"שחב""ק",31.8594125,34.8831596,football,,false,false,,open,true,,,,approved,גזר,false,false
+"שחב""ק",31.8690349,34.9849033,football,,false,false,,open,true,,,,approved,גזר,false,false
+מגרש שחבק בגבעת כוח,32.0306129,34.9331968,football,,false,false,,open,true,,,,approved,חבל מודיעין,false,false
+מגרש שחבק,32.6920492,35.3756184,football,,false,false,,open,true,,,,approved,דבוריה,false,false
+מגרש שחבק במושב נחלים,32.0586670,34.9124435,football,דשא סינטטי,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מתקן שחבק,31.3708524,34.8050307,football,דשא סינטטי,true,false,,open,true,,,,approved,להבים,true,true
+מגרש כדורגל סינטטי מרחבים,32.4683076,34.9597720,football,דשא סינטטי,true,false,,open,true,,,,approved,פרדס חנה-כרכור,true,true
+מגרש סנתטי-שחבק,32.6012403,34.9547240,football,דשא סינטטי,false,false,,open,true,,,,approved,פוריידיס,false,false
+מגרש שחבק,32.1184118,34.9643024,football,דשא סינטטי,true,false,,open,true,,,,approved,כפר קאסם,true,true
+מגרש דשא סינטטי קטרגל שחבק,31.2700192,34.8476988,football,דשא סינטטי,true,false,,open,true,,,,approved,עומר,true,false
+מגרש שחבק,33.0589396,35.6143960,football,,false,false,,open,true,,,,approved,יסוד המעלה,false,false
+מגרש שחבק,32.8362241,35.5004425,football,דשא סינטטי,true,false,,open,true,,,,approved,מגדל,true,true
+מגרש שחבק,32.7777860,35.3803187,football,,false,false,,open,true,,,,approved,טורעאן,false,false
+מגרש סינטטי,31.2768369,35.0521711,football,,false,false,,open,true,,,,approved,ג'סר א-זרקא,false,false
+מגרש שחבק,32.8702729,35.2957380,football,,false,false,,open,true,,,,approved,סח'נין,false,false
+מגרש משולב,32.9895395,35.3058429,both,פרקט,true,false,,open,true,,,,approved,פקיעין,true,true
+סאחבק,32.3986986,35.0347451,football,דשא סינטטי,true,false,,open,true,,,,approved,ג'ת,true,true
+"מ.ספורט מתנ""ס סקטר",33.2717994,35.6775446,football,,true,false,,open,true,,,,approved,צפת,true,true
+מ.ספורט מנחם בגין,33.2817574,35.6668638,football,,true,false,,open,true,,,,approved,צפת,true,false
+מ.ספורט נווה אורנים,33.2808072,35.6797401,football,,true,false,,open,true,,,,approved,צפת,true,false
+שחבק פארק הסופרים,31.2711240,34.7727324,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+שחבק רמות,31.2711240,34.7727324,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+"שחבק י""א",31.2711240,34.7727324,football,,false,false,,open,true,,,,approved,באר שבע,false,false
+קריה חרדית,31.2711240,34.7727324,both,,false,false,,open,true,,,,approved,באר שבע,false,false
+מגרש שחבק בית הגדי,31.4244029,34.6050795,football,,false,false,,open,true,,,,approved,שדות נגב,false,false
+משולב תבור,32.8549179,35.0824466,both,,true,false,,open,true,,,,approved,קרית ים,true,true
+מיניפיץ חוף זבולון,32.8490362,35.0627671,football,,true,false,,open,true,,,,approved,קרית ים,true,true
+מיניפיץ לוינסון,32.8471151,35.0623322,football,,true,false,,open,true,,,,approved,קרית ים,true,true
+סביונים סנטטי,32.8585942,35.0798027,football,,false,false,,open,true,,,,approved,קרית ים,false,false
+יורם חתוכה,32.0917695,34.9443933,basketball,,true,false,,open,true,,,,approved,ראש העין,true,false
+צורים,32.0969295,34.9588075,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+אוהל שרה,32.0979167,34.9473316,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+אוהל שלום,32.0928503,34.9481721,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+קיבוץ גלויות,32.0928359,34.9686067,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+בראשית,32.0871465,34.9643101,both,,false,false,,open,true,,,,approved,ראש העין,false,false
+מתנס גיורא,32.1538259,34.8762794,football,,false,false,,open,true,,,,approved,הוד השרון,false,false
+מתנס נוה הדר,32.1393901,34.8735331,basketball,אספלט,false,false,,open,true,,,,approved,הוד השרון,false,false
+מתנס גני צבי,32.1475854,34.8797254,basketball,אספלט,false,false,,open,true,,,,approved,הוד השרון,false,false
+מגרש בשכונת רמבם,32.1526110,34.9064626,basketball,אספלט,true,false,,open,true,,,,approved,הוד השרון,false,true
+מגרש משולב גבעת הסביונים,31.7188736,34.7559101,both,כורכר,true,false,,open,true,,,,approved,קרית מלאכי,true,true
+מגרש כדורסל ע''ש בן גוריון,32.5171723,34.9168768,basketball,אספלט,true,false,,open,true,,,,approved,אור עקיבא,true,false
+שחב''ק,32.5119775,34.9165421,football,דשא סינטטי,true,false,,open,true,,,,approved,אור עקיבא,true,true
+מגרש קטרגל ע''ש גבי גאוי,32.5019004,34.9264704,football,דשא סינטטי,true,false,,open,true,,,,approved,אור עקיבא,true,true
+מגשר משולב פני קדם,31.5903803,35.1937639,both,אספלט,true,false,,open,true,,,,approved,גוש עציון,true,false
+מגרש משולב גולומב עפולה עילית,32.6351195,35.3249008,both,פרקט,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש ספורטק עפולה עילית,32.6332964,35.3265075,both,,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש כדורסל/קטרגל כורש,32.6095725,35.2937469,both,אספלט,true,false,,open,true,,,,approved,עפולה,true,true
+מיני פיץ גן ניסיס,32.6047450,35.2852302,football,דשא סינטטי,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש שחבק סינטטי,32.7366022,35.2060364,football,,false,false,,open,true,,,,approved,כעביה-טבאש-חג'אג'רה,false,false
+מגרש משולב,32.8548936,35.1786258,both,אספלט,true,false,,open,true,,,,approved,טמרה,true,true
+מגרש שחבק בגין,32.6018869,35.2847056,football,,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש מיני פיץ אלי כהן,32.6345263,35.3228113,football,דשא סינטטי,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש מיני פיץ דובדבן,32.6169113,35.2955761,football,דשא סינטטי,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש מיני פיץ קישון,32.6105300,35.2772876,football,,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש כדורגל-מושב לכיש,31.5596664,34.8432093,football,דשא סינטטי,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורגל- מושב מנוחה,31.6431416,34.7757978,football,דשא סינטטי,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורגל- מושב יד-נתן,31.6533064,34.7041742,football,דשא סינטטי,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורגל- מושב עוצם,31.6365741,34.7057185,football,דשא סינטטי,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורגל-מושב זהר,31.5952299,34.6912405,football,דשא סינטטי,true,false,,open,true,,,,approved,לכיש,true,true
+מיני- פי'ץ צפון,32.5166919,34.9197625,football,דשא סינטטי,false,false,,open,true,,,,approved,אור עקיבא,false,false
+מגרש כדורגל- מושב ניר-חן,31.6102277,34.7141842,football,,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורגל- מושב שחר,31.6177580,34.7236299,football,,true,false,,open,true,,,,approved,לכיש,true,true
+שחבק,31.9382944,35.2218442,football,,true,false,,open,true,,,,approved,בית אל,true,false
+מגרש סל מטה בנימין,31.9385202,35.2191792,football,,false,false,,open,true,,,,approved,בית אל,false,false
+מגרש שחבק עם דשא סינטטי,31.7940134,34.7607214,football,,false,false,,open,true,,,,approved,בני עייש,false,false
+חצבה,30.7678166,35.2793316,both,,false,false,,open,true,,,,approved,הערבה התיכונה,false,false
+מגרש שחבק,32.7203124,35.2635736,football,דשא סינטטי,true,false,,open,true,,,,approved,עילוט,true,true
+מגרש שחבק,32.7010018,35.2881535,football,דשא סינטטי,true,false,,open,true,,,,approved,נצרת,true,true
+מגרש משולב מרג'ה דרום,32.3616484,35.0370349,both,אספלט,true,false,,open,true,,,,approved,זמר,true,true
+מיניפיץ,31.3262110,34.9381689,football,דשא סינטטי,true,false,,open,true,,,,approved,מיתר,true,true
+מגרש שחבק,32.0313653,34.8638229,football,,true,false,,open,true,,,,approved,אור יהודה,false,true
+מגרש קט רגל/ כדורסל פארק כרמי גת,31.6210002,34.7728429,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+מגרש כדורסל מרכז ספורט ברח' העליה,33.0264100,35.0940597,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש כדורסל במרכז הספורטק,32.9896122,35.0836203,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+גן הטייס,31.8755757,34.8161951,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+גן ששי,31.8987540,34.7993428,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש כדורסל -מרכז ספורט יהודה מכבי,33.0253400,35.1086178,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+פארק נג'ארה,31.8844022,34.8213688,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש ספורט הצופים,31.8997783,34.8213897,both,,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש העלייה,31.8824087,34.8036632,football,,false,false,,open,true,,,,approved,רחובות,false,false
+רחובות החדשה,31.8811263,34.8088581,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+מילצ'ן,31.8852495,34.8094430,football,,false,false,,open,true,,,,approved,רחובות,false,false
+"מתנ""ס שוויץ",31.9006147,34.8206251,football,,false,false,,open,true,,,,approved,רחובות,false,false
+"מתנ""ס אושיות",31.8819767,34.8185041,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+"מתנ""ס מרגולין",31.8958373,34.8243870,basketball,,false,false,,open,true,,,,approved,רחובות,false,false
+"מתנ""ס נווה יהודה",31.9007708,34.8011523,both,,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש כדורסל -מרכז ספורט רבין,33.0022560,35.1069306,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+הפארק הגדול,32.0927132,34.8666357,both,אספלט,true,false,,open,true,,,,approved,פתח תקווה,true,true
+"מתנ""ס יוספטל מגרש",32.0906345,34.9041746,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש ספורט משולב אום אלשתוויה,32.8254709,35.1764343,both,אספלט,true,false,,open,true,,,,approved,אעבלין,true,false
+"מגרש מתנ""ס לזרוס",32.0783033,34.8952014,basketball,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+"מגרש חטה""ב פינשטיין",32.0796242,34.9006730,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+"מגרש חטה""ב בן צבי",32.0831078,34.8943273,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+"מגרש מתנ""ס דדו",32.0856711,34.9027185,basketball,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+"מגרש מתנ""ס שערים",32.0772514,34.9002466,basketball,,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש שכונת עמישב,32.0724720,34.9079091,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש רחוב אמסטרדם,32.0824649,34.8651588,both,,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש כדורסל סמטת התן,30.9834592,34.9335039,basketball,אספלט,true,false,,open,true,,,,approved,ירוחם,true,true
+מגרש משולב נווה העמק,30.9886642,34.9212296,both,אספלט,true,false,,open,true,,,,approved,ירוחם,true,true
+"מגרש ממ""ד אורי אורבך",32.0764531,34.8766515,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש כדורסל בקנטרי,33.0095439,35.0886229,basketball,,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש ספורט משולב רמת אמיר,32.2876253,34.9431457,both,אספלט,false,false,,open,true,,,,approved,קדימה צורן,false,false
+מיני פיץ,31.8452264,34.7653891,football,דשא סינטטי,true,false,,open,true,,,,approved,גן רוה,false,true
+מגרש סינטטי יערת העמק,32.6792124,35.2393223,football,דשא סינטטי,true,false,,open,true,,,,approved,מגדל העמק,true,true
+מגרש משולב וישיי,32.6830160,35.2448363,both,אספלט,true,false,,open,true,,,,approved,מגדל העמק,true,false
+מיניפיץ,32.6301095,35.3472935,football,דשא סינטטי,true,false,,open,true,,,,approved,בוסתאן אל מרג',true,true
+מגרש פלמחים,31.9334275,34.7098433,basketball,אספלט,true,false,,open,true,,,,approved,גן רוה,false,true
+ספורטק ויצמן - מגרשי כדורגל סינטטים,32.1918315,34.8609782,both,דשא סינטטי,true,false,,open,true,,,,approved,רעננה,true,true
+ספורטק נווה זמר - מגרשים משולבים,32.1922307,34.8618675,both,אספלט,true,false,,open,true,,,,approved,רעננה,true,true
+מיני פיץ עיינות,31.9140751,34.7691117,football,דשא סינטטי,false,false,,open,true,,,,approved,גן רוה,false,true
+מגרש הגולה,32.1007772,34.9069595,basketball,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש משולב ספורטק,32.0824850,34.9053346,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,false
+מגרש שש שנתי גולדה,32.1016853,34.8766249,both,אספלט,false,false,,open,true,,,,approved,פתח תקווה,false,true
+אביחי,32.3040071,34.8692517,both,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+אגם החורף,32.2859006,34.8434478,basketball,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+אגם החורף,32.2859006,34.8434478,football,דשא טבעי,false,false,,open,true,,,,approved,נתניה,false,false
+אור לציון,32.3094734,34.8565106,football,דשא טבעי,false,false,,open,true,,,,approved,נתניה,false,false
+אור לציון מזרחי,32.3094734,34.8565106,football,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+אלדד,32.2776725,34.8548382,football,אספלט,true,false,,open,true,,,,approved,נתניה,true,false
+בית יעקב,32.3191694,34.8638966,basketball,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+בת חן-הארז,32.2999778,34.8767305,basketball,אספלט,false,false,,open,true,,,,approved,נתניה,true,false
+גן מסילות,32.2998736,34.8713585,football,דשא טבעי,true,false,,open,true,,,,approved,נתניה,true,false
+גן פוקס,32.2806405,34.8487975,football,אספלט,true,false,,open,true,,,,approved,נתניה,true,false
+דבורה עומר,32.2980513,34.8745184,both,אספלט,true,false,,open,true,,,,approved,נתניה,true,false
+חבד בנות,32.2970052,34.8511861,football,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+חבד בנים,32.2971306,34.8540947,football,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+חוף הרצל,32.3296298,34.8475439,basketball,אספלט,true,false,,open,true,,,,approved,נתניה,false,false
+יהודה הלוי,32.3174795,34.8625437,football,דשא טבעי,false,false,,open,true,,,,approved,נתניה,false,false
+בית אור שמחה,31.9872972,34.8517541,basketball,אספלט,false,false,,open,true,,,,approved,שדות דן,false,false
+מגרש משולב פתוח,32.0041578,34.8538591,both,אספלט,false,false,,open,true,,,,approved,שדות דן,false,false
+ישורון מאחורי האולם,32.3346573,34.8556708,basketball,אספלט,false,false,,open,true,,,,approved,נתניה,false,false
+לאה גולדברג,32.3112011,34.8718586,basketball,אספלט,true,false,,open,true,,,,approved,נתניה,true,false
+מיני ספורטק,32.2825776,34.8514013,both,אספלט,true,false,,open,true,,,,approved,נתניה,true,false
+מגרש כדורסל,31.7986366,34.8207939,basketball,אספלט,true,false,,open,true,,,,approved,נחל שורק,true,false
+מגרש כדורסל תורת החיים,31.7976765,34.8194040,basketball,אספלט,false,false,,open,true,,,,approved,נחל שורק,false,false
+מגרש משולב,31.7952596,34.8194246,both,אספלט,true,false,,open,true,,,,approved,נחל שורק,true,true
+מגרש משולב 2 מגרשים,31.8211856,34.8630338,both,אספלט,true,false,,open,true,,,,approved,נחל שורק,true,true
+קט רגל נצר חזני,31.8213009,34.8623363,football,דשא סינטטי,true,false,,open,true,,,,approved,נחל שורק,false,true
+מתנ''ס,32.2797851,34.8828855,football,,true,false,,open,true,,,,approved,אבן יהודה,true,true
+מתנ''ס,32.2797851,34.8828855,both,,true,false,,open,true,,,,approved,אבן יהודה,true,true
+מגרש כדורסל,31.3145047,34.6159140,basketball,,false,false,,open,true,,,,approved,אופקים,false,true
+מגרש כדורסל,31.3010197,34.6254510,basketball,,true,false,,open,true,,,,approved,אופקים,true,true
+מגרש כדורסל,31.3091413,34.6264518,basketball,,true,false,,open,true,,,,approved,אופקים,true,true
+מגרש כדורסל,31.3109069,34.6180373,basketball,,true,false,,open,true,,,,approved,אופקים,true,true
+נווה רבין,32.0239188,34.8715037,both,,true,false,,open,true,,,,approved,אור יהודה,false,true
+מגרש קט רגל,32.0329016,34.8583441,football,,false,false,,open,true,,,,approved,אור יהודה,true,true
+מגרש סיני,32.0254288,34.8496814,football,,true,false,,open,true,,,,approved,אור יהודה,true,true
+מגרש כדורסל פתוח ליד המועצה,32.1296033,34.9949002,basketball,,true,false,,open,true,,,,approved,אורנית,true,true
+גן ירושלים,32.0316472,34.8001244,basketball,אספלט,true,false,,open,true,,,,approved,אזור,true,false
+"מתנ""ס אזור",32.0225740,34.8112787,basketball,גומי,true,false,,open,true,,,,approved,אזור,false,true
+"פארק ""בגין""",32.0229433,34.8140293,football,דשא סינטטי,true,false,,open,true,,,,approved,אזור,true,true
+מגרש משולב 26X18 יובל,29.5491949,34.9328751,both,,true,false,,open,true,,,,approved,אילת,true,true
+מגרש כדורסל חיצוני,32.5323298,34.9939701,basketball,,true,false,,open,true,,,,approved,אלונה,true,true
+מגרש כדורסל חיצוני,32.5479103,35.0415235,basketball,,true,false,,open,true,,,,approved,אלונה,true,false
+מגרש כדורגל,32.5647442,35.0208350,football,דשא טבעי,true,false,,open,true,,,,approved,אלונה,true,true
+מגרש כדורסל חיצוני,32.5639334,35.0213691,basketball,אספלט,true,false,,open,true,,,,approved,אלונה,false,true
+מתקן ציבורי השייך למועצה,32.1104028,35.0363297,both,אספלט,true,false,,open,true,,,,approved,אלקנה,true,true
+מתקן ציבורי השייך למועצה,32.1120680,35.0274687,basketball,אספלט,false,false,,open,true,,,,approved,אלקנה,false,true
+מתקן ציבורי השייך למועצה,32.1091982,35.0392350,basketball,,true,false,,open,true,,,,approved,אלקנה,true,true
+מגרש כדורגל,31.6532898,35.1441508,football,דשא סינטטי,true,false,,open,true,,,,approved,אפרת,true,true
+מגרש כדור רגל עירוני,32.1051577,35.2079117,football,דשא טבעי,true,false,,open,true,,,,approved,אריאל,true,true
+קופף,31.8036602,34.6538072,both,אספלט,true,false,,open,true,,,,approved,אשדוד,true,true
+מיני פיץ' ח',31.7877743,34.6506284,football,דשא סינטטי,true,false,,open,true,,,,approved,אשדוד,true,true
+מגרש מרכז קהילתי בית לברון,31.7945511,34.6536501,both,,false,false,,open,true,,,,approved,אשדוד,true,true
+נווה יהונתן,31.8004338,34.6584726,both,,true,false,,open,true,,,,approved,אשדוד,true,true
+מגרש כדורסל,31.2296571,34.4174449,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2283592,34.4264817,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.1991829,34.3619846,basketball,,true,false,,open,true,,,,approved,אשכול,true,false
+מגרש כדורסל,31.3057362,34.5208020,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2110640,34.4605170,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2289642,34.3244622,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.3727523,34.3977547,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2266116,34.2847081,basketball,,false,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2992301,34.4236943,basketball,,false,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.2364923,34.3576651,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש כדורסל,31.3077549,34.4020906,basketball,,true,false,,open,true,,,,approved,אשכול,false,true
+מגרש כדורסל,31.2354837,34.3416152,basketball,,false,false,,open,true,,,,approved,אשכול,false,true
+מגרש כדורסל,31.2011871,34.5341460,basketball,,true,false,,open,true,,,,approved,אשכול,true,true
+מגרש ספורט משולב - דיונה,31.1924812,34.3307800,both,,true,false,,open,true,,,,approved,אשכול,true,true
+בית ג'רפי,31.6689756,34.5914299,both,אספלט,true,false,,open,true,,,,approved,אשקלון,true,false
+"ש""ס בנים",31.6668356,34.5797290,both,,true,false,,open,true,,,,approved,אשקלון,true,false
+מרכז ספורט עירוני,31.6613066,34.5650257,both,,true,false,,open,true,,,,approved,אשקלון,true,true
+"מתנ""ס בורטון",31.6540302,34.5635152,both,,true,false,,open,true,,,,approved,אשקלון,true,true
+"מתנ""ס תקוותנו",31.6554568,34.5802163,basketball,,true,false,,open,true,,,,approved,אשקלון,false,true
+מגרש אביגדור,31.7084274,34.7449891,football,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש אביגדור,31.7089685,34.7449864,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש אורות,31.7400387,34.7331194,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב באר טוביה,31.7314347,34.7233497,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב בצרון,31.7916963,34.7284227,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב גבעתי,31.7321632,34.6794497,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב חצב,31.7841742,34.7684757,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש ינון,31.7426348,34.7789071,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב כפר אחים,31.7440878,34.7555775,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב כפר ורבורג,31.7150179,34.7224850,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב נוה מבטח,31.8043676,34.7408188,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב ניר בנים,31.6703094,34.7534020,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש משולב עזריקם,31.7498976,34.6938086,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב ערוגות,31.7334166,34.7731455,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש שדה עוזיה,31.7557855,34.6780499,football,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש משולב שדה עוזיה,31.7574963,34.6774069,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש כדורסל מושב תימורים,31.7138918,34.7600485,basketball,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב תימורים,31.7138918,34.7600485,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מושב תלמי יחיאל,31.7524991,34.7625027,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש מרכז כפרי עזר,31.7360038,34.6704585,both,,true,false,,open,true,,,,approved,באר טוביה,true,true
+מגרש הרצל,31.9431904,34.8330866,basketball,,true,false,,open,true,,,,approved,באר יעקב,false,true
+מתנס,31.9431061,34.8350964,both,,true,false,,open,true,,,,approved,באר יעקב,true,true
+מגרש אימונים,31.9457357,34.8400568,football,,true,false,,open,true,,,,approved,באר יעקב,false,true
+תלמי מנשה,31.9445956,34.8514837,basketball,,true,false,,open,true,,,,approved,באר יעקב,true,true
+רמות שלמה בן יוסף,31.2706678,34.8133287,basketball,,true,false,,open,true,,,,approved,באר שבע,true,true
+פארק גאולים,31.2541107,34.8022686,both,,false,false,,open,true,,,,approved,באר שבע,true,true
+נחל בקע,31.2247975,34.7768054,both,,true,false,,open,true,,,,approved,באר שבע,true,true
+נווה זאב,31.2402637,34.7709519,basketball,,true,false,,open,true,,,,approved,באר שבע,true,true
+רח' רונאל,31.2352638,34.7726332,basketball,,true,false,,open,true,,,,approved,באר שבע,true,true
+פיברג,31.2349900,34.7770639,basketball,,true,false,,open,true,,,,approved,באר שבע,true,true
+"מתחם רמב""ם",31.2434656,34.7818020,both,,true,false,,open,true,,,,approved,באר שבע,true,true
+שד' בן גוריון - סיננטי,31.2551510,34.8120279,football,,true,false,,open,true,,,,approved,באר שבע,true,true
+טאובל קטרגל - סינטטי,31.2546737,34.8122609,football,,true,false,,open,true,,,,approved,באר שבע,true,true
+נעורים,31.2638577,34.7957281,both,,true,false,,open,true,,,,approved,באר שבע,true,true
+מגרש המכתש,31.2619620,34.7923869,basketball,,false,false,,open,true,,,,approved,באר שבע,true,true
+יציאת אירופה,31.2476111,34.8032935,basketball,,true,false,,open,true,,,,approved,באר שבע,true,true
+גן מרדכי,31.2469371,34.7815346,basketball,,false,false,,open,true,,,,approved,באר שבע,false,true
+נחל בקע,31.2611126,34.7890834,both,אספלט,true,false,,open,true,,,,approved,באר שבע,true,true
+מגרש כדורסל,32.6224225,35.3430404,basketball,אספלט,true,false,,open,true,,,,approved,בוסתאן אל מרג',true,true
+מגרש ספורט שכונתי - נוג'ידאת,32.8095795,35.3740814,both,,true,false,,open,true,,,,approved,בועיינה-נוג'ידאת,true,true
+מגרש כדורגל,33.2046559,35.7703416,football,דשא טבעי,true,false,,open,true,,,,approved,בוקעתא,false,true
+מגרש משולב,33.1919262,35.7700667,both,,true,false,,open,true,,,,approved,בוקעתא,true,true
+מגרש משולב שכונה מערבית מכמאן,32.7912356,35.2193815,both,,true,false,,open,true,,,,approved,ביר אל-מכסור,true,true
+מגרש משולב שכונת עואבדה - מקמאן,32.7952309,35.2102650,both,,true,false,,open,true,,,,approved,ביר אל-מכסור,true,true
+מגרש משולב ערב אלראס,32.7821011,35.2216857,both,,true,false,,open,true,,,,approved,ביר אל-מכסור,true,true
+מגרש קהילתי,31.9973765,34.8287413,both,,true,false,,open,true,,,,approved,בית דגן,true,true
+מגרש קהילתי,32.0009037,34.8322192,both,,true,false,,open,true,,,,approved,בית דגן,true,true
+רב תכליתי,32.4889852,35.4955235,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+שכונת אליהו,32.4924917,35.4960880,football,,true,false,,open,true,,,,approved,בית שאן,true,true
+שכונת אליהו,32.4920818,35.4939800,basketball,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4917502,35.4969900,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4895744,35.4980895,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+שכון א',32.5017532,35.4958306,basketball,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4997243,35.4879286,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4959369,35.4997381,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.5032314,35.4881950,both,,false,false,,open,true,,,,approved,בית שאן,true,true
+נוף הגלעד,32.4912240,35.5059683,football,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4934244,35.4943886,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+רב תכליתי,32.4991868,35.4942688,both,,true,false,,open,true,,,,approved,בית שאן,true,true
+מגרש פתוח באמפיפארק,31.7878199,34.7613106,both,,true,false,,open,true,,,,approved,בני עייש,true,true
+מגרש כדורסל בבה''ס אפרתי,31.7891542,34.7612092,basketball,,false,false,,open,true,,,,approved,בני עייש,true,true
+מגרש יחדיו,31.3703289,34.6353275,basketball,,true,false,,open,true,,,,approved,בני שמעון,true,false
+מגרש נבטים,31.2213008,34.8866291,football,,false,false,,open,true,,,,approved,בני שמעון,false,false
+מגרש תדהר,31.3787166,34.6353820,basketball,,true,false,,open,true,,,,approved,בני שמעון,true,true
+מגרש דביר,31.4143216,34.8251957,football,,true,false,,open,true,,,,approved,בני שמעון,false,false
+מגרש ששת הימים,32.5210763,34.9546161,both,,true,false,,open,true,,,,approved,בנימינה-גבעת עדה,true,true
+מגרש רב-תכליתי ג. עדה,32.5170355,35.0161428,both,,true,false,,open,true,,,,approved,בנימינה-גבעת עדה,true,true
+מיני פיץ,32.5162605,34.9368560,football,,true,false,,open,true,,,,approved,בנימינה-גבעת עדה,true,true
+מגרש כדורסל ארגמן,32.1719395,35.5234451,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל בקעות,32.2431631,35.4502673,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל גיתית,32.0998749,35.3945813,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל גלגל,32.0997874,35.4459628,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל חמרה,32.1995417,35.4372110,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל ייטב,31.9465218,35.4229274,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל יפית,32.0608655,35.4729700,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל כפר מחולה,32.3651182,35.5156215,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל מכורה,32.1639458,35.4234445,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל משואה,32.1134003,35.4912424,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל נעמה,31.9080212,35.4668164,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל נערן,31.9671129,35.4556649,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל נתיב הגדוד,31.9873353,35.4443981,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל פצאל,32.0431618,35.4420025,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל רועי,32.2476871,35.4862518,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל שדמות מחולה,32.3449680,35.5318051,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש אזורי - תומר,32.0198986,35.4401430,football,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש כדורסל תומר,32.0204405,35.4397210,basketball,,true,false,,open,true,,,,approved,בקעת הירדן,true,true
+מגרש משולב,31.8801292,34.7986317,both,אספלט,true,false,,open,true,,,,approved,ברנר,true,true
+מגרש,31.8426912,34.7522165,basketball,,true,false,,open,true,,,,approved,ברנר,true,true
+מגרש,31.8884288,34.7995466,basketball,אספלט,true,false,,open,true,,,,approved,ברנר,true,false
+מגרש,31.8798597,34.7989817,football,,false,false,,open,true,,,,approved,ברנר,false,false
+מגרש,31.8792995,34.7986248,basketball,,true,false,,open,true,,,,approved,ברנר,false,true
+מיני פיץ',32.0167676,34.7521044,football,דשא סינטטי,true,false,,open,true,,,,approved,בת ים,true,false
+מגרש מאחורי אשכול פיס,32.0113134,34.7551370,basketball,אספלט,false,false,,open,true,,,,approved,בת ים,true,false
+מגרש אשכולות,32.0301908,34.7533617,basketball,אספלט,false,false,,open,true,,,,approved,בת ים,true,false
+מגרש כדור רגל ג'דיידה,32.9266752,35.1467331,football,,true,false,,open,true,,,,approved,ג'דיידה-מכר,true,true
+מגרש משולב בגדיידה,32.9289294,35.1467316,both,,true,false,,open,true,,,,approved,ג'דיידה-מכר,true,true
+נווה מנחם,31.8604916,35.1758855,football,,false,false,,open,true,,,,approved,גבעת זאב,true,false
+הסובה,31.8622027,35.1666917,basketball,,true,false,,open,true,,,,approved,גבעת זאב,true,true
+גבעון,31.8470491,35.1583514,football,,false,false,,open,true,,,,approved,גבעת זאב,false,true
+תל קטרה,31.8218949,34.7756076,basketball,,false,false,,open,true,,,,approved,גדרה,true,true
+אחוזת גדרה,31.7995646,34.7779811,basketball,,false,false,,open,true,,,,approved,גדרה,true,true
+ישורון,31.8142844,34.7839968,basketball,,true,false,,open,true,,,,approved,גדרה,true,true
+מגרשי הספורט ליד הבריכה,31.8232047,34.7452031,both,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורגל,31.8041650,34.6994240,football,דשא טבעי,false,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל,31.8036757,34.6988353,basketball,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל,31.8301352,34.7220567,basketball,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל וטניס,31.8312005,34.7569204,basketball,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל,31.8169648,34.7529862,basketball,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל,31.8179794,34.7392299,basketball,,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל,31.8321170,34.7383878,basketball,אספלט,true,false,,open,true,,,,approved,גדרות,true,true
+מגרש כדורסל אבני איתן,32.8245774,35.7675776,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל אודם,33.1939257,35.7482674,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל אלוני הבשן,33.0427815,35.8386325,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל אניעם,32.9561925,35.7391920,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל גבעת יואב,32.7982901,35.6791528,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל חדנס,32.9280815,35.6409912,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל יונתן,32.9371135,35.7933104,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל כנף,32.8699565,35.6953156,both,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל מעלה גמלא,32.8905899,35.6829040,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל נאות גולן,32.7855606,35.6926099,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל נוב,32.8306315,35.7845114,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל נווה אטיב,33.2632068,35.7419457,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל קדמת צבי,33.0298875,35.6969173,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל קשת,32.9784866,35.8054914,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל רמות,32.8509108,35.6650863,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל רמת מגשימים,32.8442364,35.8058240,both,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש משולב שעל,33.1160848,35.7170800,both,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל אורטל,33.0882259,35.7587981,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל אל-רום,33.1786295,35.7695631,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורגל אפיק,32.7779972,35.7013424,football,דשא טבעי,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל גשור,32.8188035,35.7157718,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש משולב מיצר,32.7669778,35.7345361,both,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל נטור,32.8521159,35.7530737,basketball,,true,false,,open,true,,,,approved,גולן,true,true
+מגרש כדורסל,31.6559477,35.1233151,basketball,,false,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש ספורט משולב,31.6551181,35.1233791,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש כדורסל,31.6613227,35.1387997,basketball,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש כדורסל וכדורגל,31.6558352,35.1045583,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש כדורסל,31.7226608,35.1679935,basketball,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש כדורסל וכדורגל,31.6078803,35.1011636,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.5847338,35.1871378,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.5967004,35.2295042,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.6752404,35.1426286,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.6432429,35.2414081,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.6408075,35.1432101,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.7462848,35.3012992,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש סל-עף,31.6584206,35.2437443,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש כדורסל ישובי,31.8701473,34.9028101,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8589804,34.8399759,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8992669,34.8989096,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורגל ישובי,31.9127557,34.8493851,football,,false,false,,open,true,,,,approved,גזר,false,true
+מגרש משולב ישובי,31.9142849,34.8480047,both,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורגל,31.8690431,34.8270438,football,,false,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8723631,34.8214292,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8621261,34.9460547,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8897799,34.9306510,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.9056024,34.8720362,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8712349,34.9462407,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש משולב ישובי,31.8675190,34.9843997,both,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש משולב ישובי,31.8892847,34.8410192,both,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8900049,34.9102501,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורגל איזורי,31.8591871,34.8831921,football,,false,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8590950,34.8824527,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורגל ישובי,31.8658611,34.8833803,football,,false,false,,open,true,,,,approved,גזר,false,true
+מגרש משולב ישובי,31.8658669,34.8857050,both,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8750490,34.9165330,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8310430,34.8804375,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורסל ישובי,31.8236021,34.8983141,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש כדורגל,31.8856376,34.8591074,football,,false,false,,open,true,,,,approved,גזר,false,true
+מגרש כדורסל ישובי,31.8812782,34.9194729,basketball,,true,false,,open,true,,,,approved,גזר,true,true
+"מגרש אימונים מתנ""ס",32.6928719,35.0563816,football,,true,false,,open,true,,,,approved,דאלית אל כרמל,true,true
+מגרש פיס מקורה,31.0769081,35.0321405,both,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש כדור סל,31.0641098,35.0392884,basketball,,true,false,,open,true,,,,approved,דימונה,true,true
+ליד בגין,31.0736626,35.0332990,basketball,,false,false,,open,true,,,,approved,דימונה,true,true
+בית צוקר,31.0666272,35.0331020,football,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש כדורגל וסל,31.0639977,35.0229434,both,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש כדור רגל,31.0698797,35.0372875,both,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש כדור סל,31.0565313,35.0376252,basketball,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש אלון לשעבר,31.0596824,35.0332192,football,,true,false,,open,true,,,,approved,דימונה,true,true
+מגרש כדורגל דיר חנא,32.8614203,35.3788809,football,,true,false,,open,true,,,,approved,דיר חנא,true,true
+מגרש כדורסל חוץ,32.1673048,34.8752239,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ,32.1962491,34.9067977,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ,32.1335739,34.8987668,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל,32.1512507,34.9269040,football,,false,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש משולב,32.1534623,34.9363210,both,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש קט רגל,32.1966823,34.9069448,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל קטן דשא,32.1386895,34.9486269,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ,32.1505440,34.8981059,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדור סל,32.1735074,34.8960040,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדור סל,32.0639328,34.8895418,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל דשא קטן,32.0770103,34.9247667,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל,32.0471966,34.8974026,football,,false,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדורסל חוץ,32.0471966,34.8974026,basketball,,true,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדורגל,32.1711965,34.9386970,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדור סל,32.1375897,34.9315770,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש משולב 2,32.1304691,34.9208521,both,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדור סל / קט רגל,32.1727298,34.9388092,both,,true,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדור סל,32.1356485,34.8915636,basketball,,true,false,,open,true,,,,approved,דרום השרון,false,false
+מגרש קט רגל,32.1903201,34.9205924,football,,false,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדור סל וכדור רגל,32.1609501,34.8942123,football,,true,false,,open,true,,,,approved,דרום השרון,true,false
+מגרש קט רגל/ מגרש קט סל,32.2100812,34.8987338,football,,false,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ,32.2100812,34.8987338,basketball,,true,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדורגל,32.1605294,34.9435409,football,,true,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש כדורסל חוץ,32.1605294,34.9435409,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש משולב,32.1547888,34.9732811,both,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש משולב,32.1458201,34.9857581,both,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל,32.2129136,34.9759132,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ,32.2116776,34.9755769,basketball,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורגל דשא קטן,32.1377314,34.9708441,football,,true,false,,open,true,,,,approved,דרום השרון,true,true
+מגרש כדורסל חוץ / שני מגרשי טניס,32.1968307,34.9457069,basketball,,true,false,,open,true,,,,approved,דרום השרון,false,true
+מגרש גבע,32.5607069,35.3736118,football,,false,false,,open,true,,,,approved,הגלבוע,false,true
+מגרש תל יוסף,32.5647891,35.4169587,football,,false,false,,open,true,,,,approved,הגלבוע,false,true
+ספורטק,32.1451697,34.8908845,both,,true,false,,open,true,,,,approved,הוד השרון,true,true
+ספורטק,32.1451697,34.8908845,both,,true,false,,open,true,,,,approved,הוד השרון,true,true
+רמת הדר,32.1439542,34.8739299,football,,true,false,,open,true,,,,approved,הוד השרון,true,true
+גני צבי,32.1423387,34.8769035,football,,true,false,,open,true,,,,approved,הוד השרון,true,true
+"מתנ""ס הגולן",32.1582330,34.9239146,both,,true,false,,open,true,,,,approved,הוד השרון,true,true
+משולב- אדורה,31.5510743,35.0166883,both,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+משולב- אשכולות,31.3917534,34.9059904,both,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+בית- חגי,31.4920693,35.0799568,basketball,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+לבנה - שני,31.3561762,35.0665785,both,,true,false,,open,true,,,,approved,הר חברון,true,true
+חוגים- סוסיא,31.3917522,35.1124512,basketball,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+משולב - עומרים,31.3746953,34.9551141,both,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+משולב - שמעה,31.3871367,35.0096139,both,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+משולב - תלם,31.5629986,35.0304837,both,אספלט,true,false,,open,true,,,,approved,הר חברון,true,true
+קרסני,32.1715523,34.8120183,basketball,,true,false,,open,true,,,,approved,הרצליה,true,true
+ספורטק,32.1702435,34.8264429,both,,true,false,,open,true,,,,approved,הרצליה,true,true
+"גן רש""ל",32.1763425,34.8460332,basketball,,true,false,,open,true,,,,approved,הרצליה,true,false
+האשל,32.1868747,34.8095136,basketball,,true,false,,open,true,,,,approved,הרצליה,true,true
+נווה הברון,32.5662413,34.9487407,football,,true,false,,open,true,,,,approved,זכרון יעקב,true,true
+רמז,32.5596692,34.9539768,basketball,,true,false,,open,true,,,,approved,זכרון יעקב,true,true
+גבעת עדן,32.5880654,34.9498503,both,,true,false,,open,true,,,,approved,זכרון יעקב,true,true
+חלומות זכרון,32.5641929,34.9616310,basketball,,true,false,,open,true,,,,approved,זכרון יעקב,true,true
+רמת צבי,32.5671559,34.9551273,basketball,,true,false,,open,true,,,,approved,זכרון יעקב,true,true
+שכונת אבתאן,32.3654480,35.0464842,basketball,,true,false,,open,true,,,,approved,זמר,true,true
+מגרש שכונתי הייב,32.7293584,35.2322796,basketball,,true,false,,open,true,,,,approved,זרזיר,true,true
+מגרש משולב מזאריב,32.7149324,35.2250433,both,,true,false,,open,true,,,,approved,זרזיר,true,true
+מבני ציבור באר אורה,29.7082668,34.9850996,both,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט שחרות,29.9070535,35.0054569,both,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ אליפז,29.7948845,35.0112334,basketball,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ גרופית,29.9407134,35.0633529,football,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ יהל,30.0846051,35.1274713,football,דשא טבעי,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ יהל,30.0846051,35.1274713,basketball,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קיבוץ יטבתה,29.8935706,35.0560997,football,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ לוטן,29.9853460,35.0876625,football,,true,false,,open,true,,,,approved,חבל אילות,false,true
+מתקני ספורט קבוץ לוטן,29.9853460,35.0876625,both,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ נאות סמדר,30.0484187,35.0227505,football,,true,false,,open,true,,,,approved,חבל אילות,false,true
+מתקני ספורט קבוץ נאות סמדר,30.0484187,35.0227505,basketball,,true,false,,open,true,,,,approved,חבל אילות,false,false
+מתקני ספורט קבוץ נוה חריף,30.0371878,35.0363737,football,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ נוה חריף,30.0371878,35.0363737,basketball,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ סמר,29.8329500,35.0212483,football,,true,false,,open,true,,,,approved,חבל אילות,false,true
+מתקני ספורט קבוץ סמר,29.8329500,35.0212483,basketball,,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ קטורה,29.9689555,35.0608471,football,דשא טבעי,true,false,,open,true,,,,approved,חבל אילות,true,true
+מתקני ספורט קבוץ קטורה,29.9689555,35.0608471,basketball,מרצפות,true,false,,open,true,,,,approved,חבל אילות,false,true
+בית גמליאל,31.8568455,34.7586456,basketball,,true,false,,open,true,,,,approved,חבל יבנה,true,true
+בן זכאי,31.8569031,34.7273061,basketball,,true,false,,open,true,,,,approved,חבל יבנה,true,true
+בני דרום,31.8196608,34.6910169,both,,true,false,,open,true,,,,approved,חבל יבנה,true,true
+מגרש הכדורגל בן שמן,31.9593936,34.9274827,football,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט כפר רות,31.9100710,35.0337772,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הכדורסל כרם בן שמן,31.9593929,34.9271654,basketball,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש ספורט אחיסמך,31.9776605,34.9515505,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט בית נחמיה,31.9773929,34.9530324,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט בית עריף,31.9962917,34.9339328,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש כדורגל בן שמן באחריות איציק אדטו,31.9528861,34.9209444,football,,false,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש הספורט בן שמן,31.9529758,34.9207326,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מיני פ'יץ ברקת,32.0175922,34.9424439,football,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט גבעת כוח,32.0309191,34.9329842,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט גימזו,31.9270506,34.9427010,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט גינתון,31.9627921,34.9147785,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט חדיד,31.9678786,34.9311599,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט בטירת יהודה,32.0138743,34.9327169,both,אספלט,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הכדורגל כפר דניאל,31.9332493,34.9313682,football,,false,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש הכדורגל כפר טרומן,31.9800362,34.9234002,football,,false,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש הספורט כפר טרומן,31.9794955,34.9236135,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הכדורגל מבוא מודיעין,31.9326192,34.9318988,football,,true,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש הכדורסל מבוא מודיעין,31.9328902,34.9321095,basketball,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט במזור,32.0509173,34.9229719,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הכדורגל נופך,32.0440558,34.9194990,football,,true,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש הספורט נופך,32.0441467,34.9198164,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט נחלים,32.0593724,34.9133096,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט רינתייה,32.0436165,34.9246883,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הספורט שילת,31.9187975,35.0186411,both,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש הכדורגל לפיד,31.9172790,35.0289002,football,,true,false,,open,true,,,,approved,חבל מודיעין,true,true
+מגרש ספורט -שכ' גני אלון,32.4418952,34.9092150,both,,true,false,,open,true,,,,approved,חדרה,true,true
+גן קדושי קהיר,32.0181742,34.7622905,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+"מתנ""ס וולפסון",32.0248640,34.7670218,basketball,,true,false,,open,true,,,,approved,חולון,true,true
+גן מרבד הקסמים,32.0119657,34.7932255,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+חורשת נווה ארזים,32.0183732,34.7946787,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+"מתנ""ס נווה ארזים",32.0171919,34.7919320,basketball,,true,false,,open,true,,,,approved,חולון,true,true
+גן השומרון,32.0264234,34.7747419,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+גן הרצל א',32.0187435,34.7704380,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+צפרירים חולון - נוער,32.0189140,34.7675793,football,,true,false,,open,true,,,,approved,חולון,true,true
+חורשת היובל,31.9977961,34.7630233,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+"מתנ""ס נאות שושנים",32.0138289,34.7839031,both,,true,false,,open,true,,,,approved,חולון,true,true
+גן חצרים,32.0152922,34.7633628,basketball,,false,false,,open,true,,,,approved,חולון,true,true
+מגרש משולב כפר סילבר,31.6694363,34.0843529,both,,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+מגרש משולב כוכב מיכאל,31.6252976,34.1428477,both,,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+מגרש משולב,31.7328193,34.6328062,both,,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+מגרש משולב,31.5921892,34.5595982,both,אספלט,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+מגרש כדורגל ניצנים,31.6231640,34.1038777,football,,false,false,,open,true,,,,approved,חוף אשקלון,false,true
+מגרש כדורגל בת הדר,31.6471920,34.5943244,both,,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+מגרש כדור סל בבת הדר,31.6471920,34.5943244,basketball,,true,false,,open,true,,,,approved,חוף אשקלון,true,true
+עתלית,32.6910374,34.9477456,football,אחר,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+בת שלמה,32.6010553,35.0022251,both,גומי,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+גבע כרמל,32.6640905,34.9548585,football,,true,false,,open,true,,,,approved,חוף הכרמל,false,true
+גבע כרמל,32.6636401,34.9550729,both,,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+דור,32.6071233,34.9224170,basketball,,false,false,,open,true,,,,approved,חוף הכרמל,false,true
+"כרם מהר""ל",32.6446791,34.9904033,basketball,אחר,true,false,,open,true,,,,approved,חוף הכרמל,true,false
+מגרש כדורגל לא תיקני - מגדים,32.7281245,34.9611875,football,דשא טבעי,false,false,,open,true,,,,approved,חוף הכרמל,false,true
+מגדים,32.7260481,34.9599131,both,,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+עופר,32.6229368,34.9841684,football,אחר,false,false,,open,true,,,,approved,חוף הכרמל,false,true
+עופר - מגרש כדורסל,32.6211291,34.9817221,basketball,,true,false,,open,true,,,,approved,חוף הכרמל,false,true
+עין איילה,32.6292639,34.9448319,football,דשא סינטטי,false,false,,open,true,,,,approved,חוף הכרמל,true,true
+עין איילה,32.6289032,34.9448330,both,,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+צרופה מגרש כדורגל,32.6482099,34.9496800,football,דשא טבעי,true,false,,open,true,,,,approved,חוף הכרמל,false,true
+צרופה,32.6482082,34.9488274,both,אחר,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+הבונים,32.6356415,34.9331976,both,אחר,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+עין הוד,32.6990397,34.9830218,basketball,אספלט,true,false,,open,true,,,,approved,חוף הכרמל,true,false
+עין חוד,32.6911338,35.0002095,both,,true,false,,open,true,,,,approved,חוף הכרמל,true,true
+מעין צבי,32.5655884,34.9383070,basketball,,true,false,,open,true,,,,approved,חוף הכרמל,false,true
+שדות ים,32.4892807,34.8901220,basketball,,false,false,,open,true,,,,approved,חוף הכרמל,false,true
+קיסריה,32.5067186,34.9042146,both,,true,false,,open,true,,,,approved,חוף הכרמל,false,true
+מגרש כדורגל-חרוצים,32.2262538,34.8615384,football,,false,false,,open,true,,,,approved,חוף השרון,false,true
+מגרש כ.סל,32.2658841,34.8444080,basketball,,true,false,,open,true,,,,approved,חוף השרון,true,true
+מגרש כדורגל- בית יהושע,32.2580045,34.8646028,football,,false,false,,open,true,,,,approved,חוף השרון,false,true
+מגרש משולב,32.2228357,34.8647337,both,,true,false,,open,true,,,,approved,חוף השרון,true,true
+מגרש מקורה-בצרה,32.2136635,34.8745266,basketball,,true,false,,open,true,,,,approved,חוף השרון,false,true
+מגרש כ.סל,32.2718212,34.8719811,basketball,,true,false,,open,true,,,,approved,חוף השרון,false,true
+מגרש כדורגל- יקום,32.2505512,34.8434074,football,,false,false,,open,true,,,,approved,חוף השרון,false,true
+מגרש משולב יקום,32.2496485,34.8430926,both,,true,false,,open,true,,,,approved,חוף השרון,true,true
+מגרש כדורסל אלחואג'רה,31.2957684,34.9280664,basketball,אספלט,false,false,,open,true,,,,approved,חורה,true,false
+מגרש משולב שכונתי,31.3020176,34.9193615,both,אספלט,true,false,,open,true,,,,approved,חורה,true,false
+תל מאנה,32.7862264,34.9784293,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+שניים בנובמבר,32.8152688,34.9827339,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+ורבורג,32.8382928,35.0670566,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+שד' הציונות,32.8123929,34.9881868,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+בית צ'ארנה,32.8316961,35.0545709,both,,true,false,,open,true,,,,approved,חיפה,true,false
+רענן,32.8023578,34.9734772,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+"רמב""ן",32.8031160,34.9944018,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+רטנר - אבא חושי,32.7911460,35.0083079,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+רטנר,32.7888959,35.0109816,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+קרן היסוד,32.7897824,35.0013720,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+קיסריה,32.8154688,34.9941591,football,,true,false,,open,true,,,,approved,חיפה,true,true
+קאודרס,32.8209278,34.9708662,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+צ'רניאבסקי,32.7899794,35.0119400,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+פרויד,32.7793007,34.9882669,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+פארק הכט,32.8154851,34.9540088,football,,true,false,,open,true,,,,approved,חיפה,false,true
+פאר,32.7962042,35.0139550,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+ערד,32.7906245,35.0212262,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+נווה דוד עליון,32.8102646,34.9587216,both,,true,false,,open,true,,,,approved,חיפה,true,true
+סעדיה גאון,32.8183831,34.9604079,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+סורוקה,32.7730836,34.9909502,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+מנילה,32.7683240,35.0027015,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+מלל,32.7792512,35.0132440,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+בית שערים,32.8133877,34.9898928,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+מבצע יהונתן,32.7931907,34.9904751,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+לסקוב,32.7723842,35.0042933,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+כספרי,32.7969780,34.9905728,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+בית יציב,32.8217960,35.0709265,both,,true,false,,open,true,,,,approved,חיפה,true,false
+טבנקין,32.7956546,35.0084048,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+חוף השנהב,32.7671499,35.0015302,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+חביבה רייק,32.7777066,35.0057757,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+זינגר,32.7678881,35.0122011,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+ורדיה,32.7947327,34.9959161,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+טשרניחובסקי,32.8163430,34.9783531,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+"תענ""ך",32.7937728,35.0160954,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+הרב קניאל,32.7973568,35.0014615,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+הנטקה,32.7836383,34.9938071,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+הנטקה,32.7851670,34.9913483,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+נווה דוד תחתון,32.8104428,34.9576534,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+המגינים,32.8223977,34.9859199,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+החשמונאים,32.8074337,34.9883056,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+"הבעש""ט",32.8019459,34.9956857,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+דובנוב,32.7776247,35.0110060,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+זיו,32.7825861,35.0123829,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+גוט לוין,32.7840165,35.0044807,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+ברל כצנלסון,32.7865523,35.0115204,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+בורלא,32.7765312,35.0037503,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אנקווה,32.8161279,34.9598801,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אלנבי,32.8199562,34.9819747,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אידר,32.7761470,34.9895553,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אדמונד פלג,32.8227262,34.9681917,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אבשלום,32.7958699,34.9758427,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+אביגדור המאירי,32.8240731,34.9651980,basketball,,true,false,,open,true,,,,approved,חיפה,true,true
+מעלה הגאולים,32.9778690,35.5362594,basketball,,false,false,,open,true,,,,approved,חצור הגלילית,true,true
+מגרש משולב שכונת 200,32.7827032,35.5174936,both,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש משולב שיכון א',32.7806652,35.5385144,both,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש כדורסל גן מרגלית,32.7918710,35.5290551,basketball,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש משולב מרכז גינסבורג,32.7922438,35.5243593,both,,true,false,,open,true,,,,approved,טבריה,true,true
+"מגרש מתנ""ס ג' עליון",32.7829996,35.5069270,football,,true,false,,open,true,,,,approved,טבריה,true,true
+"מגרש כדורסל מתנ""ס ג' תחתון",32.7830009,35.5063933,basketball,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש משולב שיכון ותיקים,32.7921194,35.5374896,both,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש כדורסל היכל הדור,32.7965819,35.5204247,both,,true,false,,open,true,,,,approved,טבריה,false,true
+מגרש כדורסל רמת טבריה,32.7812486,35.5221851,basketball,,false,false,,open,true,,,,approved,טבריה,false,true
+"מתנ""ס ד'",32.7771119,35.5177942,both,,true,false,,open,true,,,,approved,טבריה,true,true
+מגרש משולב שיכון ד'1070,32.7757760,35.5110652,both,,true,false,,open,true,,,,approved,טבריה,true,true
+טובא זנגריה,32.9697102,35.5979490,basketball,דשא סינטטי,true,false,,open,true,,,,approved,טובא-זנגריה,true,true
+טובא זנגריה,32.9626822,35.5787188,basketball,אספלט,true,false,,open,true,,,,approved,טובא-זנגריה,true,false
+טובא זנגריה,32.9635443,35.5946059,both,,false,false,,open,true,,,,approved,טובא-זנגריה,false,false
+מיני פיץ,32.7583469,34.9692157,football,,true,false,,open,true,,,,approved,טירת כרמל,false,true
+מגרש שוק ישן,32.8588356,35.1880474,both,,true,false,,open,true,,,,approved,טמרה,true,true
+מגרש משולב,32.7097058,35.5008134,both,,true,false,,open,true,,,,approved,יבנאל,true,true
+מגרש משולב,31.8750045,34.7230278,both,אספלט,true,false,,open,true,,,,approved,יבנה,true,true
+מגרש קט רגל,31.8779785,34.7468973,both,אספלט,true,false,,open,true,,,,approved,יבנה,true,true
+מגרש משולב,31.8723975,34.7497782,both,אספלט,true,false,,open,true,,,,approved,יבנה,true,true
+מגרש סגולה,31.6739234,34.7816778,both,,true,false,,open,true,,,,approved,יואב,true,true
+מגרש ורדון,31.6611830,34.7825158,both,,true,false,,open,true,,,,approved,יואב,true,true
+מיני כדורסל,32.6431808,35.0840885,basketball,,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש קטרגל,32.6522700,35.1043921,football,דשא סינטטי,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מיני כדורסל,32.6376838,35.0878259,basketball,אספלט,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש משולב,32.6368126,35.0915357,both,,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש קטרגל פתוח,32.6496826,35.0943120,football,אספלט,false,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש משולב,32.6397079,35.0827610,both,,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש משולב,32.6578811,35.1075624,both,,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש כדורסל תקני,32.6551032,35.1066700,both,אספלט,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש קטרגל,32.6521022,35.0977519,football,,true,false,,open,true,,,,approved,יקנעם עילית,true,true
+מגרש כדורגל  -  מגרש פתוח - שמואל הנביא,31.7984478,35.2158202,football,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  מגרש פתוח - שמואל הנביא,31.7984478,35.2158202,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל  -  ספורטכל שיח גראח,31.7984453,35.2325045,football,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  ספורטכל שיח גראח,31.7984453,35.2325045,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  ספורטכל שיח גראח,31.7984453,35.2325045,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כללי  -  גן קוהת,31.7586769,35.2049435,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל  -  מנהל קהילתי שטרן הסנפלד,31.7561495,35.1803507,football,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מנהל קהילתי שטרן הסנפלד,31.7561495,35.1803507,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+אולם כדורסל - אולם הפועל,31.7858218,35.2181415,basketball,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  מנהל קהילתי נווה יעקב,31.8376735,35.2396999,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משחקים מדושא  -  מנהל קהילתי בית הכרם - זיו,31.7759008,35.1857297,football,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מנהל קהילתי בית הכרם - זיו,31.7758105,35.1849907,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  גן סאקר,31.7813133,35.2058938,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מנהל קהילתי מוסררה - מורשה,31.7812215,35.2245810,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורסל  - מינהל קהילתי רמות אלון,31.8145007,35.1936430,basketball,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  - מינהל קהילתי רמות אלון,31.8145007,35.1936430,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  גן בית אלישבע,31.7611116,35.2129657,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מרכז קהילתי ע''ש הלנה כגן,31.7538966,35.1930168,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מנהל קהילתי פיליפ לאון - קרית יובל,31.7600250,35.1698999,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורסל  -  ספורטכל תלפיות מזרח - ארמון הנציב,31.7458670,35.2350215,basketball,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  ספורטכל תלפיות מזרח - ארמון הנציב,31.7458670,35.2350215,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל - בית ניקנור,31.7563320,35.1980829,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מינהל קהילתי שמואל הנביא,31.7946594,35.2218385,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל - בית נוער נחלאות,31.7801408,35.2090611,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב - בית נוער נחלאות,31.7801408,35.2090611,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל  -  מגרש אימון הפועל,31.8018735,35.2260639,football,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מנהל קהילתי בקעה - מקור חיים,31.7574136,35.2182429,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  הברר,31.7562419,35.2072656,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורסל  -  מנהל קהילתי רוממה,31.7952016,35.2004032,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש דשא סינטטי  -  מנהל קהילתי גילה - עדי יפה,31.7350482,35.1965015,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל - בית הנוער העברי,31.7592180,35.2001937,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב - בית נוער עמק רפאים,31.7652600,35.2143383,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מרכז תקוותינו,31.7904218,35.1989252,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב - בית נוער לזרוס,31.7481247,35.2168695,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש דשא סינטטי  -  גן הפעמון,31.7694078,35.2214115,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורסל  -  גן הפעמון,31.7694078,35.2214115,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  גן בטקין לוינגר,31.7591269,35.2203541,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב  -  מרכז שכונתי נווה פת,31.7496583,35.1996664,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  מנהל קהילתי קטמונים ח-ט,31.7524539,35.1969221,football,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל  -  מנהל קהילתי קטמונים ח-ט,31.7524539,35.1969221,football,דשא טבעי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש דשא סינטטי - מנהל קהילתי בית צפאפא-שרפאת,31.7480351,35.2034659,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל -ביתר,31.7705801,35.1871031,football,דשא טבעי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  ואדי ג'וז - בית דוד,31.7889762,35.2309178,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  מרכז הנוער בית אלישבע -בי''ס,31.7609312,35.2132823,football,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורסל  -  מרכז ברלין,31.7844697,35.2062106,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש דשא סינטטי - בית רחל,31.7630013,35.1707433,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב - בית רחל,31.7630013,35.1707433,both,,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל  -  מועדון מזכרת משה,31.7817640,35.2124397,both,,true,false,,open,true,,,,approved,ירושלים,true,false
+מגרש קטרגל - מועדון בית נחמיה,31.7641763,35.2263718,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב- מועדון אל אבנא,31.7817613,35.2315492,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,false
+מגרש שכונתי,32.8293770,35.2554221,basketball,,false,false,,open,true,,,,approved,כאוכב אבו אל-היג'א,true,true
+מגרש שכונתי,32.8330405,35.2485353,basketball,אחר,false,false,,open,true,,,,approved,כאוכב אבו אל-היג'א,true,true
+טניס קטרגל כדורסל,32.9981356,35.2565246,both,אחר,true,false,,open,true,,,,approved,כפר ורדים,true,true
+מיני פיץ,32.8083342,35.2479786,football,,false,false,,open,true,,,,approved,כפר מנדא,false,false
+ספורטק - כדורגל,32.1825020,34.9289300,football,,true,false,,open,true,,,,approved,כפר סבא,true,true
+ספורטק - מגרש משולב,32.1825020,34.9289300,both,,true,false,,open,true,,,,approved,כפר סבא,true,true
+ספורטק - מגרש כדורסל,32.1825020,34.9289300,basketball,אספלט,true,false,,open,true,,,,approved,כפר סבא,true,true
+ספורטק - מגרש משולב,32.1825020,34.9289300,both,אספלט,true,false,,open,true,,,,approved,כפר סבא,true,true
+מגרש משולב אלטבקה,32.1177742,34.9657134,both,,true,false,,open,true,,,,approved,כפר קאסם,true,false
+מגרש משולב אלונים,32.6896794,35.4158677,both,,true,false,,open,true,,,,approved,כפר תבור,true,true
+מגרש גלגיליות,32.9128986,35.3037244,both,אספלט,true,false,,open,true,,,,approved,כרמיאל,true,true
+מגרש אימונים,32.9112771,35.3017984,football,דשא טבעי,true,false,,open,true,,,,approved,כרמיאל,true,true
+מיני פיץ,31.3699478,34.8041621,football,דשא סינטטי,false,false,,open,true,,,,approved,להבים,true,true
+לזארוס-יד רחל,31.9494661,34.8858398,both,אספלט,true,false,,open,true,,,,approved,לוד,true,true
+מגרש כדור סל,31.5515933,34.7702981,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.5306297,34.9155945,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.5944090,34.6911818,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6522725,34.7049915,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.5610184,34.8429302,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6561392,34.7763496,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6230924,34.6922891,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6114501,34.7131134,basketball,,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6368383,34.7018063,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.5769664,34.6821125,basketball,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6096884,34.8024863,basketball,,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.6169938,34.7242556,basketball,,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדור סל,31.5142630,34.9374369,basketball,,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש משולב אליפלט,32.9483743,35.5499661,football,,true,false,,open,true,,,,approved,מבואות החרמון,true,true
+מגרש משולב בית הלל,33.2087199,35.6062547,both,,true,false,,open,true,,,,approved,מבואות החרמון,true,true
+מגרש כחל,32.8911294,35.5109809,basketball,,true,false,,open,true,,,,approved,מבואות החרמון,true,true
+מיני פיץ' כרכום,32.9286709,35.6077748,football,,true,false,,open,true,,,,approved,מבואות החרמון,true,true
+מגרש קט רגל,32.9255478,35.2630039,both,אספלט,true,false,,open,true,,,,approved,מג'ד אל כרום,true,true
+מגרש משולב שוהם,32.6773157,35.2489812,both,,true,false,,open,true,,,,approved,מגדל העמק,true,false
+"מיני פיץ מתנ""סון",32.6803866,35.2310702,football,,true,false,,open,true,,,,approved,מגדל העמק,true,true
+"מגרש כדורסל רסקו - מדצ""ים",32.6740708,35.2452481,basketball,,true,false,,open,true,,,,approved,מגדל העמק,true,false
+מגרש מיני פיץ פנינת העמק,32.6774972,35.2456761,football,,true,false,,open,true,,,,approved,מגדל העמק,true,false
+מגרש משולב פארק רבין,32.6876880,35.2412023,both,,true,false,,open,true,,,,approved,מגדל העמק,true,false
+מגרש כדורסל נוף העמק,32.6734367,35.2532438,basketball,,true,false,,open,true,,,,approved,מגדל העמק,true,true
+מגרש משולב  עצמאות,32.6812868,35.2373613,both,,true,false,,open,true,,,,approved,מגדל העמק,true,true
+מגרש משולב גן הזית,32.6760552,35.2431167,both,,false,false,,open,true,,,,approved,מגדל העמק,false,false
+מגרש הפארק,31.9306478,35.0454771,basketball,,false,false,,open,true,,,,approved,מודיעין עילית,false,true
+מגרש כדורסל גבעון החדשהן,31.8461475,35.1589857,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש רב תכליתי,31.9297171,35.0239065,football,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+משולב חשמונאים,31.9298964,35.0231659,both,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל מקורה טלמון,31.9388447,35.1349333,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מקורה כפר אדומים,31.8243529,35.3365541,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש משולב מקורה כפר האורנים,31.9208059,35.0361893,both,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל מכמש,31.8780410,35.3048187,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל מעלה לבונה,32.0542915,35.2386178,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל מתתיהו,31.9298966,35.0232716,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל נחליאל,31.9735680,35.1411491,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל נעלה,31.9644001,35.0661530,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל ענתות,31.8307937,35.2929366,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל רימונים,31.9349128,35.3408362,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+מגרש כדורסל שבות רחל,32.1160079,35.3383073,basketball,,true,false,,open,true,,,,approved,מטה בנימין,true,true
+גבעת ישעיהו,31.6689575,34.9492273,basketball,,true,false,,open,true,,,,approved,מטה יהודה,true,true
+מחסיה,31.7490516,35.0051553,basketball,,true,false,,open,true,,,,approved,מטה יהודה,true,true
+מיני-פיצ,33.2808372,35.5785785,football,,true,false,,open,true,,,,approved,מטולה,true,true
+מגרש כפר אום אל קטף,32.4708660,35.0563846,both,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ כפר גליקסון,32.5037909,35.0056994,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב גן שומרון,32.4596067,34.9953200,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב כפר פינס,32.4846039,35.0013477,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב מאור,32.4227686,35.0054308,football,,false,false,,open,true,,,,approved,מנשה,false,true
+מגרש מושב מאור,32.4222454,35.0053469,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב עין עירון,32.4827365,35.0065117,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב שדה יצחק,32.4044694,34.9927686,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש כדורגל מושב תלמי אלעזר,32.4453652,34.9730526,football,,false,false,,open,true,,,,approved,מנשה,true,true
+מגרש מושב תלמי אלעזר,32.4452995,34.9716596,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ ברקאי,32.4755064,35.0258567,football,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ גן שמואל,32.4545034,34.9514392,football,,false,false,,open,true,,,,approved,מנשה,true,true
+מגרש כדורגל קיבוץ להבות חביבה,32.3927133,35.0113317,football,,false,false,,open,true,,,,approved,מנשה,true,true
+מגרש כדורגל קיבוץ מגל,32.3867217,35.0336197,football,,false,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ מגל,32.3840051,35.0386197,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש כדורגל מענית,32.4578101,35.0293696,football,,false,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ מענית,32.4541975,35.0254202,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש כדורגל קיבוץ מצר,32.4394492,35.0490562,football,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ מצר,32.4395532,35.0456213,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+מגרש קיבוץ רגבים,32.5236759,35.0311897,basketball,,true,false,,open,true,,,,approved,מנשה,true,true
+פארק הנוער,31.7714957,35.2955510,both,,true,false,,open,true,,,,approved,מעלה אדומים,false,true
+פארק,31.7673993,35.2983866,both,,true,false,,open,true,,,,approved,מעלה אדומים,true,true
+כדורסל,33.0391450,35.2871655,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0743313,35.2430219,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0337064,35.3226995,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0567508,35.2363222,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,false,true
+כדורסל,32.9670304,35.2501954,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0594516,35.2497077,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0995544,35.2899001,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,32.9963082,35.2978256,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0666714,35.1841216,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+כדורסל,32.9679358,35.2384296,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0387215,35.2047355,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0166170,35.2630639,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+כדורסל,33.0346582,35.2427370,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0247431,35.1790472,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0646336,35.3225267,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0652673,35.3198504,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש כדורסל,33.0076117,35.2282785,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,false,true
+מגרש כדורסל,33.0075720,35.3069336,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,false
+מגרש כדורסל,33.0810750,35.2829206,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,false,true
+כדורסל,33.0833067,35.3129121,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,false,true
+כדורסל,32.9814104,35.3218809,basketball,,true,false,,open,true,,,,approved,מעלה יוסף,true,true
+מגרש משולב זלפה,32.5545068,35.1839721,both,דשא סינטטי,true,false,,open,true,,,,approved,מעלה עירון,true,false
+מגרש קטרגל וכדורסל שכונתי,30.6065420,34.8018524,football,,true,false,,open,true,,,,approved,מצפה רמון,true,true
+מגרש משולב,32.9785951,35.4983918,both,,true,false,,open,true,,,,approved,מרום הגליל,true,true
+מגרש משולב מקורה דובב,33.0529833,35.4073094,both,,true,false,,open,true,,,,approved,מרום הגליל,true,true
+מגרש מיני פיץ',32.9326876,35.3522897,football,,true,false,,open,true,,,,approved,מרום הגליל,true,true
+מגרש כדורסל קלחים,31.4497995,34.6790006,basketball,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב תלמי בילו,31.4379884,34.6457218,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב גילת,31.3281514,34.6506164,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב בטחה,31.3343007,34.6337897,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב ניר עקיבא,31.4688948,34.6476007,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורסל פדויים,31.3278291,34.6107880,basketball,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב פטיש,31.3292944,34.5593487,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורסל ניר משה,31.4774490,34.6262405,basketball,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב מסלול,31.3260404,34.5872230,both,,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורסל רנן,31.3377641,34.5984107,basketball,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש משולב שדה צבי,31.4475340,34.7126034,both,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורסל פעמי תשז,31.4369502,34.6952291,basketball,אספלט,true,false,,open,true,,,,approved,מרחבים,true,true
+מגרש כדורסל אבטליון,32.8364839,35.3468965,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.8586474,35.2517423,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.9052671,35.2449260,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש קט רגל,32.8452122,35.2517352,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש קט רגל,32.9511222,35.3128574,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש ספורט משולב,32.8364839,35.3468965,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש קט רגל,32.9084237,35.3594113,both,,true,false,,open,true,,,,approved,משגב,true,true
+טלאל,32.9251979,35.1775789,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש משולב,32.8586474,35.2517423,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.8364839,35.3468965,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.8586446,35.2586866,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.9084237,35.3594113,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש ספורט כמון,32.9084237,35.3594113,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש משולב,32.8452122,35.2517352,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל 3,32.9084237,35.3594113,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש קט רגל,32.8452122,35.2517352,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש משולב,32.8452122,35.2517352,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש משולב,32.9084237,35.3594113,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש משולב,32.9052671,35.2449260,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.8452122,35.2517352,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש קט רגל,32.8586446,35.2586866,both,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל,32.9511222,35.3128574,basketball,,true,false,,open,true,,,,approved,משגב,true,true
+מגרש כדורסל בירקון,32.7183016,35.0925210,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש מיניפיץ בחנה סנש,33.0080211,35.1000754,football,דשא סינטטי,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש מיניפיץ בויסבורג,33.0065783,35.0998631,football,דשא סינטטי,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש כדורסל בהגנה,33.0251490,35.0955597,basketball,,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש כדורסל בגולומב,33.0088281,35.0948307,basketball,אספלט,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש מיניפיץ באלי כהן,33.0164941,35.0968547,football,דשא סינטטי,true,false,,open,true,,,,approved,נהריה,true,true
+מגרש כדורסל מקורה,31.7950699,34.8193198,basketball,אספלט,true,false,,open,true,,,,approved,נחל שורק,true,true
+כדורסל משולב,31.7719875,34.7919684,both,,true,false,,open,true,,,,approved,נחל שורק,true,true
+"מגרש חוץ-יד אליעזר מתנ""ס",31.9356287,34.8077365,basketball,אספלט,true,false,,open,true,,,,approved,נס ציונה,true,true
+מגרש חוץ-מליבו,31.9221062,34.7812547,both,אספלט,true,false,,open,true,,,,approved,נס ציונה,true,true
+מגרש מקורה-סביונים,31.9241824,34.8099005,both,אספלט,true,false,,open,true,,,,approved,נס ציונה,true,true
+מגרש חוץ-שכונת טוסקנה,31.9401828,34.7935455,basketball,,true,false,,open,true,,,,approved,נס ציונה,true,true
+מגרש חוץ-לב המושבה,31.9304108,34.8117773,both,,true,false,,open,true,,,,approved,נס ציונה,true,true
+מגרש חוץ-טירת שלום,31.9118397,34.7855307,basketball,,true,false,,open,true,,,,approved,נס ציונה,true,true
+שימשון ברכה,32.3335235,34.8698864,football,,true,false,,open,true,,,,approved,נתניה,true,true
+מגרש שמואל,32.2988971,34.8570182,football,,false,false,,open,true,,,,approved,נתניה,true,false
+מגרש נחום,32.3009193,34.8545579,football,,false,false,,open,true,,,,approved,נתניה,true,false
+לוי אשכול,32.2968096,34.8457828,both,,true,false,,open,true,,,,approved,נתניה,true,true
+ירמיהו,32.3009193,34.8545579,football,,true,false,,open,true,,,,approved,נתניה,true,true
+יוספטל,32.3282559,34.8660186,football,,true,false,,open,true,,,,approved,נתניה,true,true
+חנה סנש מגרש קטרגל,32.3232600,34.8659841,football,,true,false,,open,true,,,,approved,נתניה,true,true
+עין התכלת,32.3493025,34.8624984,football,,true,false,,open,true,,,,approved,נתניה,true,true
+בת חן הארז,32.3011051,34.8767689,basketball,,true,false,,open,true,,,,approved,נתניה,true,true
+נווה איתמר,32.3266702,34.8733420,football,,true,false,,open,true,,,,approved,נתניה,true,true
+מגרש כדורסל סירונית,32.3297839,34.8478301,basketball,,true,false,,open,true,,,,approved,נתניה,true,true
+מיני פיץ,31.6598183,35.1421011,football,,true,false,,open,true,,,,approved,ע'ג'ר,true,true
+מגרש כדור רגל,31.6569327,35.1428411,football,דשא טבעי,false,false,,open,true,,,,approved,ע'ג'ר,true,true
+אמפיתיאטרון,31.2654006,34.8506771,football,,false,false,,open,true,,,,approved,עומר,true,true
+צופי עומר,31.2639278,34.8400360,basketball,,true,false,,open,true,,,,approved,עומר,true,false
+גבעת התמרים,32.9152317,35.0920599,both,אספלט,true,false,,open,true,,,,approved,עכו,true,true
+שכונת הכרם החדשה,32.9412791,35.0802642,basketball,,true,false,,open,true,,,,approved,עכו,true,true
+שכונת ירושליים,32.9323506,35.0783521,football,,true,false,,open,true,,,,approved,עכו,true,true
+פארק הנופלים,32.9271319,35.0897996,football,,true,false,,open,true,,,,approved,עכו,true,true
+שכונת החרמון,32.9346899,35.0734302,both,,true,false,,open,true,,,,approved,עכו,true,true
+בן גוריון,32.9209144,35.0944047,both,,true,false,,open,true,,,,approved,עכו,true,true
+שכונת בורלא,32.9306482,35.0895812,football,,true,false,,open,true,,,,approved,עכו,false,true
+מגרש משולב אלומות,32.7069805,35.5443188,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מגרש משולב דגניה א,32.7070745,35.5748218,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מגרש משולב פוריה כפר עבודה,32.7214961,35.5450138,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מעגן,32.7049258,35.5993425,football,,false,false,,open,true,,,,approved,עמק הירדן,false,true
+מגרש כדורג נוה עובד,32.7393666,35.5387870,football,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מגרש משולב נוה עובד,32.7420751,35.5375168,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מגרש משולב נוה עובד,32.7420751,35.5375168,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+מגרש משולב פוריה עילית,32.7303284,35.5466476,both,,true,false,,open,true,,,,approved,עמק הירדן,true,true
+בית יוסף,32.5566329,35.5492025,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+טירת צבי,32.4224618,35.5259396,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב בית יוסף,32.4693164,35.5001831,football,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב ירדנה,32.4383471,35.5165746,football,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב רויה,32.4486733,35.4729970,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב רחוב,32.4512905,35.4884575,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב שדי תרומות,32.4405138,35.4847976,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מושב תל תאומים,32.4406027,35.4933688,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מנחמיה,32.5578423,35.5520926,football,דשא טבעי,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+מעוז חיים,32.4947326,35.5478703,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+ניר דוד,32.5058762,35.4573110,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+"עין הנצי""ב",32.4716740,35.5022970,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+רשפים,32.4795505,35.4765142,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+שדה אליהו,32.4380698,35.5156592,basketball,,true,false,,open,true,,,,approved,עמק המעיינות,true,true
+בת חפר,32.3305108,35.0119737,basketball,,false,false,,open,true,,,,approved,עמק חפר,true,true
+אומץ,32.3705406,34.9953235,football,,true,false,,open,true,,,,approved,עמק חפר,true,true
+אומץ,32.3705406,34.9953235,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+אחיטוב,32.3859101,34.9920574,both,,true,false,,open,true,,,,approved,עמק חפר,true,true
+אלישיב,32.3788710,34.9088464,basketball,,false,false,,open,true,,,,approved,עמק חפר,true,true
+בארותיים,32.3206457,34.9844999,basketball,,false,false,,open,true,,,,approved,עמק חפר,true,true
+בורגתה,32.3241310,34.9623590,basketball,,false,false,,open,true,,,,approved,עמק חפר,true,true
+בית הלוי,32.3523431,34.9295741,basketball,,false,false,,open,true,,,,approved,עמק חפר,true,true
+בית יצחק,32.3407368,34.8906473,both,,true,false,,open,true,,,,approved,עמק חפר,true,true
+בת חן,32.3595219,34.8701731,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+גאולי תימן,32.3909077,34.9005173,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+גבעת שפירא,32.3571816,34.8751963,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+גן יאשיה,32.3490390,34.9931315,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+חיבת ציון,32.3967079,34.9128165,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+חניאל,32.3320758,34.9487534,basketball,,true,false,,open,true,,,,approved,עמק חפר,false,true
+חרב לאת,32.4004024,34.9195116,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+כפר חוגלה,32.3876773,34.9229205,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+כפר חיים,32.3529562,34.8982222,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+כפר מונש,32.3470826,34.9160140,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+מכמורת,32.4047155,34.8727278,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+עולש,32.3308899,34.9845813,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+בחן,32.3510384,35.0202908,basketball,,true,false,,open,true,,,,approved,עמק חפר,false,true
+"גח""א",32.4008931,34.9334768,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+העוגן,32.3650660,34.9209932,basketball,,true,false,,open,true,,,,approved,עמק חפר,false,true
+יד חנה,32.3245434,35.0075789,basketball,,true,false,,open,true,,,,approved,עמק חפר,false,true
+משמר השרון,32.3599376,34.9026821,basketball,,true,false,,open,true,,,,approved,עמק חפר,true,true
+מגרש כדורסל-קטרגל וויצו,32.6121225,35.2964236,both,אספלט,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש קט רגל מועצת הפועלים,32.6053481,35.2868820,both,אספלט,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש כדורסל-קטרגל ביאליק,29.1158026,35.3235894,both,אספלט,true,false,,open,true,,,,approved,עפולה,true,true
+מגרש כדורסל-קטרגל הרצל,32.6319699,35.3275181,both,אספלט,true,false,,open,true,,,,approved,עפולה,true,true
+"מגרש כדורסל-קט רגל סוקולוב-קק""ל",32.6290276,35.3209073,both,פרקט,true,false,,open,true,,,,approved,עפולה,true,true
+פארק הצפוני בחלמיש,31.2632722,35.2038913,both,,true,false,,open,true,,,,approved,ערד,true,true
+קט רגל,31.1565234,35.0138526,both,,false,false,,open,true,,,,approved,ערערה-בנגב,true,true
+קט רגל,31.1497550,35.0112444,both,,false,false,,open,true,,,,approved,ערערה-בנגב,true,false
+קט רגל,31.1646609,35.0279961,both,,false,false,,open,true,,,,approved,ערערה-בנגב,true,false
+מועדון בני ברית לנוער,32.4687125,34.9593561,basketball,,true,false,,open,true,,,,approved,פרדס חנה-כרכור,true,true
+"מגרש רב תכליתי ליד המתנ""ס",32.4714036,34.9709010,both,,true,false,,open,true,,,,approved,פרדס חנה-כרכור,true,true
+מגרש משולב בסמטת הדרור,32.3026893,34.9122899,both,אספלט,true,false,,open,true,,,,approved,פרדסיה,true,true
+מגרש ספורט משולב,32.2737235,34.9118839,both,,true,false,,open,true,,,,approved,קדימה צורן,true,true
+מגרש הספורט המשולב בכפר,32.2825561,34.9098387,both,,true,false,,open,true,,,,approved,קדימה צורן,true,true
+מגרש הפארק,32.2677817,34.9161485,basketball,,true,false,,open,true,,,,approved,קדימה צורן,true,true
+מגרש ספורט משולב צורן,32.2879415,34.9391213,both,,true,false,,open,true,,,,approved,קדימה צורן,true,true
+רמת ממרא,31.5427423,35.1193273,basketball,,true,false,,open,true,,,,approved,קרית ארבע,true,false
+"קט רגל חב""ד",31.6097258,34.7619668,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+קט רגל - אהרון,31.6147279,34.7715650,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+קט רגל - מועדון שבטי ישראל,31.6156459,34.7683570,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+מגרש קט רגל - יחזקאל,31.6123058,34.7647684,both,,false,false,,open,true,,,,approved,קרית גת,true,true
+אדוריים חדש כדורסל,31.6022504,34.7596629,basketball,,true,false,,open,true,,,,approved,קרית גת,true,true
+אדוריים חדש קטרגל,31.6022504,34.7596629,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+מוקד אלרואי,32.7077617,35.1045328,basketball,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,false
+מיגרש כדורסל,32.7001008,35.1092871,basketball,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,true
+מגרש הברושים,32.7249192,35.1433967,basketball,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,true
+מגרש חרושת,32.6886945,35.1096937,basketball,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,false
+מגרש נרקיס,32.7249162,35.1375296,basketball,דשא סינטטי,true,false,,open,true,,,,approved,קרית טבעון,true,true
+מגרש האיריס,32.7190527,35.1332672,basketball,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,true
+מיגרשי קטרגל 7,32.7077621,35.1050128,both,אספלט,true,false,,open,true,,,,approved,קרית טבעון,true,true
+קיבוץ גלויות שכונה,31.7363111,34.7547602,football,דשא סינטטי,true,false,,open,true,,,,approved,קרית מלאכי,true,true
+"קיבוץ גלויות מתנ""ס קטן",31.7296095,34.7494112,football,אספלט,true,false,,open,true,,,,approved,קרית מלאכי,true,true
+מגרש פינטו,31.7351022,34.7445409,football,אספלט,false,false,,open,true,,,,approved,קרית מלאכי,true,true
+מגרש פיס,31.8681870,34.8123584,basketball,אחר,true,false,,open,true,,,,approved,קרית עקרון,true,true
+מגרש נוה מנחם,32.1691463,35.1052846,basketball,,true,false,,open,true,,,,approved,קרני שומרון,true,false
+נוה עליזה,32.1681310,35.0789925,basketball,,false,false,,open,true,,,,approved,קרני שומרון,false,false
+המגרשים העירוניים,32.1726494,35.0889528,both,,true,false,,open,true,,,,approved,קרני שומרון,true,true
+מיני פיץ,32.0926738,34.9687131,football,,false,false,,open,true,,,,approved,ראש העין,true,false
+פארק לב העיר,32.0975903,34.9464533,both,,true,false,,open,true,,,,approved,ראש העין,true,true
+שכ' היובל,31.8889791,34.8289813,both,,true,false,,open,true,,,,approved,רחובות,true,true
+הצופים,31.9007247,34.8212272,basketball,,true,false,,open,true,,,,approved,רחובות,true,true
+שכ' אושיות,31.8822937,34.8189572,basketball,,true,false,,open,true,,,,approved,רחובות,true,true
+שכ' קרית משה,31.8864730,34.7859733,both,,true,false,,open,true,,,,approved,רחובות,true,true
+ספורטק,31.8954418,34.7846748,both,,true,false,,open,true,,,,approved,רחובות,true,true
+"מתנ""ס רכסים",32.7528462,35.1033621,football,דשא סינטטי,true,false,,open,true,,,,approved,רכסים,false,true
+מגרש כדורסל ריינס,31.9321848,34.8640094,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל עמיחי,31.9356797,34.8558536,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+"מגרש כדורסל אג""ש",31.9204828,34.8721942,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש מיני פיץ' קריית מנחם,31.9368255,34.8798554,football,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל נווה דוד,31.9376824,34.8627201,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל מרכז עצמאות,31.9319002,34.8588288,football,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל מועדון גולני,31.9189171,34.8599347,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל גן תמרי,31.9334261,34.8561794,both,,true,false,,open,true,,,,approved,רמלה,true,true
+מרכז הטניס העירוני רמלה,31.9242469,34.8632985,both,,true,false,,open,true,,,,approved,רמלה,true,true
+מגרש כדורסל רמת דן,31.9397402,34.8770320,basketball,,true,false,,open,true,,,,approved,רמלה,true,true
+"פארק לאומי ר""ג",32.0440603,34.8188947,football,דשא סינטטי,false,false,,open,true,,,,approved,רמת גן,true,false
+"מגרש כדורגל בית""ר רמת גן",32.1021438,34.8244989,football,דשא טבעי,true,false,,open,true,,,,approved,רמת גן,true,false
+מגרש אימונים נבחרת ישראל,32.1021728,34.8251557,football,דשא טבעי,true,false,,open,true,,,,approved,רמת גן,true,true
+מיני פיץ',32.1290413,34.8613727,football,,true,false,,open,true,,,,approved,רמת השרון,true,true
+מגרש כדורסל פתוח,32.7034646,35.1578090,basketball,,false,false,,open,true,,,,approved,רמת ישי,true,true
+מגרש כדורסל פתוח השלום,32.1860743,34.8595683,basketball,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש כדורסל פתוח המעיין,32.1831731,34.8539593,basketball,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש כדורסל פתוח,32.1891732,34.8551028,basketball,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש כדורסל פתוח אנילביץ,32.1879452,34.8678326,basketball,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש משולב קרן היסוד,32.1864227,34.8718148,both,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש כדורסל פתוח השחר,32.1910154,34.8694120,basketball,,false,false,,open,true,,,,approved,רעננה,true,true
+מגרש משולב ספורטק,32.1918071,34.8619858,both,,true,false,,open,true,,,,approved,רעננה,true,true
+ספורטק,32.1916725,34.8621984,both,אספלט,true,false,,open,true,,,,approved,רעננה,true,true
+מגרשי ספורט פארק רעננה,32.1879010,34.8516082,both,,true,false,,open,true,,,,approved,רעננה,true,true
+מגרשי ספורט פארק רעננה,32.1860995,34.8523574,both,,true,false,,open,true,,,,approved,רעננה,true,true
+מגרש בית הגדי,31.4256572,34.6052292,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש גבעולים,31.3978222,34.5931044,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש זמרת,31.4480334,34.5518562,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש יושיביה,31.4445181,34.6077391,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש מלילות,31.3888012,34.5926372,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,false
+מגרש שובה,31.4505364,34.5475256,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש שוקדה,31.4212068,34.5231733,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש שיבולים,31.3949944,34.6054241,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש שרשרת,31.4040883,34.6022118,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,false
+מגרש תקומה,31.4482507,34.5773129,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש מעגלים,31.3970370,34.5986820,both,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש עלומים,31.4510678,34.5114377,basketball,אספלט,true,false,,open,true,,,,approved,שדות נגב,true,false
+מגרש במתחם הבריכה מקורה,31.5205005,34.5982025,basketball,אספלט,true,false,,open,true,,,,approved,שדרות,true,true
+מגרש הכדורגל העירוני,31.5277136,34.5978401,football,דשא טבעי,true,false,,open,true,,,,approved,שדרות,true,true
+מגרש כדורגל שהם,31.9893554,34.9375509,football,,true,false,,open,true,,,,approved,שוהם,true,true
+מיניפיץ',31.9882759,34.9388238,football,,true,false,,open,true,,,,approved,שוהם,true,true
+מיניפיץ' הלפיד,31.9919812,34.9426225,football,,true,false,,open,true,,,,approved,שוהם,true,true
+משולב גן החבל,32.0015410,34.9429128,both,,true,false,,open,true,,,,approved,שוהם,true,true
+מגרש קהילתי ברוכין,32.0817964,35.0921284,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי הר ברכה,32.1942687,35.2624572,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי חיננית,32.4832038,35.1726473,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי חרמש,32.4360840,35.1112032,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי  יקיר,32.1498982,35.1120683,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי כפר תפוח,32.1209230,35.2472576,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי מבוא דותן,32.4208296,35.1719888,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי מגדלים,32.0916285,35.3418205,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי מעלה שומרון,32.1678492,35.0681364,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי חוות יאיר יקיר,32.1504571,35.1002486,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי סלעית,32.2440423,35.0461112,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי עינב,32.2836686,35.1252128,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי  עלי זהב,32.0743153,35.0603850,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי עץ אפרים,32.1213059,35.0435578,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי עלי זהב,32.0629948,35.0502364,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי קרית נטפים,32.1170443,35.1100034,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי רבבה,32.1193458,35.1261288,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי רחלים,32.1022987,35.2533090,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי ריחן,32.4674466,35.1394972,basketball,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש קהילתי שערי תקווה,32.1217983,35.0273970,football,,true,false,,open,true,,,,approved,שומרון,true,true
+מגרש כדורסל פתוח קטן,33.0703554,35.1444440,basketball,,true,false,,open,true,,,,approved,שלומי,true,true
+מגרש כדורסל פתוח קטן,33.0690920,35.1420890,basketball,,true,false,,open,true,,,,approved,שלומי,true,true
+מגרש כדורגל,32.8883194,35.2295290,football,,true,false,,open,true,,,,approved,שעב,false,false
+מגרש משולב כפר עזה,31.4819421,34.5341517,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+כדורגל אור הנר,31.5598510,34.6044782,football,,false,false,,open,true,,,,approved,שער הנגב,true,true
+כדורגל ארז,31.5580567,34.5691014,football,,true,false,,open,true,,,,approved,שער הנגב,false,true
+משולב ארז,31.5589244,34.5622496,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+משולב גבים,31.5093127,34.5972221,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+מגרש כדורגל דורות,31.5094400,34.6449076,football,,true,false,,open,true,,,,approved,שער הנגב,true,true
+משולב מפלסים,31.4994788,34.5596038,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+כדורגל נחל עוז,31.4732511,34.4945433,football,,false,false,,open,true,,,,approved,שער הנגב,false,true
+משולב ניר עם,31.5216259,34.5772337,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+משולב רוחמה,31.4958064,34.7066672,both,,true,false,,open,true,,,,approved,שער הנגב,true,true
+מגרש מושב שלווה,31.5625482,34.7668347,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב רווחה,31.6487693,34.7323682,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב איתן,31.5719433,34.7456071,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב זבדיאל,31.6580642,34.7591020,basketball,,true,false,,open,true,,,,approved,שפיר,true,false
+מגרש משואות יצחק,31.7037447,34.6856543,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש קראווילות עין צורים,31.6924372,34.7181085,basketball,אספלט,false,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב זרחיה,31.6802403,34.7462564,both,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב נועם,31.5683534,34.7875797,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב שפיר,31.6967343,34.7288134,basketball,,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש מושב עוזה,31.5938067,34.7538659,basketball,אספלט,true,false,,open,true,,,,approved,שפיר,true,true
+מגרש הכדור רגל בשפרעם,32.8186141,35.1624474,football,דשא טבעי,true,false,,open,true,,,,approved,שפרעם,true,true
+מגרש משולב אלבסליה,32.8129373,35.1764383,both,אספלט,true,false,,open,true,,,,approved,שפרעם,true,true
+מגרש משולב דהר אלכניס,32.7954441,35.1756964,both,אספלט,true,false,,open,true,,,,approved,שפרעם,true,true
+גן תבואת הארץ,32.1111757,34.8261568,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן פלדמן,32.0389292,34.7662138,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+ספורטק צפון - מגרש כדורגל ללא סימון,32.0978082,34.7906166,football,,false,false,,open,true,,,,approved,תל אביב-יפו,false,true
+פארק דוידוף יפו,32.0379900,34.7555255,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+"גו הי""א",32.0433894,34.7523229,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן הקווקזים,32.0592229,34.7671760,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+חורשת טשרנא,32.0577138,34.8015982,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+פארק טאגור,32.1153219,34.7964712,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+דפנה,32.0787824,34.7912319,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+חורשת רבנו ירוחם,32.0481932,34.7591815,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+קוסובסקי,32.0970083,34.7942220,both,,true,false,,open,true,,,,approved,תל אביב-יפו,false,true
+חורשת מעוז אביב,32.1129400,34.8132229,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+פארק קדרון,32.0367836,34.7460033,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן עיר שמש,32.1238946,34.8273760,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+חורשת ניסן,32.1113826,34.8351621,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן סירני,32.0541257,34.8076495,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן גלקסברג,32.0558848,34.7936644,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+מעון יהודי ערבי,32.0329862,34.7432698,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן גבעת הפרחים,32.1173887,34.8230583,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן הבריכות,32.1280462,34.8285246,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן כרונינגן יפו,32.0503671,34.7619240,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן מאיר,32.0724973,34.7724083,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן סדנת האמנים,32.0565983,34.7644354,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+פארק הלר,32.0357314,34.7543720,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן הרצפלד,32.0455739,34.8125569,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן ריקליס,32.0292197,34.7491109,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גן התקוה,32.0528231,34.7950546,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+פארק וולפפסון,32.0584480,34.8056189,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+גינת מנשיה,32.0607354,34.7612387,both,,true,false,,open,true,,,,approved,תל אביב-יפו,false,true
+גן ברטונוב,32.1165003,34.8275123,both,,true,false,,open,true,,,,approved,תל אביב-יפו,true,true
+בני דן,32.0956244,34.7846940,basketball,אספלט,true,false,,open,true,,,,approved,תל אביב-יפו,false,true
+המגרש האדום מגרש קט רגל מדושא,32.0316492,34.7476168,football,דשא סינטטי,false,false,,open,true,,,,approved,תל אביב-יפו,false,true
+"תל שבע ע""ש אלאעסם זעל",31.2481647,34.8472771,football,,true,false,,open,true,,,,approved,תל שבע,true,false
+מגרש כדורסל נאות,30.9330011,35.3771666,basketball,,true,false,,open,true,,,,approved,תמר,true,true
+עין תמר,30.9441442,35.3742565,football,,true,false,,open,true,,,,approved,תמר,true,true
+מגרש כדורסל מקורה,30.9443704,35.3737337,basketball,,true,false,,open,true,,,,approved,תמר,true,true
+מגרש כדורגל ב' - לזרוס,32.0042393,34.7565579,football,,false,false,,open,true,,,,approved,חולון,false,false
+נופרים,32.1052330,34.9486567,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+רעות,32.0850802,34.9733509,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+הישבה התיכונית,32.0833009,34.9669894,football,,false,false,,open,true,,,,approved,ראש העין,false,false
+רונה רמון,32.0868220,34.9643427,basketball,,false,false,,open,true,,,,approved,ראש העין,false,false
+מגרש כדורסל רתמים,31.0528077,34.6898588,basketball,אספלט,true,false,,open,true,,,,approved,רמת הנגב,true,false
+כדורגל מלילות שחבק,31.3890643,34.5929509,football,,true,false,,open,true,,,,approved,שדות נגב,true,false
+מגרש הראשונים,32.1127301,35.0368234,basketball,אספלט,true,false,,open,true,,,,approved,אלקנה,true,false
+מגרש שכונה צפונית,32.1178268,35.0380327,basketball,,true,false,,open,true,,,,approved,אלקנה,true,true
+מגרש אורי,31.9456868,34.8891526,basketball,אספלט,true,false,,open,true,,,,approved,לוד,true,true
+מגרש סינטטי קט-רגל גני יער,31.9449440,34.9026611,football,דשא סינטטי,true,false,,open,true,,,,approved,לוד,true,true
+מגרש בן יהודה,31.9558562,34.9027524,both,אספלט,true,false,,open,true,,,,approved,לוד,true,false
+מגרש מקורה אל מנאר,31.9517316,34.8976042,basketball,אספלט,true,false,,open,true,,,,approved,לוד,false,true
+מגרש דשא סינטטי גדול - רח' שטרן,31.7561495,35.1803507,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,false,true
+מגרש דשא סינטטי - רחוב שטרן,31.7561495,35.1803507,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב פארק הראשונים,32.6780403,35.2388527,both,,false,false,,open,true,,,,approved,מגדל העמק,false,false
+כדורסל כדורגל משולב,31.6597923,35.1442942,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש משולב,31.6534487,35.2515442,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש משולב,31.5903803,35.1937639,both,,true,false,,open,true,,,,approved,גוש עציון,true,true
+מגרש מיני פיץ עצמון,32.6759017,35.2437670,football,,false,false,,open,true,,,,approved,מגדל העמק,false,false
+בני דרור מגרש משולב,32.2607947,34.9015037,both,אספלט,true,false,,open,true,,,,approved,לב השרון,true,true
+מיניפיץ' יובל,33.2471485,35.5945734,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' כורזים,32.9090365,35.5524001,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+כדורגל כרכום,32.9286798,35.6078283,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' אמנון,32.9039881,35.5709896,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' כחל,32.8905352,35.5106155,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+כדורגל שדה אליעזר,33.0454532,35.5639196,football,דשא טבעי,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מיניפיץ' משמר הירדן,33.0064266,35.6005839,football,,false,false,,open,true,,,,approved,מבואות החרמון,false,false
+מגרש משולב עסליאת,32.7774309,35.3763153,both,אספלט,true,false,,open,true,,,,approved,טורעאן,true,false
+מגרש חוץ- ה101,31.9371760,34.7923744,basketball,,false,false,,open,true,,,,approved,נס ציונה,false,false
+יד אליעזר גינה,31.9369031,34.8057640,football,,false,false,,open,true,,,,approved,נס ציונה,false,false
+"מגרש חוץ מתנ""ס טירת שלום",31.9117864,34.7857741,basketball,אספלט,false,false,,open,true,,,,approved,נס ציונה,false,false
+מגרש משולב דרך הגליל,32.7003820,35.3288062,both,אספלט,true,false,,open,true,,,,approved,נוף הגליל,true,true
+מגרש דשא סינטטי חלומות,32.5644659,34.9629188,football,,true,false,,open,true,,,,approved,זכרון יעקב,true,false
+מגרש משולב רחוב מוכתאר מוהנא,32.7120130,35.3103490,both,אספלט,true,false,,open,true,,,,approved,נוף הגליל,true,true
+מגרש כדורסל משולב ברחוב חי הכהן,31.4253131,34.5934730,both,אספלט,true,false,,open,true,,,,approved,נתיבות,true,true
+מגרש כדורסל משולב ברחוב מלכי ישראל,31.4211248,34.5908289,both,אספלט,true,false,,open,true,,,,approved,נתיבות,true,true
+מיניפיץ,32.1873849,34.8199778,football,,true,false,,open,true,,,,approved,כפר שמריהו,true,true
+מגרש מיניפיץ,31.7821250,35.3116726,football,דשא סינטטי,true,false,,open,true,,,,approved,מעלה אדומים,true,true
+מגרש כדורגל סנטטי,32.1935213,34.8184354,football,דשא סינטטי,true,false,,open,true,,,,approved,כפר שמריהו,true,true
+מגרש מקורה,32.1935688,34.8192306,basketball,,true,false,,open,true,,,,approved,כפר שמריהו,true,false
+קט רגל אספלט,32.1935688,34.8192306,football,אספלט,true,false,,open,true,,,,approved,כפר שמריהו,true,false
+מיני פיץ,32.0051475,34.8340012,football,דשא סינטטי,false,false,,open,true,,,,approved,בית דגן,false,false
+ספורטק ירוקה,32.1874002,34.8908459,football,אספלט,true,false,,open,true,,,,approved,כפר סבא,true,true
+ספורטק ירוקה,32.1873010,34.8908674,both,אספלט,true,false,,open,true,,,,approved,כפר סבא,true,true
+ספורטק ירוקה - יער סלים,32.1874722,34.8907926,both,אספלט,true,false,,open,true,,,,approved,כפר סבא,true,true
+מגרש דשא סינטטי - שועאפט,31.8080754,35.2387065,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב פסגת זאב,31.8296601,35.2549396,both,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש כדורגל כפר עזה,31.4857791,34.5314828,football,,true,false,,open,true,,,,approved,שער הנגב,false,true
+מגרש כדורסל - פסגת זאב,31.8284534,35.2501222,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש דשא סינטטי פסגת זאב,31.8166233,35.2441701,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,false,true
+מגרש כדורסל - בי''ס מנשה אבישר,31.7284809,35.2274080,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש קטרגל - בי''ס מנשה אבישר,31.7284809,35.2274080,football,אספלט,true,false,,open,true,,,,approved,ירושלים,false,false
+מגרש קטרגל - קנאי הגליל,31.7575402,35.1951063,football,אספלט,false,false,,open,true,,,,approved,ירושלים,false,true
+מגרש כדורסל - קוסטה ריקה,31.7245747,35.2331997,basketball,אספלט,false,false,,open,true,,,,approved,ירושלים,false,true
+מגרש דשא סינטטי קטרגל- מנהל קהילתי לב העיר,31.7774534,35.2030116,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,true,true
+מגרש משולב אור הנר,31.5577516,34.5991413,both,,false,false,,open,true,,,,approved,שער הנגב,false,false
+מגרש משולב ברור חיל,31.5594660,34.6448620,both,,false,false,,open,true,,,,approved,שער הנגב,false,false
+כדורגל ברור חיל,31.5575727,34.6429459,football,,false,false,,open,true,,,,approved,שער הנגב,false,false
+מגרש משולב יכיני,31.4825218,34.5979319,both,,false,false,,open,true,,,,approved,שער הנגב,false,false
+מגרש משולב איבים,31.5326354,34.6107804,both,,false,false,,open,true,,,,approved,שער הנגב,false,false
+מגרש ספורט משולב,32.7279804,35.3561329,both,,false,false,,open,true,,,,approved,עין מאהל,true,true
+מגרש ספורט משולב,32.7216494,35.3493059,both,אספלט,true,false,,open,true,,,,approved,עין מאהל,true,true
+מגרש כדורגל ג'ת,32.3903563,35.0407443,football,דשא טבעי,true,false,,open,true,,,,approved,ג'ת,true,true
+מגרש קטרגל - בי''ס תל''י מתמטי,31.8301323,35.2457498,football,אספלט,false,false,,open,true,,,,approved,ירושלים,false,false
+מגרש תחתון יתיר,31.3655516,35.1119407,basketball,מרצפות,true,false,,open,true,,,,approved,הר חברון,true,true
+מגרש נטע,31.6244381,34.6794443,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש משולב נטע,31.4760147,34.9249598,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+קט רגל ממשית,31.0572881,35.0369743,both,,false,false,,open,true,,,,approved,דימונה,true,true
+מגרש דשא סינטטי,32.1063287,35.1856623,football,דשא סינטטי,true,false,,open,true,,,,approved,אריאל,true,true
+כדורסל פארק הנחל,32.1315531,35.2725597,football,,true,false,,open,true,,,,approved,אריאל,true,true
+מגרש משולב,31.3235014,34.8639920,both,אספלט,true,false,,open,true,,,,approved,לקיה,false,true
+שכונה 9,31.3233859,34.8646648,basketball,אספלט,true,false,,open,true,,,,approved,לקיה,true,false
+מגרש משולב רחוב מיכה,31.6141145,34.7584051,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+קט רגל העצמאות,31.6101245,34.7730511,both,,true,false,,open,true,,,,approved,קרית גת,true,true
+מגרש משולב - בי''ס נועם בנים,31.8198490,35.2525472,both,אספלט,false,false,,open,true,,,,approved,ירושלים,false,true
+מגרש כדורסל - עמק המצלבה,31.7697967,35.2068332,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,false,true
+מגרש דשא סינטטי - בי''ס נעם בנים,31.8198490,35.2525472,football,דשא סינטטי,true,false,,open,true,,,,approved,ירושלים,false,true
+אוהל חסיה,31.8020126,35.0997654,football,דשא סינטטי,true,false,,open,true,,,,approved,קרית יערים,true,true
+מתמידים החדש,31.8020126,35.0997654,football,,true,false,,open,true,,,,approved,קרית יערים,true,true
+מגרש ספורט משולב ברקת,31.9974312,34.9440886,both,אספלט,true,false,,open,true,,,,approved,חבל מודיעין,false,true
+מגרש משולב מבואות הנגב,31.4151690,34.7401359,both,,true,false,,open,true,,,,approved,בני שמעון,true,false
+"מגרש משולב משמ""ה",31.3617548,34.7170551,both,,true,false,,open,true,,,,approved,בני שמעון,true,false
+מגרש מיני פיץ נבטים,31.2204352,34.8867369,football,דשא סינטטי,true,false,,open,true,,,,approved,בני שמעון,true,false
+מגרש כדורסל דביר,31.4128195,34.8265478,basketball,,true,false,,open,true,,,,approved,בני שמעון,true,false
+מיני פיץ,32.0605103,34.9474258,football,דשא סינטטי,true,false,,open,true,,,,approved,אלעד,true,true
+מגרש החורש,32.5814862,34.9515730,both,,true,false,,open,true,,,,approved,זכרון יעקב,true,false
+אוהל שלום,31.8168775,34.7854637,basketball,,true,false,,open,true,,,,approved,גדרה,true,true
+עתיד טייבה,32.2641485,35.0172826,both,,false,false,,open,true,,,,approved,טייבה,false,false
+אלנג'אח,32.2590302,35.0078691,both,,false,false,,open,true,,,,approved,טייבה,false,true
+מגרש אליאב,31.5305603,34.9332946,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש בני דקלים,31.4996188,34.9176478,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש כדורסל משולב בכפר הריף,31.7458358,34.7896993,both,אספלט,true,false,,open,true,,,,approved,יואב,true,true
+מגרש קטרגל דשא סינטטי,31.8701900,34.9853022,football,,true,false,,open,true,,,,approved,גזר,true,true
+מגרש ספורט - מצפה קדומים,32.2221662,35.1595631,both,,false,false,,open,true,,,,approved,קדומים,false,false
+מגרש כדורסל בגלאון,31.6345232,34.8439638,basketball,אספלט,true,false,,open,true,,,,approved,יואב,true,true
+מיניפיץ ' מכמש,31.8777427,35.3057801,football,דשא סינטטי,false,false,,open,true,,,,approved,מטה בנימין,false,false
+מגרש חדש אבן שמואל,31.5752132,34.7650479,both,,true,false,,open,true,,,,approved,שפיר,true,true
+פיניפיץ' אלומה,31.6529841,34.7431008,football,,false,false,,open,true,,,,approved,שפיר,true,false
+מגרש משולב,31.8701833,34.9027994,both,,false,false,,open,true,,,,approved,גזר,false,false
+מגרש משולב,31.5306937,34.5817638,both,,false,false,,open,true,,,,approved,שדרות,true,false
+מגרש כדורסל - חזקיהו המלך,31.7606069,35.2062841,basketball,אספלט,true,false,,open,true,,,,approved,ירושלים,true,false
+מגרש משולב ניצן,31.7400782,34.6306194,both,,false,false,,open,true,,,,approved,חוף אשקלון,false,false
+"מגרש קטרגל שכונת ס""ח",31.9593649,34.8918456,both,אספלט,true,false,,open,true,,,,approved,לוד,true,true
+מגרש דרכא,31.9594618,34.8801354,both,אספלט,true,false,,open,true,,,,approved,לוד,true,true
+גנות הדר,32.3204816,34.9010183,basketball,אספלט,true,false,,open,true,,,,approved,לב השרון,true,true
+פארק המסילה,31.9285388,34.8664127,basketball,,true,false,,open,true,,,,approved,רמלה,true,false
+פארק המסילה,30.1631994,34.2303175,basketball,,true,false,,open,true,,,,approved,רמלה,true,false
+מיניפיטש נווה דוד,31.9303051,34.8693354,football,אספלט,true,false,,open,true,,,,approved,רמלה,true,false
+מגרש בגלבוע,31.7951629,34.7104333,basketball,,false,false,,open,true,,,,approved,גן יבנה,false,false
+מגרש השניים,31.7970537,34.7213839,basketball,,false,false,,open,true,,,,approved,גן יבנה,false,false
+מגרש הודיה,31.7844067,34.6928377,football,,true,false,,open,true,,,,approved,גן יבנה,true,true
+מגרש אליאב,31.5297171,34.9312017,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מיניפיץ מועדון הנקודה,31.7901392,34.7010840,football,,false,false,,open,true,,,,approved,גן יבנה,false,false
+מיניפיץ ירושלים,31.7779752,34.6969588,football,,false,false,,open,true,,,,approved,גן יבנה,false,false
+מגרש משולב פארק אשדוד ים,31.7942745,34.6358599,both,אספלט,true,false,,open,true,,,,approved,אשדוד,true,true
+מגרש משולב פארק אשדוד ים,31.7884733,34.6352936,both,אספלט,true,false,,open,true,,,,approved,אשדוד,true,true
+מגרש משולב פארק אשדוד ים,31.7872916,34.6372541,both,אספלט,true,false,,open,true,,,,approved,אשדוד,true,true
+מתקן רב תכליתי בצמוד לבית הכנסת,32.9799123,35.5409528,both,אספלט,false,false,,open,true,,,,approved,חצור הגלילית,false,false
+תנובות,32.3036678,34.9612348,both,אספלט,true,false,,open,true,,,,approved,לב השרון,true,true
+מיני פיץ,32.4086804,34.9234825,football,דשא סינטטי,true,false,,open,true,,,,approved,אליכין,true,true
+פארק הספורט- מגרש מיני כדורגל,32.0658805,34.8119513,football,דשא סינטטי,true,false,,open,true,,,,approved,גבעתיים,true,true
+יעף - כדורסל,32.2670028,34.9664803,basketball,,true,false,,open,true,,,,approved,לב השרון,true,true
+יעף - מיניפיץ,32.2663686,34.9649111,football,דשא סינטטי,true,false,,open,true,,,,approved,לב השרון,false,false
+אמפי אליכין,32.4083458,34.9230371,both,,false,false,,open,true,,,,approved,אליכין,false,false
+מגרש גן הבנים,32.4072698,34.9299180,basketball,,false,false,,open,true,,,,approved,אליכין,false,false
+סקיט פארק,31.8775236,34.9970689,both,,true,false,,open,true,,,,approved,מודיעין-מכבים-רעות,true,true
+מגרש כדורסל,31.6583455,34.6833341,basketball,אספלט,true,false,,open,true,,,,approved,יואב,true,true
+מגרש כדורסל,31.6436955,34.6757835,basketball,אספלט,true,false,,open,true,,,,approved,יואב,true,true
+מגרש כדורסל,31.6635524,34.7817565,basketball,אספלט,true,false,,open,true,,,,approved,יואב,true,true
+מיני פיץ פארק חצב,31.2714099,34.8387052,football,דשא סינטטי,false,false,,open,true,,,,approved,עומר,true,true
+מיני פיץ דקל,31.2744353,34.8563768,football,,false,false,,open,true,,,,approved,עומר,false,true
+מגרש משולב כרמי קטיף,31.5368440,34.9117951,both,אספלט,true,false,,open,true,,,,approved,לכיש,true,true
+מגרש משולב,32.5053254,35.0854751,both,אספלט,true,false,,open,true,,,,approved,ערערה,true,false
+מגרש משולב בסעד,31.4663456,34.5335158,both,,true,false,,open,true,,,,approved,שדות נגב,true,true
+כדורסל בזרועה,31.4596601,34.6213628,basketball,אספלט,false,false,,open,true,,,,approved,שדות נגב,true,true
+מגרש כדור סל כפר מימון,31.4338906,34.5323797,basketball,,true,false,,open,true,,,,approved,שדות נגב,true,false
+כדורגל עלומים,31.4511375,34.5109953,football,דשא טבעי,false,false,,open,true,,,,approved,שדות נגב,false,false
+כדוררגל שרשרת,31.4042518,34.6024632,football,דשא טבעי,true,false,,open,true,,,,approved,שדות נגב,false,false
+מגרש כדוררגל שחבק,31.4598599,34.6216772,football,דשא טבעי,false,false,,open,true,,,,approved,שדות נגב,false,false
+אלביאן,31.2460667,34.8651940,both,,true,false,,open,true,,,,approved,תל שבע,true,true
+אבו בכר,31.2476128,34.8531999,both,,true,false,,open,true,,,,approved,תל שבע,true,true
+דשא אימון טוטו,31.2477221,34.8535880,football,דשא סינטטי,false,false,,open,true,,,,approved,תל שבע,true,true
+מגרש מיני פיץ,32.4250035,35.0287313,football,דשא סינטטי,false,false,,open,true,,,,approved,באקה אל גרביה,true,true
+מגרש קט רגל,32.4242473,35.0362814,both,,false,false,,open,true,,,,approved,באקה אל גרביה,true,false
+מגרש משולב,33.0587842,35.6150591,both,,true,false,,open,true,,,,approved,יסוד המעלה,true,true
+קט רגל ימין הרצוג,29.5549461,34.9350988,both,אספלט,true,false,,open,true,,,,approved,אילת,true,true
+מגרש ספורט אלעין - עילבון,32.8386181,35.4020569,football,אספלט,true,false,,open,true,,,,approved,עיילבון,true,true
+מיניפיץ יקותיאל אדם,33.2185312,35.5676077,football,דשא סינטטי,true,false,,open,true,,,,approved,קרית שמונה,true,true
+מגרש משולב,32.7039387,35.0588056,both,,true,false,,open,true,,,,approved,עספיא,true,true
+מגרש ספורט הרב הרצוג,33.2033062,35.5632762,both,,true,false,,open,true,,,,approved,קרית שמונה,true,true
+מגרש ספורט בשפרינצק,33.2137354,35.5764692,both,,true,false,,open,true,,,,approved,קרית שמונה,true,false
+מגרש משולב,32.8717308,35.2014014,both,,true,false,,open,true,,,,approved,כאבול,true,true
+מגרש כדורסל,32.7435836,35.3186446,basketball,אספלט,false,false,,open,true,,,,approved,משהד,true,true
+"מיני פיץ מתנ""ס ישן",32.9538652,35.2047567,football,דשא סינטטי,false,false,,open,true,,,,approved,ירכא,false,false
+אחיהוד- מגרש משולב,32.9078753,35.1722395,both,אספלט,true,false,,open,true,,,,approved,מטה אשר,false,true
+מגרש משולב-עראמשה,33.0848042,35.2220870,both,אספלט,false,false,,open,true,,,,approved,מטה אשר,false,false
+מגרש מיני פיץ' פארק המצודה,32.0276024,34.7986496,football,דשא סינטטי,true,false,,open,true,,,,approved,אזור,true,true
+מגרש כדורסל,32.0276024,34.7986496,basketball,אספלט,true,false,,open,true,,,,approved,אזור,false,true
+מגרש חיצוני קיבוץ גלויות,32.0926738,34.9687131,both,אספלט,true,false,,open,true,,,,approved,ראש העין,true,true
+מיני פיץ,31.8571066,34.7585281,football,דשא סינטטי,true,false,,open,true,,,,approved,חבל יבנה,true,false
+מגרש כדורסל רהב,32.0212700,34.7578723,basketball,אספלט,false,false,,open,true,,,,approved,בת ים,false,true
+גן המנהיגים,31.9737430,34.7975220,basketball,אספלט,true,false,,open,true,,,,approved,ראשון לציון,true,true
+מגרש אימון משולב,33.2053055,35.7702278,both,אספלט,false,false,,open,true,,,,approved,בוקעתא,true,true
+מגרש ממשולב,32.8722087,35.1998413,both,אספלט,true,false,,open,true,,,,approved,כאבול,true,true
+מיני פיץ,33.0039963,35.2569561,football,פרקט,true,false,,open,true,,,,approved,כפר ורדים,true,true
+משולב שפר,32.9407786,35.4388227,both,אספלט,false,false,,open,true,,,,approved,מרום הגליל,true,false
+משולב אביבים,33.0879399,35.4700922,both,,false,false,,open,true,,,,approved,מרום הגליל,true,false
+מיני פיץ' עלמה,33.0525337,35.4974595,football,דשא סינטטי,false,false,,open,true,,,,approved,מרום הגליל,true,false
+משולב כרם בן זמרה,33.0384895,35.4675030,both,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+"מיני פיץ' כב""ז",33.0385619,35.4673319,football,דשא סינטטי,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב דלתון,33.0163372,35.4913357,both,,false,false,,open,true,,,,approved,מרום הגליל,true,false
+מיני פיץ' כפר חושן,33.0111420,35.4404319,football,דשא סינטטי,false,false,,open,true,,,,approved,מרום הגליל,false,false
+מיני פיץ' בר יוחאי,32.9979405,35.4457148,football,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב בר יוחאי,32.9978239,35.4454256,both,אספלט,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב כפר שמאי,32.9553960,35.4566899,both,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב אמירים,32.9380262,35.4494443,both,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב פרוד,32.9321439,35.4321280,both,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב מקורה עין אל אסד,32.9401781,35.4000154,both,,false,false,,open,true,,,,approved,מרום הגליל,false,false
+משולב כפר חננייה,32.9154158,35.4231053,both,אספלט,false,false,,open,true,,,,approved,מרום הגליל,false,false
+מיני פיץ' חזון,32.9053697,35.3964649,football,,true,false,,open,true,,,,approved,מרום הגליל,true,false
+משולב טפחות,32.8678849,35.4197192,both,,true,false,,open,true,,,,approved,מרום הגליל,true,false
+משולב כלנית,32.8741958,35.4541838,both,,true,false,,open,true,,,,approved,מרום הגליל,true,false
+משולב ליבנים,32.8652348,35.4951113,both,,true,false,,open,true,,,,approved,מרום הגליל,true,true
+מגרש משולב,32.9264259,35.2738244,both,PVC,true,false,,open,true,,,,approved,בענה,true,true
+מיני פיץ,32.9275871,35.2773642,football,,false,false,,open,true,,,,approved,בענה,false,false
+מגרש משולב פתוח,31.9808323,34.8722096,both,,true,false,,open,true,,,,approved,שדות דן,true,true
+דה שליט-מגרש ספורט עליון,31.8992204,34.8158634,football,דשא טבעי,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש משולב פתוח,31.9751226,34.8894012,both,אספלט,true,false,,open,true,,,,approved,שדות דן,true,true
+מגרש משולב פתוח,32.0183950,34.8402458,both,אספלט,false,false,,open,true,,,,approved,שדות דן,false,false
+מגרש משולב פתוח,31.9875408,34.8788093,both,,true,false,,open,true,,,,approved,שדות דן,true,true
+קט רגל סינטטי,31.9860386,34.8802959,football,דשא סינטטי,true,false,,open,true,,,,approved,שדות דן,true,true
+נבון,31.8915816,34.7818066,both,אספלט,false,false,,open,true,,,,approved,רחובות,false,false
+נתיבות משה,31.8836000,34.8097037,both,אספלט,false,false,,open,true,,,,approved,רחובות,false,false
+רמון,31.8784016,34.8113534,both,,false,false,,open,true,,,,approved,רחובות,false,false
+מגרש כדורסל שכונה 5,31.2957784,34.9327718,basketball,אספלט,true,false,,open,true,,,,approved,חורה,true,false
+מגרש קטרגל משולב נועם אליהו,31.0658748,34.5981091,both,אספלט,true,false,,open,true,,,,approved,נתיבות,true,true
+מגרש כדורגל ברטעה,32.4778009,35.0820752,football,,false,false,,open,true,,,,approved,"בסמ""ה",false,false
