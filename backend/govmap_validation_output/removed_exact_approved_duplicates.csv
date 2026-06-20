@@ -1,0 +1,33 @@
+﻿source_id,canonical_source_id,name,city,facility_type,lat,lng,confidence_score,classification_reasons
+layer_sport.68855265,layer_sport.68855185,מגרש כדורסל במרכז הספורטק,נהריה,מגרש כדורסל – 19X32 מ',766110,208230,100,pickup_sport_type;active_condition;open_without_restriction;municipal_operator_or_owner;public_place_keyword
+layer_sport.68901953,layer_sport.68901937,מגרש משולב  -  גן סאקר,ירושלים,מגרש ספורט משולב – 43X32 מ',632110,219660,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68905569,layer_sport.68905553,מגרש דשא סינטטי  -  מנהל קהילתי גילה - עדי יפה,ירושלים,מגרש שחבק דשא סינטטי,626980,218770,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68907313,layer_sport.68907297,מגרש משולב - בית נוער לזרוס,ירושלים,מגרש ספורט משולב – 43X32 מ',628430,220700,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68907777,layer_sport.68907761,מגרש כדורסל  -  גן הפעמון,ירושלים,מגרש כדורסל – 19X32 מ',630790,221130,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68907793,layer_sport.68907761,מגרש כדורסל  -  גן הפעמון,ירושלים,מגרש כדורסל – 19X32 מ',630790,221130,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68908785,layer_sport.68908769,מגרש כדורגל -ביתר,ירושלים,מגרש כדורגל – 45X90 מ',630920,217880,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68908801,layer_sport.68908769,מגרש כדורגל -ביתר,ירושלים,מגרש כדורגל – 45X90 מ',630920,217880,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68908817,layer_sport.68908769,מגרש כדורגל -ביתר,ירושלים,מגרש כדורגל – 45X90 מ',630920,217880,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68921985,layer_sport.68921969,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',751580,223950,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922193,layer_sport.68922161,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',757110,234020,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922257,layer_sport.68922209,מגרש משולב,משגב,מגרש ספורט משולב – 43X32 מ',750090,223950,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922305,layer_sport.68922161,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',757110,234020,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922337,layer_sport.68922129,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',751580,224600,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922401,layer_sport.68922129,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',751580,224600,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922417,layer_sport.68922001,מגרש כדורסל,משגב,מגרש כדורסל – 19X32 מ',756750,223310,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68922433,layer_sport.68922209,מגרש משולב,משגב,מגרש ספורט משולב – 43X32 מ',750090,223950,100,pickup_sport_type;active_condition;open_without_restriction
+layer_sport.68923153,layer_sport.68855153,מגרש כדורסל מרכז ספורט ברח' העליה,נהריה,מגרש כדורסל – 19X32 מ',770190,209210,100,pickup_sport_type;active_condition;open_without_restriction;municipal_operator_or_owner
+layer_sport.68945729,layer_sport.68945713,שכ' קרית משה,רחובות,מגרש ספורט משולב – 43X32 מ',643847,179931,100,pickup_sport_type;active_condition;limited_but_public_availability;municipal_operator_or_owner
+layer_sport.68945921,layer_sport.68945905,ספורטק,רחובות,מגרש ספורט משולב – 43X32 מ',644842,179812,100,pickup_sport_type;active_condition;limited_but_public_availability;municipal_operator_or_owner;public_place_keyword
+layer_sport.68945937,layer_sport.68945905,ספורטק,רחובות,מגרש ספורט משולב – 43X32 מ',644842,179812,100,pickup_sport_type;active_condition;limited_but_public_availability;municipal_operator_or_owner;public_place_keyword
+layer_sport.68953505,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953521,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953537,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953553,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953569,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953585,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953601,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953617,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68953633,layer_sport.68953489,ספורטק צפון - מגרש כדורגל ללא סימון,תל אביב-יפו,מגרש כדורגל - לא תקני,667280,180460,100,pickup_sport_type;active_condition;open_without_restriction;public_place_keyword
+layer_sport.68958161,layer_sport.68958145,פארק וולפפסון,תל אביב-יפו,מגרש ספורט משולב – 43X32 מ',662910,181860,100,pickup_sport_type;active_condition;open_without_restriction;municipal_operator_or_owner;public_place_keyword
+layer_sport.68958177,layer_sport.68958145,פארק וולפפסון,תל אביב-יפו,מגרש ספורט משולב – 43X32 מ',662910,181860,100,pickup_sport_type;active_condition;open_without_restriction;municipal_operator_or_owner;public_place_keyword

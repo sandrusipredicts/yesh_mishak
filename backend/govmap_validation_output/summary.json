@@ -1,0 +1,18 @@
+{
+  "total_input": 8728,
+  "total": 8696,
+  "approved": 1389,
+  "review_required": 2981,
+  "rejected": 4326,
+  "school_related_rows_moved_to_review": 2246,
+  "additional_rows_moved_to_review_by_expanded_education_rule": 11,
+  "stadium_rows_moved_to_review": 128,
+  "non_pickup_facilities_moved_to_rejected": 1095,
+  "exact_duplicate_rows_removed_from_approved": 32,
+  "basketball_to_both_high_confidence": 28,
+  "basketball_to_both_medium_confidence": 66,
+  "basketball_to_both_overlap_rows": 0,
+  "basketball_to_both_total_converted": 94,
+  "duplicate_groups": 257,
+  "duplicate_rows": 881
+}
