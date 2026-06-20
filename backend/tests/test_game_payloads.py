@@ -38,6 +38,11 @@ class FakeQuery:
         return self
 
     def execute(self) -> FakeResponse:
+        self.client.execute_calls.append((self.table_name, list(self.in_filters)))
+        if self.client.fail_next_execute_count > 0:
+            self.client.fail_next_execute_count -= 1
+            raise RuntimeError("temporary supabase transport failure")
+
         rows = self.client.tables.get(self.table_name, [])
         for column, value in self.filters:
             rows = [row for row in rows if row.get(column) == value]
@@ -56,6 +61,8 @@ class FakeSupabaseClient:
         self.tables = tables
         self.max_in_values = max_in_values
         self.in_filter_calls: list[tuple[str, str, list[Any]]] = []
+        self.execute_calls: list[tuple[str, list[tuple[str, list[Any]]]]] = []
+        self.fail_next_execute_count = 0
 
     def table(self, table_name: str) -> FakeQuery:
         return FakeQuery(self, table_name)
@@ -183,3 +190,27 @@ def test_get_fields_handles_1357_fields_without_large_game_lookup(monkeypatch) -
         if table == "games" and column == "field_id"
     ]
     assert all(len(batch) <= 100 for batch in field_id_batches)
+    assert [len(batch) for batch in field_id_batches] == [100] * 13 + [57]
+
+
+def test_batched_select_retries_temporary_supabase_failure(monkeypatch) -> None:
+    fake_client = FakeSupabaseClient(
+        {
+            "games": [
+                {"id": "game-1", "field_id": "field-1", "status": "open", "scheduled_at": None},
+            ],
+            "game_players": [],
+            "users": [],
+        }
+    )
+    fake_client.fail_next_execute_count = 1
+    monkeypatch.setattr(game_payloads, "get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(game_payloads.time, "sleep", lambda _: None)
+
+    games_by_field = game_payloads.get_active_games_for_fields(["field-1"])
+
+    assert set(games_by_field) == {"field-1"}
+    games_execute_calls = [
+        call for call in fake_client.execute_calls if call[0] == "games"
+    ]
+    assert len(games_execute_calls) == 2
