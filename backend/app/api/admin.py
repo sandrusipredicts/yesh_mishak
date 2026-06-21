@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -12,8 +13,10 @@ from app.routers.game_lifecycle import (
     finish_expired_games,
 )
 from app.routers.game_payloads import attach_participants_to_games
+from app.routers.notifications import create_game_closed_notifications
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
 
 ADMIN_FIELD_COLUMNS = ",".join(
     [
@@ -281,18 +284,37 @@ def get_admin_games(
 
 
 @router.post("/games/{game_id}/close")
-def close_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
+def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     game = _get_game(game_id)
     _ensure_admin_active_game(game)
 
+    supabase = get_supabase_client()
     response = (
-        get_supabase_client()
+        supabase
         .table("games")
         .update({"status": "finished"})
         .eq("id", game_id)
         .execute()
     )
-    return {"message": "Game closed", "game": response.data[0]}
+    updated_game = response.data[0]
+
+    try:
+        create_game_closed_notifications(
+            supabase=supabase,
+            game=updated_game,
+            closed_by_user_id=current_user["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game closed notifications after successful admin close",
+            extra={
+                "game_id": game_id,
+                "closed_by_user_id": current_user.get("id"),
+                "field_id": updated_game.get("field_id"),
+            },
+        )
+
+    return {"message": "Game closed", "game": updated_game}
 
 
 @router.post("/games/{game_id}/extend")

@@ -109,4 +109,4 @@ create index if not exists idx_notifications_field_id on notifications(field_id)
 create index if not exists idx_notifications_data_type on notifications((data ->> 'type'));
 create unique index if not exists idx_notifications_user_type_game_unique
     on notifications(user_id, type, game_id)
-    where game_id is not null and type = 'game_created';
+    where game_id is not null and type in ('game_created', 'game_closed');

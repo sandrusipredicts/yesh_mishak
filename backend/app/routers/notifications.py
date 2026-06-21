@@ -447,6 +447,92 @@ def create_player_joined_game_notification(
     return notifications
 
 
+def create_game_closed_notifications(
+    supabase: Any,
+    game: dict[str, Any],
+    closed_by_user_id: str,
+) -> list[dict[str, Any]]:
+    game_id = game.get("id")
+    if not game_id:
+        return []
+
+    participant_rows = (
+        supabase.table("game_players")
+        .select("user_id")
+        .eq("game_id", game_id)
+        .execute()
+        .data
+        or []
+    )
+    recipient_ids = [
+        user_id
+        for user_id in dict.fromkeys(
+            str(row.get("user_id"))
+            for row in participant_rows
+            if row.get("user_id")
+        )
+        if user_id != str(closed_by_user_id)
+    ]
+
+    if not recipient_ids:
+        return []
+
+    field_id = game.get("field_id")
+    field_name = "Unknown field"
+    if field_id:
+        field_rows = (
+            supabase.table("fields")
+            .select("id,name")
+            .eq("id", field_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if field_rows:
+            field_name = field_rows[0].get("name") or field_name
+
+    service_supabase = get_supabase_service_role_client()
+    existing_response = (
+        service_supabase.table("notifications")
+        .select("user_id")
+        .eq("type", "game_closed")
+        .eq("game_id", game_id)
+        .in_("user_id", recipient_ids)
+        .execute()
+    )
+    existing_user_ids = {
+        str(row["user_id"])
+        for row in existing_response.data or []
+        if row.get("user_id")
+    }
+    rows = [
+        {
+            "user_id": user_id,
+            "type": "game_closed",
+            "title": "המשחק נסגר",
+            "body": f"המשחק במגרש {field_name} נסגר על ידי המארגן.",
+            "game_id": game_id,
+            "field_id": field_id,
+            "data": {
+                "game_id": game_id,
+                "field_id": field_id,
+                "type": "game_closed",
+                "closed_by_user_id": closed_by_user_id,
+            },
+        }
+        for user_id in recipient_ids
+        if user_id not in existing_user_ids
+    ]
+
+    if not rows:
+        return []
+
+    notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
+
+
 @router.get("")
 def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
     authenticated_user_id = str(current_user["id"])
