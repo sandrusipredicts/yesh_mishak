@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import asin, cos, radians, sin, sqrt
 from typing import Any, Optional
 
@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import get_current_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+SCHEDULED_GAME_REMINDER_TYPE = "scheduled_game_reminder"
 
 
 class NotificationPreference(BaseModel):
@@ -611,6 +613,128 @@ def create_game_extended_notifications(
     notifications = service_supabase.table("notifications").insert(rows).execute().data or []
     _send_push_for_notifications(service_supabase, notifications)
     return notifications
+
+
+def _mark_scheduled_game_reminder_processed(
+    supabase: Any,
+    game_id: str,
+    processed_at: datetime,
+) -> None:
+    (
+        supabase.table("games")
+        .update({"scheduled_reminder_processed_at": processed_at.isoformat()})
+        .eq("id", game_id)
+        .execute()
+    )
+
+
+def _get_current_game_participant_ids(supabase: Any, game_id: str) -> list[str]:
+    participant_rows = (
+        supabase.table("game_players")
+        .select("user_id")
+        .eq("game_id", game_id)
+        .execute()
+        .data
+        or []
+    )
+    return [
+        user_id
+        for user_id in dict.fromkeys(
+            str(row.get("user_id"))
+            for row in participant_rows
+            if row.get("user_id")
+        )
+    ]
+
+
+def generate_scheduled_game_reminders(
+    supabase: Any | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    service_supabase = supabase or get_supabase_service_role_client()
+    current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    games = (
+        service_supabase.table("games")
+        .select("*")
+        .in_("status", ACTIVE_GAME_STATUSES)
+        .execute()
+        .data
+        or []
+    )
+
+    processed_game_ids: list[str] = []
+    skipped_game_ids: list[str] = []
+    notifications: list[dict[str, Any]] = []
+
+    for game in games:
+        game_id = str(game.get("id") or "")
+        scheduled_at = parse_game_datetime(game.get("scheduled_at"))
+        if not game_id or scheduled_at is None:
+            continue
+
+        if game.get("scheduled_reminder_processed_at"):
+            skipped_game_ids.append(game_id)
+            continue
+
+        if scheduled_at <= current_time:
+            continue
+
+        reminder_time = scheduled_at - timedelta(hours=1)
+        if current_time < reminder_time:
+            continue
+
+        existing_game_reminders = (
+            service_supabase.table("notifications")
+            .select("user_id")
+            .eq("type", SCHEDULED_GAME_REMINDER_TYPE)
+            .eq("game_id", game_id)
+            .execute()
+            .data
+            or []
+        )
+        if existing_game_reminders:
+            _mark_scheduled_game_reminder_processed(service_supabase, game_id, current_time)
+            skipped_game_ids.append(game_id)
+            continue
+
+        recipient_ids = _get_current_game_participant_ids(service_supabase, game_id)
+        if not recipient_ids:
+            _mark_scheduled_game_reminder_processed(service_supabase, game_id, current_time)
+            processed_game_ids.append(game_id)
+            continue
+
+        scheduled_at_iso = scheduled_at.isoformat()
+        rows = [
+            {
+                "user_id": user_id,
+                "type": SCHEDULED_GAME_REMINDER_TYPE,
+                "title": "תזכורת למשחק שמתקרב",
+                "body": "המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.",
+                "game_id": game_id,
+                "field_id": game.get("field_id"),
+                "data": {
+                    "type": SCHEDULED_GAME_REMINDER_TYPE,
+                    "game_id": game_id,
+                    "field_id": game.get("field_id"),
+                    "scheduled_at": scheduled_at_iso,
+                },
+            }
+            for user_id in recipient_ids
+        ]
+        created_notifications = (
+            service_supabase.table("notifications").insert(rows).execute().data or []
+        )
+        _mark_scheduled_game_reminder_processed(service_supabase, game_id, current_time)
+        _send_push_for_notifications(service_supabase, created_notifications)
+        notifications.extend(created_notifications)
+        processed_game_ids.append(game_id)
+
+    return {
+        "processed_game_ids": processed_game_ids,
+        "skipped_game_ids": skipped_game_ids,
+        "notifications_created": len(notifications),
+        "notifications": notifications,
+    }
 
 
 @router.get("")
