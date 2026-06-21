@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { MapPin } from 'lucide-react'
 import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
+import FieldReportModal from './FieldReportModal'
 
 function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
@@ -39,6 +40,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const { i18n, t } = useTranslation()
   const [isOpenGameModalOpen, setIsOpenGameModalOpen] = useState(false)
   const [isNavigationModalOpen, setIsNavigationModalOpen] = useState(false)
+  const [isFieldReportModalOpen, setIsFieldReportModalOpen] = useState(false)
 
   if (!field) {
     return null
@@ -205,11 +207,26 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         </button>
       ) : null}
 
+      <button
+        className="primary-panel-button report-panel-button"
+        type="button"
+        onClick={() => setIsFieldReportModalOpen(true)}
+      >
+        {t('field.reportField')}
+      </button>
+
       {isOpenGameModalOpen ? (
         <OpenGameModal
           field={field}
           onClose={() => setIsOpenGameModalOpen(false)}
           onCreated={handleGameStateChanged}
+        />
+      ) : null}
+
+      {isFieldReportModalOpen ? (
+        <FieldReportModal
+          field={field}
+          onClose={() => setIsFieldReportModalOpen(false)}
         />
       ) : null}
 
