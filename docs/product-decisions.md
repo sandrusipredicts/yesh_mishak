@@ -241,6 +241,92 @@ Implemented.
 
 # Global Rule For Future Specification Tasks
 
+---
+
+# ISSUE-008 — Create Submit Field Report API
+
+## Type
+
+Backend API implementation.
+
+## Dependency
+
+Depends on ISSUE-007.
+
+The API writes to the `field_reports` table defined in ISSUE-007 and uses the approved ISSUE-006 category catalog.
+
+## Goal
+
+Allow an authenticated user to submit a field report.
+
+## Decision
+
+Create a backend endpoint:
+
+`POST /field-reports`
+
+The endpoint creates a field report with:
+
+* `field_id` from the request.
+* `user_id` from the authenticated user.
+* `category` from the approved field report category catalog.
+* optional `description`.
+* `status` controlled by the database default.
+* `created_at` controlled by the database.
+* `reviewed_at` left null.
+* `reviewed_by` left null.
+
+## Request Body
+
+Allowed client fields:
+
+* `field_id`
+* `category`
+* `description`
+
+Client-controlled review fields are not allowed:
+
+* `status`
+* `reviewed_at`
+* `reviewed_by`
+
+## Validation
+
+* User must be authenticated.
+* `field_id` must exist.
+* `category` must be one of the approved ISSUE-006 category values.
+* Invalid categories return a validation error.
+* Missing fields return a not found error.
+* Database insert failures return a clean API error.
+
+## Scope
+
+Included:
+
+* Backend API endpoint.
+* Request validation.
+* Field existence validation.
+* Authenticated user ownership.
+* Backend tests for success and error cases.
+
+Excluded:
+
+* No frontend UI.
+* No report button.
+* No report modal.
+* No admin dashboard.
+* No notifications.
+* No image uploads.
+* No comments system.
+* No severity system.
+* No duplicate report aggregation.
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
