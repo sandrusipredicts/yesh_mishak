@@ -12,7 +12,10 @@ from postgrest.exceptions import APIError
 from app.auth.jwt import create_access_token
 from app.core.config import get_settings
 from app.main import app
-from app.routers.notifications import create_game_extended_notifications
+from app.routers.notifications import (
+    create_game_extended_notifications,
+    generate_scheduled_game_reminders,
+)
 
 
 class FakeResponse:
@@ -154,6 +157,17 @@ class FakeSupabase:
     def next_id(self, table_name: str) -> str:
         self.counters[table_name] = self.counters.get(table_name, 0) + 1
         return f"{table_name}-{self.counters[table_name]}"
+
+
+class DenyTablesSupabase(FakeSupabase):
+    def __init__(self, tables: dict[str, list[dict[str, Any]]], denied_tables: set[str]) -> None:
+        super().__init__(tables)
+        self.denied_tables = denied_tables
+
+    def table(self, table_name: str) -> FakeQuery:
+        if table_name in self.denied_tables:
+            raise AssertionError(f"regular client should not access {table_name}")
+        return super().table(table_name)
 
 
 @pytest.fixture
@@ -1203,6 +1217,14 @@ def game_extended_notifications(fake_supabase: FakeSupabase) -> list[dict[str, A
     ]
 
 
+def scheduled_game_reminder_notifications(fake_supabase: FakeSupabase) -> list[dict[str, Any]]:
+    return [
+        notification
+        for notification in fake_supabase.tables["notifications"]
+        if notification.get("type") == "scheduled_game_reminder"
+    ]
+
+
 def set_game_participants(
     fake_supabase: FakeSupabase,
     game_id: str,
@@ -1260,6 +1282,27 @@ def assert_game_extended_notification(
         "type": "game_extended",
         "new_end_time": new_end_time,
         "extended_by_user_id": extended_by_user_id,
+    }
+
+
+def assert_scheduled_game_reminder_notification(
+    notification: dict[str, Any],
+    *,
+    user_id: str,
+    game_id: str = "00000000-0000-0000-0000-000000000301",
+    scheduled_at: str = "2026-06-22T20:00:00+00:00",
+) -> None:
+    assert notification["user_id"] == user_id
+    assert notification["type"] == "scheduled_game_reminder"
+    assert notification["title"] == "תזכורת למשחק שמתקרב"
+    assert notification["body"] == "המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן."
+    assert notification["game_id"] == game_id
+    assert notification["field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert notification["data"] == {
+        "type": "scheduled_game_reminder",
+        "game_id": game_id,
+        "field_id": "00000000-0000-0000-0000-000000000101",
+        "scheduled_at": scheduled_at,
     }
 
 
@@ -1657,6 +1700,350 @@ def test_extend_game_notifies_each_non_creator_participant_once_for_large_games(
             new_end_time_label="20:30",
             extended_by_user_id=users["organizer"]["id"],
         )
+
+
+def make_scheduled_game(users: dict[str, dict[str, Any]], **overrides: Any) -> dict[str, Any]:
+    game = make_open_game(
+        users,
+        scheduled_at="2026-06-22T20:00:00+00:00",
+        started_at="2026-06-22T20:00:00+00:00",
+        expires_at="2026-06-22T22:00:00+00:00",
+        scheduled_reminder_processed_at=None,
+    )
+    game.update(overrides)
+    return game
+
+
+def run_scheduled_reminders(fake_supabase: FakeSupabase, current_time: datetime) -> dict[str, Any]:
+    return generate_scheduled_game_reminders(supabase=fake_supabase, now=current_time)
+
+
+def test_scheduled_game_reminder_created_for_current_participants_including_organizer(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 2
+    assert result["processed_game_ids"] == [game["id"]]
+    assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] == (
+        "2026-06-22T19:00:00+00:00"
+    )
+    notifications = scheduled_game_reminder_notifications(fake_supabase)
+    assert len(notifications) == 2
+    assert {notification["user_id"] for notification in notifications} == {
+        users["organizer"]["id"],
+        users["candidate"]["id"],
+    }
+    for notification in notifications:
+        assert_scheduled_game_reminder_notification(
+            notification,
+            user_id=notification["user_id"],
+        )
+
+
+def test_scheduled_game_reminder_not_created_before_reminder_time(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 18, 59, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 0
+    assert scheduled_game_reminder_notifications(fake_supabase) == []
+    assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] is None
+
+
+@pytest.mark.parametrize(
+    "game_overrides",
+    [
+        {"scheduled_at": None},
+        {"scheduled_at": "2026-06-22T18:59:00+00:00"},
+        {"status": "finished"},
+        {"status": "cancelled"},
+    ],
+)
+def test_scheduled_game_reminder_excludes_ineligible_games(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+    game_overrides: dict[str, Any],
+) -> None:
+    game = make_scheduled_game(users, **game_overrides)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 0
+    assert scheduled_game_reminder_notifications(fake_supabase) == []
+
+
+def test_full_scheduled_game_still_sends_reminders(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users, status="full", players_present=5, max_players=5)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 1
+    assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+
+
+def test_user_who_left_before_reminder_execution_does_not_receive_reminder(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    notifications = scheduled_game_reminder_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
+    assert users["organizer"]["id"] not in {
+        notification["user_id"] for notification in notifications
+    }
+
+
+def test_late_join_after_reminder_ran_does_not_receive_retroactive_reminder(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+
+    first_result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+    second_result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 20, tzinfo=timezone.utc),
+    )
+
+    assert first_result["notifications_created"] == 1
+    assert second_result["notifications_created"] == 0
+    notifications = scheduled_game_reminder_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["organizer"]["id"]
+
+
+def test_scheduled_game_reminder_job_is_idempotent(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    first_result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+    second_result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 1, tzinfo=timezone.utc),
+    )
+
+    assert first_result["notifications_created"] == 2
+    assert second_result["notifications_created"] == 0
+    assert len(scheduled_game_reminder_notifications(fake_supabase)) == 2
+
+
+def test_scheduled_game_reminder_existing_notification_prevents_late_duplicates(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "existing-reminder",
+            "user_id": users["organizer"]["id"],
+            "type": "scheduled_game_reminder",
+            "title": "תזכורת למשחק שמתקרב",
+            "body": "המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.",
+            "game_id": game["id"],
+            "field_id": game["field_id"],
+            "data": {
+                "type": "scheduled_game_reminder",
+                "game_id": game["id"],
+                "field_id": game["field_id"],
+                "scheduled_at": game["scheduled_at"],
+            },
+        }
+    ]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 0
+    assert result["skipped_game_ids"] == [game["id"]]
+    assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+    assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] == (
+        "2026-06-22T19:00:00+00:00"
+    )
+
+
+def test_admin_scheduled_reminder_runner_uses_service_role_for_internal_tables(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+    regular_client = DenyTablesSupabase(
+        {"users": list(users.values())},
+        denied_tables={"games", "game_players", "notifications", "push_tokens"},
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: regular_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: regular_client)
+    monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: fake_supabase)
+    monkeypatch.setattr(
+        "app.routers.notifications.datetime",
+        type(
+            "FrozenDateTime",
+            (),
+            {
+                "now": staticmethod(lambda tz=None: datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc)),
+            },
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/admin/reminders/scheduled-games/run",
+        headers=auth_headers(users["admin"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["notifications_created"] == 1
+    assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+    assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] == (
+        "2026-06-22T19:00:00+00:00"
+    )
+
+
+def test_no_participants_marks_scheduled_game_reminder_processed_without_notifications(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    fake_supabase.tables["game_players"] = []
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 0
+    assert result["processed_game_ids"] == [game["id"]]
+    assert scheduled_game_reminder_notifications(fake_supabase) == []
+    assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] == (
+        "2026-06-22T19:00:00+00:00"
+    )
+
+
+def test_push_failure_does_not_block_scheduled_game_reminder_creation(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "candidate-token", "user_id": users["candidate"]["id"], "token": "bad-token"}
+    ]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    def fail_push(*_: Any, **__: Any) -> dict[str, Any]:
+        raise RuntimeError("push failed")
+
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", fail_push)
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["notifications_created"] == 1
+    assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+
+
+def test_scheduled_game_created_after_reminder_window_is_marked_processed(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    now = datetime(2026, 6, 22, 19, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: now)
+    monkeypatch.setattr("app.routers.games.get_now", lambda: now)
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 5,
+            "scheduled_at": "2026-06-22T20:00:00Z",
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["game"]["scheduled_reminder_processed_at"] == (
+        "2026-06-22T19:30:00+00:00"
+    )
 
 
 def test_join_game_notifies_organizer_when_another_user_joins(

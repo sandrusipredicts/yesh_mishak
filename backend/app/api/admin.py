@@ -16,6 +16,7 @@ from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
     create_game_closed_notifications,
     create_game_extended_notifications,
+    generate_scheduled_game_reminders,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -284,6 +285,11 @@ def get_admin_games(
         "active": _get_games_by_statuses(ACTIVE_GAME_STATUSES),
         "finished": _get_games_by_statuses(FINISHED_GAME_STATUSES, limit=FINISHED_GAMES_LIMIT),
     }
+
+
+@router.post("/reminders/scheduled-games/run")
+def run_scheduled_game_reminders(_: dict[str, Any] = Depends(require_admin)):
+    return generate_scheduled_game_reminders()
 
 
 @router.post("/games/{game_id}/close")

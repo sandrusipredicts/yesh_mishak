@@ -137,6 +137,11 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
 
     started_at = scheduled_at or now
     expires_at = started_at + timedelta(hours=2)
+    scheduled_reminder_processed_at = (
+        now
+        if scheduled_at is not None and now > scheduled_at - timedelta(hours=1)
+        else None
+    )
     data = {
         "field_id": game.field_id,
         "created_by": current_user["id"],
@@ -148,6 +153,11 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_cur
         "min_age": game.min_age,
         "max_age": game.max_age,
         "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+        "scheduled_reminder_processed_at": (
+            scheduled_reminder_processed_at.isoformat()
+            if scheduled_reminder_processed_at
+            else None
+        ),
         "started_at": started_at.isoformat(),
         "expires_at": expires_at.isoformat(),
     }

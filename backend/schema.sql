@@ -47,6 +47,7 @@ create table if not exists games (
     min_age integer check (min_age is null or min_age >= 0),
     max_age integer check (max_age is null or max_age >= 0),
     scheduled_at timestamptz,
+    scheduled_reminder_processed_at timestamptz,
     started_at timestamptz not null default now(),
     expires_at timestamptz,
     check (min_age is null or max_age is null or min_age <= max_age)
@@ -91,6 +92,7 @@ create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_created_by on games(created_by);
 create index if not exists idx_games_scheduled_at on games(scheduled_at);
+create index if not exists idx_games_scheduled_reminder_processed_at on games(scheduled_reminder_processed_at);
 create unique index if not exists idx_games_unique_scheduled_slot
     on games(field_id, sport_type, scheduled_at)
     where scheduled_at is not null and status in ('open', 'full');
@@ -109,7 +111,7 @@ create index if not exists idx_notifications_field_id on notifications(field_id)
 create index if not exists idx_notifications_data_type on notifications((data ->> 'type'));
 create unique index if not exists idx_notifications_user_type_game_unique
     on notifications(user_id, type, game_id)
-    where game_id is not null and type in ('game_created', 'game_closed');
+    where game_id is not null and type in ('game_created', 'game_closed', 'scheduled_game_reminder');
 create unique index if not exists idx_notifications_user_game_extended_end_time_unique
     on notifications(user_id, type, game_id, (data ->> 'new_end_time'))
     where game_id is not null and type = 'game_extended' and data ? 'new_end_time';
