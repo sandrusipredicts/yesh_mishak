@@ -22,6 +22,29 @@ const adminStats = {
   total_users: 25,
 }
 
+const reportStatuses = ['open', 'in_review', 'resolved', 'rejected']
+
+function makeFieldReports(count = 20) {
+  return Array.from({ length: count }, (_, index) => {
+    const reportNumber = index + 1
+
+    return {
+      id: `report-${reportNumber}`,
+      field_id: `field-${reportNumber}`,
+      field_name: `Court ${reportNumber}`,
+      user_id: `reporter-${reportNumber}`,
+      reporter_name: `Reporter ${reportNumber}`,
+      reporter_email: `reporter${reportNumber}@example.com`,
+      category: reportNumber % 2 === 0 ? 'field_closed' : 'wrong_information',
+      description: `Description ${reportNumber}`,
+      status: reportStatuses[index % reportStatuses.length],
+      created_at: `2026-06-${String(reportNumber).padStart(2, '0')}T10:00:00.000Z`,
+      reviewed_at: null,
+      reviewed_by: null,
+    }
+  })
+}
+
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -101,7 +124,10 @@ async function mockMapRequests(page) {
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
-async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {}) {
+async function mockAdminApi(
+  page,
+  { user = adminUser, stats = adminStats, fieldReports = makeFieldReports() } = {},
+) {
   await page.route('**/admin/**', (route) => {
     const url = new URL(route.request().url())
 
@@ -119,6 +145,10 @@ async function mockAdminApi(page, { user = adminUser, stats = adminStats } = {})
 
     if (url.pathname === '/admin/stats') {
       return fulfillJson(route, stats)
+    }
+
+    if (url.pathname === '/admin/field-reports') {
+      return fulfillJson(route, fieldReports)
     }
 
     if (url.pathname === '/admin/fields/pending') {
@@ -218,6 +248,7 @@ test('admin user can access /admin', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Fields' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Games' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Users' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Field Reports' })).toBeVisible()
 })
 
 test('admin stats tab loads values from GET /admin/stats', async ({ page }) => {
@@ -271,4 +302,35 @@ test('admin users tab loads without crashing', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Users' }).last()).toBeVisible()
   await expect(page.getByLabel('Search users')).toBeVisible()
   await expect(page.getByText('user@example.com')).toBeVisible()
+})
+
+test('admin field reports queue displays 20 reports sorted newest first and filters by status', async ({ page }) => {
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page)
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Field Reports', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Field reports queue' })).toBeVisible()
+
+  const rows = page.locator('.admin-field-reports-table tbody tr')
+  await expect(rows).toHaveCount(20)
+  await expect(rows.first()).toContainText('Court 20')
+  await expect(rows.first()).toContainText('Reporter 20')
+  await expect(rows.first()).toContainText('Rejected')
+  await expect(rows.nth(19)).toContainText('Court 1')
+
+  await page.getByRole('tab', { name: 'Resolved' }).click()
+
+  await expect(rows).toHaveCount(5)
+  await expect(rows.first()).toContainText('Court 19')
+  await expect(rows.first()).toContainText('Resolved')
+  await expect(rows.last()).toContainText('Court 3')
+
+  await page.getByRole('tab', { name: 'In Review' }).click()
+
+  await expect(rows).toHaveCount(5)
+  await expect(rows.first()).toContainText('Court 18')
+  await expect(rows.first()).toContainText('In Review')
 })

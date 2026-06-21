@@ -1877,6 +1877,55 @@ select {
   gap: 16px;
 }
 
+.admin-field-reports {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-field-reports-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.admin-field-reports-header p {
+  margin: 6px 0 0;
+  color: #64748b;
+}
+
+.admin-field-reports-table {
+  min-width: 1080px;
+}
+
+.admin-report-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-report-status.open {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.admin-report-status.in_review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.admin-report-status.resolved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.admin-report-status.rejected {
+  background: #fee2e2;
+  color: #b42318;
+}
+
 .admin-users-header h3 {
   margin: 0;
   font-size: 18px;

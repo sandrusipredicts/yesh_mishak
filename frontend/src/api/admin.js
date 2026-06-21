@@ -54,6 +54,11 @@ export async function getAdminUsers() {
   return response.data
 }
 
+export async function getAdminFieldReports() {
+  const response = await api.get('/admin/field-reports')
+  return response.data
+}
+
 export async function getAdminStats() {
   const response = await api.get('/admin/stats')
   return response.data

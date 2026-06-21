@@ -23,6 +23,8 @@ class FakeUsersQuery:
         self.filters: list[tuple[str, Any]] = []
         self.in_filters: list[tuple[str, list[Any]]] = []
         self.exact_count = False
+        self.order_column: str | None = None
+        self.order_desc = False
 
     def select(self, columns: str, count: str | None = None) -> "FakeUsersQuery":
         self.selected_columns = [column.strip() for column in columns.split(",")]
@@ -43,10 +45,18 @@ class FakeUsersQuery:
         return self
 
     def order(self, column: str, desc: bool = False) -> "FakeUsersQuery":
+        self.order_column = column
+        self.order_desc = desc
         return self
 
     def execute(self) -> FakeResponse:
         rows = self._filtered_rows()
+        if self.order_column:
+            rows = sorted(
+                rows,
+                key=lambda row: row.get(self.order_column) or "",
+                reverse=self.order_desc,
+            )
         data = [self._select_columns(row) for row in rows]
         return FakeResponse(data=data, count=len(rows) if self.exact_count else None)
 
@@ -97,6 +107,7 @@ def configure_test_settings(monkeypatch) -> None:
 ADMIN_ENDPOINTS = [
     "/admin/me",
     "/admin/fields",
+    "/admin/field-reports",
     "/admin/games",
     "/admin/users",
     "/admin/stats",
@@ -140,6 +151,19 @@ def make_admin_matrix_client(
                 },
             ],
             "game_players": [],
+            "field_reports": [
+                {
+                    "id": "00000000-0000-0000-0000-000000000301",
+                    "field_id": "00000000-0000-0000-0000-000000000101",
+                    "user_id": regular_user["id"],
+                    "category": "wrong_information",
+                    "description": "Missing lighting details.",
+                    "status": "open",
+                    "created_at": "2026-06-15T09:00:00+00:00",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                },
+            ],
         },
     )
 
@@ -307,15 +331,6 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == [
         {
-            "id": admin_user["id"],
-            "name": admin_user["name"],
-            "email": admin_user["email"],
-            "phone_number": None,
-            "created_at": None,
-            "last_active": None,
-            "role": admin_user["role"],
-        },
-        {
             "id": listed_user["id"],
             "name": listed_user["name"],
             "email": listed_user["email"],
@@ -323,6 +338,15 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
             "created_at": listed_user["created_at"],
             "last_active": None,
             "role": listed_user["role"],
+        },
+        {
+            "id": admin_user["id"],
+            "name": admin_user["name"],
+            "email": admin_user["email"],
+            "phone_number": None,
+            "created_at": None,
+            "last_active": None,
+            "role": admin_user["role"],
         },
     ]
 
@@ -351,6 +375,124 @@ def test_admin_users_rejects_regular_user(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
+
+
+def test_admin_field_reports_returns_enriched_reports_newest_first(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    reporter = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "reporter@example.com",
+        "name": "Reporter User",
+        "role": "user",
+    }
+    field = {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "name": "Central Court",
+    }
+    reports = [
+        {
+            "id": f"00000000-0000-0000-0000-0000000003{index:02d}",
+            "field_id": field["id"],
+            "user_id": reporter["id"],
+            "category": "wrong_information",
+            "description": f"Report {index}",
+            "status": "open" if index % 2 == 0 else "resolved",
+            "created_at": f"2026-06-{index:02d}T09:00:00+00:00",
+            "reviewed_at": None,
+            "reviewed_by": None,
+        }
+        for index in range(1, 21)
+    ]
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, reporter],
+            "fields": [field],
+            "field_reports": reports,
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).get(
+        "/admin/field-reports",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 20
+    assert data[0]["id"] == "00000000-0000-0000-0000-000000000320"
+    assert data[0]["field_name"] == field["name"]
+    assert data[0]["reporter_name"] == reporter["name"]
+    assert data[0]["reporter_email"] == reporter["email"]
+    assert data[0]["description"] == "Report 20"
+    assert data[-1]["id"] == "00000000-0000-0000-0000-000000000301"
+
+
+def test_admin_field_reports_supports_status_filter(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    reporter = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "reporter@example.com",
+        "name": "Reporter User",
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, reporter],
+            "fields": [{"id": "field-1", "name": "Central Court"}],
+            "field_reports": [
+                {
+                    "id": "report-open",
+                    "field_id": "field-1",
+                    "user_id": reporter["id"],
+                    "category": "field_closed",
+                    "description": None,
+                    "status": "open",
+                    "created_at": "2026-06-20T09:00:00+00:00",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                },
+                {
+                    "id": "report-resolved",
+                    "field_id": "field-1",
+                    "user_id": reporter["id"],
+                    "category": "wrong_location",
+                    "description": None,
+                    "status": "resolved",
+                    "created_at": "2026-06-21T09:00:00+00:00",
+                    "reviewed_at": "2026-06-21T10:00:00+00:00",
+                    "reviewed_by": admin_user["id"],
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).get(
+        "/admin/field-reports?status=open",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    assert [report["id"] for report in response.json()] == ["report-open"]
 
 
 def test_admin_stats_returns_counts_only(monkeypatch) -> None:

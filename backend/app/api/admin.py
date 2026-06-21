@@ -52,6 +52,20 @@ ADMIN_USER_COLUMNS = ",".join(
         "role",
     ]
 )
+ADMIN_FIELD_REPORT_COLUMNS = ",".join(
+    [
+        "id",
+        "field_id",
+        "user_id",
+        "category",
+        "description",
+        "status",
+        "created_at",
+        "reviewed_at",
+        "reviewed_by",
+    ]
+)
+FIELD_REPORT_STATUSES = {"open", "in_review", "resolved", "rejected"}
 
 
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
@@ -115,6 +129,86 @@ def get_admin_users(_: dict[str, Any] = Depends(require_admin)):
         .execute()
     )
     return response.data
+
+
+def _attach_field_report_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not reports:
+        return []
+
+    supabase = get_supabase_client()
+    field_ids = sorted({str(report["field_id"]) for report in reports if report.get("field_id")})
+    user_ids = sorted({str(report["user_id"]) for report in reports if report.get("user_id")})
+
+    fields_by_id: dict[str, dict[str, Any]] = {}
+    if field_ids:
+        field_rows = (
+            supabase
+            .table("fields")
+            .select("id,name")
+            .in_("id", field_ids)
+            .execute()
+            .data
+        )
+        fields_by_id = {
+            str(field["id"]): field
+            for field in field_rows
+            if field.get("id")
+        }
+
+    users_by_id: dict[str, dict[str, Any]] = {}
+    if user_ids:
+        user_rows = (
+            supabase
+            .table("users")
+            .select("id,name,email")
+            .in_("id", user_ids)
+            .execute()
+            .data
+        )
+        users_by_id = {
+            str(user["id"]): user
+            for user in user_rows
+            if user.get("id")
+        }
+
+    enriched_reports = []
+    for report in reports:
+        field = fields_by_id.get(str(report.get("field_id")), {})
+        reporter = users_by_id.get(str(report.get("user_id")), {})
+        enriched_reports.append(
+            dict(
+                report,
+                field_name=field.get("name"),
+                reporter_name=reporter.get("name"),
+                reporter_email=reporter.get("email"),
+            )
+        )
+
+    return enriched_reports
+
+
+@router.get("/field-reports")
+def get_admin_field_reports(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    _: dict[str, Any] = Depends(require_admin),
+):
+    if status_filter and status_filter not in FIELD_REPORT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status must be open, in_review, resolved, or rejected",
+        )
+
+    query = (
+        get_supabase_client()
+        .table("field_reports")
+        .select(ADMIN_FIELD_REPORT_COLUMNS)
+        .order("created_at", desc=True)
+    )
+
+    if status_filter:
+        query = query.eq("status", status_filter)
+
+    return _attach_field_report_details(query.execute().data or [])
 
 
 @router.get("/stats")
