@@ -13,7 +13,10 @@ from app.routers.game_lifecycle import (
     finish_expired_games,
 )
 from app.routers.game_payloads import attach_participants_to_games
-from app.routers.notifications import create_game_closed_notifications
+from app.routers.notifications import (
+    create_game_closed_notifications,
+    create_game_extended_notifications,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -318,7 +321,7 @@ def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requir
 
 
 @router.post("/games/{game_id}/extend")
-def extend_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
+def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     game = _get_game(game_id)
     _ensure_admin_active_game(game)
 
@@ -331,18 +334,38 @@ def extend_admin_game(game_id: str, _: dict[str, Any] = Depends(require_admin)):
 
     current_expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
     new_expires = current_expires + timedelta(hours=1)
+    supabase = get_supabase_client()
     response = (
-        get_supabase_client()
+        supabase
         .table("games")
         .update({"expires_at": new_expires.isoformat()})
         .eq("id", game_id)
         .execute()
     )
+    updated_game = response.data[0]
+
+    try:
+        create_game_extended_notifications(
+            supabase=supabase,
+            game=updated_game,
+            new_end_time=new_expires,
+            extended_by_user_id=current_user["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game extended notifications after successful admin extend",
+            extra={
+                "game_id": game_id,
+                "extended_by_user_id": current_user.get("id"),
+                "field_id": updated_game.get("field_id"),
+                "new_end_time": new_expires.isoformat(),
+            },
+        )
 
     return {
         "message": "Game extended by 1 hour",
         "new_expires_at": new_expires.isoformat(),
-        "game": response.data[0],
+        "game": updated_game,
     }
 
 

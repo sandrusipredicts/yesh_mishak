@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from postgrest.exceptions import APIError
 from app.auth.jwt import create_access_token
 from app.core.config import get_settings
 from app.main import app
+from app.routers.notifications import create_game_extended_notifications
 
 
 class FakeResponse:
@@ -1193,6 +1195,14 @@ def game_closed_notifications(fake_supabase: FakeSupabase) -> list[dict[str, Any
     ]
 
 
+def game_extended_notifications(fake_supabase: FakeSupabase) -> list[dict[str, Any]]:
+    return [
+        notification
+        for notification in fake_supabase.tables["notifications"]
+        if notification.get("type") == "game_extended"
+    ]
+
+
 def set_game_participants(
     fake_supabase: FakeSupabase,
     game_id: str,
@@ -1225,6 +1235,31 @@ def assert_game_closed_notification(
         "field_id": "00000000-0000-0000-0000-000000000101",
         "type": "game_closed",
         "closed_by_user_id": notification["data"]["closed_by_user_id"],
+    }
+
+
+def assert_game_extended_notification(
+    notification: dict[str, Any],
+    *,
+    user_id: str,
+    new_end_time: str,
+    new_end_time_label: str,
+    extended_by_user_id: str,
+    game_id: str = "00000000-0000-0000-0000-000000000301",
+) -> None:
+    assert notification["user_id"] == user_id
+    assert notification["type"] == "game_extended"
+    assert notification["title"] == "המשחק הוארך"
+    assert notification["body"] == f"שעת הסיום החדשה של המשחק היא {new_end_time_label}"
+    assert new_end_time_label in notification["body"]
+    assert notification["game_id"] == game_id
+    assert notification["field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert notification["data"] == {
+        "game_id": game_id,
+        "field_id": "00000000-0000-0000-0000-000000000101",
+        "type": "game_extended",
+        "new_end_time": new_end_time,
+        "extended_by_user_id": extended_by_user_id,
     }
 
 
@@ -1413,6 +1448,215 @@ def test_close_game_with_no_participants_creates_no_game_closed_notifications(
 
     assert response.status_code == 200
     assert game_closed_notifications(fake_supabase) == []
+
+
+def test_extend_game_creates_game_extended_notification_for_participants(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["new_expires_at"] == "2026-06-22T20:30:00+00:00"
+    notifications = game_extended_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert_game_extended_notification(
+        notifications[0],
+        user_id=users["candidate"]["id"],
+        new_end_time="2026-06-22T20:30:00+00:00",
+        new_end_time_label="20:30",
+        extended_by_user_id=users["organizer"]["id"],
+    )
+
+
+def test_organizer_does_not_receive_game_extended_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_extended_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
+    assert users["organizer"]["id"] not in {
+        notification["user_id"] for notification in notifications
+    }
+
+
+def test_multiple_consecutive_extensions_create_multiple_notifications(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+    client = TestClient(app)
+
+    first_response = client.post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+    second_response = client.post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    notifications = game_extended_notifications(fake_supabase)
+    assert len(notifications) == 2
+    assert [notification["body"] for notification in notifications] == [
+        "שעת הסיום החדשה של המשחק היא 20:30",
+        "שעת הסיום החדשה של המשחק היא 21:30",
+    ]
+    assert [notification["data"]["new_end_time"] for notification in notifications] == [
+        "2026-06-22T20:30:00+00:00",
+        "2026-06-22T21:30:00+00:00",
+    ]
+
+
+def test_duplicate_game_extended_notification_is_not_created_for_same_extension(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+    new_end_time = datetime(2026, 6, 22, 20, 30, tzinfo=timezone.utc)
+
+    first_notifications = create_game_extended_notifications(
+        supabase=fake_supabase,
+        game=game,
+        new_end_time=new_end_time,
+        extended_by_user_id=users["organizer"]["id"],
+    )
+    second_notifications = create_game_extended_notifications(
+        supabase=fake_supabase,
+        game=game,
+        new_end_time=new_end_time,
+        extended_by_user_id=users["organizer"]["id"],
+    )
+
+    assert len(first_notifications) == 1
+    assert second_notifications == []
+    assert len(game_extended_notifications(fake_supabase)) == 1
+
+
+def test_failed_extend_does_not_create_game_extended_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 403
+    assert game_extended_notifications(fake_supabase) == []
+
+
+def test_extend_game_with_no_participants_except_creator_creates_no_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert game_extended_notifications(fake_supabase) == []
+
+
+@pytest.mark.parametrize("participant_count", [5, 10])
+def test_extend_game_notifies_each_non_creator_participant_once_for_large_games(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+    participant_count: int,
+) -> None:
+    game = make_open_game(users, expires_at="2026-06-22T19:30:00+00:00")
+    fake_supabase.tables["games"] = [game]
+    recipient_ids = [
+        f"00000000-0000-0000-0000-0000000005{index:02d}"
+        for index in range(1, participant_count)
+    ]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], *recipient_ids],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/extend",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_extended_notifications(fake_supabase)
+    assert len(notifications) == participant_count - 1
+    assert {notification["user_id"] for notification in notifications} == set(recipient_ids)
+    assert users["organizer"]["id"] not in {
+        notification["user_id"] for notification in notifications
+    }
+    assert all(
+        len([
+            notification
+            for notification in notifications
+            if notification["user_id"] == recipient_id
+        ]) == 1
+        for recipient_id in recipient_ids
+    )
+    for notification in notifications:
+        assert_game_extended_notification(
+            notification,
+            user_id=notification["user_id"],
+            new_end_time="2026-06-22T20:30:00+00:00",
+            new_end_time_label="20:30",
+            extended_by_user_id=users["organizer"]["id"],
+        )
 
 
 def test_join_game_notifies_organizer_when_another_user_joins(

@@ -533,6 +533,86 @@ def create_game_closed_notifications(
     return notifications
 
 
+def create_game_extended_notifications(
+    supabase: Any,
+    game: dict[str, Any],
+    new_end_time: datetime,
+    extended_by_user_id: str,
+) -> list[dict[str, Any]]:
+    game_id = game.get("id")
+    organizer_id = game.get("created_by")
+    if not game_id or not organizer_id:
+        return []
+
+    participant_rows = (
+        supabase.table("game_players")
+        .select("user_id")
+        .eq("game_id", game_id)
+        .execute()
+        .data
+        or []
+    )
+    excluded_user_ids = {str(organizer_id), str(extended_by_user_id)}
+    recipient_ids = [
+        user_id
+        for user_id in dict.fromkeys(
+            str(row.get("user_id"))
+            for row in participant_rows
+            if row.get("user_id")
+        )
+        if user_id not in excluded_user_ids
+    ]
+
+    if not recipient_ids:
+        return []
+
+    service_supabase = get_supabase_service_role_client()
+    new_end_time_iso = new_end_time.isoformat()
+    new_end_time_label = new_end_time.strftime("%H:%M")
+    existing_response = (
+        service_supabase.table("notifications")
+        .select("user_id,data")
+        .eq("type", "game_extended")
+        .eq("game_id", game_id)
+        .in_("user_id", recipient_ids)
+        .execute()
+    )
+    existing_user_ids = {
+        str(row["user_id"])
+        for row in existing_response.data or []
+        if row.get("user_id")
+        and isinstance(row.get("data"), dict)
+        and row["data"].get("new_end_time") == new_end_time_iso
+    }
+    field_id = game.get("field_id")
+    rows = [
+        {
+            "user_id": user_id,
+            "type": "game_extended",
+            "title": "המשחק הוארך",
+            "body": f"שעת הסיום החדשה של המשחק היא {new_end_time_label}",
+            "game_id": game_id,
+            "field_id": field_id,
+            "data": {
+                "game_id": game_id,
+                "field_id": field_id,
+                "type": "game_extended",
+                "new_end_time": new_end_time_iso,
+                "extended_by_user_id": extended_by_user_id,
+            },
+        }
+        for user_id in recipient_ids
+        if user_id not in existing_user_ids
+    ]
+
+    if not rows:
+        return []
+
+    notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
+
+
 @router.get("")
 def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
     authenticated_user_id = str(current_user["id"])
