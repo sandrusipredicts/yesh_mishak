@@ -69,3 +69,6 @@ drop index if exists idx_notifications_user_type_game_unique;
 create unique index if not exists idx_notifications_user_type_game_unique
     on notifications(user_id, type, game_id)
     where game_id is not null and type in ('game_created', 'game_closed');
+create unique index if not exists idx_notifications_user_game_extended_end_time_unique
+    on notifications(user_id, type, game_id, (data ->> 'new_end_time'))
+    where game_id is not null and type = 'game_extended' and data ? 'new_end_time';

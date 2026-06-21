@@ -20,6 +20,7 @@ from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
     create_game_closed_notifications,
     create_game_created_notifications,
+    create_game_extended_notifications,
     create_player_joined_game_notification,
 )
 
@@ -351,7 +352,8 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
 
 @router.post("/{game_id}/extend")
 def extend_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
-    game = _get_single("games", game_id, "Game not found")
+    supabase = get_supabase_client()
+    game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
 
     if game.get("created_by") != current_user["id"]:
@@ -363,8 +365,27 @@ def extend_game(game_id: str, current_user: dict[str, Any] = Depends(get_current
     current_expires = datetime.fromisoformat(game["expires_at"].replace("Z", "+00:00"))
     new_expires = current_expires + timedelta(hours=1)
 
-    get_supabase_client().table("games").update(
+    response = supabase.table("games").update(
         {"expires_at": new_expires.isoformat()}
     ).eq("id", game_id).execute()
+    updated_game = response.data[0] if response.data else dict(game, expires_at=new_expires.isoformat())
+
+    try:
+        create_game_extended_notifications(
+            supabase=supabase,
+            game=updated_game,
+            new_end_time=new_expires,
+            extended_by_user_id=current_user["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game extended notifications after successful extend",
+            extra={
+                "game_id": game_id,
+                "extended_by_user_id": current_user.get("id"),
+                "field_id": updated_game.get("field_id"),
+                "new_end_time": new_expires.isoformat(),
+            },
+        )
 
     return {"message": "Game extended by 1 hour", "new_expires_at": new_expires.isoformat()}
