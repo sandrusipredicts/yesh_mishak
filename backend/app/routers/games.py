@@ -18,6 +18,7 @@ from app.routers.game_lifecycle import (
 )
 from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
+    create_game_closed_notifications,
     create_game_created_notifications,
     create_player_joined_game_notification,
 )
@@ -327,6 +328,22 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Game close update did not persist",
+        )
+
+    try:
+        create_game_closed_notifications(
+            supabase=supabase,
+            game=updated_game,
+            closed_by_user_id=current_user["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game closed notifications after successful close",
+            extra={
+                "game_id": game_id,
+                "closed_by_user_id": current_user.get("id"),
+                "field_id": updated_game.get("field_id"),
+            },
         )
 
     return {"message": "Game closed", "game": updated_game}

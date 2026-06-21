@@ -218,6 +218,7 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
     monkeypatch.setattr("app.routers.notifications.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: fake)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake)
     return fake
 
 
@@ -1182,6 +1183,236 @@ def player_joined_notifications(fake_supabase: FakeSupabase) -> list[dict[str, A
         for notification in fake_supabase.tables["notifications"]
         if notification.get("type") == "player_joined_game"
     ]
+
+
+def game_closed_notifications(fake_supabase: FakeSupabase) -> list[dict[str, Any]]:
+    return [
+        notification
+        for notification in fake_supabase.tables["notifications"]
+        if notification.get("type") == "game_closed"
+    ]
+
+
+def set_game_participants(
+    fake_supabase: FakeSupabase,
+    game_id: str,
+    user_ids: list[str],
+) -> None:
+    fake_supabase.tables["game_players"] = [
+        {
+            "id": f"membership-{index}",
+            "game_id": game_id,
+            "user_id": user_id,
+        }
+        for index, user_id in enumerate(user_ids, start=1)
+    ]
+
+
+def assert_game_closed_notification(
+    notification: dict[str, Any],
+    *,
+    user_id: str,
+    game_id: str = "00000000-0000-0000-0000-000000000301",
+) -> None:
+    assert notification["user_id"] == user_id
+    assert notification["type"] == "game_closed"
+    assert notification["title"] == "המשחק נסגר"
+    assert notification["body"] == "המשחק במגרש Central Court נסגר על ידי המארגן."
+    assert notification["game_id"] == game_id
+    assert notification["field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert notification["data"] == {
+        "game_id": game_id,
+        "field_id": "00000000-0000-0000-0000-000000000101",
+        "type": "game_closed",
+        "closed_by_user_id": notification["data"]["closed_by_user_id"],
+    }
+
+
+def test_creator_close_notifies_one_participant(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_closed_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert_game_closed_notification(notifications[0], user_id=users["candidate"]["id"])
+    assert notifications[0]["data"]["closed_by_user_id"] == users["organizer"]["id"]
+
+
+def test_creator_close_notifies_multiple_participants(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["candidate"]["id"], users["other"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_closed_notifications(fake_supabase)
+    assert len(notifications) == 2
+    assert {notification["user_id"] for notification in notifications} == {
+        users["candidate"]["id"],
+        users["other"]["id"],
+    }
+    for notification in notifications:
+        assert notification["title"] == "המשחק נסגר"
+        assert notification["body"] == "המשחק במגרש Central Court נסגר על ידי המארגן."
+
+
+@pytest.mark.parametrize("participant_count", [5, 10])
+def test_creator_close_notifies_each_participant_once_for_large_games(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+    participant_count: int,
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    recipient_ids = [
+        f"00000000-0000-0000-0000-0000000004{index:02d}"
+        for index in range(1, participant_count)
+    ]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], *recipient_ids],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_closed_notifications(fake_supabase)
+    assert len(notifications) == participant_count - 1
+    assert {notification["user_id"] for notification in notifications} == set(recipient_ids)
+    assert users["organizer"]["id"] not in {
+        notification["user_id"] for notification in notifications
+    }
+    assert all(
+        len([
+            notification
+            for notification in notifications
+            if notification["user_id"] == recipient_id
+        ]) == 1
+        for recipient_id in recipient_ids
+    )
+    for notification in notifications:
+        assert_game_closed_notification(notification, user_id=notification["user_id"])
+        assert "Central Court" in notification["body"]
+        assert notification["data"]["closed_by_user_id"] == users["organizer"]["id"]
+
+
+def test_admin_close_notifies_participants_except_admin_participant(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"], users["admin"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/admin/games/{game['id']}/close",
+        headers=auth_headers(users["admin"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_closed_notifications(fake_supabase)
+    assert len(notifications) == 2
+    assert {notification["user_id"] for notification in notifications} == {
+        users["organizer"]["id"],
+        users["candidate"]["id"],
+    }
+    assert users["admin"]["id"] not in {notification["user_id"] for notification in notifications}
+    assert {notification["data"]["closed_by_user_id"] for notification in notifications} == {
+        users["admin"]["id"],
+    }
+
+
+def test_closer_does_not_receive_game_closed_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(
+        fake_supabase,
+        game["id"],
+        [users["organizer"]["id"], users["candidate"]["id"]],
+    )
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = game_closed_notifications(fake_supabase)
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
+
+
+def test_duplicate_close_does_not_create_duplicate_game_closed_notification(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+    client = TestClient(app)
+
+    first_response = client.post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+    second_response = client.post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 400
+    assert second_response.json()["detail"] == "Game already closed"
+    assert len(game_closed_notifications(fake_supabase)) == 1
+
+
+def test_close_game_with_no_participants_creates_no_game_closed_notifications(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_open_game(users)
+    fake_supabase.tables["games"] = [game]
+    fake_supabase.tables["game_players"] = []
+
+    response = TestClient(app).post(
+        f"/games/{game['id']}/close",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert game_closed_notifications(fake_supabase) == []
 
 
 def test_join_game_notifies_organizer_when_another_user_joins(
