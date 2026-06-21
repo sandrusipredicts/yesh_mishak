@@ -164,6 +164,41 @@ Add useful indexes for future filtering and admin review:
 * `created_at`
 * optionally `field_id, status`
 
+## Implementation Details
+
+Implemented as database/schema infrastructure only.
+
+Migration file:
+
+`backend/migrations/field_reports.sql`
+
+Schema file:
+
+`backend/schema.sql`
+
+Implemented table:
+
+`field_reports`
+
+Implemented constraints:
+
+* `category` is restricted to the approved ISSUE-006 category values.
+* `status` is restricted to `open`, `in_review`, `resolved`, and `rejected`.
+* `status` defaults to `open`.
+* `field_id` references `fields(id)` and cascades on field deletion.
+* `user_id` references `users(id)` and cascades on user deletion.
+* `reviewed_by` references `users(id)` and is set to null if the reviewer user is deleted.
+* `reviewed_at` is nullable.
+* `reviewed_by` is nullable.
+
+Implemented indexes:
+
+* `idx_field_reports_field_id`
+* `idx_field_reports_user_id`
+* `idx_field_reports_status`
+* `idx_field_reports_created_at`
+* `idx_field_reports_field_id_status`
+
 ## Acceptance Criteria
 
 * The `field_reports` table exists.
@@ -200,7 +235,7 @@ Excluded:
 
 ## Status
 
-Approved for implementation.
+Implemented.
 
 ---
 
