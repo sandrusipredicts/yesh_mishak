@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
-from app.routers import fields, games, notifications
+from app.routers import field_reports, fields, games, notifications
 
 app = FastAPI(title="yesh_mishak API", version="0.1.0")
 settings = get_settings()
@@ -32,6 +32,7 @@ app.add_middleware(
 
 app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(field_reports.router)
 app.include_router(fields.router)
 app.include_router(games.router)
 app.include_router(notifications.router)
