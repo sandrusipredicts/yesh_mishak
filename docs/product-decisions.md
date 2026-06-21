@@ -327,6 +327,97 @@ Implemented.
 
 ---
 
+# ISSUE-010 — Create Admin Field Reports Queue
+
+## Type
+
+Admin workflow / frontend and backend API implementation.
+
+## Dependency
+
+Depends on ISSUE-008.
+
+The queue reads reports from the `field_reports` table defined in ISSUE-007 and displays categories from the approved ISSUE-006 catalog.
+
+## Goal
+
+Allow admins to view and triage user-submitted field reports from the existing admin panel.
+
+## Decision
+
+Create an admin-only field reports queue in the admin panel.
+
+Backend endpoint:
+
+`GET /admin/field-reports`
+
+The endpoint is protected by the existing admin authorization requirement and returns reports sorted newest first.
+
+Returned fields include:
+
+* report id
+* field id
+* field name
+* reporter user id
+* reporter display name when available
+* reporter email when available
+* category
+* description
+* status
+* created_at
+* reviewed_at
+* reviewed_by
+
+## Admin Queue Display
+
+The admin queue displays:
+
+* Field Name
+* Report Category
+* Reporter
+* Date
+* Status
+* Description
+
+Reports are sorted newest first.
+
+## Filters
+
+The queue supports these status filters:
+
+* All
+* Open
+* In Review
+* Resolved
+* Rejected
+
+## Scope
+
+Included:
+
+* Admin-only backend list endpoint.
+* Enriched field and reporter data for the queue.
+* Admin panel queue UI.
+* Status filters.
+* Newest-first sorting.
+* Backend and frontend tests, including 20-report display coverage.
+
+Excluded:
+
+* No schema changes.
+* No frontend field report submission changes.
+* No report status update actions.
+* No report assignment workflow.
+* No notifications.
+* No image uploads.
+* No duplicate report aggregation.
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.

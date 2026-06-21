@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import AdminFields from '../components/admin/AdminFields'
+import AdminFieldReports from '../components/admin/AdminFieldReports'
 import AdminGames from '../components/admin/AdminGames'
 import AdminStats from '../components/admin/AdminStats'
 import AdminUsers from '../components/admin/AdminUsers'
@@ -33,6 +34,12 @@ function AdminPage() {
       label: t('admin.users'),
       title: t('admin.users'),
       placeholder: t('admin.usersPlaceholder'),
+    },
+    {
+      id: 'fieldReports',
+      label: t('admin.fieldReports'),
+      title: t('admin.fieldReports'),
+      placeholder: t('admin.fieldReportsPlaceholder'),
     },
   ], [t])
   const activeSection =
@@ -74,10 +81,12 @@ function AdminPage() {
           {activeSection.id === 'fields' ? <AdminFields /> : null}
           {activeSection.id === 'games' ? <AdminGames /> : null}
           {activeSection.id === 'users' ? <AdminUsers /> : null}
+          {activeSection.id === 'fieldReports' ? <AdminFieldReports /> : null}
           {activeSection.id !== 'stats' &&
           activeSection.id !== 'fields' &&
           activeSection.id !== 'games' &&
-          activeSection.id !== 'users' ? (
+          activeSection.id !== 'users' &&
+          activeSection.id !== 'fieldReports' ? (
             <div className="admin-section-placeholder">
               <p>{activeSection.placeholder}</p>
             </div>
