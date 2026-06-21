@@ -21,6 +21,7 @@ class FakeQuery:
         self.selected_columns: list[str] | None = None
         self.filters: list[tuple[str, Any]] = []
         self.in_filters: list[tuple[str, list[Any]]] = []
+        self.range_filter: tuple[int, int] | None = None
 
     def select(self, columns: str) -> "FakeQuery":
         self.selected_columns = [column.strip() for column in columns.split(",")]
@@ -37,6 +38,11 @@ class FakeQuery:
         self.in_filters.append((column, values))
         return self
 
+    def range(self, start: int, end: int) -> "FakeQuery":
+        self.client.range_calls.append((self.table_name, start, end))
+        self.range_filter = (start, end)
+        return self
+
     def execute(self) -> FakeResponse:
         self.client.execute_calls.append((self.table_name, list(self.in_filters)))
         if self.client.fail_next_execute_count > 0:
@@ -48,6 +54,11 @@ class FakeQuery:
             rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
+        if self.range_filter is None and self.table_name == "fields":
+            rows = rows[: self.client.default_fields_limit]
+        elif self.range_filter is not None:
+            start, end = self.range_filter
+            rows = rows[start : end + 1]
         return FakeResponse([self._select(row) for row in rows])
 
     def _select(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -61,8 +72,10 @@ class FakeSupabaseClient:
         self.tables = tables
         self.max_in_values = max_in_values
         self.in_filter_calls: list[tuple[str, str, list[Any]]] = []
+        self.range_calls: list[tuple[str, int, int]] = []
         self.execute_calls: list[tuple[str, list[tuple[str, list[Any]]]]] = []
         self.fail_next_execute_count = 0
+        self.default_fields_limit = 1000
 
     def table(self, table_name: str) -> FakeQuery:
         return FakeQuery(self, table_name)
@@ -182,6 +195,10 @@ def test_get_fields_handles_1357_fields_without_large_game_lookup(monkeypatch) -
     assert response.status_code == 200
     fields = response.json()
     assert len(fields) == 1357
+    assert fake_client.range_calls[:2] == [
+        ("fields", 0, 999),
+        ("fields", 1000, 1999),
+    ]
     assert fields[1]["active_game"]["id"] == "game-1"
     assert fields[1200]["upcoming_games"][0]["id"] == "upcoming-1"
     field_id_batches = [

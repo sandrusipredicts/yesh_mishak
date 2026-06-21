@@ -8,6 +8,7 @@ from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import get_game_payloads_for_fields
 
 router = APIRouter(prefix="/fields", tags=["fields"])
+FIELDS_PAGE_SIZE = 1000
 
 
 def _format_supabase_error(exc: Exception) -> dict[str, Any]:
@@ -70,14 +71,26 @@ def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[s
 @router.get("/")
 def get_fields():
     supabase = get_supabase_client()
-    response = (
-        supabase.table("fields")
-        .select("*")
-        .eq("verified", True)
-        .eq("approval_status", "approved")
-        .execute()
-    )
-    fields = response.data
+    fields: list[dict[str, Any]] = []
+    offset = 0
+
+    while True:
+        response = (
+            supabase.table("fields")
+            .select("*")
+            .eq("verified", True)
+            .eq("approval_status", "approved")
+            .range(offset, offset + FIELDS_PAGE_SIZE - 1)
+            .execute()
+        )
+        page = response.data or []
+        fields.extend(page)
+
+        if len(page) < FIELDS_PAGE_SIZE:
+            break
+
+        offset += FIELDS_PAGE_SIZE
+
     field_ids = [str(field["id"]) for field in fields if field.get("id")]
     active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields(field_ids)
 
