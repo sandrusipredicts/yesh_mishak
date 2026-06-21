@@ -856,7 +856,8 @@ select {
   font-weight: 700;
 }
 
-.navigation-panel-button {
+.navigation-panel-button,
+.report-panel-button {
   margin-top: 12px;
 }
 
@@ -914,6 +915,18 @@ select {
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
 }
 
+.field-report-modal {
+  position: relative;
+  width: min(480px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
 .open-game-modal h2,
 .navigation-modal h2 {
   margin: 0 0 18px;
@@ -921,7 +934,8 @@ select {
 }
 
 .notifications-modal h2,
-.add-field-modal h2 {
+.add-field-modal h2,
+.field-report-modal h2 {
   margin: 0 0 18px;
   font-size: 22px;
 }
@@ -1412,6 +1426,77 @@ select {
   margin: 0;
   color: #15803d;
   font-size: 14px;
+}
+
+.field-report-field-name {
+  margin: -8px 0 18px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.field-report-form {
+  display: grid;
+  gap: 14px;
+}
+
+.field-report-form label {
+  display: grid;
+  gap: 6px;
+  color: #172033;
+  font-weight: 700;
+}
+
+.field-report-form select,
+.field-report-form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.field-report-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.field-report-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.primary-modal-button,
+.secondary-modal-button {
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.primary-modal-button {
+  background: #172033;
+  color: #ffffff;
+}
+
+.secondary-modal-button {
+  background: #e2e8f0;
+  color: #172033;
+}
+
+.primary-modal-button:disabled,
+.secondary-modal-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+@media (max-width: 520px) {
+  .field-report-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .map-success {

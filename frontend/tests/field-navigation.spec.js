@@ -144,6 +144,63 @@ test('closes the navigation dialog without opening a provider', async ({ page })
   await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
+test('submits a field report from field details', async ({ page }) => {
+  await mockMapPageRequests(page, [navigableField])
+  let reportPayload = null
+
+  await page.route(/\/field-reports\/?$/, async (route) => {
+    reportPayload = route.request().postDataJSON()
+    return fulfillJson(route, {
+      id: 'report-1',
+      ...reportPayload,
+      user_id: user.id,
+      status: 'open',
+      reviewed_at: null,
+      reviewed_by: null,
+    })
+  })
+
+  await openFieldDetails(page)
+  await page.getByRole('button', { name: 'Report' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Report field' })
+  await expect(dialog).toBeVisible()
+
+  await dialog.getByLabel('Report type').selectOption('field_closed')
+  await dialog.getByLabel('Description').fill('Gate is locked.')
+  await dialog.getByRole('button', { name: 'Submit' }).click()
+
+  await expect(dialog.getByText('Report sent successfully.')).toBeVisible()
+  await expect
+    .poll(() => reportPayload)
+    .toEqual({
+      field_id: navigableField.id,
+      category: 'field_closed',
+      description: 'Gate is locked.',
+    })
+  await expect(dialog).toBeHidden()
+})
+
+test('cancels the field report modal without sending a report', async ({ page }) => {
+  await mockMapPageRequests(page, [navigableField])
+  let reportRequestCount = 0
+
+  await page.route(/\/field-reports\/?$/, async (route) => {
+    reportRequestCount += 1
+    return fulfillJson(route, {})
+  })
+
+  await openFieldDetails(page)
+  await page.getByRole('button', { name: 'Report' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Report field' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect.poll(() => reportRequestCount).toBe(0)
+})
+
 test('hides navigation for missing or invalid coordinates', async ({ page }) => {
   await mockMapPageRequests(page, [
     { ...navigableField, id: 'field-missing', latitude: null, longitude: null },
