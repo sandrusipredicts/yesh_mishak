@@ -265,3 +265,67 @@ test('notification preferences modal loads and saves settings', async ({ page })
     city_name: 'ירוחם',
   })
 })
+
+test('scheduled game reminder notifications surface in the notification center and can be marked read', async ({
+  page,
+}) => {
+  const notifications = [
+    {
+      id: 'scheduled-reminder-1',
+      type: 'scheduled_game_reminder',
+      title: 'תזכורת למשחק שמתקרב',
+      body: 'המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.',
+      read_at: null,
+      game_id: 'game-scheduled-1',
+      field_id: 'field-scheduled-1',
+      data: {
+        type: 'scheduled_game_reminder',
+        game_id: 'game-scheduled-1',
+        field_id: 'field-scheduled-1',
+        scheduled_at: '2026-06-22T20:00:00+00:00',
+      },
+      created_at: '2026-06-22T19:00:00.000Z',
+    },
+  ]
+
+  await page.route(/http:\/\/(localhost|127\.0\.0\.1):800[01]\/notifications.*/, (route) => {
+    const url = new URL(route.request().url())
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications') {
+      return fulfillJson(route, notifications)
+    }
+
+    if (route.request().method() === 'GET' && url.pathname === '/notifications/unread-count') {
+      return fulfillJson(route, {
+        unread_count: notifications.filter(isNotificationUnread).length,
+      })
+    }
+
+    if (
+      route.request().method() === 'PATCH'
+      && url.pathname === '/notifications/scheduled-reminder-1/read'
+    ) {
+      notifications[0] = { ...notifications[0], read_at: '2026-06-22T19:05:00.000Z' }
+      return fulfillJson(route, notifications[0])
+    }
+
+    return fulfillJson(route, { detail: 'Unhandled notification mock' }, 404)
+  })
+
+  await page.goto('/')
+
+  await expect(page.getByRole('button', { name: /Notifications, 1 unread/ })).toBeVisible()
+
+  await page.getByRole('button', { name: /Notifications/ }).click()
+
+  // Hebrew title + body from the scheduled reminder reach the existing inbox UI.
+  await expect(page.getByRole('button', { name: /תזכורת למשחק שמתקרב/ })).toBeVisible()
+  await expect(
+    page.getByText('המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.'),
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: /תזכורת למשחק שמתקרב/ }).click()
+
+  // Clicking the reminder hits the existing read endpoint and clears the badge.
+  await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible()
+})

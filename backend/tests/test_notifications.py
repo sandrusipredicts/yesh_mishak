@@ -1304,6 +1304,10 @@ def assert_scheduled_game_reminder_notification(
         "field_id": "00000000-0000-0000-0000-000000000101",
         "scheduled_at": scheduled_at,
     }
+    # New reminders must default to unread under either schema so they show
+    # up in the in-app notification center until the user opens them.
+    assert notification.get("read_at") is None
+    assert notification.get("is_read") in (None, False)
 
 
 def test_creator_close_notifies_one_participant(
@@ -2017,6 +2021,97 @@ def test_push_failure_does_not_block_scheduled_game_reminder_creation(
 
     assert result["notifications_created"] == 1
     assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+
+
+def test_scheduled_game_reminder_visible_to_recipient_via_get_notifications(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    response = TestClient(app).get(
+        "/notifications",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    reminders = [
+        row for row in response.json() if row.get("type") == "scheduled_game_reminder"
+    ]
+    assert len(reminders) == 1
+    reminder = reminders[0]
+    # The notification center surfaces the Hebrew copy and the routing data
+    # the click handler relies on to open the relevant game.
+    assert reminder["title"] == "תזכורת למשחק שמתקרב"
+    assert reminder["body"] == "המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן."
+    assert reminder["game_id"] == game["id"]
+    assert reminder["field_id"] == game["field_id"]
+    assert reminder["data"]["type"] == "scheduled_game_reminder"
+    # Unread by default so the inbox badge surfaces it.
+    assert reminder.get("read_at") is None
+
+
+def test_scheduled_game_reminder_not_visible_to_unrelated_user(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    response = TestClient(app).get(
+        "/notifications",
+        headers=auth_headers(users["other"]),
+    )
+
+    assert response.status_code == 200
+    assert [
+        row for row in response.json() if row.get("type") == "scheduled_game_reminder"
+    ] == []
+
+
+def test_scheduled_game_reminder_can_be_marked_read_by_recipient(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["candidate"]["id"]])
+
+    run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    reminders = scheduled_game_reminder_notifications(fake_supabase)
+    assert len(reminders) == 1
+    reminder_id = reminders[0]["id"]
+
+    response = TestClient(app).patch(
+        f"/notifications/{reminder_id}/read",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["read_at"] is not None
+    stored = next(
+        row
+        for row in fake_supabase.tables["notifications"]
+        if row["id"] == reminder_id
+    )
+    assert stored["read_at"] is not None
 
 
 def test_scheduled_game_created_after_reminder_window_is_marked_processed(
