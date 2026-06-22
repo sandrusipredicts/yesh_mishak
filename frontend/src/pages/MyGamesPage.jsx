@@ -95,11 +95,20 @@ function GameSection({ title, games, emptyText, t, locale }) {
   )
 }
 
+function filterCreatorOnly(games) {
+  if (!games) {
+    return []
+  }
+
+  return games.filter((g) => g.is_creator)
+}
+
 function MyGamesPage({ onBack }) {
   const { i18n, t } = useTranslation()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [organizerOnly, setOrganizerOnly] = useState(false)
   const isRtl = i18n.dir() === 'rtl'
   const BackArrow = isRtl ? ArrowRight : ArrowLeft
 
@@ -120,6 +129,15 @@ function MyGamesPage({ onBack }) {
     loadGames()
   }, [loadGames])
 
+  const displayData = organizerOnly && data
+    ? {
+        active_games: filterCreatorOnly(data.active_games),
+        upcoming_games: filterCreatorOnly(data.upcoming_games),
+        past_games: filterCreatorOnly(data.past_games),
+        cancelled_games: filterCreatorOnly(data.cancelled_games),
+      }
+    : data
+
   const hasAnyGames = data && (
     data.active_games?.length > 0 ||
     data.upcoming_games?.length > 0 ||
@@ -135,6 +153,15 @@ function MyGamesPage({ onBack }) {
           {t('myGames.back')}
         </button>
         <h2 className="my-games-title">{t('myGames.title')}</h2>
+        {hasAnyGames && (
+          <button
+            type="button"
+            className={`my-games-filter-toggle${organizerOnly ? ' my-games-filter-active' : ''}`}
+            onClick={() => setOrganizerOnly((v) => !v)}
+          >
+            {t('myGames.organizedByMe')}
+          </button>
+        )}
       </header>
 
       {loading && <p className="my-games-loading">{t('myGames.loading')}</p>}
@@ -148,28 +175,28 @@ function MyGamesPage({ onBack }) {
         <div className="my-games-sections">
           <GameSection
             title={t('myGames.activeGames')}
-            games={data.active_games}
+            games={displayData.active_games}
             emptyText={t('myGames.emptyActive')}
             t={t}
             locale={i18n.language}
           />
           <GameSection
             title={t('myGames.upcomingGames')}
-            games={data.upcoming_games}
+            games={displayData.upcoming_games}
             emptyText={t('myGames.emptyUpcoming')}
             t={t}
             locale={i18n.language}
           />
           <GameSection
             title={t('myGames.pastGames')}
-            games={data.past_games}
+            games={displayData.past_games}
             emptyText={t('myGames.emptyPast')}
             t={t}
             locale={i18n.language}
           />
           <GameSection
             title={t('myGames.cancelledGames')}
-            games={data.cancelled_games}
+            games={displayData.cancelled_games}
             emptyText={t('myGames.emptyCancelled')}
             t={t}
             locale={i18n.language}
