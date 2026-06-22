@@ -498,6 +498,20 @@ Decided.
 
 ---
 
+# ISSUE-014 - Admin User List Display
+
+## Decision
+
+The Admin Users list displays User ID, Username, Email, Phone, Created Date, and Status.
+
+The current users data model has no persisted account restriction/status field. Until Ban, Unban, or Suspend are implemented, the Admin Users list displays `Active` as an MVP account-status fallback for users without a real status value.
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.

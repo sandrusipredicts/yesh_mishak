@@ -1953,7 +1953,12 @@ select {
 }
 
 .admin-users-table {
-  min-width: 920px;
+  min-width: 980px;
+}
+
+.admin-users-table td:first-child {
+  max-width: 220px;
+  overflow-wrap: anywhere;
 }
 
 .admin-user-status {
