@@ -79,6 +79,7 @@ def make_client(monkeypatch, users=None):
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake)
     return TestClient(app), fake
 
 

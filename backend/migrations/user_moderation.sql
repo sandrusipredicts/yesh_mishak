@@ -16,6 +16,8 @@ create table if not exists user_moderation_audit (
     created_at timestamptz not null default now()
 );
 
+alter table user_moderation_audit enable row level security;
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
