@@ -37,6 +37,13 @@ PARTICIPANT = {
     "role": "user",
     "status": "active",
 }
+PARTICIPANT_2 = {
+    "id": "participant-2",
+    "email": "participant2@example.com",
+    "name": "Participant Two",
+    "role": "user",
+    "status": "active",
+}
 ADMIN = {
     "id": "admin-1",
     "email": "admin@example.com",
@@ -90,7 +97,7 @@ def make_tables(game: dict[str, Any], participants: list[dict[str, Any]] | None 
         for p in participants:
             game_players.append({"game_id": game["id"], "user_id": p["id"]})
 
-    all_users = [CREATOR, PARTICIPANT, ADMIN]
+    all_users = [CREATOR, PARTICIPANT, PARTICIPANT_2, ADMIN]
     return {
         "users": copy.deepcopy(all_users),
         "fields": [copy.deepcopy(FIELD)],
@@ -545,3 +552,89 @@ def test_creator_cancel_notifications_use_service_role(monkeypatch):
     ]
     assert len(service_notifications) == 1
     assert len(regular_notifications) == 0
+
+
+# ── ISSUE-018: Notification copy and multi-participant coverage ──
+
+
+def test_multiple_participants_all_receive_cancelled_notification(monkeypatch):
+    game = make_scheduled_game()
+    tables = make_tables(game, participants=[PARTICIPANT, PARTICIPANT_2])
+    client, _ = make_client(monkeypatch, tables)
+
+    client.post(f"/games/{game['id']}/cancel", json={}, headers=auth_headers(CREATOR))
+
+    notifications = [
+        n for n in tables["notifications"]
+        if n.get("type") == "scheduled_game_cancelled"
+    ]
+    recipient_ids = {n["user_id"] for n in notifications}
+    assert len(notifications) == 2
+    assert PARTICIPANT["id"] in recipient_ids
+    assert PARTICIPANT_2["id"] in recipient_ids
+    assert CREATOR["id"] not in recipient_ids
+
+
+def test_cancelled_notification_title_is_correct_hebrew(monkeypatch):
+    game = make_scheduled_game()
+    tables = make_tables(game, participants=[PARTICIPANT])
+    client, _ = make_client(monkeypatch, tables)
+
+    client.post(f"/games/{game['id']}/cancel", json={}, headers=auth_headers(CREATOR))
+
+    notifications = [
+        n for n in tables["notifications"]
+        if n.get("type") == "scheduled_game_cancelled"
+    ]
+    assert len(notifications) == 1
+    assert notifications[0]["title"] == "המשחק בוטל"
+
+
+def test_cancelled_notification_body_creator(monkeypatch):
+    game = make_scheduled_game()
+    tables = make_tables(game, participants=[PARTICIPANT])
+    client, _ = make_client(monkeypatch, tables)
+
+    client.post(f"/games/{game['id']}/cancel", json={}, headers=auth_headers(CREATOR))
+
+    notifications = [
+        n for n in tables["notifications"]
+        if n.get("type") == "scheduled_game_cancelled"
+    ]
+    assert len(notifications) == 1
+    assert notifications[0]["body"] == f"המשחק במגרש {FIELD['name']} בוטל על ידי המארגן"
+
+
+def test_cancelled_notification_body_admin(monkeypatch):
+    game = make_scheduled_game()
+    tables = make_tables(game, participants=[PARTICIPANT])
+    client, _ = make_client(monkeypatch, tables)
+
+    client.post(
+        f"/admin/games/{game['id']}/cancel",
+        json={},
+        headers=auth_headers(ADMIN),
+    )
+
+    notifications = [
+        n for n in tables["notifications"]
+        if n.get("type") == "scheduled_game_cancelled"
+    ]
+    creator_notification = next(n for n in notifications if n["user_id"] == CREATOR["id"])
+    assert creator_notification["body"] == f"המשחק במגרש {FIELD['name']} בוטל על ידי מנהל"
+
+
+def test_cancelled_notification_includes_game_id_and_field_id(monkeypatch):
+    game = make_scheduled_game()
+    tables = make_tables(game, participants=[PARTICIPANT, PARTICIPANT_2])
+    client, _ = make_client(monkeypatch, tables)
+
+    client.post(f"/games/{game['id']}/cancel", json={}, headers=auth_headers(CREATOR))
+
+    notifications = [
+        n for n in tables["notifications"]
+        if n.get("type") == "scheduled_game_cancelled"
+    ]
+    for notification in notifications:
+        assert notification["game_id"] == game["id"]
+        assert notification["field_id"] == FIELD["id"]
