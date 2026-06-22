@@ -52,3 +52,8 @@ export async function closeGame(gameId) {
   )
   return response.data
 }
+
+export async function getMyGames() {
+  const response = await api.get('/games/me')
+  return response.data
+}

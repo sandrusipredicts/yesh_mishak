@@ -7,6 +7,7 @@ import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
+import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId } from './api/auth'
 import { startForegroundPushNotifications } from './firebaseMessaging'
@@ -113,11 +114,23 @@ function App() {
     return <OnboardingPage onComplete={handleOnboardingComplete} />
   }
 
+  const navigateTo = (path) => {
+    window.history.pushState(null, '', path)
+    setPathname(path)
+  }
+
+  if (pathname === '/my-games') {
+    return <MyGamesPage onBack={() => navigateTo('/')} />
+  }
+
   return (
     <>
       <MapPage currentUserId={currentUser.id} />
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
+        <button type="button" onClick={() => navigateTo('/my-games')}>
+          {t('myGames.title')}
+        </button>
         <button type="button" onClick={handleLogout}>
           {t('app.logout')}
         </button>

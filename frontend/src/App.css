@@ -3,7 +3,8 @@
 .login-page,
 .onboarding-page,
 .map-page,
-.admin-page {
+.admin-page,
+.my-games-page {
   direction: inherit;
   text-align: start;
 }
@@ -2046,6 +2047,154 @@ select {
 .admin-action-button.unban:hover:not(:disabled),
 .admin-action-button.unsuspend:hover:not(:disabled) {
   background: #dcfce7;
+}
+
+.my-games-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: #f5f7fb;
+  color: #172033;
+}
+
+.my-games-header {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  margin: 0 auto 24px;
+}
+
+.my-games-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.my-games-title {
+  margin: 0;
+  font-size: 28px;
+}
+
+.my-games-loading,
+.my-games-error,
+.my-games-empty-all {
+  max-width: 680px;
+  margin: 0 auto;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  color: #64748b;
+  text-align: center;
+}
+
+.my-games-error {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.my-games-sections {
+  display: grid;
+  gap: 24px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.my-games-section {
+  display: grid;
+  gap: 10px;
+}
+
+.my-games-section-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.my-games-empty {
+  margin: 0;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 14px;
+  color: #64748b;
+  text-align: center;
+  font-size: 14px;
+}
+
+.my-games-list {
+  display: grid;
+  gap: 8px;
+}
+
+.my-games-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+}
+
+.my-games-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.my-games-field-name {
+  font-weight: 700;
+}
+
+.my-games-organizer-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-games-row-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.my-games-separator {
+  color: #cbd5e1;
+}
+
+.my-games-status {
+  font-weight: 700;
+}
+
+.my-games-status-open {
+  color: #15803d;
+}
+
+.my-games-status-full {
+  color: #d97706;
+}
+
+.my-games-status-finished {
+  color: #64748b;
+}
+
+.my-games-status-cancelled {
+  color: #b42318;
+}
+
+.my-games-row-date {
+  color: #64748b;
+  font-size: 13px;
 }
 
 @media (max-width: 640px) {

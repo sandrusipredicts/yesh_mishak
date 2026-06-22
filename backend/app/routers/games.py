@@ -220,6 +220,91 @@ def get_upcoming_games():
     return attach_participants_to_games(upcoming_games)
 
 
+@router.get("/me")
+def get_my_games(current_user: dict[str, Any] = Depends(require_active_user)):
+    supabase = get_supabase_client()
+    user_id = current_user["id"]
+
+    player_rows = (
+        supabase.table("game_players")
+        .select("game_id")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    participant_game_ids = [str(row["game_id"]) for row in player_rows if row.get("game_id")]
+
+    created_response = (
+        supabase.table("games").select("*").eq("created_by", user_id).execute()
+    )
+    created_games = {str(g["id"]): g for g in created_response.data if g.get("id")}
+
+    if participant_game_ids:
+        joined_response = (
+            supabase.table("games")
+            .select("*")
+            .in_("id", participant_game_ids)
+            .execute()
+        )
+        for g in joined_response.data:
+            if g.get("id"):
+                created_games.setdefault(str(g["id"]), g)
+
+    all_games = list(created_games.values())
+
+    active_status_games = [g for g in all_games if g.get("status") in ACTIVE_GAME_STATUSES]
+    active_status_games = finish_expired_games(active_status_games, supabase=supabase)
+
+    active_games = [g for g in active_status_games if is_game_started(g)]
+    active_games.sort(key=lambda g: parse_game_datetime(g.get("started_at")) or datetime.min.replace(tzinfo=timezone.utc))
+
+    upcoming_games = [g for g in active_status_games if is_game_upcoming(g)]
+    latest_dt = datetime.max.replace(tzinfo=timezone.utc)
+    upcoming_games.sort(key=lambda g: parse_game_datetime(g.get("scheduled_at")) or latest_dt)
+
+    past_games = [g for g in all_games if g.get("status") == "finished"]
+    past_games.sort(key=lambda g: parse_game_datetime(g.get("expires_at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    cancelled_games = [g for g in all_games if g.get("status") == "cancelled"]
+    cancelled_games.sort(key=lambda g: parse_game_datetime(g.get("cancelled_at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    def enrich(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        games = _attach_field_names(games, supabase)
+        games = attach_participants_to_games(games)
+        for g in games:
+            g["is_creator"] = str(g.get("created_by", "")) == user_id
+        return games
+
+    return {
+        "active_games": enrich(active_games),
+        "upcoming_games": enrich(upcoming_games),
+        "past_games": enrich(past_games),
+        "cancelled_games": enrich(cancelled_games),
+    }
+
+
+def _attach_field_names(games: list[dict[str, Any]], supabase: Any) -> list[dict[str, Any]]:
+    if not games:
+        return []
+
+    field_ids = sorted({str(g["field_id"]) for g in games if g.get("field_id")})
+    fields_by_id: dict[str, str] = {}
+    if field_ids:
+        field_rows = (
+            supabase.table("fields").select("id,name").in_("id", field_ids).execute().data
+        )
+        fields_by_id = {
+            str(f["id"]): f.get("name") or "Unknown field"
+            for f in field_rows
+            if f.get("id")
+        }
+
+    return [
+        dict(g, field_name=fields_by_id.get(str(g.get("field_id")), "Unknown field"))
+        for g in games
+    ]
+
+
 @router.post("/{game_id}/join")
 def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
