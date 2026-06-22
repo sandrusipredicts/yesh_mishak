@@ -1986,8 +1986,66 @@ select {
   color: #64748b;
 }
 
+.admin-user-status.banned {
+  color: #dc2626;
+}
+
+.admin-user-status.suspended {
+  color: #d97706;
+}
+
 .admin-user-status.unknown {
   color: #94a3b8;
+}
+
+.admin-user-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.admin-action-button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-action-button.ban {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.admin-action-button.ban:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.admin-action-button.suspend {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.admin-action-button.suspend:hover:not(:disabled) {
+  background: #fef3c7;
+}
+
+.admin-action-button.unban,
+.admin-action-button.unsuspend {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.admin-action-button.unban:hover:not(:disabled),
+.admin-action-button.unsuspend:hover:not(:disabled) {
+  background: #dcfce7;
 }
 
 @media (max-width: 640px) {

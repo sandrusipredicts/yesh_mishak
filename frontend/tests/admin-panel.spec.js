@@ -201,6 +201,9 @@ async function mockAdminApi(
           created_at: '2026-06-01T10:00:00.000Z',
           last_active: '2026-06-14T10:00:00.000Z',
           role: 'user',
+          status: 'active',
+          restriction_reason: null,
+          restricted_at: null,
         },
       ])
     }
@@ -308,12 +311,15 @@ test('admin users tab loads without crashing', async ({ page }) => {
   await expect(page.getByRole('columnheader', { name: 'Phone' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Created Date' })).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Actions' })).toBeVisible()
   const userRow = page.getByRole('row', { name: /regular-user-1 regular-user/ })
   await expect(userRow.getByRole('cell', { name: 'regular-user-1' })).toBeVisible()
   await expect(userRow.getByRole('cell', { name: 'regular-user', exact: true })).toBeVisible()
   await expect(userRow.getByRole('cell', { name: 'user@example.com' })).toBeVisible()
   await expect(userRow.getByRole('cell', { name: '050-0000000' })).toBeVisible()
   await expect(userRow.getByRole('cell', { name: 'Active' })).toBeVisible()
+  await expect(userRow.getByRole('button', { name: 'Ban' })).toBeVisible()
+  await expect(userRow.getByRole('button', { name: 'Suspend' })).toBeVisible()
 })
 
 test('admin field reports queue displays 20 reports sorted newest first and filters by status', async ({ page }) => {

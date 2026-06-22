@@ -30,7 +30,7 @@ def get_current_user(
     response = (
         get_supabase_client()
         .table("users")
-        .select("id,email,name,role")
+        .select("id,email,name,role,status")
         .eq("id", user_id)
         .limit(1)
         .execute()
@@ -43,6 +43,21 @@ def get_current_user(
         )
 
     return response.data[0]
+
+
+def require_active_user(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    user_status = current_user.get("status", "active")
+    if user_status == "banned":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is banned",
+        )
+    if user_status == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is suspended",
+        )
+    return current_user
 
 
 def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:

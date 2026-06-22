@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getAdminUsers } from '../../api/admin'
+import { banUser, getAdminUsers, suspendUser, unbanUser, unsuspendUser } from '../../api/admin'
 
 function matchesSearch(user, normalizedSearch) {
   if (!normalizedSearch) {
@@ -19,6 +19,8 @@ function AdminUsers() {
   const [searchText, setSearchText] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionLoading, setActionLoading] = useState(null)
+  const [actionError, setActionError] = useState('')
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -45,32 +47,126 @@ function AdminUsers() {
     }
   }
 
+  const loadUsers = useCallback(async () => {
+    try {
+      setError('')
+      const loadedUsers = await getAdminUsers()
+      setUsers(Array.isArray(loadedUsers) ? loadedUsers : [])
+    } catch {
+      setError(t('admin.failedLoadUsers'))
+    } finally {
+      setIsLoading(false)
+    }
+  }, [t])
+
   useEffect(() => {
     let isMounted = true
 
-    async function loadUsers() {
-      try {
-        const loadedUsers = await getAdminUsers()
-        if (isMounted) {
+    async function load() {
+      const loadedUsers = await getAdminUsers().catch(() => null)
+      if (isMounted) {
+        if (loadedUsers) {
           setUsers(Array.isArray(loadedUsers) ? loadedUsers : [])
-        }
-      } catch {
-        if (isMounted) {
+        } else {
           setError(t('admin.failedLoadUsers'))
         }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
+        setIsLoading(false)
       }
     }
 
-    loadUsers()
+    load()
 
     return () => {
       isMounted = false
     }
   }, [t])
+
+  async function handleModeration(userId, action) {
+    let reason = ''
+
+    if (action === 'ban' || action === 'suspend') {
+      reason = window.prompt(t('admin.moderationReasonPrompt'))
+      if (reason === null) {
+        return
+      }
+      reason = reason.trim()
+      if (!reason) {
+        setActionError(t('admin.moderationReasonRequired'))
+        return
+      }
+    }
+
+    setActionLoading(userId)
+    setActionError('')
+
+    try {
+      if (action === 'ban') {
+        await banUser(userId, reason)
+      } else if (action === 'unban') {
+        await unbanUser(userId)
+      } else if (action === 'suspend') {
+        await suspendUser(userId, reason)
+      } else if (action === 'unsuspend') {
+        await unsuspendUser(userId)
+      }
+      await loadUsers()
+    } catch {
+      setActionError(t('admin.moderationActionFailed'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  function renderActions(user) {
+    if (user.role === 'admin') {
+      return null
+    }
+
+    const isUserLoading = actionLoading === user.id
+
+    if (user.status === 'banned') {
+      return (
+        <button
+          className="admin-action-button unban"
+          disabled={isUserLoading}
+          onClick={() => handleModeration(user.id, 'unban')}
+        >
+          {isUserLoading ? t('admin.moderationLoading') : t('admin.unban')}
+        </button>
+      )
+    }
+
+    if (user.status === 'suspended') {
+      return (
+        <button
+          className="admin-action-button unsuspend"
+          disabled={isUserLoading}
+          onClick={() => handleModeration(user.id, 'unsuspend')}
+        >
+          {isUserLoading ? t('admin.moderationLoading') : t('admin.unsuspend')}
+        </button>
+      )
+    }
+
+    return (
+      <>
+        <button
+          className="admin-action-button ban"
+          disabled={isUserLoading}
+          onClick={() => handleModeration(user.id, 'ban')}
+        >
+          {t('admin.ban')}
+        </button>
+        <button
+          className="admin-action-button suspend"
+          disabled={isUserLoading}
+          onClick={() => handleModeration(user.id, 'suspend')}
+        >
+          {t('admin.suspend')}
+        </button>
+      </>
+    )
+  }
 
   const filteredUsers = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase()
@@ -98,6 +194,7 @@ function AdminUsers() {
 
       {isLoading ? <p className="admin-loading">{t('admin.loadingUsers')}</p> : null}
       {error ? <p className="admin-error">{error}</p> : null}
+      {actionError ? <p className="admin-error">{actionError}</p> : null}
 
       {!isLoading && !error && users.length === 0 ? (
         <p className="admin-empty-state">{t('admin.noUsers')}</p>
@@ -118,6 +215,7 @@ function AdminUsers() {
                 <th>{t('admin.phone')}</th>
                 <th>{t('admin.createdDate')}</th>
                 <th>{t('admin.status')}</th>
+                <th>{t('admin.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +234,7 @@ function AdminUsers() {
                         {accountStatus.label}
                       </span>
                     </td>
+                    <td className="admin-user-actions">{renderActions(user)}</td>
                   </tr>
                 )
               })}

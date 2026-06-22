@@ -5,7 +5,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -73,7 +73,7 @@ def _normalize_scheduled_at(value: datetime | None) -> datetime | None:
 
 
 @router.post("/")
-def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(get_current_user)):
+def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require_active_user)):
     if game.sport_type not in ("football", "basketball"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -216,7 +216,7 @@ def get_upcoming_games():
 
 
 @router.post("/{game_id}/join")
-def join_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
+def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
     game = _get_single("games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -282,7 +282,7 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_u
 
 
 @router.post("/{game_id}/leave")
-def leave_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
+def leave_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
     game = _get_single("games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -312,7 +312,7 @@ def leave_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
 
 
 @router.post("/{game_id}/close")
-def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
+def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -361,7 +361,7 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_
 
 
 @router.post("/{game_id}/extend")
-def extend_game(game_id: str, current_user: dict[str, Any] = Depends(get_current_user)):
+def extend_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)

@@ -3,7 +3,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.auth.dependencies import get_current_user, require_admin
+from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import get_game_payloads_for_fields
 
@@ -117,7 +117,7 @@ def get_field(field_id: str):
 
 
 @router.post("/")
-def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(get_current_user)):
+def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(require_active_user)):
     supabase = get_supabase_client()
     data = {
         "name": field.name,
