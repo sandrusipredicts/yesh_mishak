@@ -8,6 +8,10 @@ create table if not exists users (
     password_hash text,
     name text not null,
     role text not null default 'user' check (role in ('user', 'admin')),
+    status text not null default 'active' check (status in ('active', 'banned', 'suspended')),
+    restriction_reason text,
+    restricted_at timestamptz,
+    restricted_by uuid references users(id) on delete set null,
     picture text,
     phone_number text unique,
     created_at timestamptz not null default now(),
@@ -113,6 +117,20 @@ create table if not exists notifications (
     created_at timestamptz not null default now()
 );
 
+create table if not exists user_moderation_audit (
+    id uuid primary key default gen_random_uuid(),
+    target_user_id uuid not null references users(id) on delete cascade,
+    actor_user_id uuid references users(id) on delete set null,
+    action_type text not null check (action_type in ('ban', 'unban', 'suspend', 'unsuspend')),
+    reason text,
+    previous_status text not null,
+    new_status text not null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_users_status on users(status);
+create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
+create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_created_by on games(created_by);

@@ -512,6 +512,71 @@ Implemented.
 
 ---
 
+# ISSUE-015 - Admin User Moderation Actions
+
+## Decision
+
+Admin users can Ban, Unban, Suspend, and Unsuspend regular (non-admin) users. Every action writes an audit log row. Promote Admin and Demote Admin remain out of scope per ISSUE-013.
+
+## DB Shape
+
+### users table additions
+
+* `status text not null default 'active'` — accepted values: `active`, `banned`, `suspended`.
+* `restriction_reason text` — required for ban/suspend, cleared on unban/unsuspend.
+* `restricted_at timestamptz` — when the current restriction was applied.
+* `restricted_by uuid references users(id)` — which admin applied the current restriction.
+
+### user_moderation_audit table
+
+* `id uuid primary key`
+* `target_user_id uuid not null references users(id)` — the user being moderated.
+* `actor_user_id uuid references users(id)` — the admin performing the action.
+* `action_type text not null` — accepted values: `ban`, `unban`, `suspend`, `unsuspend`.
+* `reason text` — required for ban/suspend, optional for unban/unsuspend.
+* `previous_status text not null` — status before the action.
+* `new_status text not null` — status after the action.
+* `created_at timestamptz not null default now()`.
+
+## API Contract
+
+* `POST /admin/users/{user_id}/ban` — body `{ "reason": "..." }` (required).
+* `POST /admin/users/{user_id}/unban` — body `{ "reason": "..." }` (optional).
+* `POST /admin/users/{user_id}/suspend` — body `{ "reason": "..." }` (required).
+* `POST /admin/users/{user_id}/unsuspend` — body `{ "reason": "..." }` (optional).
+
+All return `{ "message": "...", "user": { ... } }`.
+
+## Enforcement
+
+Banned and suspended users are blocked from all normal authenticated user workflows via `require_active_user`. Admin endpoints use `require_admin` which does not block restricted admins (admins are never the target of these actions).
+
+## What is included
+
+* Ban, Unban, Suspend, Unsuspend endpoints.
+* Audit log table and per-action audit rows.
+* Server-side restriction enforcement on all user routes.
+* Admin UI actions (Ban/Suspend for active users, Unban for banned, Unsuspend for suspended).
+* Hebrew and English labels.
+
+## What is explicitly excluded
+
+* Promote Admin.
+* Demote Admin / Remove Admin.
+* Role management UI.
+* Suspension duration / auto-unsuspend.
+
+## Dependencies
+
+* ISSUE-013 (pre-launch user management decision).
+* ISSUE-014 (admin user list display — now extended with real status).
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.

@@ -50,11 +50,19 @@ class FakeUsersQuery:
         self.order_desc = desc
         return self
 
+    def insert(self, payload: dict[str, Any]) -> "FakeUsersQuery":
+        self.rows.append(dict(payload))
+        self._insert_data = [dict(payload)]
+        return self
+
     def update(self, payload: dict[str, Any]) -> "FakeUsersQuery":
         self.update_payload = payload
         return self
 
     def execute(self) -> FakeResponse:
+        if hasattr(self, "_insert_data"):
+            return FakeResponse(data=self._insert_data)
+
         if self.update_payload is not None:
             rows = self._filtered_rows()
             for row in rows:
@@ -313,6 +321,7 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
         "email": "admin@example.com",
         "name": "Admin User",
         "role": "admin",
+        "status": "active",
     }
     listed_user = {
         "id": "00000000-0000-0000-0000-000000000002",
@@ -323,6 +332,9 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
         "created_at": "2026-06-15T09:00:00+00:00",
         "last_active": None,
         "role": "user",
+        "status": "active",
+        "restriction_reason": None,
+        "restricted_at": None,
         "google_sub": "private-provider-id",
         "picture": "https://example.com/private.png",
     }
@@ -351,6 +363,9 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
             "created_at": listed_user["created_at"],
             "last_active": None,
             "role": listed_user["role"],
+            "status": "active",
+            "restriction_reason": None,
+            "restricted_at": None,
         },
         {
             "id": admin_user["id"],
@@ -361,6 +376,9 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
             "created_at": None,
             "last_active": None,
             "role": admin_user["role"],
+            "status": "active",
+            "restriction_reason": None,
+            "restricted_at": None,
         },
     ]
 

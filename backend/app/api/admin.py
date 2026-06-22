@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client
@@ -52,6 +52,9 @@ ADMIN_USER_COLUMNS = ",".join(
         "created_at",
         "last_active",
         "role",
+        "status",
+        "restriction_reason",
+        "restricted_at",
     ]
 )
 ADMIN_FIELD_REPORT_COLUMNS = ",".join(
@@ -136,6 +139,143 @@ def get_admin_users(_: dict[str, Any] = Depends(require_admin)):
         .execute()
     )
     return response.data
+
+
+ACTION_TO_NEW_STATUS = {
+    "ban": "banned",
+    "unban": "active",
+    "suspend": "suspended",
+    "unsuspend": "active",
+}
+ACTION_REQUIRED_CURRENT_STATUS = {
+    "ban": "active",
+    "unban": "banned",
+    "suspend": "active",
+    "unsuspend": "suspended",
+}
+
+
+class ModerationActionBody(BaseModel):
+    reason: str = ""
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        return value.strip()
+
+
+def _perform_moderation_action(
+    user_id: str,
+    action_type: str,
+    body: ModerationActionBody,
+    admin_user: dict[str, Any],
+) -> dict[str, Any]:
+    supabase = get_supabase_client()
+
+    target = (
+        supabase
+        .table("users")
+        .select("id,role,status")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not target.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    target_user = target.data[0]
+
+    if target_user["role"] == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot moderate admin users",
+        )
+
+    required_status = ACTION_REQUIRED_CURRENT_STATUS[action_type]
+    if target_user["status"] != required_status:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User is not currently {required_status}",
+        )
+
+    if action_type in ("ban", "suspend") and not body.reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reason is required",
+        )
+
+    new_status = ACTION_TO_NEW_STATUS[action_type]
+    now = datetime.now(timezone.utc).isoformat()
+
+    update_payload: dict[str, Any] = {"status": new_status}
+    if action_type in ("ban", "suspend"):
+        update_payload["restriction_reason"] = body.reason
+        update_payload["restricted_at"] = now
+        update_payload["restricted_by"] = admin_user["id"]
+    else:
+        update_payload["restriction_reason"] = None
+        update_payload["restricted_at"] = None
+        update_payload["restricted_by"] = None
+
+    updated = (
+        supabase
+        .table("users")
+        .update(update_payload)
+        .eq("id", user_id)
+        .execute()
+    )
+
+    supabase.table("user_moderation_audit").insert(
+        {
+            "target_user_id": user_id,
+            "actor_user_id": admin_user["id"],
+            "action_type": action_type,
+            "reason": body.reason or None,
+            "previous_status": target_user["status"],
+            "new_status": new_status,
+        }
+    ).execute()
+
+    return {"message": f"User {action_type} successful", "user": updated.data[0]}
+
+
+@router.post("/users/{user_id}/ban")
+def ban_user(
+    user_id: str,
+    body: ModerationActionBody,
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    return _perform_moderation_action(user_id, "ban", body, current_user)
+
+
+@router.post("/users/{user_id}/unban")
+def unban_user(
+    user_id: str,
+    body: ModerationActionBody = ModerationActionBody(),
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    return _perform_moderation_action(user_id, "unban", body, current_user)
+
+
+@router.post("/users/{user_id}/suspend")
+def suspend_user(
+    user_id: str,
+    body: ModerationActionBody,
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    return _perform_moderation_action(user_id, "suspend", body, current_user)
+
+
+@router.post("/users/{user_id}/unsuspend")
+def unsuspend_user(
+    user_id: str,
+    body: ModerationActionBody = ModerationActionBody(),
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    return _perform_moderation_action(user_id, "unsuspend", body, current_user)
 
 
 def _attach_field_report_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:

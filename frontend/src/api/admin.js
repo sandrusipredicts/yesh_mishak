@@ -54,6 +54,26 @@ export async function getAdminUsers() {
   return response.data
 }
 
+export async function banUser(userId, reason) {
+  const response = await api.post(`/admin/users/${userId}/ban`, { reason })
+  return response.data
+}
+
+export async function unbanUser(userId) {
+  const response = await api.post(`/admin/users/${userId}/unban`, {})
+  return response.data
+}
+
+export async function suspendUser(userId, reason) {
+  const response = await api.post(`/admin/users/${userId}/suspend`, { reason })
+  return response.data
+}
+
+export async function unsuspendUser(userId) {
+  const response = await api.post(`/admin/users/${userId}/unsuspend`, {})
+  return response.data
+}
+
 export async function getAdminFieldReports() {
   const response = await api.get('/admin/field-reports')
   return response.data

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field, ValidationError
 
-from app.auth.dependencies import get_current_user, require_admin
+from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
@@ -738,7 +738,7 @@ def generate_scheduled_game_reminders(
 
 
 @router.get("")
-def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
+def get_notifications(current_user: dict[str, Any] = Depends(require_active_user)):
     authenticated_user_id = str(current_user["id"])
     response = (
         get_supabase_service_role_client()
@@ -752,7 +752,7 @@ def get_notifications(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 @router.get("/unread-count")
-def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_current_user)):
+def get_unread_notification_count(current_user: dict[str, Any] = Depends(require_active_user)):
     authenticated_user_id = str(current_user["id"])
     response = (
         get_supabase_service_role_client()
@@ -768,7 +768,7 @@ def get_unread_notification_count(current_user: dict[str, Any] = Depends(get_cur
 @router.post("/push-token")
 def save_push_token(
     payload: PushTokenRequest,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_active_user),
 ):
     client = get_supabase_service_role_client()
     token = payload.token.strip()
@@ -807,7 +807,7 @@ def save_push_token(
 @router.delete("/push-token")
 def delete_push_token(
     payload: PushTokenDeleteRequest | None = Body(default=None),
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_active_user),
 ):
     token = payload.token.strip() if payload and payload.token else ""
     if not token:
@@ -830,7 +830,7 @@ def delete_push_token(
 
 
 @router.post("/test-push")
-def send_test_push(current_user: dict[str, Any] = Depends(get_current_user)):
+def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
     client = get_supabase_service_role_client()
     tokens = (
         client.table("push_tokens")
@@ -869,7 +869,7 @@ def send_test_push(current_user: dict[str, Any] = Depends(get_current_user)):
 
 
 @router.patch("/read-all")
-def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_current_user)):
+def mark_all_notifications_read(current_user: dict[str, Any] = Depends(require_active_user)):
     authenticated_user_id = str(current_user["id"])
     client = get_supabase_service_role_client()
 
@@ -909,7 +909,7 @@ def mark_all_notifications_read(current_user: dict[str, Any] = Depends(get_curre
 @router.patch("/{notification_id}/read")
 def mark_notification_read(
     notification_id: str,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_active_user),
 ):
     authenticated_user_id = str(current_user["id"])
     client = get_supabase_service_role_client()
@@ -939,7 +939,7 @@ def mark_notification_read(
 
 
 @router.get("/preferences")
-def get_preferences(current_user: dict[str, Any] = Depends(get_current_user)):
+def get_preferences(current_user: dict[str, Any] = Depends(require_active_user)):
     response = (
         get_supabase_service_role_client()
         .table("notification_preferences")
@@ -1100,7 +1100,7 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 @router.put("/preferences")
 def save_preferences(
     body: Any = Body(...),
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_active_user),
 ):
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")

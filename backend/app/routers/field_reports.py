@@ -3,7 +3,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
 
 router = APIRouter(prefix="/field-reports", tags=["field-reports"])
@@ -63,7 +63,7 @@ def _ensure_field_exists(field_id: str) -> None:
 @router.post("")
 def create_field_report(
     payload: FieldReportCreate,
-    current_user: dict[str, Any] = Depends(get_current_user),
+    current_user: dict[str, Any] = Depends(require_active_user),
 ):
     if payload.category not in ALLOWED_FIELD_REPORT_CATEGORIES:
         raise HTTPException(
