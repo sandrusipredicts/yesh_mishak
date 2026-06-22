@@ -2081,6 +2081,33 @@ select {
   font-size: 28px;
 }
 
+.my-games-filter-toggle {
+  padding: 6px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.my-games-filter-toggle:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.my-games-filter-active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.my-games-filter-active:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
 .my-games-loading,
 .my-games-error,
 .my-games-empty-all {

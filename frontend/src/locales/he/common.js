@@ -388,6 +388,7 @@ const he = {
     emptyCancelled: 'אין משחקים שבוטלו.',
     emptyAll: 'עדיין לא השתתפת באף משחק.',
     organizer: 'מארגן',
+    organizedByMe: 'שאירגנתי',
     players: '{{current}} / {{max}}',
     statusOpen: 'פתוח',
     statusFull: 'מלא',

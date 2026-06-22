@@ -388,6 +388,7 @@ const en = {
     emptyCancelled: 'No cancelled games.',
     emptyAll: 'You haven\'t played any games yet.',
     organizer: 'Organizer',
+    organizedByMe: 'Organized by me',
     players: '{{current}} / {{max}}',
     statusOpen: 'Open',
     statusFull: 'Full',
