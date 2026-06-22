@@ -1065,6 +1065,249 @@ Documented.
 
 ---
 
+# ISSUE-027 - Game History Requirements Specification
+
+## Type
+
+Product specification / requirements definition.
+
+## Dependencies
+
+* ISSUE-019 (game lifecycle state documentation — defines the state model and statuses).
+* ISSUE-024 (game visibility rules — defines current endpoint filtering).
+
+## Background
+
+The product currently has no concept of "game history" for users. There is no endpoint, UI, or product definition for what a user should see when reviewing their past or current game activity. Before building a "My Games" feature, the product rules must be defined.
+
+## Current Behavior Audit
+
+### What exists today
+
+| Feature | Status |
+| --- | --- |
+| `/games/active` — list of currently playable games (all users, all fields) | Implemented |
+| `/games/upcoming` — list of future scheduled games (all users, all fields) | Implemented |
+| `/fields/{id}` — active game + upcoming games per field | Implemented |
+| `/admin/games` — admin view of active + finished/cancelled games | Implemented |
+| User profile / "My Games" endpoint | **Not implemented** |
+| User game history endpoint | **Not implemented** |
+| User game history UI | **Not implemented** |
+
+### How user–game relationships are tracked
+
+| Relationship | How it is stored | Notes |
+| --- | --- | --- |
+| Creator | `games.created_by = user_id` | Permanent. Survives game lifecycle. |
+| Current participant | `game_players` row with `user_id` | Row exists as long as user is in the game. |
+| Left participant | **Not tracked** | `leave_game` deletes the `game_players` row. No `left_at` column exists. Once a user leaves, there is no record of past participation. |
+
+### Game statuses (from ISSUE-019)
+
+| Status | Terminal? | Meaning |
+| --- | --- | --- |
+| `open` | No | Game has room for players. |
+| `full` | No | Game is at max capacity. |
+| `finished` | Yes | Game ended (expired, closed manually, or auto-finished). |
+| `cancelled` | Yes | Scheduled game was cancelled before start. |
+
+Derived states: **Scheduled** (`open`/`full` with `scheduled_at > now`), **Active** (`open`/`full`, started, not expired), **Expired** (auto-transitions to `finished`).
+
+## Decision — Game History Sections
+
+User game activity is split into four clearly separated sections. The term "history" is avoided as an umbrella label — instead, each section has a specific name and purpose.
+
+### Section 1: My Active Games
+
+**What it shows:** Games the user is currently playing or participating in that are in progress right now.
+
+**Filter:** User is in `game_players` (or is `created_by`) AND `status IN ('open', 'full')` AND game has started (`scheduled_at` is null or `scheduled_at <= now`) AND not expired.
+
+**Sort:** By `started_at` ascending (earliest-started first, so the user sees which games end soonest).
+
+**Edge cases:**
+* Full game where user is a participant — included (user is still in the game).
+* Expired game — excluded (auto-finished by `finish_expired_games` before query returns).
+
+### Section 2: My Upcoming Games
+
+**What it shows:** Future scheduled games the user has joined or created that have not started yet.
+
+**Filter:** User is in `game_players` (or is `created_by`) AND `status IN ('open', 'full')` AND `scheduled_at > now`.
+
+**Sort:** By `scheduled_at` ascending (nearest upcoming game first).
+
+**Edge cases:**
+* Scheduled game that was cancelled — excluded (`status = 'cancelled'`, not in `ACTIVE_GAME_STATUSES`).
+
+### Section 3: My Past Games
+
+**What it shows:** Games the user participated in (or created) that have ended normally.
+
+**Filter:** User is in `game_players` (or is `created_by`) AND `status = 'finished'`.
+
+**Sort:** By `expires_at` descending (most recently ended first).
+
+**Includes:**
+* Games the user created and that finished (expired or closed).
+* Games the user joined and that finished, and where the user was still a participant when the game ended.
+* Games that were auto-finished by expiration.
+* Games that were manually closed by the organizer or admin.
+
+**Does not include:**
+* Cancelled games (shown separately in Section 4).
+* Games the user left before the game ended (the `game_players` row was deleted on leave — no record remains).
+
+### Section 4: My Cancelled Games
+
+**What it shows:** Scheduled games the user was involved with that were cancelled before starting.
+
+**Filter:** User is in `game_players` (or is `created_by`) AND `status = 'cancelled'`.
+
+**Sort:** By `cancelled_at` descending (most recently cancelled first).
+
+**Display:** Clearly labeled as cancelled. Cancellation reason shown if available.
+
+**Includes:**
+* Games the user created and then cancelled.
+* Games the user joined that were cancelled by the creator or admin.
+* Games cancelled by admin where the user was a participant.
+
+**Does not include:**
+* Games the user left before cancellation (the `game_players` row was deleted on leave).
+
+## Data Rules by User Relationship
+
+| Relationship | Active | Upcoming | Past | Cancelled | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Creator (organizer) | Yes | Yes | Yes | Yes | `games.created_by = user_id`. Always tracked. |
+| Current participant | Yes | Yes | Yes | Yes | `game_players` row exists with matching `user_id`. |
+| Left participant | No | No | No | No | `game_players` row is deleted on leave. No tracking data available. **v1: out of scope.** |
+| Viewer only (not in game) | No | No | No | No | No relationship — game does not appear in user's activity. |
+
+## Data Rules by Game Status
+
+| Game status | Section shown in | Condition |
+| --- | --- | --- |
+| `open` (started, not expired) | My Active Games | User is participant or creator |
+| `open` (scheduled, `scheduled_at > now`) | My Upcoming Games | User is participant or creator |
+| `full` (started, not expired) | My Active Games | User is participant or creator |
+| `full` (scheduled, `scheduled_at > now`) | My Upcoming Games | User is participant or creator |
+| `finished` | My Past Games | User is participant or creator |
+| `cancelled` | My Cancelled Games | User is participant or creator |
+| Expired (before auto-finish) | N/A — auto-transitions to `finished` before query returns | Handled by `finish_expired_games` |
+
+## Edge Cases
+
+| Edge case | Behavior |
+| --- | --- |
+| Game cancelled by creator | Appears in creator's Cancelled section. Appears in participants' Cancelled section. Creator sees it because `created_by` matches. |
+| Game expired automatically | Auto-finished by `finish_expired_games`. Appears in Past Games for all remaining participants and the creator. |
+| Full game | Appears in Active or Upcoming depending on `scheduled_at`. Being full does not change visibility rules. |
+| Scheduled game not yet started | Appears in Upcoming. Does not appear in Active or Past. |
+| User leaves before game starts | `game_players` row is deleted. Game disappears from all of the user's sections. No history is preserved. |
+| User leaves during active game | Same as above — `game_players` row is deleted. Game disappears from the user's history. |
+| Organizer closes game manually | Game transitions to `finished`. Appears in Past Games for remaining participants and creator. |
+| Admin closes game | Same as organizer close — `finished` status. Appears in Past Games. |
+| User is both creator and participant | Game appears once (not duplicated). Query should use `game_players.user_id = X OR games.created_by = X` with deduplication. |
+
+## Admin vs Normal User
+
+| Viewer | What they see |
+| --- | --- |
+| Normal user | Only their own games (where they are creator or current participant). Four sections as defined above. |
+| Admin (admin panel) | All games across all users, grouped by active/finished per existing `/admin/games` endpoint. No change to admin behavior. |
+| Admin (as a regular user) | If an admin views their own "My Games," they see the same four sections as a normal user — only games they personally created or joined. |
+
+## v1 Scope
+
+### Included
+
+* Product rules for four game activity sections (Active, Upcoming, Past, Cancelled).
+* Clear data rules by status and user relationship.
+* Edge case documentation.
+* Suggested API shape (see below).
+* Suggested frontend sections (see below).
+
+### Explicitly excluded (out of scope for v1)
+
+* **Left-participant history:** The `game_players` table has no `left_at` column. When a user leaves, the row is deleted. Tracking past participation after leaving would require a schema change (soft-delete or audit column). This is deferred to a future issue.
+* **Game statistics / aggregates:** Total games played, win rate, most-played field, etc. Future feature.
+* **Pagination of history:** v1 may return all results. Pagination can be added in a follow-up if performance requires it.
+* **Filtering / search within history:** v1 shows all games in each section without additional filters. Future feature.
+* **Shared game activity between users:** "Games I played with user X." Future feature.
+* **Game ratings or reviews:** Not part of game history v1.
+
+## Suggested Future API Shape (do not implement yet)
+
+```
+GET /users/me/games
+```
+
+Query parameters:
+* `section` — required. One of: `active`, `upcoming`, `past`, `cancelled`.
+* `limit` — optional. Default 50.
+* `offset` — optional. Default 0.
+
+Response shape:
+```json
+{
+  "section": "past",
+  "games": [
+    {
+      "id": "...",
+      "field_id": "...",
+      "field_name": "...",
+      "sport_type": "football",
+      "status": "finished",
+      "players_present": 5,
+      "max_players": 10,
+      "started_at": "...",
+      "expires_at": "...",
+      "scheduled_at": null,
+      "created_by": "...",
+      "is_creator": true,
+      "participants": [...]
+    }
+  ],
+  "total": 42,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Each game includes `is_creator: boolean` so the frontend can badge or label games the user organized.
+
+Authentication: `require_active_user`. The endpoint returns only the authenticated user's games.
+
+## Suggested Future Frontend Sections (do not implement yet)
+
+A "My Games" page or tab with four sections:
+
+1. **המשחקים שלי עכשיו** (My Active Games) — games in progress. Show field name, sport, player count, time remaining.
+2. **משחקים קרובים** (Upcoming Games) — future scheduled games. Show field name, scheduled time, player count.
+3. **משחקים שהסתיימו** (Past Games) — finished games. Show field name, date played, final player count.
+4. **משחקים שבוטלו** (Cancelled Games) — cancelled games. Show field name, cancellation reason if available, cancelled by whom.
+
+Each section collapses if empty. Sections 3 and 4 are sorted newest-first. Sections 1 and 2 are sorted by time (soonest first).
+
+Games where the user was the organizer should have a visual indicator (badge, icon, or label).
+
+## Follow-up Implementation Issue
+
+A follow-up implementation issue should be created to:
+
+1. Build `GET /users/me/games` endpoint with section-based filtering.
+2. Build the frontend "My Games" page/tab.
+3. Add backend tests for all four sections, edge cases, and creator/participant deduplication.
+4. Verify that `finish_expired_games` runs before returning results (same pattern as `/games/active`).
+
+## Status
+
+Documented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
