@@ -577,6 +577,71 @@ Implemented.
 
 ---
 
+# ISSUE-016 - Future Scheduled Game Cancellation
+
+## Decision
+
+Future scheduled games can be cancelled before their `scheduled_at` start time.
+
+Cancellation is different from closing:
+
+* `close` is an active or started game lifecycle action.
+* `cancel` means a future scheduled game will not happen.
+
+## Who can cancel
+
+* The game creator/organizer can cancel their own future scheduled game before `scheduled_at`.
+* Admins can cancel any future scheduled game before `scheduled_at`.
+* Regular participants cannot cancel the game.
+
+## Cancelled game behavior
+
+* A cancelled game must not be hard deleted.
+* A cancelled game remains available for future history, audit, and admin views.
+* A cancelled game must not appear in active games.
+* A cancelled game must not appear in upcoming joinable games.
+* A cancelled game must not appear in field details as an available upcoming game.
+* A cancelled game should use a clear `cancelled` status.
+
+Future implementation should preserve:
+
+* `cancelled_at`
+* `cancelled_by`
+* `cancelled_by_role` or equivalent actor context
+* Optional cancellation reason
+
+## Participant notifications
+
+Participants should be notified when a future scheduled game is cancelled.
+
+Notification rules:
+
+* If the creator cancels, notify all participants except the cancelling creator.
+* If an admin cancels, notify all participants and the creator.
+* If there are no participants, cancellation still succeeds without notifications.
+
+Notification type:
+
+* `scheduled_game_cancelled`
+
+Notification payload should include:
+
+* `game_id`
+* `field_id`
+* `scheduled_at`
+* `cancelled_by`
+* `cancelled_by_role`, where available
+
+## Open questions
+
+None. ISSUE-016 leaves no open product questions about future scheduled game cancellation.
+
+## Status
+
+Decided.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
