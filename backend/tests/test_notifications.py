@@ -275,7 +275,14 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
     monkeypatch.setattr("app.routers.notifications.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: fake)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.routers.games.get_supabase_service_role_client", lambda: fake)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake)
+
+    fixed_now = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.routers.game_lifecycle.get_now", lambda: fixed_now)
+    monkeypatch.setattr("app.routers.games.get_now", lambda: fixed_now)
+
     return fake
 
 
