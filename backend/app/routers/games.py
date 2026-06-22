@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_active_user
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     ensure_game_is_actionable,
@@ -22,6 +22,7 @@ from app.routers.notifications import (
     create_game_created_notifications,
     create_game_extended_notifications,
     create_player_joined_game_notification,
+    create_scheduled_game_cancelled_notifications,
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -37,6 +38,10 @@ class GameCreate(BaseModel):
     min_age: Optional[int] = Field(default=None, ge=0)
     max_age: Optional[int] = Field(default=None, ge=0)
     scheduled_at: Optional[datetime] = None
+
+
+class GameCancelBody(BaseModel):
+    reason: Optional[str] = None
 
 
 def _get_single(table: str, item_id: str, not_found_detail: str) -> dict[str, Any]:
@@ -399,3 +404,66 @@ def extend_game(game_id: str, current_user: dict[str, Any] = Depends(require_act
         )
 
     return {"message": "Game extended by 1 hour", "new_expires_at": new_expires.isoformat()}
+
+
+@router.post("/{game_id}/cancel")
+def cancel_game(
+    game_id: str,
+    body: GameCancelBody = GameCancelBody(),
+    current_user: dict[str, Any] = Depends(require_active_user),
+):
+    supabase = get_supabase_client()
+    game = _get_single_with_client(supabase, "games", game_id, "Game not found")
+
+    if game.get("status") not in ACTIVE_GAME_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Game is not active",
+        )
+
+    scheduled_at = parse_game_datetime(game.get("scheduled_at"))
+    if scheduled_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only scheduled games can be cancelled",
+        )
+
+    now = get_now()
+    if scheduled_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot cancel a game after its scheduled start time",
+        )
+
+    if game.get("created_by") != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the organizer can cancel game",
+        )
+
+    service_supabase = get_supabase_service_role_client()
+    update_payload = {
+        "status": "cancelled",
+        "cancelled_at": now.isoformat(),
+        "cancelled_by": current_user["id"],
+        "cancelled_by_role": "creator",
+        "cancel_reason": (body.reason or "").strip() or None,
+    }
+
+    response = service_supabase.table("games").update(update_payload).eq("id", game_id).execute()
+    updated_game = response.data[0] if response.data else game
+
+    try:
+        create_scheduled_game_cancelled_notifications(
+            supabase=service_supabase,
+            game=updated_game,
+            cancelled_by_user_id=current_user["id"],
+            cancelled_by_role="creator",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game cancelled notifications",
+            extra={"game_id": game_id, "cancelled_by": current_user.get("id")},
+        )
+
+    return {"message": "Game cancelled", "game": updated_game}

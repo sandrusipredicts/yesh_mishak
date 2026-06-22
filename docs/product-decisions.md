@@ -642,6 +642,60 @@ Decided.
 
 ---
 
+# ISSUE-017 - Scheduled Game Cancellation Implementation
+
+## Decision
+
+Implements ISSUE-016 product decision. Future scheduled games can be cancelled before `scheduled_at` by the creator or an admin.
+
+## DB Shape
+
+### games table additions
+
+* `cancelled_at timestamptz` — when the cancellation occurred.
+* `cancelled_by uuid references users(id)` — who cancelled.
+* `cancelled_by_role text` — `"creator"` or `"admin"`.
+* `cancel_reason text` — optional free-text reason.
+
+The existing `status` check constraint already includes `'cancelled'`. No constraint change needed.
+
+## API Contract
+
+* `POST /games/{game_id}/cancel` — creator cancels own future scheduled game. Body: `{ "reason": "..." }` (optional).
+* `POST /admin/games/{game_id}/cancel` — admin cancels any future scheduled game. Body: `{ "reason": "..." }` (optional).
+
+Both return `{ "message": "Game cancelled", "game": { ... } }`.
+
+### Validation
+
+* Game must be in `open` or `full` status.
+* Game must have a `scheduled_at` value (non-scheduled games cannot be cancelled).
+* `scheduled_at` must be in the future.
+* Creator endpoint: caller must be `created_by`.
+* Admin endpoint: caller must have admin role.
+
+## Notification
+
+* Type: `scheduled_game_cancelled`.
+* Creator cancels: all participants except creator are notified.
+* Admin cancels: all participants and creator are notified.
+* No participants: cancellation still succeeds silently.
+* Notification payload includes `game_id`, `field_id`, `scheduled_at`, `cancelled_by`, `cancelled_by_role`.
+
+## Filtering
+
+Cancelled games are automatically excluded from `/games/active`, `/games/upcoming`, and field details `upcoming_games` because these queries filter by `ACTIVE_GAME_STATUSES = ["open", "full"]`.
+
+## Dependencies
+
+* ISSUE-016 (product decision).
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.

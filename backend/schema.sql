@@ -54,6 +54,10 @@ create table if not exists games (
     scheduled_reminder_processed_at timestamptz,
     started_at timestamptz not null default now(),
     expires_at timestamptz,
+    cancelled_at timestamptz,
+    cancelled_by uuid references users(id) on delete set null,
+    cancelled_by_role text,
+    cancel_reason text,
     check (min_age is null or max_age is null or min_age <= max_age)
 );
 
