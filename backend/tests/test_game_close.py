@@ -43,7 +43,7 @@ class FakeTableQuery:
         self.update_payload = payload
         return self
 
-    def insert(self, payload: dict[str, Any]) -> "FakeTableQuery":
+    def insert(self, payload: dict[str, Any] | list[dict[str, Any]]) -> "FakeTableQuery":
         self.insert_payload = payload
         return self
 
@@ -55,6 +55,13 @@ class FakeTableQuery:
         rows = self._filtered_rows()
 
         if self.insert_payload is not None:
+            if isinstance(self.insert_payload, list):
+                inserted = []
+                for item in self.insert_payload:
+                    row = {"id": f"inserted-{len(self.rows) + 1}", **item}
+                    self.rows.append(row)
+                    inserted.append(row)
+                return FakeResponse(inserted)
             row = {"id": f"inserted-{len(self.rows) + 1}", **self.insert_payload}
             self.rows.append(row)
             return FakeResponse([row])

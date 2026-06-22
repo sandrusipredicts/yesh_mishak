@@ -12,11 +12,14 @@ from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     ensure_game_is_actionable,
     finish_expired_games,
+    get_now,
+    parse_game_datetime,
 )
 from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
     create_game_closed_notifications,
     create_game_extended_notifications,
+    create_scheduled_game_cancelled_notifications,
     generate_scheduled_game_reminders,
 )
 
@@ -649,6 +652,66 @@ def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requi
         "new_expires_at": new_expires.isoformat(),
         "game": updated_game,
     }
+
+
+class AdminGameCancelBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/games/{game_id}/cancel")
+def cancel_admin_game(
+    game_id: str,
+    body: AdminGameCancelBody = AdminGameCancelBody(),
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    game = _get_game(game_id)
+
+    if game.get("status") not in ACTIVE_GAME_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Game is not active",
+        )
+
+    scheduled_at = parse_game_datetime(game.get("scheduled_at"))
+    if scheduled_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only scheduled games can be cancelled",
+        )
+
+    now = get_now()
+    if scheduled_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot cancel a game after its scheduled start time",
+        )
+
+    service_supabase = get_supabase_service_role_client()
+    update_payload = {
+        "status": "cancelled",
+        "cancelled_at": now.isoformat(),
+        "cancelled_by": current_user["id"],
+        "cancelled_by_role": "admin",
+        "cancel_reason": (body.reason or "").strip() or None,
+    }
+
+    response = service_supabase.table("games").update(update_payload).eq("id", game_id).execute()
+    updated_game = response.data[0] if response.data else game
+
+    try:
+        create_scheduled_game_cancelled_notifications(
+            supabase=service_supabase,
+            game=updated_game,
+            cancelled_by_user_id=current_user["id"],
+            cancelled_by_role="admin",
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game cancelled notifications after admin cancel",
+            extra={"game_id": game_id, "cancelled_by_user_id": current_user.get("id")},
+        )
+
+    return {"message": "Game cancelled", "game": updated_game}
 
 
 def _update_field_approval(field_id: str, updates: dict[str, Any]) -> dict[str, Any]:

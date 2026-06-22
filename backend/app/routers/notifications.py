@@ -535,6 +535,92 @@ def create_game_closed_notifications(
     return notifications
 
 
+def create_scheduled_game_cancelled_notifications(
+    supabase: Any,
+    game: dict[str, Any],
+    cancelled_by_user_id: str,
+    cancelled_by_role: str,
+) -> list[dict[str, Any]]:
+    game_id = game.get("id")
+    if not game_id:
+        return []
+
+    participant_rows = (
+        supabase.table("game_players")
+        .select("user_id")
+        .eq("game_id", game_id)
+        .execute()
+        .data
+        or []
+    )
+
+    all_participant_ids = list(
+        dict.fromkeys(
+            str(row.get("user_id"))
+            for row in participant_rows
+            if row.get("user_id")
+        )
+    )
+
+    creator_id = str(game.get("created_by") or "")
+
+    if cancelled_by_role == "admin":
+        recipient_ids = all_participant_ids
+        if creator_id and creator_id not in recipient_ids:
+            recipient_ids.append(creator_id)
+    else:
+        recipient_ids = [
+            uid for uid in all_participant_ids
+            if uid != str(cancelled_by_user_id)
+        ]
+
+    if not recipient_ids:
+        return []
+
+    field_id = game.get("field_id")
+    field_name = "Unknown field"
+    if field_id:
+        field_rows = (
+            supabase.table("fields")
+            .select("id,name")
+            .eq("id", field_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if field_rows:
+            field_name = field_rows[0].get("name") or field_name
+
+    service_supabase = get_supabase_service_role_client()
+    rows = [
+        {
+            "user_id": user_id,
+            "type": "scheduled_game_cancelled",
+            "title": "המשחק בוטל",
+            "body": f"המשחק המתוכנן במגרש {field_name} בוטל.",
+            "game_id": game_id,
+            "field_id": field_id,
+            "data": {
+                "game_id": game_id,
+                "field_id": field_id,
+                "type": "scheduled_game_cancelled",
+                "scheduled_at": game.get("scheduled_at"),
+                "cancelled_by": cancelled_by_user_id,
+                "cancelled_by_role": cancelled_by_role,
+            },
+        }
+        for user_id in recipient_ids
+    ]
+
+    if not rows:
+        return []
+
+    notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
+
+
 def create_game_extended_notifications(
     supabase: Any,
     game: dict[str, Any],
