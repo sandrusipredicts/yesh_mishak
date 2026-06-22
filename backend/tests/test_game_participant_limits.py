@@ -343,3 +343,87 @@ def test_sequential_concurrent_join_simulation(monkeypatch):
     actual_players = [gp for gp in tables["game_players"] if gp["game_id"] == "game-1"]
     assert len(actual_players) == 2
     assert tables["games"][0]["players_present"] <= tables["games"][0]["max_players"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# 9. ISSUE-022: Duplicate join protection
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_duplicate_join_does_not_increment_players_present(monkeypatch):
+    """Second join by the same user must not change players_present or game_players."""
+    game = _game(players_present=1, max_players=5)
+    client, tables = _setup(monkeypatch, game)
+
+    r1 = client.post("/games/game-1/join", headers=_headers(USER_A))
+    assert r1.status_code == 200
+    assert tables["games"][0]["players_present"] == 2
+
+    r2 = client.post("/games/game-1/join", headers=_headers(USER_A))
+    assert r2.status_code == 400
+    assert r2.json()["detail"] == "User already joined"
+    assert tables["games"][0]["players_present"] == 2
+
+    actual_players = [gp for gp in tables["game_players"] if gp["game_id"] == "game-1"]
+    assert len(actual_players) == 2  # creator + USER_A, no duplicate
+
+
+def test_no_duplicate_game_players_rows_after_duplicate_join(monkeypatch):
+    """game_players must contain exactly one row per (game_id, user_id) after a rejected duplicate."""
+    game = _game(players_present=1, max_players=5)
+    client, tables = _setup(monkeypatch, game)
+
+    client.post("/games/game-1/join", headers=_headers(USER_A))
+    client.post("/games/game-1/join", headers=_headers(USER_A))
+    client.post("/games/game-1/join", headers=_headers(USER_A))
+
+    user_a_rows = [
+        gp for gp in tables["game_players"]
+        if gp["game_id"] == "game-1" and gp["user_id"] == USER_A["id"]
+    ]
+    assert len(user_a_rows) == 1
+
+
+def test_leave_then_rejoin_produces_single_game_players_row(monkeypatch):
+    """After join → leave → rejoin, exactly one game_players row exists for that user."""
+    game = _game(players_present=1, max_players=3)
+    client, tables = _setup(monkeypatch, game)
+
+    client.post("/games/game-1/join", headers=_headers(USER_A))
+    assert len([gp for gp in tables["game_players"] if gp["user_id"] == USER_A["id"]]) == 1
+
+    client.post("/games/game-1/leave", headers=_headers(USER_A))
+    assert len([gp for gp in tables["game_players"] if gp["user_id"] == USER_A["id"]]) == 0
+
+    client.post("/games/game-1/join", headers=_headers(USER_A))
+    user_a_rows = [
+        gp for gp in tables["game_players"]
+        if gp["game_id"] == "game-1" and gp["user_id"] == USER_A["id"]
+    ]
+    assert len(user_a_rows) == 1
+    assert tables["games"][0]["players_present"] == 2
+
+
+def test_same_user_concurrent_join_simulation(monkeypatch):
+    """Same user joining twice in rapid succession — second must fail without side effects.
+
+    The FakeRpcQuery serializes calls, so this tests that the RPC's
+    duplicate check correctly blocks the second attempt and leaves
+    game state unchanged.
+    """
+    game = _game(players_present=1, max_players=5)
+    client, tables = _setup(monkeypatch, game)
+
+    r1 = client.post("/games/game-1/join", headers=_headers(USER_A))
+    r2 = client.post("/games/game-1/join", headers=_headers(USER_A))
+
+    assert r1.status_code == 200
+    assert r2.status_code == 400
+    assert r2.json()["detail"] == "User already joined"
+
+    assert tables["games"][0]["players_present"] == 2
+    all_user_a = [
+        gp for gp in tables["game_players"]
+        if gp["game_id"] == "game-1" and gp["user_id"] == USER_A["id"]
+    ]
+    assert len(all_user_a) == 1
