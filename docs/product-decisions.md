@@ -480,6 +480,24 @@ Implemented.
 
 ---
 
+# ISSUE-013 - Pre-Launch User Management Requirements
+
+## Decision
+
+Ban, Unban, and Suspend are required before launch.
+
+Promote Admin and Demote Admin are not required as regular Admin UI features before launch. Admin role changes should remain manual or super-admin controlled until audit logging, stronger permission controls, and recovery safeguards exist.
+
+## Source Document
+
+See `docs/user-management-requirements.md`.
+
+## Status
+
+Decided.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
