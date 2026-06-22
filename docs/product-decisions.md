@@ -1588,24 +1588,308 @@ Documented.
 
 ---
 
-# Codex Task Boundaries
+## ISSUE-030 - Notification Duplication Risk Review
 
-For this task:
+### Purpose
 
-Do:
+This audit systematically reviews the notification system to identify every situation where a user could receive the same notification twice. It distinguishes between two duplication types:
+1. Duplicate notification rows in the database
+2. Duplicate push notifications delivered to the device
 
-* Create `docs/product-decisions.md`.
-* Add all content above.
-* Keep formatting clean.
-* Show which files changed.
+This review documents existing protections, evaluates race conditions under concurrent operations, analyzes retry behavior, and specifies follow-up actions to address identified gaps.
 
-Do not:
+### Scope
 
-* Modify backend code.
-* Modify frontend code.
-* Modify migrations.
-* Modify schema.
-* Modify `.env` files.
-* Add tests.
-* Create new features.
-* Change existing behavior.
+The audit covers all 7 active notification events implemented in the system, as inventoried in ISSUE-029:
+1. **Game Created** (`game_created`)
+2. **Player Joined Game** (`player_joined_game`)
+3. **Game Closed** (`game_closed`)
+4. **Game Extended** (`game_extended`)
+5. **Scheduled Game Cancelled** (`scheduled_game_cancelled`)
+6. **Scheduled Game Reminder** (`scheduled_game_reminder`)
+7. **Test Push** (`test_push`)
+
+### Summary Table
+
+| Event | Type | DB Duplicate Risk | Push Duplicate Risk | Existing Protection | Missing Tests | Follow-up Needed |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Game Created** | `game_created` | None | None | Application check & DB unique index `idx_notifications_user_type_game_unique` | None | No |
+| **Player Joined Game** | `player_joined_game` | None | None | Structural check via `join_game_atomic` RPC constraint | None | No |
+| **Game Closed** | `game_closed` | None | None | Application check & DB unique index `idx_notifications_user_type_game_unique` | None | No |
+| **Game Extended** | `game_extended` | None (per end time) | None (per end time) | Application check & DB unique index `idx_notifications_user_game_extended_end_time_unique` | Verification test for sequential API retries | Yes (Low - non-idempotency of extend endpoint) |
+| **Scheduled Game Cancelled** | `scheduled_game_cancelled` | Low (concurrency race only) | Low (concurrency race only) | Structural validation check (`status in ACTIVE_GAME_STATUSES`). No unique DB index or app check. | Concurrent cancellation race test | Yes (Low - add to unique index) |
+| **Scheduled Game Reminder** | `scheduled_game_reminder` | None | None | Application `processed_at` column, app check, and DB unique index `idx_notifications_user_type_game_unique` | None | No |
+| **Test Push** | `test_push` | N/A | None (Diagnostic) | Multi-triggers send again by design. No DB row created. | None | No |
+
+### Detailed Event Review
+
+#### 1. Game Created
+* **Event Name:** Game Created
+* **Trigger:** User creates a new game via `POST /games/`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`create_game_created_notifications`), called by `backend/app/routers/games.py` (`create_game`)
+* **Recipients:** Users with matching enabled notification preferences (radius, city, or specific field) and sport type, excluding the organizer (`created_by`).
+* **Delivery channel:** both
+* **Preference rules:** Delivery is entirely preference-driven. Users without matching enabled preferences receive nothing.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id` (fallback `related_game_id`)
+  - `field_id`: Top-level UUID column `field_id` (fallback `related_field_id`)
+  - `data` JSON: None (empty)
+  - `title`: `נפתח משחק חדש`
+  - `body`: `נפתח משחק {sport_type} במגרש {field_name}`
+* **Existing deduplication:**
+  - App-level: Queries `notifications` table for `type='game_created'`, `game_id` and recipient user IDs. Filters out users who already have a notification.
+  - DB-level: Unique index `idx_notifications_user_type_game_unique` on `(user_id, type, game_id)`.
+* **DB duplicate risk:** None. Dual-layer protection (application check + DB unique index) prevents duplicate rows.
+* **Push duplicate risk:** None. Push is sent exactly once per successfully inserted DB row. If DB insert fails (e.g., due to unique constraint violation), no push is sent.
+* **Retry behavior:**
+  - User/browser retries request: Creates a completely new game with a new `game_id`. The new game legitimately generates its own notifications. The same game cannot be created twice.
+  - Backend error after partial success: If the game is successfully created but the connection drops before returning, the client retries. A new game will be created, which is correct.
+* **Concurrent behavior:**
+  - Two users act at same time: Two separate games are created. Each gets its own notifications.
+  - Same user double-clicks: Creates two separate games.
+  - Organizer/admin action overlap: Only users can create games.
+* **Scheduled/admin behavior:** N/A (not triggered by admin or scheduler).
+* **Current tests:** `test_create_game_avoids_duplicate_notifications_for_same_user_game_and_type` in `backend/tests/test_notifications.py`
+* **Missing tests:** None.
+* **Status:** Protected.
+* **Follow-up needed:** None.
+
+#### 2. Player Joined Game
+* **Event Name:** Player Joined Game
+* **Trigger:** User joins a game via `POST /games/{game_id}/join`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`create_player_joined_game_notification`), called by `backend/app/routers/games.py` (`join_game`)
+* **Recipients:** The game organizer (`created_by`) only, provided the joining user is not the organizer.
+* **Delivery channel:** both
+* **Preference rules:** None. Always sent to the organizer.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id`
+  - `field_id`: Top-level UUID column `field_id`
+  - `data` JSON: `{ game_id, field_id, type: "player_joined_game", joined_user_id }`
+  - `title`: `שחקן חדש הצטרף למשחק שלך`
+  - `body`: `{player_name} הצטרף למשחק שלך ב-{field_name}` (or fallback)
+* **Existing deduplication:**
+  - App-level: None.
+  - DB-level: None. The unique index `idx_notifications_user_type_game_unique` does NOT include `player_joined_game`.
+* **DB duplicate risk:** None. Enforced structurally at the game participation layer. A user can only be in `game_players` once per game due to the `unique (game_id, user_id)` constraint on `game_players`.
+* **Push duplicate risk:** None. Push is only sent on successful DB insert.
+* **Retry behavior:**
+  - User/browser retries request: If the first join succeeded, the retry will call `join_game_atomic` RPC which sees the user is already in `game_players` and returns `{"error": "User already joined"}`. The API returns a 400 Bad Request and does not call the notification function. Thus, no duplicate notification is created.
+  - Backend error after partial success: Same as above. The retry is blocked by `join_game_atomic` checks.
+* **Concurrent behavior:**
+  - Two users act at same time: Success for both (if room). Two separate notifications are created for the organizer (User A and User B). This is correct.
+  - Same user double-clicks: `join_game_atomic` RPC uses `SELECT ... FOR UPDATE` to serialize concurrent requests, and rejects the second request.
+  - Organizer/admin action overlap: Organizer and admin cannot trigger joins for other users.
+* **Scheduled/admin behavior:** N/A.
+* **Current tests:** `test_duplicate_join_does_not_create_duplicate_player_joined_notification` in `backend/tests/test_notifications.py`
+* **Missing tests:** None.
+* **Status:** Protected (structural).
+* **Follow-up needed:** None.
+
+#### 3. Game Closed
+* **Event Name:** Game Closed
+* **Trigger:** Organizer closes game via `POST /games/{game_id}/close`, or admin closes via `POST /admin/games/{game_id}/close`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`create_game_closed_notifications`), called by `backend/app/routers/games.py` (`close_game`) and `backend/app/api/admin.py` (`close_admin_game`)
+* **Recipients:** All current participants of the game (from `game_players`), excluding the user who closed the game.
+* **Delivery channel:** both
+* **Preference rules:** None. Always sent to all eligible participants.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id`
+  - `field_id`: Top-level UUID column `field_id`
+  - `data` JSON: `{ game_id, field_id, type: "game_closed", closed_by_user_id }`
+  - `title`: `המשחק נסגר`
+  - `body`: `המשחק במגרש {field_name} נסגר על ידי המארגן.`
+* **Existing deduplication:**
+  - App-level: Yes. Queries `notifications` table for `type='game_closed'`, `game_id` and recipient user IDs. Filters out users who already have a notification.
+  - DB-level: Yes. Unique index `idx_notifications_user_type_game_unique` on `(user_id, type, game_id)`.
+* **DB duplicate risk:** None. Dual-layer protection (application check + DB unique index) prevents duplicate rows.
+* **Push duplicate risk:** None. Push is only sent on successful DB insert.
+* **Retry behavior:**
+  - User/browser retries request: If the first close succeeded, the game status is updated to `finished`. The retried request will run `_ensure_active_game` (or `_ensure_admin_active_game`) which raises 400 Bad Request because the game is already in `finished` status (which is not in `ACTIVE_GAME_STATUSES`). The notification code is skipped.
+  - Backend error after partial success: If the status is updated to `finished` but the request fails before notifications are sent, retrying the API will fail at the status validation check (game not active) and NOT send notifications (this is a missed-notification risk, not a duplicate risk).
+* **Concurrent behavior:**
+  - Two users act at same time / organizer and admin action overlap: If organizer and admin both close the game concurrently:
+    - If one request completes first, the other fails at the status check.
+    - If there is a race where both pass validation before either commits, both will try to update status to `finished` (idempotent) and both try to insert notification rows. The DB unique index `idx_notifications_user_type_game_unique` will reject the second insert, raising an exception and preventing duplicate DB rows and duplicate push notifications.
+  - Same user double-clicks: Handled by status checks and unique index.
+* **Scheduled/admin behavior:**
+  - Admin manually triggers twice: Same as concurrent/retry. Fails at status check or unique index.
+  - Admin and user path both trigger same event: Same as above.
+* **Current tests:** `test_duplicate_close_does_not_create_duplicate_game_closed_notification` in `backend/tests/test_notifications.py`
+* **Missing tests:** None.
+* **Status:** Protected.
+* **Follow-up needed:** None.
+
+#### 4. Game Extended
+* **Event Name:** Game Extended
+* **Trigger:** Organizer extends game via `POST /games/{game_id}/extend`, or admin extends via `POST /admin/games/{game_id}/extend`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`create_game_extended_notifications`), called by `backend/app/routers/games.py` (`extend_game`) and `backend/app/api/admin.py` (`extend_admin_game`)
+* **Recipients:** All current participants of the game, excluding the organizer and the actor who extended the game.
+* **Delivery channel:** both
+* **Preference rules:** None. Always sent to eligible participants.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id`
+  - `field_id`: Top-level UUID column `field_id`
+  - `data` JSON: `{ game_id, field_id, type: "game_extended", new_end_time, extended_by_user_id }`
+  - `title`: `המשחק הוארך`
+  - `body`: `שעת הסיום החדשה של המשחק היא {HH:MM}`
+* **Existing deduplication:**
+  - App-level: Yes. Queries `notifications` table for existing `type='game_extended'`, `game_id`, recipient user IDs, and `data->>'new_end_time' == new_end_time_iso`. Skips users who already have a notification *for this specific end time*.
+  - DB-level: Yes. Unique index `idx_notifications_user_game_extended_end_time_unique` on `(user_id, type, game_id, (data ->> 'new_end_time'))`.
+* **DB duplicate risk:** None. Protected per extension end time.
+* **Push duplicate risk:** None. Push is only sent on successful DB insert.
+* **Retry behavior:**
+  - User/browser retries request: The extend action reads `expires_at` from the DB, adds 1 hour to it, updates it in the DB, and sends a notification. If the user retries the request (or browser sends it twice), the second request reads the *updated* `expires_at` and extends it by *another* hour. This changes `expires_at` to a *new* time. Because the new time is different, the application check and the unique index permit a new notification. This is correct for the new end time, but the end result is that the game has been extended twice (unwanted double extension). This is an endpoint idempotency issue, not a notification duplication issue.
+  - Backend error after partial success: If the first attempt succeeds but the connection drops before returning a response, retrying the endpoint will result in a double extension (2 hours total).
+* **Concurrent behavior:**
+  - Two users act at same time / organizer and admin overlap:
+    - If they read the same initial `expires_at`, they both compute the same `new_end_time`. The DB updates to that time (idempotent). The notifications are generated for that same `new_end_time`, and the unique index/app check prevents duplicates.
+    - If one commits first, the second reads the updated time and extends it further, generating a new notification for the new time.
+  - Same user double-clicks: Can cause double extension.
+* **Scheduled/admin behavior:** Same as retry/concurrent.
+* **Current tests:** `test_duplicate_game_extended_notification_is_not_created_for_same_extension` in `backend/tests/test_notifications.py`
+* **Missing tests:**
+  - Verification test verifying that retrying an extend action results in a new notification for the new end time (expected but indicates non-idempotency).
+* **Status:** Protected (notification dedup). Low risk (lifecycle non-idempotency).
+* **Follow-up needed:**
+  - Low priority: Consider making the extend endpoint idempotent by having the client pass the expected `expires_at` (optimistic concurrency) or a specific target time.
+
+#### 5. Scheduled Game Cancelled
+* **Event Name:** Scheduled Game Cancelled
+* **Trigger:** Creator cancels via `POST /games/{game_id}/cancel`, or admin cancels via `POST /admin/games/{game_id}/cancel`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`create_scheduled_game_cancelled_notifications`), called by `backend/app/routers/games.py` (`cancel_game`) and `backend/app/api/admin.py` (`cancel_admin_game`)
+* **Recipients:**
+  - Creator cancels: all participants except the cancelling creator.
+  - Admin cancels: all participants and the creator.
+* **Delivery channel:** both
+* **Preference rules:** None. Always sent to all eligible participants/creator.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id`
+  - `field_id`: Top-level UUID column `field_id`
+  - `data` JSON: `{ game_id, field_id, type: "scheduled_game_cancelled", scheduled_at, cancelled_by, cancelled_by_role }`
+  - `title`: `המשחק בוטל`
+  - `body`: `המשחק במגרש {field_name} בוטל על ידי המארגן` or `המשחק במגרש {field_name} בוטל על ידי מנהל`
+* **Existing deduplication:**
+  - App-level: None.
+  - DB-level: None. `scheduled_game_cancelled` is not in the `idx_notifications_user_type_game_unique` partial unique index.
+* **DB duplicate risk:** Low risk (concurrency race only). No index protects this type in the database.
+* **Push duplicate risk:** Low risk (concurrency race only). Duplicate inserts lead to duplicate pushes.
+* **Retry behavior:**
+  - User/browser retries request: Protected structurally. The first cancel sets the status to `'cancelled'`. The retried request checks if `status in ACTIVE_GAME_STATUSES`. Since `'cancelled'` is not active, the request fails with a 400 Bad Request, preventing duplicate notification rows and push sends for retries.
+  - Backend error after partial success: If the first attempt succeeds in updating the DB to `'cancelled'` but fails before sending notifications, retrying will fail with 400 (game not active), leaving recipients with zero notifications.
+* **Concurrent behavior:**
+  - **Race condition:** If the creator and admin cancel the game at the exact same time:
+    - Both requests check the game status. If both read `'open'` or `'full'` before either updates it, both will pass status validation.
+    - Both will update the status to `'cancelled'` (idempotent).
+    - Both will call `create_scheduled_game_cancelled_notifications`.
+    - Since there is no app-level or DB-level deduplication for this type, both calls will insert notification rows and trigger push sends.
+    - Result: Every recipient will receive two identical `scheduled_game_cancelled` notifications (two DB rows and two push notifications).
+  - Same user double-clicks: Can cause race condition if the requests are handled concurrently.
+* **Scheduled/admin behavior:** Same concurrent race risk between admin and creator.
+* **Current tests:** None check duplicate prevention for `scheduled_game_cancelled`. (Tests in `test_game_cancel.py` check normal cancellation and notification generation only).
+* **Missing tests:**
+  - Concurrent cancellation race test (verifying that racing requests do not result in duplicate notifications).
+* **Status:** Low risk (structural status validation protects sequential retries, but a concurrency gap exists).
+* **Follow-up needed:**
+  - suggested title: Add scheduled_game_cancelled to unique notifications index
+  - priority: Low
+  - reason: Add `scheduled_game_cancelled` to the partial unique index `idx_notifications_user_type_game_unique` for defense-in-depth against concurrent cancellation races.
+
+#### 6. Scheduled Game Reminder
+* **Event Name:** Scheduled Game Reminder
+* **Trigger:** Admin manually triggers via `POST /admin/reminders/scheduled-games/run`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`generate_scheduled_game_reminders`), called by `backend/app/api/admin.py` (`run_scheduled_game_reminders`)
+* **Recipients:** All current participants of the game (the organizer receives it only if they are in `game_players`).
+* **Delivery channel:** both
+* **Preference rules:** None. Always sent to all participants regardless of preferences.
+* **Payload/data:**
+  - `game_id`: Top-level UUID column `game_id`
+  - `field_id`: Top-level UUID column `field_id`
+  - `data` JSON: `{ type: "scheduled_game_reminder", game_id, field_id, scheduled_at }`
+  - `title`: `תזכורת למשחק שמתקרב`
+  - `body`: `המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.`
+* **Existing deduplication:**
+  - App-level: Yes, two layers:
+    1. Checks the `games` table's `scheduled_reminder_processed_at` column. If set, the game is skipped.
+    2. Queries the `notifications` table for existing `type='scheduled_game_reminder'` rows for the game. If any exist, it updates `scheduled_reminder_processed_at` and skips the game.
+  - DB-level: Yes. Unique index `idx_notifications_user_type_game_unique` on `(user_id, type, game_id)` where `type = 'scheduled_game_reminder'`.
+* **DB duplicate risk:** None. Triple-layer protection.
+* **Push duplicate risk:** None. Push is only sent on successful DB insert.
+* **Retry behavior:**
+  - User/admin retries API / triggers manually twice: If the first run succeeded, `scheduled_reminder_processed_at` is set, or notification rows exist. The second run will find these and skip the game.
+  - Backend error after partial success: If the first run succeeds in inserting notifications but fails before updating `scheduled_reminder_processed_at` or returning, retrying will run the notification check, find the existing rows, set `scheduled_reminder_processed_at`, and skip sending duplicates.
+* **Concurrent behavior:**
+  - Two admin requests run concurrently: If both pass the `scheduled_reminder_processed_at` and notification checks before either writes, both will attempt to insert rows. The unique index `idx_notifications_user_type_game_unique` will reject the second insert, raising an exception and preventing duplicate rows and duplicate push sends.
+* **Scheduled/admin behavior:** Same as above.
+* **Current tests:** `test_scheduled_game_reminder_existing_notification_prevents_late_duplicates` and `test_scheduled_game_reminder_job_is_idempotent` in `backend/tests/test_notifications.py`.
+* **Missing tests:** None.
+* **Status:** Protected.
+* **Follow-up needed:** None.
+
+#### 7. Test Push Notification
+* **Event Name:** Test Push
+* **Trigger:** User triggers via `POST /notifications/test-push`
+* **Source files/functions:** `backend/app/routers/notifications.py` (`send_test_push`)
+* **Recipients:** Requesting user only (their own registered push tokens).
+* **Delivery channel:** push
+* **Preference rules:** None.
+* **Payload/data:**
+  - Push data: `{ type: "test_push" }`
+  - Title: `Test notification`
+  - Body: `Push notifications are ready.`
+* **Existing deduplication:** None.
+* **DB duplicate risk:** N/A (no DB row created).
+* **Push duplicate risk:** None (by design). Users trigger this explicitly to verify push delivery works. Receiving multiple push notifications upon multiple requests is the correct diagnostic behavior.
+* **Retry behavior:** Sends a new push notification by design.
+* **Concurrent behavior:** Sends multiple pushes by design.
+* **Scheduled/admin behavior:** N/A.
+* **Current tests:** `test_test_push_requires_authentication` and `test_test_push_sends_to_current_users_tokens` in `backend/tests/test_notifications.py`.
+* **Missing tests:** None.
+* **Status:** Protected (by design).
+* **Follow-up needed:** None.
+
+### Global Duplication Risks
+
+#### Push Retry / Idempotency
+Push notifications are sent synchronously immediately following the DB insert, inside the same API request. There is no background queue, offline retry loop, or delivery pipeline in the application. This ensures that the application itself never retries push delivery internally (reducing the risk of duplicate delivery). However, since Google's FCM v1 HTTP API does not natively support idempotency keys, if a network timeout occurs between the backend and FCM and a request is retried, FCM could deliver duplicate pushes. This is a standard transport-layer risk common to all push delivery systems.
+
+#### Duplicate Push Tokens
+A user registering the same FCM token multiple times (e.g. from the same device/browser context repeatedly) could result in duplicate push notifications if each token row was stored.
+To prevent this, the system enforces:
+1. A DB-level uniqueness constraint `UNIQUE(token)` on the `push_tokens` table.
+2. The `save_push_token` application function performs an upsert: it queries for the token first and updates the existing row rather than inserting a new one.
+This ensures there is never more than one row per token. If a user has multiple *different* devices (different tokens), each registers separately, resulting in one push per device, which is the expected correct behavior.
+
+#### Scheduled Reminder Reruns
+If the scheduled reminder batch job runs multiple times (due to duplicate admin actions or a misconfigured cron scheduler), it is protected from duplicate notification rows and duplicate push delivery by:
+1. Setting the `scheduled_reminder_processed_at` timestamp on each game.
+2. Checking the `notifications` table for existing `scheduled_game_reminder` rows before processing a game.
+3. The DB-level uniqueness index `idx_notifications_user_type_game_unique`.
+Even under concurrent execution, the DB-level uniqueness index prevents duplicate inserts.
+
+#### Admin / User Path Overlap
+Endpoints that can be triggered by both an organizer (user path) and an admin (admin path) on the same game:
+* **Close game:** `POST /games/{id}/close` vs `POST /admin/games/{id}/close`
+* **Extend game:** `POST /games/{id}/extend` vs `POST /admin/games/{id}/extend`
+* **Cancel game:** `POST /games/{id}/cancel` vs `POST /admin/games/{id}/cancel`
+For close and extend, duplicate notifications are prevented by their respective DB unique indexes.
+For cancel, if an admin and creator concurrently cancel, they can trigger a race condition (due to lack of uniqueness index on `scheduled_game_cancelled`), which could result in duplicate notifications.
+
+#### Lack of DB Uniqueness where Relevant
+There is a lack of database-level uniqueness constraints for:
+1. `player_joined_game`: Deduplication relies entirely on the structural uniqueness of the join action itself (`join_game_atomic` RPC checks).
+2. `scheduled_game_cancelled`: No DB unique index or application check exists. Deduplication relies entirely on the status change of the game to `'cancelled'`. This leaves a narrow race condition window for concurrent cancellations.
+
+### Follow-up Issues
+
+#### 1. Add scheduled_game_cancelled to unique notifications index
+* **Priority:** Low
+* **Reason:** Add `scheduled_game_cancelled` to the partial unique index `idx_notifications_user_type_game_unique` in the database to prevent duplicate notifications during concurrent cancellation races (e.g., organizer and admin cancelling at the exact same moment).
+
+#### 2. Make extend endpoint idempotent using optimistic concurrency or target time
+* **Priority:** Low
+* **Reason:** The extend game endpoint computes a new expiration time relative to the existing value stored in the database. Retrying an API call results in a double extension (2 hours total) and generates a new, legitimate notification for the new end time. Making the extend action idempotent (e.g., passing the expected current `expires_at` or a specific target time) would prevent accidental double-extensions and duplicate notification noise.
+
+#### 3. Add concurrent cancellation test to verification suite
+* **Priority:** Low
+* **Reason:** The test suite does not currently contain a test verifying that racing cancellation requests are safely handled and do not result in duplicate notifications or pushes. A test simulating concurrent cancellation calls should be added.
+
