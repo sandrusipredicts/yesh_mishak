@@ -316,6 +316,7 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
     }
     listed_user = {
         "id": "00000000-0000-0000-0000-000000000002",
+        "username": "regular-user",
         "email": "user@example.com",
         "name": "Regular User",
         "phone_number": None,
@@ -343,6 +344,7 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
     assert response.json() == [
         {
             "id": listed_user["id"],
+            "username": listed_user["username"],
             "name": listed_user["name"],
             "email": listed_user["email"],
             "phone_number": None,
@@ -352,6 +354,7 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
         },
         {
             "id": admin_user["id"],
+            "username": None,
             "name": admin_user["name"],
             "email": admin_user["email"],
             "phone_number": None,

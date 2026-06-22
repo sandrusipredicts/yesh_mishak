@@ -45,6 +45,7 @@ FINISHED_GAMES_LIMIT = 50
 ADMIN_USER_COLUMNS = ",".join(
     [
         "id",
+        "username",
         "name",
         "email",
         "phone_number",

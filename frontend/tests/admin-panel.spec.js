@@ -194,6 +194,7 @@ async function mockAdminApi(
       return fulfillJson(route, [
         {
           id: 'regular-user-1',
+          username: 'regular-user',
           name: 'Regular User',
           email: 'user@example.com',
           phone_number: '050-0000000',
@@ -301,7 +302,18 @@ test('admin users tab loads without crashing', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Users' }).last()).toBeVisible()
   await expect(page.getByLabel('Search users')).toBeVisible()
-  await expect(page.getByText('user@example.com')).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'User ID' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Username' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Email' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Phone' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Created Date' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+  const userRow = page.getByRole('row', { name: /regular-user-1 regular-user/ })
+  await expect(userRow.getByRole('cell', { name: 'regular-user-1' })).toBeVisible()
+  await expect(userRow.getByRole('cell', { name: 'regular-user', exact: true })).toBeVisible()
+  await expect(userRow.getByRole('cell', { name: 'user@example.com' })).toBeVisible()
+  await expect(userRow.getByRole('cell', { name: '050-0000000' })).toBeVisible()
+  await expect(userRow.getByRole('cell', { name: 'Active' })).toBeVisible()
 })
 
 test('admin field reports queue displays 20 reports sorted newest first and filters by status', async ({ page }) => {

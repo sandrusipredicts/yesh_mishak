@@ -3,14 +3,12 @@ import { useTranslation } from 'react-i18next'
 
 import { getAdminUsers } from '../../api/admin'
 
-const ACTIVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
 function matchesSearch(user, normalizedSearch) {
   if (!normalizedSearch) {
     return true
   }
 
-  return [user.name, user.email, user.phone_number].some((value) =>
+  return [user.id, user.username, user.name, user.email, user.phone_number, user.status].some((value) =>
     String(value || '').toLowerCase().includes(normalizedSearch),
   )
 }
@@ -21,7 +19,6 @@ function AdminUsers() {
   const [searchText, setSearchText] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activityReferenceTime] = useState(() => Date.now())
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -41,27 +38,10 @@ function AdminUsers() {
     return date.toLocaleString(locale)
   }
 
-  function getActivityStatus(lastActive) {
-    if (!lastActive) {
-      return {
-        className: 'unknown',
-        label: t('admin.unknown'),
-      }
-    }
-
-    const lastActiveDate = new Date(lastActive)
-    if (Number.isNaN(lastActiveDate.getTime())) {
-      return {
-        className: 'unknown',
-        label: t('admin.unknown'),
-      }
-    }
-
-    const isActive = activityReferenceTime - lastActiveDate.getTime() <= ACTIVE_WINDOW_MS
-
+  function getAccountStatus(user) {
     return {
-      className: isActive ? 'active' : 'inactive',
-      label: isActive ? t('admin.active') : t('admin.inactive'),
+      className: user.status || 'active',
+      label: user.status ? t(`admin.userStatuses.${user.status}`, user.status) : t('admin.active'),
     }
   }
 
@@ -132,30 +112,28 @@ function AdminUsers() {
           <table className="admin-table admin-users-table">
             <thead>
               <tr>
-                <th>{t('admin.name')}</th>
+                <th>{t('admin.userId')}</th>
+                <th>{t('admin.username')}</th>
                 <th>{t('admin.email')}</th>
                 <th>{t('admin.phone')}</th>
-                <th>{t('admin.joined')}</th>
-                <th>{t('admin.lastActive')}</th>
-                <th>{t('admin.role')}</th>
-                <th>{t('admin.activity')}</th>
+                <th>{t('admin.createdDate')}</th>
+                <th>{t('admin.status')}</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.map((user) => {
-                const activity = getActivityStatus(user.last_active)
+                const accountStatus = getAccountStatus(user)
 
                 return (
                   <tr key={user.id ?? `${user.email}-${user.name}`}>
-                    <td>{formatValue(user.name)}</td>
+                    <td>{formatValue(user.id)}</td>
+                    <td>{formatValue(user.username)}</td>
                     <td>{formatValue(user.email)}</td>
                     <td>{formatValue(user.phone_number)}</td>
                     <td>{formatDate(user.created_at)}</td>
-                    <td>{formatDate(user.last_active)}</td>
-                    <td>{formatValue(user.role, t('admin.userRoleFallback'))}</td>
                     <td>
-                      <span className={`admin-user-status ${activity.className}`}>
-                        {activity.label}
+                      <span className={`admin-user-status ${accountStatus.className}`}>
+                        {accountStatus.label}
                       </span>
                     </td>
                   </tr>
