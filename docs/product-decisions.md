@@ -898,6 +898,173 @@ Documented.
 
 ---
 
+# ISSUE-024 - Game Visibility Rules Specification
+
+## Type
+
+Product specification / visibility rules.
+
+## Dependencies
+
+* ISSUE-019 (game lifecycle state documentation — defines the state model this spec builds on).
+* ISSUE-017 (cancellation implementation — introduced the `cancelled` status).
+
+## Background
+
+The project needed an explicit specification of which games appear in which context. While ISSUE-019 documented the state model and included a brief visibility table, no dedicated product decision existed to cover all contexts, edge cases, and the relationship between backend filtering and frontend display logic.
+
+## Goal
+
+Define clear, unambiguous visibility rules for every context where games are displayed.
+
+## Current Behavior Audit
+
+The following behavior was confirmed by inspecting backend endpoints, frontend components, and existing tests.
+
+### Backend endpoints
+
+| Endpoint | DB query filter | Post-query filter | Result |
+| --- | --- | --- | --- |
+| `GET /games/active` | `status IN ('open', 'full')` | `finish_expired_games` then `is_game_started` (started or instant) | Currently playable, non-expired games |
+| `GET /games/upcoming` | `status IN ('open', 'full')` | `finish_expired_games` then `is_game_upcoming` (`scheduled_at > now`) | Future scheduled games only |
+| `GET /fields` / `GET /fields/{id}` | `status IN ('open', 'full')` per field | `finish_expired_games` then split by `is_game_started` / `is_game_upcoming` | `active_game` (single) + `upcoming_games` (list) per field |
+| `GET /admin/games` (no filter) | `status IN ('open', 'full')` + `status IN ('finished', 'cancelled')` | None | `{ active: [...], finished: [...] }` |
+| `GET /admin/games?status=active` | `status IN ('open', 'full')` | None | Active games only |
+| `GET /admin/games?status=finished` | `status IN ('finished', 'cancelled')` | None | Finished + cancelled games |
+
+### Frontend components
+
+| Component | Data source | What is shown |
+| --- | --- | --- |
+| Map markers (MapPage) | `GET /fields` → `active_game` per field | Only fields with an active (started, non-expired) game show a game marker |
+| Field details (FieldDetailsPanel) | `active_game` + `upcoming_games` from field data | Active game panel + upcoming games list. No finished/cancelled games. |
+| Game panel (GamePanel) | Renders a single game | Uses `ACTIVE_GAME_STATUSES = Set(['open', 'full'])` to determine if action buttons (join/leave/close/extend) are shown. Finished/cancelled games would render without action buttons if ever passed to this component. |
+| Admin games (AdminGames) | `GET /admin/games` | Two sections: "Active Games" and "Finished Games" (includes cancelled). Admin can close/extend active games. |
+
+### Contexts with no current implementation
+
+| Context | Status |
+| --- | --- |
+| User's own game history / profile | No endpoint or UI exists. Not implemented. |
+| Search / query by arbitrary filters | No endpoint exists. Not implemented. |
+
+## Decision — Visibility Rules
+
+### 1. Map / Active Games List
+
+**Rule:** Show only currently playable games.
+
+**Filter:** `status IN ('open', 'full')` AND not expired AND game has started (`scheduled_at` is null or `scheduled_at <= now`).
+
+**Excludes:** Finished, cancelled, expired, and future scheduled games.
+
+**Implementation:** `GET /games/active` + field `active_game` payload. **Matches current behavior.**
+
+### 2. Field Details
+
+**Rule:** Show the field's current active game (if any) and its upcoming scheduled games.
+
+**Filter:** Same as Map for active game. Upcoming: `status IN ('open', 'full')` AND `scheduled_at > now`.
+
+**Excludes:** Finished, cancelled, and expired games.
+
+**Implementation:** `GET /fields/{id}` returns `active_game` + `upcoming_games`. **Matches current behavior.**
+
+### 3. Upcoming Games
+
+**Rule:** Show only future scheduled games that have not started and are not cancelled/finished.
+
+**Filter:** `status IN ('open', 'full')` AND `scheduled_at > now`.
+
+**Excludes:** Finished, cancelled, expired, instant (non-scheduled) games, and scheduled games whose `scheduled_at` has passed.
+
+**Implementation:** `GET /games/upcoming`. **Matches current behavior.**
+
+### 4. User's Own Games / History
+
+**Rule (for future implementation):** When a user profile or "my games" feature is built:
+
+* **Active/upcoming section:** Show the user's current and upcoming games (`status IN ('open', 'full')`, not expired, user is in `game_players`).
+* **History section:** Show the user's finished and cancelled games, clearly labeled as past games. Sorted newest first.
+* Finished and cancelled games must never appear in the active/upcoming section.
+
+**Current status:** Not implemented. No endpoint or UI exists. This is a future feature.
+
+### 5. Admin Panel
+
+**Rule:** Admins see all games, grouped by lifecycle state.
+
+* **Active tab:** `status IN ('open', 'full')`, not expired. Includes both started and scheduled.
+* **Finished tab:** `status IN ('finished', 'cancelled')`. Sorted newest first, with a display limit.
+
+**Implementation:** `GET /admin/games`. **Matches current behavior.**
+
+### 6. Notifications / Reminders
+
+**Rule:** Notifications reference games by ID regardless of status. A notification about a cancelled game is still valid and should be delivered/viewable — the notification itself is the record that the event happened.
+
+* `game_created` — sent when an open/full game is created near a user's preference area.
+* `game_closed` — sent when an active game is closed/finished.
+* `game_extended` — sent when an active game's `expires_at` is extended.
+* `player_joined_game` — sent when a player joins an active game.
+* `scheduled_game_reminder` — sent ~1 hour before `scheduled_at` for upcoming games.
+* `scheduled_game_cancelled` — sent when a future scheduled game is cancelled.
+
+Notifications are never filtered by game status — they are historical records. **Matches current behavior.**
+
+### 7. Search / Query Endpoints
+
+**Rule (for future implementation):** If a search or filtered query endpoint is added:
+
+* Default search should only return active and upcoming games (`status IN ('open', 'full')`, not expired).
+* Admin search may include all statuses with an explicit filter parameter.
+* Finished/cancelled games should not appear in user-facing search results unless the user explicitly requests history.
+
+**Current status:** Not implemented. No search endpoint exists.
+
+## Summary Table
+
+| Context | Open | Full | Finished | Cancelled | Scheduled (future) | Expired (auto-finished) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Map / active list | Yes (if started) | Yes (if started) | No | No | No | No |
+| Field details — active | Yes (if started) | Yes (if started) | No | No | No | No |
+| Field details — upcoming | No | No | No | No | Yes | No |
+| Upcoming games list | No | No | No | No | Yes | No |
+| User history (future) | No | No | Yes (labeled) | Yes (labeled) | No | No |
+| Admin — active tab | Yes | Yes | No | No | Yes | No |
+| Admin — finished tab | No | No | Yes | Yes | No | N/A (becomes finished) |
+| Notifications | N/A — notifications are status-independent historical records | | | | | |
+
+## Implementation Gap Analysis
+
+| Gap | Severity | Follow-up |
+| --- | --- | --- |
+| No implementation gaps found | N/A | Current backend and frontend behavior matches all defined rules |
+| 7 extend-notification tests use hardcoded `expires_at` dates without mocking `get_now`, causing time-sensitive failures | Low (test-only) | Fix by adding `get_now` mock to extend notification test fixtures (not a visibility issue) |
+| User history/profile not implemented | N/A (future feature) | Implement when user profile feature is planned |
+
+## Scope
+
+Included:
+
+* Audit of all backend query endpoints.
+* Audit of frontend display components.
+* Explicit visibility rules for every context.
+* Future guidance for unimplemented features.
+
+Excluded:
+
+* No code changes.
+* No migration changes.
+* No frontend changes.
+* No new endpoints.
+
+## Status
+
+Documented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
