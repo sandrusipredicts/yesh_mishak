@@ -592,13 +592,18 @@ def create_scheduled_game_cancelled_notifications(
         if field_rows:
             field_name = field_rows[0].get("name") or field_name
 
+    if cancelled_by_role == "admin":
+        body_text = f"המשחק במגרש {field_name} בוטל על ידי מנהל"
+    else:
+        body_text = f"המשחק במגרש {field_name} בוטל על ידי המארגן"
+
     service_supabase = get_supabase_service_role_client()
     rows = [
         {
             "user_id": user_id,
             "type": "scheduled_game_cancelled",
             "title": "המשחק בוטל",
-            "body": f"המשחק המתוכנן במגרש {field_name} בוטל.",
+            "body": body_text,
             "game_id": game_id,
             "field_id": field_id,
             "data": {
