@@ -158,6 +158,47 @@ class FakeSupabase:
         self.counters[table_name] = self.counters.get(table_name, 0) + 1
         return f"{table_name}-{self.counters[table_name]}"
 
+    def rpc(self, function_name: str, params: dict[str, Any]) -> "FakeRpcQueryNotif":
+        assert function_name == "join_game_atomic"
+        return FakeRpcQueryNotif(self, params)
+
+
+class FakeRpcQueryNotif:
+    """Simulates join_game_atomic RPC for notification tests."""
+
+    def __init__(self, database: FakeSupabase, params: dict[str, Any]) -> None:
+        self.database = database
+        self.params = params
+
+    def execute(self) -> FakeResponse:
+        game_id = self.params["p_game_id"]
+        user_id = self.params["p_user_id"]
+
+        games = [g for g in self.database.tables.get("games", []) if g["id"] == game_id]
+        if not games:
+            return FakeResponse([{"error": "Game not found"}])
+        game = games[0]
+
+        if game.get("status") not in ("open", "full"):
+            return FakeResponse([{"error": "Game already closed"}])
+
+        if game["players_present"] >= game["max_players"]:
+            return FakeResponse([{"error": "Game is full"}])
+
+        already = [
+            gp for gp in self.database.tables.get("game_players", [])
+            if gp.get("game_id") == game_id and gp.get("user_id") == user_id
+        ]
+        if already:
+            return FakeResponse([{"error": "User already joined"}])
+
+        row = {"game_id": game_id, "user_id": user_id, "id": self.database.next_id("game_players")}
+        self.database.tables["game_players"].append(row)
+        game["players_present"] += 1
+        game["status"] = "full" if game["players_present"] >= game["max_players"] else "open"
+
+        return FakeResponse([{"game": dict(game)}])
+
 
 class DenyTablesSupabase(FakeSupabase):
     def __init__(self, tables: dict[str, list[dict[str, Any]]], denied_tables: set[str]) -> None:

@@ -226,32 +226,22 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_activ
     game = _get_single("games", game_id, "Game not found")
     _ensure_active_game(game)
 
-    if game["players_present"] >= game["max_players"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Game is full")
-
-    already_joined = (
-        supabase.table("game_players")
-        .select("id")
-        .eq("game_id", game_id)
-        .eq("user_id", current_user["id"])
-        .limit(1)
-        .execute()
-    )
-    if already_joined.data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already joined")
-
-    supabase.table("game_players").insert(
-        {"game_id": game_id, "user_id": current_user["id"]}
+    rpc_result = supabase.rpc(
+        "join_game_atomic",
+        {"p_game_id": game_id, "p_user_id": current_user["id"]},
     ).execute()
 
-    players_present = game["players_present"] + 1
-    new_status = "full" if players_present >= game["max_players"] else "open"
-    response = (
-        supabase.table("games")
-        .update({"players_present": players_present, "status": new_status})
-        .eq("id", game_id)
-        .execute()
-    )
+    result_data = rpc_result.data
+    if isinstance(result_data, list):
+        result_data = result_data[0] if result_data else {}
+
+    if "error" in result_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result_data["error"],
+        )
+
+    updated_game = result_data["game"]
 
     if game.get("field_id"):
         field_response = (
@@ -283,7 +273,7 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_activ
                 },
             )
 
-    return {"message": "Joined successfully", "game": response.data[0]}
+    return {"message": "Joined successfully", "game": updated_game}
 
 
 @router.post("/{game_id}/leave")

@@ -58,7 +58,8 @@ create table if not exists games (
     cancelled_by uuid references users(id) on delete set null,
     cancelled_by_role text,
     cancel_reason text,
-    check (min_age is null or max_age is null or min_age <= max_age)
+    check (min_age is null or max_age is null or min_age <= max_age),
+    check (players_present <= max_players)
 );
 
 create table if not exists game_players (

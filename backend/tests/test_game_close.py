@@ -94,6 +94,44 @@ class FakeTableQuery:
         return {column: row.get(column) for column in self.selected_columns}
 
 
+class FakeRpcQuery:
+    """Simulates the Postgres join_game_atomic RPC for tests."""
+
+    def __init__(self, tables: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> None:
+        self.tables = tables
+        self.params = params
+
+    def execute(self) -> FakeResponse:
+        game_id = self.params["p_game_id"]
+        user_id = self.params["p_user_id"]
+
+        games = [g for g in self.tables.get("games", []) if g["id"] == game_id]
+        if not games:
+            return FakeResponse([{"error": "Game not found"}])
+        game = games[0]
+
+        if game["status"] not in ("open", "full"):
+            return FakeResponse([{"error": "Game already closed"}])
+
+        if game["players_present"] >= game["max_players"]:
+            return FakeResponse([{"error": "Game is full"}])
+
+        already = [
+            gp for gp in self.tables.get("game_players", [])
+            if gp.get("game_id") == game_id and gp.get("user_id") == user_id
+        ]
+        if already:
+            return FakeResponse([{"error": "User already joined"}])
+
+        self.tables["game_players"].append(
+            {"id": f"gp-rpc-{len(self.tables['game_players'])}", "game_id": game_id, "user_id": user_id}
+        )
+        game["players_present"] += 1
+        game["status"] = "full" if game["players_present"] >= game["max_players"] else "open"
+
+        return FakeResponse([{"game": dict(game)}])
+
+
 class FakeSupabaseClient:
     def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
         self.tables = tables
@@ -101,6 +139,10 @@ class FakeSupabaseClient:
     def table(self, table_name: str) -> FakeTableQuery:
         assert table_name in self.tables
         return FakeTableQuery(self.tables[table_name])
+
+    def rpc(self, function_name: str, params: dict[str, Any]) -> FakeRpcQuery:
+        assert function_name == "join_game_atomic"
+        return FakeRpcQuery(self.tables, params)
 
 
 def configure_test_settings(monkeypatch) -> None:
@@ -804,13 +846,9 @@ def test_join_game_uses_authenticated_user_not_request_body(monkeypatch) -> None
     )
 
     assert response.status_code == 200
-    assert tables["game_players"] == [
-        {
-            "id": "inserted-1",
-            "game_id": "game-1",
-            "user_id": user_a["id"],
-        }
-    ]
+    assert len(tables["game_players"]) == 1
+    assert tables["game_players"][0]["game_id"] == "game-1"
+    assert tables["game_players"][0]["user_id"] == user_a["id"]
 
 
 def test_two_jwt_users_join_independently(monkeypatch) -> None:
