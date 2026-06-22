@@ -696,6 +696,208 @@ Implemented.
 
 ---
 
+# ISSUE-019 - Game Lifecycle State Documentation
+
+## Type
+
+Product architecture documentation.
+
+## Dependencies
+
+* ISSUE-016 (cancellation product decision).
+* ISSUE-017 (cancellation implementation).
+
+## Goal
+
+Define the official game lifecycle state model so all developers use consistent terminology and understand how games move through states.
+
+## DB Status Values
+
+The `games.status` column accepts exactly four values (enforced by check constraint):
+
+| DB Status     | Terminal? | Description                                    |
+| ------------- | --------- | ---------------------------------------------- |
+| `open`        | No        | Game exists and has room for more players.     |
+| `full`        | No        | Game exists and player count equals max.       |
+| `finished`    | Yes       | Game has ended (expired, closed, or finished). |
+| `cancelled`   | Yes       | Scheduled game was cancelled before start.     |
+
+Code constant: `ACTIVE_GAME_STATUSES = ["open", "full"]`.
+
+## Lifecycle States
+
+The system uses six lifecycle concepts. Some are real DB statuses, some are derived from timestamps, and some are actions/events.
+
+### 1. Scheduled (derived state)
+
+**What it is:** A game that has not started yet.
+
+**Nature:** Derived state, not a separate DB status. The DB status is `open` or `full`.
+
+**Condition:** `scheduled_at` is not null AND `scheduled_at` is in the future AND `status` is `open` or `full`.
+
+**Code:** `is_game_upcoming(game)` returns `True` when `scheduled_at > now`.
+
+**Appears in:** `/games/upcoming` endpoint. Also visible in admin games list as an active game.
+
+**Does NOT appear in:** `/games/active` endpoint (filtered out by `is_game_started` returning `False`).
+
+**Timestamps:** `scheduled_at` is set at creation. `started_at` is set to `scheduled_at`. `expires_at` is set to `scheduled_at + 2 hours`.
+
+**Exit transitions:**
+* Time passes and `scheduled_at <= now` → game becomes **Active**.
+* Creator or admin cancels before `scheduled_at` → game becomes **Cancelled**.
+* `expires_at` passes (only possible if `expires_at` was not extended) → auto-finished to **Finished**.
+
+### 2. Active (derived state)
+
+**What it is:** A game currently in progress that players can join, leave, or interact with.
+
+**Nature:** Derived state. The DB status is `open` or `full`.
+
+**Condition:** `status` is `open` or `full` AND the game is not expired AND either `scheduled_at` is null (instant game) or `scheduled_at <= now`.
+
+**Code:** `is_game_started(game)` returns `True` when `scheduled_at` is null or `scheduled_at <= now`. `is_game_expired(game)` returns `False`.
+
+**Appears in:** `/games/active` endpoint. Also visible in admin games list.
+
+**Available actions:** Join, Leave, Close, Extend.
+
+**Timestamps:** `started_at` marks when the game began (either `now()` for instant games or `scheduled_at` for scheduled games). `expires_at` marks when the game auto-finishes (default: `started_at + 2 hours`).
+
+**Exit transitions:**
+* Organizer or admin closes the game → **Finished** (via Close action).
+* `expires_at` passes → auto-finished to **Finished** (via `finish_expired_games`).
+* Organizer extends → remains **Active** with updated `expires_at` (via Extend action).
+
+### 3. Extended (action/event)
+
+**What it is:** The act of pushing a game's end time further into the future.
+
+**Nature:** An action/event, not a DB status or derived state. After extending, the game remains `open` or `full`.
+
+**Condition:** Game must be active (status `open`/`full`, not expired). Only the organizer (`created_by`) or an admin can extend.
+
+**Effect:** `expires_at` is updated to `current expires_at + 1 hour`. No status change occurs.
+
+**API:** `POST /games/{game_id}/extend` (organizer), `POST /admin/games/{game_id}/extend` (admin).
+
+**Notification:** `game_extended` notification sent to participants.
+
+### 4. Finished (DB status)
+
+**What it is:** A game that has ended, either naturally or by explicit close action.
+
+**Nature:** Real DB status value (`finished`). Terminal state — no transitions out.
+
+**Entry conditions (any of these):**
+* Organizer calls `POST /games/{game_id}/close`.
+* Admin calls `POST /admin/games/{game_id}/close`.
+* `expires_at` passes and `finish_expired_games` auto-transitions the game.
+
+**Appears in:** Admin finished games list. Does NOT appear in `/games/active` or `/games/upcoming`.
+
+**Timestamps:** `expires_at` may or may not have passed. There is no dedicated `finished_at` column; the transition is inferred from the status change.
+
+### 5. Closed (action)
+
+**What it is:** The explicit action of ending a game early, before `expires_at`.
+
+**Nature:** An action, not a separate DB status. The close action sets `status = 'finished'`.
+
+**Who can close:**
+* The game organizer (`created_by`) via `POST /games/{game_id}/close`.
+* An admin via `POST /admin/games/{game_id}/close`.
+
+**Precondition:** Game must be active (`open`/`full`, not expired). Checked by `ensure_game_is_actionable`.
+
+**Result:** Game enters the **Finished** DB status. A `game_closed` notification is sent to participants.
+
+**Difference from Finished:** "Closed" is how you get to "Finished" manually. "Finished" is also reached automatically when `expires_at` passes. Both result in the same terminal DB status `finished`.
+
+### 6. Cancelled (DB status)
+
+**What it is:** A scheduled game that was called off before its start time.
+
+**Nature:** Real DB status value (`cancelled`). Terminal state — no transitions out.
+
+**Condition:** Game must have `scheduled_at` in the future AND status must be `open` or `full` at the time of cancellation.
+
+**Who can cancel:**
+* The game organizer via `POST /games/{game_id}/cancel`.
+* An admin via `POST /admin/games/{game_id}/cancel`.
+
+**Cancellation metadata columns:**
+* `cancelled_at` — when the cancellation occurred.
+* `cancelled_by` — user ID of who cancelled.
+* `cancelled_by_role` — `"creator"` or `"admin"`.
+* `cancel_reason` — optional free text.
+
+**Appears in:** Admin finished games list (alongside `finished` games). Does NOT appear in `/games/active` or `/games/upcoming`.
+
+**Notification:** `scheduled_game_cancelled` sent to participants. Creator cancellation excludes the creator from notifications. Admin cancellation notifies all participants including the creator.
+
+**Difference from Close/Finished:** Cancellation is only for future scheduled games that have not started. Closing is for active/started games. Both are terminal but use different DB status values (`cancelled` vs `finished`).
+
+## Timestamp Roles
+
+| Column         | Set when                                       | Purpose                                                     |
+| -------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| `scheduled_at` | Game creation (if scheduled)                   | Future start time. Null for instant games.                  |
+| `started_at`   | Game creation                                  | `scheduled_at` for scheduled games, `now()` for instant.    |
+| `expires_at`   | Game creation, updated on extend               | Auto-finish deadline. Default: `started_at + 2 hours`.      |
+| `cancelled_at` | Cancellation action                            | When the game was cancelled. Null if not cancelled.         |
+
+## Visibility Rules
+
+| Query                  | Filter logic                                                          | Shows                        |
+| ---------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| `/games/active`        | `status in (open, full)` AND not expired AND `is_game_started = True` | Currently playable games     |
+| `/games/upcoming`      | `status in (open, full)` AND not expired AND `is_game_upcoming = True`| Future scheduled games       |
+| `/admin/games?active`  | `status in (open, full)` AND not expired                              | All non-terminal games       |
+| `/admin/games?finished`| `status in (finished, cancelled)`                                     | All ended/cancelled games    |
+| Field upcoming games   | `status in (open, full)` for the field                                | Active + upcoming for field  |
+
+Cancelled and finished games are automatically excluded from active/upcoming queries because they are not in `ACTIVE_GAME_STATUSES`.
+
+## State Flow Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Scheduled : create with scheduled_at
+    [*] --> Active : create without scheduled_at
+
+    Scheduled --> Active : scheduled_at reached
+    Scheduled --> Cancelled : cancel before scheduled_at
+    Scheduled --> Finished : expires_at passed (auto)
+
+    Active --> Active : extend (updates expires_at)
+    Active --> Active : join / leave (may toggle open↔full)
+    Active --> Finished : close (organizer or admin)
+    Active --> Finished : expires_at passed (auto)
+
+    Finished --> [*]
+    Cancelled --> [*]
+```
+
+## Key Clarifications
+
+1. **Scheduled vs Active:** Both use DB status `open` or `full`. The difference is whether `scheduled_at` is in the future (Scheduled) or in the past/null (Active). There is no `scheduled` DB status value.
+
+2. **Closed vs Finished:** "Closed" is the user action (`POST .../close`). "Finished" is the resulting DB status. A game can also become `finished` automatically when `expires_at` passes, without anyone explicitly closing it.
+
+3. **Cancellation vs Close:** Cancellation applies only to future scheduled games before `scheduled_at`. Closing applies to active/started games. They produce different terminal DB statuses (`cancelled` vs `finished`) and different notifications (`scheduled_game_cancelled` vs `game_closed`).
+
+4. **Extended is not a state:** Extending updates `expires_at` by +1 hour. The game remains `open` or `full`. There is no `extended` DB status.
+
+5. **Auto-finish:** `finish_expired_games()` runs on every active/upcoming query. If `expires_at` has passed, the game is silently transitioned to `finished`. This is the garbage-collection mechanism for games that were never explicitly closed.
+
+## Status
+
+Documented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.
