@@ -39,6 +39,12 @@ class FakeTableQuery:
     def limit(self, _: int) -> "FakeTableQuery":
         return self
 
+    def order(self, _column: str, *, desc: bool = False) -> "FakeTableQuery":
+        return self
+
+    def range(self, _start: int, _end: int) -> "FakeTableQuery":
+        return self
+
     def update(self, payload: dict[str, Any]) -> "FakeTableQuery":
         self.update_payload = payload
         return self
