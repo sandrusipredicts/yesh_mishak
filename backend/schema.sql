@@ -131,6 +131,9 @@ create table if not exists user_moderation_audit (
 create index if not exists idx_users_status on users(status);
 alter table user_moderation_audit enable row level security;
 
+grant select, insert on public.user_moderation_audit to service_role;
+grant select, update on public.users to service_role;
+
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
 create index if not exists idx_fields_added_by on fields(added_by);
