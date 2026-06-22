@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
 
 from app.auth.dependencies import require_admin
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.fields import FieldStatusUpdate, update_field_status_record
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -170,7 +170,7 @@ def _perform_moderation_action(
     body: ModerationActionBody,
     admin_user: dict[str, Any],
 ) -> dict[str, Any]:
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_role_client()
 
     target = (
         supabase
