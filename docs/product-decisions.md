@@ -1323,6 +1323,271 @@ For every future product decision, specification, catalog, status definition, da
 
 ---
 
+# ISSUE-029 — Notification Event Inventory
+
+## Type
+
+Documentation / system audit.
+
+## Dependencies
+
+* ISSUE-017 (cancellation implementation — introduced `scheduled_game_cancelled` notification).
+* ISSUE-019 (game lifecycle state documentation).
+* ISSUE-024 (game visibility rules — section 6 lists notification types).
+
+## Background
+
+The notification system grew organically across multiple issues. No single document defined when each notification is created, who receives it, and through which channels. This inventory is the authoritative reference.
+
+## Notification Infrastructure
+
+### Tables
+
+| Table | Purpose |
+| --- | --- |
+| `notifications` | Stores all in-app notification records. Columns: `id`, `user_id`, `type`, `title`, `body`, `game_id`, `field_id`, `data` (jsonb), `read_at`, `created_at`. |
+| `notification_preferences` | Stores per-user delivery preferences. Types: `radius`, `city`, `specific_field`. Columns include `enabled`, `sport_type`, `radius_km`, `lat`, `lng`, `city`, `field_id`. |
+| `push_tokens` | Stores FCM push tokens per user/device. Columns: `id`, `user_id`, `token`, `created_at`, `updated_at`. Multi-device support (one user can have multiple tokens). |
+
+### Delivery Channels
+
+| Channel | Mechanism |
+| --- | --- |
+| **In-app** | Row inserted into `notifications` table. Retrieved via `GET /notifications`. Unread count via `GET /notifications/unread-count`. |
+| **Push** | FCM v1 HTTP API via `send_fcm_notification()` in `app/services/firebase_push.py`. Sent per-token for each recipient's registered push tokens. |
+
+### Push Delivery Details
+
+* Push is always sent immediately after in-app notification row is inserted.
+* Push uses the same `title` and `body` as the in-app notification.
+* Push `data` payload includes: `notification_id`, `type`, `game_id`, `field_id`, plus any extra fields from the notification's `data` jsonb.
+* Invalid tokens (FCM returns `INVALID_ARGUMENT`, `NOT_FOUND`, `UNREGISTERED`, or `SENDER_ID_MISMATCH`) are automatically deleted from `push_tokens`.
+* `FirebaseConfigError` is suppressed by default (best-effort delivery). Only the test-push endpoint surfaces config errors.
+* Push failures for individual tokens are caught and silently skipped (best-effort).
+
+### Read State
+
+* `read_at` (timestamptz) — canonical column. Set via `PATCH /notifications/{id}/read` or `PATCH /notifications/read-all`.
+* Legacy `is_read` (boolean) — supported for backward compatibility. Code auto-detects which column the live schema exposes.
+
+---
+
+## Notification Event Inventory
+
+### Event 1: Game Created
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Game Created |
+| **Notification Type** | `game_created` |
+| **Trigger** | User creates a new game via `POST /games` |
+| **Trigger Type** | User-action triggered |
+| **Recipients** | Users whose notification preferences match the game's field location and sport type, **excluding** the game organizer. Matching rules: (1) `specific_field` — preference `field_id` matches game's `field_id`; (2) `city` — preference city matches field's city (case-insensitive, normalized); (3) `radius` — user's lat/lng is within `radius_km` of field's lat/lng (haversine). Only enabled preferences are evaluated. Each user receives at most one notification regardless of how many preferences match. |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | Delivery is entirely preference-driven. Users without matching enabled preferences receive nothing. |
+| **Duplicate Prevention** | Yes. Checks `notifications` table for existing rows with `type='game_created'` AND same `game_id` AND same `user_id`. Skips users who already have a notification for this game. |
+| **Failure Behavior** | Best-effort. Notification creation runs inline in the game creation endpoint but does not block the response — the game is created regardless. Push failures are silently caught. |
+| **Title (Hebrew)** | `נפתח משחק חדש` |
+| **Body (Hebrew)** | `נפתח משחק {sport_type} במגרש {field_name}` |
+| **Payload/Data** | `game_id`, `field_id` (stored as top-level columns on the notification row) |
+| **Source Files** | `backend/app/routers/notifications.py` (`create_game_created_notifications`, lines 320–384), `backend/app/routers/games.py` (line 177) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 2: Player Joined Game
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Player Joined Game |
+| **Notification Type** | `player_joined_game` |
+| **Trigger** | User joins a game via `POST /games/{game_id}/join` (RPC `join_game_atomic`) |
+| **Trigger Type** | User-action triggered |
+| **Recipients** | The game organizer (`games.created_by`) only. **Not sent** if the joining user is the organizer themselves. |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | None. Always sent to the organizer regardless of notification preferences. |
+| **Duplicate Prevention** | No. A new notification is created every time a player joins. If a player leaves and re-joins, a new notification is created. |
+| **Failure Behavior** | Best-effort. Wrapped in try/except in `games.py`. Join succeeds even if notification fails. Errors are logged. |
+| **Title (Hebrew)** | `שחקן חדש הצטרף למשחק שלך` |
+| **Body (Hebrew)** | `{player_name} הצטרף למשחק שלך ב-{field_name}` (or `שחקן חדש הצטרף למשחק שלך ב-{field_name}` if player has no name) |
+| **Payload/Data** | `data` jsonb: `{ game_id, field_id, type: "player_joined_game", joined_user_id }`. Also stored as top-level `game_id`, `field_id` columns. |
+| **Legacy Schema Handling** | Falls back gracefully if `data` column or `game_id`/`field_id` columns don't exist (tries without `data`, then with `related_game_id`/`related_field_id`). |
+| **Source Files** | `backend/app/routers/notifications.py` (`create_player_joined_game_notification`, lines 387–449), `backend/app/routers/games.py` (line 345) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 3: Game Closed
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Game Closed |
+| **Notification Type** | `game_closed` |
+| **Trigger** | Organizer closes game via `POST /games/{game_id}/close`, or admin closes via `POST /admin/games/{game_id}/close` |
+| **Trigger Type** | User-action triggered (organizer or admin) |
+| **Recipients** | All current participants (`game_players` rows for the game), **excluding** the user who performed the close action. |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | None. Always sent to all participants regardless of preferences. |
+| **Duplicate Prevention** | Yes. Checks for existing `type='game_closed'` AND same `game_id` AND same `user_id`. Skips users who already have a notification. |
+| **Failure Behavior** | Best-effort. Wrapped in try/except. Close action succeeds even if notifications fail. Errors are logged. |
+| **Title (Hebrew)** | `המשחק נסגר` |
+| **Body (Hebrew)** | `המשחק במגרש {field_name} נסגר על ידי המארגן.` |
+| **Payload/Data** | `data` jsonb: `{ game_id, field_id, type: "game_closed", closed_by_user_id }`. Also stored as top-level `game_id`, `field_id` columns. |
+| **Source Files** | `backend/app/routers/notifications.py` (`create_game_closed_notifications`, lines 452–535), `backend/app/routers/games.py` (line 425), `backend/app/api/admin.py` (line 590) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 4: Game Extended
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Game Extended |
+| **Notification Type** | `game_extended` |
+| **Trigger** | Organizer extends game via `POST /games/{game_id}/extend`, or admin extends via `POST /admin/games/{game_id}/extend` |
+| **Trigger Type** | User-action triggered (organizer or admin) |
+| **Recipients** | All current participants (`game_players` rows), **excluding** both the game organizer (`created_by`) and the user who performed the extend action. |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | None. Always sent to eligible participants regardless of preferences. |
+| **Duplicate Prevention** | Yes, per extension event. Checks for existing `type='game_extended'` AND same `game_id` AND same `user_id` AND same `data->>'new_end_time'`. A second extend (to a different end time) creates a new notification. |
+| **Failure Behavior** | Best-effort. Wrapped in try/except. Extend action succeeds even if notifications fail. Errors are logged. |
+| **Title (Hebrew)** | `המשחק הוארך` |
+| **Body (Hebrew)** | `שעת הסיום החדשה של המשחק היא {HH:MM}` |
+| **Payload/Data** | `data` jsonb: `{ game_id, field_id, type: "game_extended", new_end_time (ISO 8601), extended_by_user_id }`. Also stored as top-level `game_id`, `field_id` columns. |
+| **Source Files** | `backend/app/routers/notifications.py` (`create_game_extended_notifications`, lines 629–706), `backend/app/routers/games.py` (line 464), `backend/app/api/admin.py` (line 633) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 5: Scheduled Game Cancelled
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Scheduled Game Cancelled |
+| **Notification Type** | `scheduled_game_cancelled` |
+| **Trigger** | Creator cancels via `POST /games/{game_id}/cancel`, or admin cancels via `POST /admin/games/{game_id}/cancel` |
+| **Trigger Type** | User-action triggered (creator or admin) |
+| **Recipients** | **If creator cancels:** all participants except the cancelling creator. **If admin cancels:** all participants AND the creator (creator is notified that an admin cancelled their game). |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | None. Always sent to all eligible participants/creator regardless of preferences. |
+| **Duplicate Prevention** | No. No dedup check exists for this notification type. However, a game can only be cancelled once (terminal status), so duplicates are structurally impossible. |
+| **Failure Behavior** | Best-effort. Wrapped in try/except. Cancel action succeeds even if notifications fail. Errors are logged. |
+| **Title (Hebrew)** | `המשחק בוטל` |
+| **Body (Hebrew)** | `המשחק במגרש {field_name} בוטל על ידי המארגן` (creator cancel) or `המשחק במגרש {field_name} בוטל על ידי מנהל` (admin cancel) |
+| **Payload/Data** | `data` jsonb: `{ game_id, field_id, type: "scheduled_game_cancelled", scheduled_at, cancelled_by, cancelled_by_role }`. Also stored as top-level `game_id`, `field_id` columns. |
+| **Source Files** | `backend/app/routers/notifications.py` (`create_scheduled_game_cancelled_notifications`, lines 538–626), `backend/app/routers/games.py` (line 532), `backend/app/api/admin.py` (line 702) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 6: Scheduled Game Reminder
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Scheduled Game Reminder |
+| **Notification Type** | `scheduled_game_reminder` |
+| **Trigger** | Admin manually triggers via `POST /admin/reminders/scheduled-games/run`. The function scans all active games with a future `scheduled_at` that is within 1 hour of the current time. |
+| **Trigger Type** | Admin-triggered (batch job, not automatic cron) |
+| **Recipients** | All current participants (`game_players` rows) of each eligible game. The organizer receives the reminder only if they are also in `game_players`. |
+| **Delivery Channel** | In-app + Push |
+| **Preference Rules** | None. Sent to all participants regardless of notification preferences. |
+| **Duplicate Prevention** | Yes, two layers: (1) `scheduled_reminder_processed_at` column on `games` table — once set, the game is skipped on future runs; (2) checks `notifications` table for existing `type='scheduled_game_reminder'` rows for the game — if any exist, the game is marked processed and skipped. |
+| **Failure Behavior** | Best-effort for push. The function always returns a result object with `processed_game_ids`, `skipped_game_ids`, and `notifications_created` count. |
+| **Title (Hebrew)** | `תזכורת למשחק שמתקרב` |
+| **Body (Hebrew)** | `המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.` |
+| **Payload/Data** | `data` jsonb: `{ type: "scheduled_game_reminder", game_id, field_id, scheduled_at }`. Also stored as top-level `game_id`, `field_id` columns. |
+| **Eligibility Window** | Game must have `scheduled_at` in the future AND `scheduled_at - 1 hour <= now`. Games already started (`scheduled_at <= now`) are skipped. |
+| **Source Files** | `backend/app/routers/notifications.py` (`generate_scheduled_game_reminders`, lines 741–828), `backend/app/api/admin.py` (line 571) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+### Event 7: Test Push Notification
+
+| Field | Value |
+| --- | --- |
+| **Event Name** | Test Push |
+| **Notification Type** | `test_push` (in push data only — no in-app notification row is created) |
+| **Trigger** | User triggers via `POST /notifications/test-push` |
+| **Trigger Type** | User-action triggered (self-service) |
+| **Recipients** | The requesting user only (their own registered push tokens). |
+| **Delivery Channel** | Push only. **No in-app notification row is created.** |
+| **Preference Rules** | None. Requires at least one registered push token (returns 404 otherwise). |
+| **Duplicate Prevention** | N/A. Test pushes can be sent repeatedly. |
+| **Failure Behavior** | **Not best-effort.** Returns HTTP 503 if Firebase is not configured. Returns HTTP 502 if push could not be sent to any token. This is the only notification endpoint that surfaces push errors to the user. |
+| **Title** | `Test notification` (English) |
+| **Body** | `Push notifications are ready.` (English) |
+| **Payload/Data** | Push data: `{ type: "test_push" }` |
+| **Source Files** | `backend/app/routers/notifications.py` (`send_test_push`, lines 923–959) |
+| **Tests** | `backend/tests/test_notifications.py` |
+
+---
+
+## Notification Type Summary
+
+| # | Type String | In-App | Push | Preference-Gated | Dedup | Trigger |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `game_created` | Yes | Yes | Yes (radius/city/field) | Yes (per user+game) | User creates game |
+| 2 | `player_joined_game` | Yes | Yes | No | No | User joins game |
+| 3 | `game_closed` | Yes | Yes | No | Yes (per user+game) | Organizer/admin closes game |
+| 4 | `game_extended` | Yes | Yes | No | Yes (per user+game+end_time) | Organizer/admin extends game |
+| 5 | `scheduled_game_cancelled` | Yes | Yes | No | No (structurally impossible) | Creator/admin cancels scheduled game |
+| 6 | `scheduled_game_reminder` | Yes | Yes | No | Yes (per game, via processed_at flag) | Admin runs reminder batch |
+| 7 | `test_push` | No | Yes | No | No | User tests push setup |
+
+## Preference System
+
+Notification preferences only affect `game_created` notifications. All other notification types are sent unconditionally to eligible recipients.
+
+### Preference Types
+
+| Type | Matching Rule | Fields Used |
+| --- | --- | --- |
+| `radius` | Haversine distance from user's lat/lng to field's lat/lng <= `radius_km` | `lat`, `lng`, `radius_km` |
+| `city` | Normalized city name comparison (case-insensitive, whitespace-normalized) | `city` |
+| `specific_field` | Exact `field_id` match | `field_id` |
+
+### Additional Filters
+
+* `sport_type` — preference must match game's sport type, or be `"both"`.
+* `enabled` — only enabled preferences are evaluated.
+* Each user receives at most one `game_created` notification per game, regardless of how many preferences match.
+
+### Frontend Settings UI
+
+The frontend notification preferences page (`NotificationPreferencesPanel`) manages three categories:
+* **Distance notifications** — radius-based, with radius slider (1–20 km).
+* **City notifications** — city name match.
+* **Specific field notifications** — checkbox per selected field.
+
+Settings are saved via `PUT /notifications/preferences` which handles both the legacy single-preference format and the newer combined settings format.
+
+## Database Deduplication Indexes
+
+| Index | Purpose |
+| --- | --- |
+| `idx_notifications_user_type_game_unique` | Unique on `(user_id, type, game_id)` where `game_id IS NOT NULL` and `type IN ('game_created', 'game_closed', 'scheduled_game_reminder')`. Prevents duplicate notifications at DB level. |
+| `idx_notifications_user_game_extended_end_time_unique` | Unique on `(user_id, type, game_id, data->>'new_end_time')` where `type = 'game_extended'`. Allows multiple extend notifications per game (one per distinct end time). |
+
+## Orphan / Legacy Notification Types
+
+No orphan or legacy notification types were found. All type strings used in code (`game_created`, `player_joined_game`, `game_closed`, `game_extended`, `scheduled_game_cancelled`, `scheduled_game_reminder`, `test_push`) are actively used and tested.
+
+### Legacy Schema Compatibility
+
+The `player_joined_game` notification creation function contains fallback logic for legacy database schemas:
+* Falls back to omitting the `data` jsonb column if the column doesn't exist.
+* Falls back to using `related_game_id`/`related_field_id` column names instead of `game_id`/`field_id` if those columns don't exist.
+* The `game_created` notification function similarly handles `related_game_id`/`related_field_id` fallback.
+* The `_with_notification_target_aliases` function normalizes both column naming conventions when reading notifications.
+
+These are backward-compatibility paths for databases that haven't been fully migrated. The canonical schema (in `schema.sql`) uses `game_id`, `field_id`, and `data`.
+
+## Identified Gaps and Follow-Up Issues
+
+| # | Gap | Severity | Notes |
+| --- | --- | --- | --- |
+| 1 | `push_tokens` table is not in `schema.sql` | Low | Defined only in `backend/migrations/push_notifications.sql`. Should be added to `schema.sql` for consistency. |
+| 2 | Scheduled game reminders are not automated | Medium | `generate_scheduled_game_reminders` must be manually triggered by an admin via `POST /admin/reminders/scheduled-games/run`. There is no cron job, scheduled task, or automatic invocation. Users could miss reminders if an admin forgets to trigger the endpoint. |
+| 3 | All notification titles/body text are hardcoded in Hebrew | Low | No i18n support for notification content. Push notifications and in-app notifications are always in Hebrew regardless of user language preference. The test push is the exception (English). |
+| 4 | No "player left game" notification | Low | When a player leaves, no notification is sent to the organizer or other participants. This may be intentional for v1. |
+| 5 | No notification when game auto-finishes (expires) | Low | `finish_expired_games` silently transitions games to `finished` without creating notifications. Only explicit close creates `game_closed` notifications. |
+| 6 | No notification for admin moderation actions | Info | Ban, suspend, unban, unsuspend actions do not create notifications for the affected user. The user discovers their status change on next login attempt. |
+
+## Status
+
+Documented.
+
+---
+
 # Codex Task Boundaries
 
 For this task:
