@@ -418,6 +418,68 @@ Implemented.
 
 ---
 
+# ISSUE-011 - Field Report Resolution Workflow
+
+## Decision
+
+Admins can update the lifecycle status of existing field reports from the admin API.
+
+## Backend API Contract
+
+`PATCH /admin/field-reports/{report_id}/status`
+
+Request body:
+
+```json
+{ "status": "in_review" }
+```
+
+Accepted update statuses:
+
+* `in_review`
+* `resolved`
+* `rejected`
+
+`open` remains the default creation status and a valid filter/list status, but admins do not set a report back to `open` through the resolution endpoint.
+
+## Review Metadata
+
+Every successful status update persists:
+
+* `status`
+* `reviewed_at`
+* `reviewed_by`
+
+`reviewed_by` is the authenticated admin user's `users.id`.
+
+## Authorization
+
+The endpoint uses the existing admin authorization requirement. Non-admin users cannot update report status.
+
+## Scope
+
+Included:
+
+* Admin-only backend status update endpoint.
+* Status validation.
+* Database persistence through the existing `field_reports` table.
+* Review metadata updates.
+* Backend tests for allowed statuses, invalid status rejection, non-admin rejection, and persisted reviewer metadata.
+
+Excluded:
+
+* No schema changes.
+* No frontend status action UI.
+* No notifications.
+* No report assignment workflow.
+* No transition-history audit table.
+
+## Status
+
+Implemented.
+
+---
+
 For every future product decision, specification, catalog, status definition, database design decision, API contract decision, or scope decision:
 
 1. Update this document.

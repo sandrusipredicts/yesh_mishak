@@ -1,8 +1,9 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client
@@ -66,6 +67,11 @@ ADMIN_FIELD_REPORT_COLUMNS = ",".join(
     ]
 )
 FIELD_REPORT_STATUSES = {"open", "in_review", "resolved", "rejected"}
+FIELD_REPORT_REVIEW_STATUSES = {"in_review", "resolved", "rejected"}
+
+
+class FieldReportStatusUpdate(BaseModel):
+    status: str
 
 
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
@@ -209,6 +215,41 @@ def get_admin_field_reports(
         query = query.eq("status", status_filter)
 
     return _attach_field_report_details(query.execute().data or [])
+
+
+@router.patch("/field-reports/{report_id}/status")
+def update_admin_field_report_status(
+    report_id: str,
+    body: FieldReportStatusUpdate,
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    if body.status not in FIELD_REPORT_REVIEW_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="status must be in_review, resolved, or rejected",
+        )
+
+    response = (
+        get_supabase_client()
+        .table("field_reports")
+        .update(
+            {
+                "status": body.status,
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "reviewed_by": current_user["id"],
+            }
+        )
+        .eq("id", report_id)
+        .execute()
+    )
+
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Field report not found",
+        )
+
+    return {"message": "Field report status updated", "report": response.data[0]}
 
 
 @router.get("/stats")

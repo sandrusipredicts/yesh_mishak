@@ -22,6 +22,7 @@ class FakeUsersQuery:
         self.selected_columns: list[str] | None = None
         self.filters: list[tuple[str, Any]] = []
         self.in_filters: list[tuple[str, list[Any]]] = []
+        self.update_payload: dict[str, Any] | None = None
         self.exact_count = False
         self.order_column: str | None = None
         self.order_desc = False
@@ -49,7 +50,17 @@ class FakeUsersQuery:
         self.order_desc = desc
         return self
 
+    def update(self, payload: dict[str, Any]) -> "FakeUsersQuery":
+        self.update_payload = payload
+        return self
+
     def execute(self) -> FakeResponse:
+        if self.update_payload is not None:
+            rows = self._filtered_rows()
+            for row in rows:
+                row.update(self.update_payload)
+            return FakeResponse(data=[dict(row) for row in rows])
+
         rows = self._filtered_rows()
         if self.order_column:
             rows = sorted(
@@ -493,6 +504,231 @@ def test_admin_field_reports_supports_status_filter(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert [report["id"] for report in response.json()] == ["report-open"]
+
+
+def test_admin_can_move_open_field_report_to_in_review(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    reporter = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "reporter@example.com",
+        "name": "Reporter User",
+        "role": "user",
+    }
+    report = {
+        "id": "report-open",
+        "field_id": "field-1",
+        "user_id": reporter["id"],
+        "category": "field_closed",
+        "description": None,
+        "status": "open",
+        "created_at": "2026-06-20T09:00:00+00:00",
+        "reviewed_at": None,
+        "reviewed_by": None,
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, reporter],
+            "field_reports": [report],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).patch(
+        "/admin/field-reports/report-open/status",
+        json={"status": "in_review"},
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    updated_report = response.json()["report"]
+    assert updated_report["status"] == "in_review"
+    assert fake_client.tables["field_reports"][0]["status"] == "in_review"
+
+
+@pytest.mark.parametrize("review_status", ["resolved", "rejected"])
+def test_admin_can_mark_field_report_terminal_status(monkeypatch, review_status: str) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    reporter = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "reporter@example.com",
+        "name": "Reporter User",
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, reporter],
+            "field_reports": [
+                {
+                    "id": "report-in-review",
+                    "field_id": "field-1",
+                    "user_id": reporter["id"],
+                    "category": "wrong_information",
+                    "description": "Needs review.",
+                    "status": "in_review",
+                    "created_at": "2026-06-20T09:00:00+00:00",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).patch(
+        "/admin/field-reports/report-in-review/status",
+        json={"status": review_status},
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["report"]["status"] == review_status
+    assert fake_client.tables["field_reports"][0]["status"] == review_status
+
+
+def test_admin_field_report_status_rejects_invalid_status(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "field_reports": [
+                {
+                    "id": "report-open",
+                    "status": "open",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).patch(
+        "/admin/field-reports/report-open/status",
+        json={"status": "open"},
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "status must be in_review, resolved, or rejected"
+    assert fake_client.tables["field_reports"][0]["status"] == "open"
+    assert fake_client.tables["field_reports"][0]["reviewed_at"] is None
+    assert fake_client.tables["field_reports"][0]["reviewed_by"] is None
+
+
+def test_admin_field_report_status_rejects_regular_user(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    regular_user = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "user@example.com",
+        "name": "Regular User",
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [regular_user],
+            "field_reports": [
+                {
+                    "id": "report-open",
+                    "status": "open",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).patch(
+        "/admin/field-reports/report-open/status",
+        json={"status": "in_review"},
+        headers={"Authorization": f"Bearer {make_token(regular_user)}"},
+    )
+
+    assert response.status_code == 403
+    assert fake_client.tables["field_reports"][0]["status"] == "open"
+    assert fake_client.tables["field_reports"][0]["reviewed_at"] is None
+    assert fake_client.tables["field_reports"][0]["reviewed_by"] is None
+
+
+def test_admin_field_report_status_saves_review_metadata(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    reporter = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "reporter@example.com",
+        "name": "Reporter User",
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, reporter],
+            "field_reports": [
+                {
+                    "id": "report-open",
+                    "field_id": "field-1",
+                    "user_id": reporter["id"],
+                    "category": "wrong_location",
+                    "description": None,
+                    "status": "open",
+                    "created_at": "2026-06-20T09:00:00+00:00",
+                    "reviewed_at": None,
+                    "reviewed_by": None,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).patch(
+        "/admin/field-reports/report-open/status",
+        json={"status": "in_review"},
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    updated_report = response.json()["report"]
+    assert updated_report["reviewed_by"] == admin_user["id"]
+    assert updated_report["reviewed_at"] is not None
+    assert fake_client.tables["field_reports"][0]["reviewed_by"] == admin_user["id"]
+    assert fake_client.tables["field_reports"][0]["reviewed_at"] == updated_report["reviewed_at"]
 
 
 def test_admin_stats_returns_counts_only(monkeypatch) -> None:
