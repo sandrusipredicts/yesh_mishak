@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 
 ACTIVE_GAME_STATUSES = ["open", "full"]
 FINISHED_GAME_STATUS = "finished"
@@ -96,11 +97,20 @@ def finish_expired_games(
 
 def ensure_game_is_actionable(game: dict[str, Any], *, supabase: Any | None = None) -> None:
     if game.get("status") not in ACTIVE_GAME_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Game already closed")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="GAME_NOT_ACTIONABLE",
+            message="Game already closed",
+        )
 
     if is_game_expired(game):
         game_id = game.get("id")
         if game_id:
             finish_game(str(game_id), supabase)
         game["status"] = FINISHED_GAME_STATUS
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Game already closed")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="GAME_NOT_ACTIONABLE",
+            message="Game already closed",
+        )
+

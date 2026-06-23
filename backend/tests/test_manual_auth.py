@@ -126,7 +126,10 @@ def test_register_rejects_duplicate_username(monkeypatch) -> None:
     response = TestClient(app).post("/auth/register", json=register_payload())
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Username is already taken"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "CONFLICT"
+    assert err["message"] == "Username is already taken"
 
 
 def test_register_rejects_duplicate_email(monkeypatch) -> None:
@@ -137,7 +140,10 @@ def test_register_rejects_duplicate_email(monkeypatch) -> None:
     response = TestClient(app).post("/auth/register", json=register_payload(username="new-user"))
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Email is already registered"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "CONFLICT"
+    assert err["message"] == "Email is already registered"
 
 
 def test_register_rejects_duplicate_phone_number(monkeypatch) -> None:
@@ -151,7 +157,10 @@ def test_register_rejects_duplicate_phone_number(monkeypatch) -> None:
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Phone number is already registered"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "CONFLICT"
+    assert err["message"] == "Phone number is already registered"
 
 
 def test_register_rejects_password_mismatch(monkeypatch) -> None:
@@ -165,7 +174,10 @@ def test_register_rejects_password_mismatch(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Passwords do not match"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "VALIDATION_ERROR"
+    assert err["message"] == "Passwords do not match"
 
 
 def test_login_accepts_valid_username_and_password(monkeypatch) -> None:
@@ -195,4 +207,7 @@ def test_login_rejects_wrong_password(monkeypatch) -> None:
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid username or password"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "AUTH_INVALID"
+    assert err["message"] == "Invalid username or password"

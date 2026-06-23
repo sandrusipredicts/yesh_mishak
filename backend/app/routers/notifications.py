@@ -8,6 +8,7 @@ from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import require_active_user, require_admin
+from app.errors import raise_api_error
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
@@ -69,23 +70,33 @@ SETTINGS_PAYLOAD_KEYS = {
 
 def _validate_preference(pref: NotificationPreference) -> None:
     if pref.sport_type not in ("football", "basketball", "both"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invalid sport_type",
+        )
 
     if pref.notification_type not in ("radius", "city", "specific_field"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid notification_type")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invalid notification_type",
+        )
 
     if pref.notification_type == "radius" and (
         pref.radius_km is None or pref.lat is None or pref.lng is None
     ):
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Radius preferences require radius_km, lat, and lng",
+            code="VALIDATION_ERROR",
+            message="Radius preferences require radius_km, lat, and lng",
         )
 
     if pref.notification_type == "specific_field" and not pref.field_id:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="specific_field preferences require field_id",
+            code="VALIDATION_ERROR",
+            message="specific_field preferences require field_id",
         )
 
 
@@ -934,9 +945,10 @@ def delete_push_token(
     if not token:
         # Without a token we cannot tell which device to remove. Refuse rather
         # than deleting every token the user has registered on other browsers.
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Push token is required",
+            code="VALIDATION_ERROR",
+            message="Push token is required",
         )
 
     client = get_supabase_service_role_client()
@@ -963,7 +975,11 @@ def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
     )
 
     if not tokens:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No push token registered")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="NOT_FOUND",
+            message="No push token registered",
+        )
 
     rendered = render_notification_template("test_push", "en")
     try:
@@ -975,16 +991,18 @@ def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
             {"type": "test_push"},
             suppress_config_error=False,
         )
-    except FirebaseConfigError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
-        ) from error
+    except FirebaseConfigError:
+        raise_api_error(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code="EXTERNAL_SERVICE_ERROR",
+            message="Firebase push service configuration error",
+        )
 
     if result["sent"] == 0 and result["invalid_tokens"] == 0:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Push notification could not be sent",
+            code="EXTERNAL_SERVICE_ERROR",
+            message="Push notification could not be sent",
         )
 
     return result
@@ -1046,7 +1064,11 @@ def mark_notification_read(
     )
 
     if not existing.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="NOT_FOUND",
+            message="Notification not found",
+        )
 
     now = datetime.now(timezone.utc).isoformat()
     response = (
@@ -1225,7 +1247,11 @@ def save_preferences(
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
     if not isinstance(body, dict):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invalid request body",
+        )
 
     is_settings_payload = _is_settings_payload(body)
 
@@ -1235,7 +1261,17 @@ def save_preferences(
 
         pref = NotificationPreference(**body)
     except ValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.errors()) from error
+        details = {}
+        for err in error.errors():
+            loc = err.get("loc", [])
+            field = ".".join(str(x) for x in loc) if loc else "non_field_error"
+            details[field] = err.get("msg", "Invalid value")
+        raise_api_error(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="VALIDATION_ERROR",
+            message="Validation failed",
+            details=details,
+        )
 
     _validate_preference(pref)
     supabase = get_supabase_service_role_client()
@@ -1281,7 +1317,11 @@ def get_notification_candidates(
     _: dict[str, Any] = Depends(require_admin),
 ):
     if body.sport_type not in ("football", "basketball"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invalid sport_type",
+        )
 
     supabase = get_supabase_client()
     field_response = (
@@ -1292,7 +1332,11 @@ def get_notification_candidates(
         .execute()
     )
     if not field_response.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Field not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
 
     field = field_response.data[0]
     return _find_notification_candidates(supabase, field, body.sport_type)

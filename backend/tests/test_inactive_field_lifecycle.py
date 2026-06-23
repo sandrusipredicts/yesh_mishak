@@ -131,7 +131,10 @@ def test_game_creation_blocked_on_closed_field(monkeypatch) -> None:
     response = client.post("/games/", json=_game_payload(), headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Field is not open"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "FIELD_NOT_OPEN"
+    assert err["message"] == "Field is not open"
 
 
 def test_game_creation_blocked_on_renovation_field(monkeypatch) -> None:
@@ -149,7 +152,10 @@ def test_game_creation_blocked_on_renovation_field(monkeypatch) -> None:
     response = client.post("/games/", json=_game_payload(), headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Field is not open"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "FIELD_NOT_OPEN"
+    assert err["message"] == "Field is not open"
 
 
 def test_game_creation_blocked_on_pending_field(monkeypatch) -> None:
@@ -167,7 +173,10 @@ def test_game_creation_blocked_on_pending_field(monkeypatch) -> None:
     response = client.post("/games/", json=_game_payload(), headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Field not approved"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "FIELD_NOT_OPEN"
+    assert err["message"] == "Field not approved"
 
 
 def test_game_creation_blocked_on_rejected_field(monkeypatch) -> None:
@@ -185,7 +194,10 @@ def test_game_creation_blocked_on_rejected_field(monkeypatch) -> None:
     response = client.post("/games/", json=_game_payload(), headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Field not approved"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "FIELD_NOT_OPEN"
+    assert err["message"] == "Field not approved"
 
 
 def test_game_creation_blocked_on_approved_closed_returns_correct_error(monkeypatch) -> None:
@@ -204,7 +216,10 @@ def test_game_creation_blocked_on_approved_closed_returns_correct_error(monkeypa
     response = client.post("/games/", json=_game_payload(), headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Field is not open"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "FIELD_NOT_OPEN"
+    assert err["message"] == "Field is not open"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -504,4 +519,48 @@ def test_game_creation_matrix(
 
     assert response.status_code == expected_code
     if expected_detail is not None:
-        assert response.json()["detail"] == expected_detail
+        err = response.json()
+        assert err["error"] is True
+        assert err["code"] == "FIELD_NOT_OPEN"
+        assert err["message"] == expected_detail
+
+
+def test_create_field_insert_failure_returns_clean_api_error(monkeypatch) -> None:
+    _configure(monkeypatch)
+    tables = {
+        "users": [CREATOR],
+        "fields": [],
+    }
+    client = _make_client(monkeypatch, tables)
+
+    from tests.test_game_close import FakeTableQuery
+    
+    def failing_insert(self, payload):
+        self.insert_payload = payload
+        def fail_execute():
+            raise RuntimeError("insert failed")
+        self.execute = fail_execute
+        return self
+
+    monkeypatch.setattr(FakeTableQuery, "insert", failing_insert)
+
+    response = client.post(
+        "/fields/",
+        json={
+            "name": "New Court",
+            "lat": 32.0853,
+            "lng": 34.7818,
+            "sport_type": "football",
+            "surface_type": "grass",
+            "has_nets": True,
+            "has_water": True,
+        },
+        headers=_headers(CREATOR),
+    )
+
+    assert response.status_code == 500
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "DATABASE_ERROR"
+    assert err["message"] == "Failed to create field"
+

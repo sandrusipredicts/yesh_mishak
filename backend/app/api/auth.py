@@ -9,6 +9,7 @@ from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, verify_password
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 from app.schemas.auth import (
     AvailabilityResponse,
     EmailCheckRequest,
@@ -34,9 +35,10 @@ def _format_user_response(user: dict[str, Any]) -> UserResponse:
     name = user.get("name")
 
     if not user_id or not email or not name:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User record is missing required fields",
+            code="INTERNAL_SERVER_ERROR",
+            message="User record is missing required fields",
         )
 
     return UserResponse(
@@ -73,7 +75,11 @@ def _get_user_by_column(column: str, value: str) -> dict[str, Any] | None:
 
 def _ensure_unique(column: str, value: str, message: str) -> None:
     if _get_user_by_column(column, value):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="CONFLICT",
+            message=message,
+        )
 
 
 def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
@@ -112,9 +118,10 @@ def google_login(payload: GoogleAuthRequest) -> TokenResponse:
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest) -> TokenResponse:
     if payload.password != payload.password_confirm:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Passwords do not match",
+            code="VALIDATION_ERROR",
+            message="Passwords do not match",
         )
 
     _ensure_unique("username", payload.username, "Username is already taken")
@@ -132,9 +139,10 @@ def register(payload: RegisterRequest) -> TokenResponse:
 
     response = get_supabase_client().table("users").insert(user_data).execute()
     if not response.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User registration failed",
+            code="INTERNAL_SERVER_ERROR",
+            message="User registration failed",
         )
 
     return _create_token_response(response.data[0])
@@ -144,9 +152,10 @@ def register(payload: RegisterRequest) -> TokenResponse:
 def login(payload: LoginRequest) -> TokenResponse:
     user = _get_user_by_column("username", payload.username)
     if not user or not verify_password(payload.password, user.get("password_hash")):
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
+            code="AUTH_INVALID",
+            message="Invalid username or password",
         )
 
     _update_last_login(str(user["id"]), attempt_id="password")
@@ -161,3 +170,4 @@ def check_username(payload: UsernameCheckRequest) -> AvailabilityResponse:
 @router.post("/check-email", response_model=AvailabilityResponse)
 def check_email(payload: EmailCheckRequest) -> AvailabilityResponse:
     return AvailabilityResponse(available=_get_user_by_column("email", payload.email) is None)
+

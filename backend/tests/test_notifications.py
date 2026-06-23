@@ -879,6 +879,35 @@ def test_test_push_sends_to_current_users_tokens(
     assert sent_tokens == ["own-token"]
 
 
+def test_test_push_firebase_config_error_returns_clean_api_error(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["push_tokens"] = [
+        {"id": "own-token", "user_id": users["candidate"]["id"], "token": "own-token"},
+    ]
+
+    from app.services.firebase_push import FirebaseConfigError
+
+    def failing_send(*args, **kwargs) -> dict[str, Any]:
+        raise FirebaseConfigError("Firebase credentials are not configured")
+
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", failing_send)
+
+    response = TestClient(app).post(
+        "/notifications/test-push",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 502
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "EXTERNAL_SERVICE_ERROR"
+    assert err["message"] == "Firebase push service configuration error"
+
+
+
 def test_save_settings_deletes_unchecked_specific_field_preferences(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
@@ -1630,7 +1659,10 @@ def test_duplicate_close_does_not_create_duplicate_game_closed_notification(
 
     assert first_response.status_code == 200
     assert second_response.status_code == 400
-    assert second_response.json()["detail"] == "Game already closed"
+    err = second_response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert len(game_closed_notifications(fake_supabase)) == 1
 
 
@@ -2361,7 +2393,10 @@ def test_duplicate_join_does_not_create_duplicate_player_joined_notification(
 
     assert first_response.status_code == 200
     assert second_response.status_code == 400
-    assert second_response.json()["detail"] == "User already joined"
+    err = second_response.json()
+    assert err["error"] is True
+    assert err["code"] == "CONFLICT"
+    assert "already joined" in err["message"].lower()
     assert len(player_joined_notifications(fake_supabase)) == 1
 
 
@@ -2403,7 +2438,15 @@ def test_failed_join_does_not_create_player_joined_notification(
     )
 
     assert response.status_code == expected_status
-    assert response.json()["detail"] == expected_detail
+    err = response.json()
+    assert err["error"] is True
+    if expected_detail == "Game is full":
+        assert err["code"] == "GAME_FULL"
+    elif expected_detail == "Game already closed":
+        assert err["code"] == "GAME_NOT_ACTIONABLE"
+    elif expected_detail == "Game not found":
+        assert err["code"] == "GAME_NOT_FOUND"
+    assert err["message"] == expected_detail
     assert player_joined_notifications(fake_supabase) == []
 
 
@@ -2517,7 +2560,17 @@ def test_real_join_failures_still_return_errors_when_notification_would_fail(
     )
 
     assert response.status_code == expected_status
-    assert response.json()["detail"] == expected_detail
+    err = response.json()
+    assert err["error"] is True
+    if expected_detail == "Game is full":
+        assert err["code"] == "GAME_FULL"
+    elif expected_detail == "Game already closed":
+        assert err["code"] == "GAME_NOT_ACTIONABLE"
+    elif expected_detail == "User already joined":
+        assert err["code"] == "CONFLICT"
+    elif expected_detail == "Game not found":
+        assert err["code"] == "GAME_NOT_FOUND"
+    assert err["message"] == expected_detail
 
 
 def test_notification_candidates_endpoint_rejects_regular_users(

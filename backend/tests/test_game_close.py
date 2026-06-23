@@ -295,7 +295,9 @@ def test_create_scheduled_game_in_past_fails(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "scheduled_at must be in the future"
+    assert response.json()["message"] == "scheduled_at must be in the future"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "VALIDATION_ERROR"
     assert tables["games"] == []
 
 
@@ -437,9 +439,11 @@ def test_duplicate_exact_scheduled_game_is_rejected(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == (
+    assert response.json()["message"] == (
         "Scheduled game already exists for this field and sport at this time"
     )
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "CONFLICT"
     assert len(tables["games"]) == 1
 
 
@@ -798,7 +802,9 @@ def test_user_cannot_join_closed_game(monkeypatch) -> None:
     response = client.post("/games/game-1/join", headers=auth_headers(user))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_user_cannot_join_game_after_end_time(monkeypatch) -> None:
@@ -825,7 +831,9 @@ def test_user_cannot_join_game_after_end_time(monkeypatch) -> None:
     response = client.post("/games/game-1/join", headers=auth_headers(user))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -912,7 +920,9 @@ def test_creator_cannot_extend_closed_game(monkeypatch) -> None:
     response = client.post("/games/game-1/extend", headers=auth_headers(creator))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_extend_game_after_end_time(monkeypatch) -> None:
@@ -939,5 +949,7 @@ def test_creator_cannot_extend_game_after_end_time(monkeypatch) -> None:
     response = client.post("/games/game-1/extend", headers=auth_headers(creator))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
     assert tables["games"][0]["status"] == "finished"

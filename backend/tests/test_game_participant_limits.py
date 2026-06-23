@@ -150,7 +150,10 @@ def test_cannot_join_full_game(monkeypatch):
     response = client.post("/games/game-1/join", headers=_headers(USER_B))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is full"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_FULL"
+    assert "full" in err["message"].lower()
     assert tables["games"][0]["players_present"] == 2
     assert tables["games"][0]["status"] == "full"
 
@@ -164,7 +167,10 @@ def test_cannot_join_when_players_present_equals_max(monkeypatch):
     response = client.post("/games/game-1/join", headers=_headers(USER_C))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is full"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_FULL"
+    assert "full" in err["message"].lower()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -223,7 +229,9 @@ def test_sequential_joins_fill_game_then_block(monkeypatch):
 
     r3 = client.post("/games/game-1/join", headers=_headers(USER_C))
     assert r3.status_code == 400
-    assert r3.json()["detail"] == "Game is full"
+    err3 = r3.json()
+    assert err3["error"] is True
+    assert err3["code"] == "GAME_FULL"
     assert tables["games"][0]["players_present"] == 3
 
     actual_players = [
@@ -247,7 +255,9 @@ def test_same_user_cannot_join_twice(monkeypatch):
 
     r2 = client.post("/games/game-1/join", headers=_headers(USER_A))
     assert r2.status_code == 400
-    assert r2.json()["detail"] == "User already joined"
+    err2 = r2.json()
+    assert err2["error"] is True
+    assert err2["code"] == "CONFLICT"
     assert tables["games"][0]["players_present"] == 2
 
 
@@ -303,7 +313,9 @@ def test_max_players_one_game_is_full_at_creation(monkeypatch):
     response = client.post("/games/game-1/join", headers=_headers(USER_A))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is full"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_FULL"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -338,7 +350,9 @@ def test_sequential_concurrent_join_simulation(monkeypatch):
 
     r2 = client.post("/games/game-1/join", headers=_headers(USER_B))
     assert r2.status_code == 400
-    assert r2.json()["detail"] == "Game is full"
+    err2 = r2.json()
+    assert err2["error"] is True
+    assert err2["code"] == "GAME_FULL"
 
     assert tables["games"][0]["players_present"] == 2
     actual_players = [gp for gp in tables["game_players"] if gp["game_id"] == "game-1"]
@@ -362,7 +376,9 @@ def test_duplicate_join_does_not_increment_players_present(monkeypatch):
 
     r2 = client.post("/games/game-1/join", headers=_headers(USER_A))
     assert r2.status_code == 400
-    assert r2.json()["detail"] == "User already joined"
+    err2 = r2.json()
+    assert err2["error"] is True
+    assert err2["code"] == "CONFLICT"
     assert tables["games"][0]["players_present"] == 2
 
     actual_players = [gp for gp in tables["game_players"] if gp["game_id"] == "game-1"]
@@ -420,7 +436,9 @@ def test_same_user_concurrent_join_simulation(monkeypatch):
 
     assert r1.status_code == 200
     assert r2.status_code == 400
-    assert r2.json()["detail"] == "User already joined"
+    err2 = r2.json()
+    assert err2["error"] is True
+    assert err2["code"] == "CONFLICT"
 
     assert tables["games"][0]["players_present"] == 2
     all_user_a = [

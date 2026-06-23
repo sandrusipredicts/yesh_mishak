@@ -187,7 +187,9 @@ def test_participant_cannot_cancel_game(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Only the organizer can cancel game"
+    assert response.json()["message"] == "Only the organizer can cancel game"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FORBIDDEN"
 
 
 # ── 4. Cannot cancel a non-scheduled active game ──
@@ -206,7 +208,9 @@ def test_cannot_cancel_non_scheduled_game(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Only scheduled games can be cancelled"
+    assert response.json()["message"] == "Only scheduled games can be cancelled"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 # ── 5. Cannot cancel after scheduled_at has passed ──
@@ -224,7 +228,9 @@ def test_cannot_cancel_after_scheduled_at_passed(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Cannot cancel a game after its scheduled start time"
+    assert response.json()["message"] == "Cannot cancel a game after its scheduled start time"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 # ── 6. Cancelled game is persisted ──
@@ -387,7 +393,9 @@ def test_cannot_cancel_already_finished_game(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    assert response.json()["message"] == "Game is not active"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_cannot_cancel_already_cancelled_game(monkeypatch):
@@ -402,7 +410,9 @@ def test_cannot_cancel_already_cancelled_game(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    assert response.json()["message"] == "Game is not active"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_admin_cancel_non_scheduled_game_rejected(monkeypatch):
@@ -418,7 +428,9 @@ def test_admin_cancel_non_scheduled_game_rejected(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Only scheduled games can be cancelled"
+    assert response.json()["message"] == "Only scheduled games can be cancelled"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_admin_cancel_past_scheduled_game_rejected(monkeypatch):
@@ -433,7 +445,9 @@ def test_admin_cancel_past_scheduled_game_rejected(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Cannot cancel a game after its scheduled start time"
+    assert response.json()["message"] == "Cannot cancel a game after its scheduled start time"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_non_admin_cannot_use_admin_cancel(monkeypatch):

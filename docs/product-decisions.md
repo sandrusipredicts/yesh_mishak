@@ -5216,3 +5216,45 @@ Key findings:
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-058 — Standardize Backend Error Response Format
+
+## Type
+
+Backend Architecture Implementation.
+
+## Dependency
+
+Depends on [global-error-handling-strategy.md](file:///c:/Users/orel1/yesh_mishak/docs/global-error-handling-strategy.md) (ISSUE-056) and [backend-error-responses-audit.md](file:///c:/Users/orel1/yesh_mishak/docs/backend-error-responses-audit.md) (ISSUE-057).
+
+## Background
+
+Following the backend error responses audit in ISSUE-057, all active backend endpoints must be updated to return a unified public response shape for all exceptions and HTTP errors, while securing database schema details and internal third-party tracebacks.
+
+## Goal
+
+Standardize the API error payload format to return a structured JSON response instead of plain strings or inconsistent dictionaries:
+```json
+{
+  "error": true,
+  "code": "ERROR_CODE",
+  "message": "Safe user-facing message",
+  "details": {}
+}
+```
+
+## Decision
+
+The backend error response standardization has been successfully implemented and verified:
+- Created a core [errors.py](file:///c:/Users/orel1/yesh_mishak/backend/app/errors.py) helper module with unified `raise_api_error` and `error_response` builders.
+- Configured global exception handlers in [main.py](file:///c:/Users/orel1/yesh_mishak/backend/app/main.py) for framework-level `HTTPException`, FastAPI's `RequestValidationError`, and any unhandled generic `Exception` (which logs the traceback and returns a safe `INTERNAL_SERVER_ERROR`).
+- Updated all API routers (`dependencies.py`, `auth.py`, `fields.py`, `field_reports.py`, `games.py`, `game_lifecycle.py`, `notifications.py`, `admin.py`) to raise standardized structured exceptions.
+- Completely scrubbed database schema leaks (such as raw Supabase errors and query insert payloads) in `fields.py` and `field_reports.py`, and third-party tracebacks (such as Firebase pushes) in `notifications.py`.
+- Updated and verified the entire backend test suite (509 tests) to assert the correct standardized JSON error properties.
+
+## Status
+
+Implemented.
+

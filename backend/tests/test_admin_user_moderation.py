@@ -173,7 +173,9 @@ def test_reason_required_for_ban_and_suspend(monkeypatch, action):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Reason is required"
+    assert response.json()["message"] == "Reason is required"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.parametrize("action", ["ban", "suspend"])
@@ -187,7 +189,9 @@ def test_reason_required_for_ban_and_suspend_whitespace(monkeypatch, action):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Reason is required"
+    assert response.json()["message"] == "Reason is required"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "VALIDATION_ERROR"
 
 
 # ── audit row created for every successful action ──
@@ -253,7 +257,9 @@ def test_admin_target_cannot_be_moderated(monkeypatch, action):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Cannot moderate admin users"
+    assert response.json()["message"] == "Cannot moderate admin users"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FORBIDDEN"
 
 
 # ── invalid transitions are rejected ──
@@ -269,7 +275,9 @@ def test_cannot_ban_already_banned_user(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "not currently active" in response.json()["detail"]
+    assert "not currently active" in response.json()["message"]
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "CONFLICT"
 
 
 def test_cannot_unban_active_user(monkeypatch):
@@ -282,7 +290,9 @@ def test_cannot_unban_active_user(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "not currently banned" in response.json()["detail"]
+    assert "not currently banned" in response.json()["message"]
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "CONFLICT"
 
 
 def test_cannot_suspend_already_suspended_user(monkeypatch):
@@ -295,7 +305,9 @@ def test_cannot_suspend_already_suspended_user(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "not currently active" in response.json()["detail"]
+    assert "not currently active" in response.json()["message"]
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "CONFLICT"
 
 
 def test_cannot_unsuspend_active_user(monkeypatch):
@@ -308,7 +320,9 @@ def test_cannot_unsuspend_active_user(monkeypatch):
     )
 
     assert response.status_code == 400
-    assert "not currently suspended" in response.json()["detail"]
+    assert "not currently suspended" in response.json()["message"]
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "CONFLICT"
 
 
 # ── restricted users blocked from normal workflows ──
@@ -334,7 +348,9 @@ def test_banned_user_blocked_from_creating_game(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Account is banned"
+    assert response.json()["message"] == "Account is banned"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "ACCOUNT_RESTRICTED"
 
 
 def test_suspended_user_blocked_from_creating_game(monkeypatch):
@@ -357,7 +373,9 @@ def test_suspended_user_blocked_from_creating_game(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Account is suspended"
+    assert response.json()["message"] == "Account is suspended"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "ACCOUNT_RESTRICTED"
 
 
 # ── promote/remove admin endpoints do not exist ──
@@ -411,7 +429,9 @@ def test_moderation_on_nonexistent_user_returns_404(monkeypatch):
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "User not found"
+    assert response.json()["message"] == "User not found"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "USER_NOT_FOUND"
 
 
 # ── unban/unsuspend accept optional reason and still write audit ──

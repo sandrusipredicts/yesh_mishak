@@ -182,7 +182,9 @@ def test_field_report_rejects_invalid_category(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Invalid field report category"
+    assert response.json()["message"] == "Invalid field report category"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "VALIDATION_ERROR"
     assert fake_supabase.tables["field_reports"] == []
 
 
@@ -199,7 +201,9 @@ def test_field_report_rejects_missing_field(monkeypatch) -> None:
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Field not found"
+    assert response.json()["message"] == "Field not found"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FIELD_NOT_FOUND"
     assert fake_supabase.tables["field_reports"] == []
 
 
@@ -254,5 +258,6 @@ def test_field_report_insert_failure_returns_clean_api_error(monkeypatch) -> Non
     )
 
     assert response.status_code == 500
-    assert response.json()["detail"]["message"] == "Failed to create field report"
-    assert "supabase_error" in response.json()["detail"]
+    assert response.json()["message"] == "Failed to create field report"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "DATABASE_ERROR"
