@@ -3078,3 +3078,271 @@ cd backend && python -m pytest tests/test_notification_stress.py -v -s
 
 Executed. All scenarios passed.
 
+---
+
+# ISSUE-039 — Notification Error Handling Specification
+
+## Type
+
+Specification (documentation only — no code changes).
+
+## Background
+
+The notification system (ISSUE-013 through ISSUE-038) has grown to cover 7 notification types, push delivery via FCM, token management, duplicate prevention, scheduled reminders, and retention cleanup. Error handling has been implemented incrementally across these issues without a single specification defining the expected behavior for every failure mode. This document codifies the current behavior, identifies gaps, and establishes the approved error handling policy for all notification-related failures.
+
+## Goal
+
+Define a single, consistent specification for how the notification system handles errors at every layer — notification creation, push delivery, token management, scheduled jobs, and admin operations — so that:
+
+1. Developers know the expected behavior without reading every call site.
+2. Gaps in error handling are documented with approved follow-up actions.
+3. Future notification features follow the same patterns.
+
+## Dependencies
+
+- ISSUE-013: Core notification system (creation, retrieval, read/unread, push delivery)
+- ISSUE-022: Push token management
+- ISSUE-024: Scheduled game reminders
+- ISSUE-025: Notification retention cleanup
+- ISSUE-030: Duplicate prevention (partial unique index)
+- ISSUE-035: Centralized notification templates
+- ISSUE-038: Stress test results confirming behavior
+
+## Current Behavior Audit
+
+Audited on 2026-06-23 by reading the actual code in `backend/app/routers/notifications.py`, `backend/app/routers/games.py`, `backend/app/api/admin.py`, and `backend/app/services/firebase_push.py`.
+
+### Notification Creation — Called from games.py
+
+| Notification Type | Call Site | Wrapped in try/except | On Failure |
+| --- | --- | --- | --- |
+| `game_created` | `games.py` → `create_game()` line 177 | **NO** | Game creation returns HTTP 500 even though game was already created in DB |
+| `player_joined_game` | `games.py` → `join_game()` lines 344-359 | Yes | Logged via `logger.exception()`, join succeeds |
+| `game_closed` | `games.py` → `close_game()` lines 424-438 | Yes | Logged via `logger.exception()`, close succeeds |
+| `game_extended` | `games.py` → `extend_game()` lines 463-478 | Yes | Logged via `logger.exception()`, extend succeeds |
+| `scheduled_game_cancelled` | `games.py` → `cancel_game()` lines 531-542 | Yes | Logged via `logger.exception()`, cancel succeeds |
+
+### Notification Creation — Called from admin.py
+
+| Notification Type | Call Site | Wrapped in try/except | On Failure |
+| --- | --- | --- | --- |
+| `game_closed` (admin) | `admin.py` → `close_admin_game()` lines 595-609 | Yes | Logged via `logger.exception()`, close succeeds |
+| `game_extended` (admin) | `admin.py` → `extend_admin_game()` lines 638-654 | Yes | Logged via `logger.exception()`, extend succeeds |
+| `scheduled_game_cancelled` (admin) | `admin.py` → `cancel_admin_game()` lines 707-718 | Yes | Logged via `logger.exception()`, cancel succeeds |
+
+### Scheduled Jobs
+
+| Job | Call Site | Error Handling | On Failure |
+| --- | --- | --- | --- |
+| `generate_scheduled_game_reminders` | `admin.py` line 572 | **No per-game try/except** inside the function | One bad game crashes the entire batch; no reminders sent for remaining games |
+| `cleanup_old_notifications` | `admin.py` line 577 | No try/except | Error propagates to admin caller as HTTP 500 |
+
+### Push Delivery
+
+| Component | Error Handling | On Failure |
+| --- | --- | --- |
+| `send_fcm_notification()` | Raises `FirebaseConfigError` for config issues; returns `{"ok": False, "invalid_token": True}` for invalid tokens; raises on HTTP errors | Caller handles |
+| `_send_push_to_tokens()` | Catches `FirebaseConfigError` (suppressed by default via `suppress_config_error=True`); catches generic `Exception` per token (continues to next) | Best-effort: failures logged, loop continues |
+| `_send_push_for_notifications()` | Iterates notifications, calls `_send_push_to_tokens` per notification | Best-effort |
+| Invalid token detection | `INVALID_TOKEN_ERROR_CODES` set; invalid tokens deleted automatically | Silent cleanup |
+| `send_test_push` endpoint | `FirebaseConfigError` → HTTP 503; no tokens → HTTP 404; send failure → HTTP 502 | Errors surfaced to caller |
+
+### Gaps Found
+
+1. **GAP-1: `create_game_created_notifications` is not wrapped in try/except in `games.py`.** If notification creation fails (DB error, template error, any exception), the `create_game()` endpoint returns HTTP 500 to the client even though the game was already successfully created in the database. This is the only notification type where a notification failure can cause the parent operation to appear to fail.
+
+2. **GAP-2: `generate_scheduled_game_reminders` has no per-game try/except.** The function iterates over eligible games and creates reminders. If any single game causes an exception (e.g., missing field data, DB error), the entire batch stops. Games later in the iteration receive no reminders.
+
+## Approved Error Handling Policy
+
+### Core Principle
+
+**Notifications are best-effort. A notification failure must never cause the parent operation (game creation, join, close, extend, cancel) to fail.**
+
+This means:
+
+1. All notification creation calls from game endpoints MUST be wrapped in try/except.
+2. All notification creation calls MUST log the exception with `logger.exception()` and sufficient context (game_id, user_id, field_id, notification type).
+3. The parent operation MUST return its normal success response regardless of notification failure.
+4. Push delivery failures MUST NOT affect in-app notification creation.
+
+### Exception: Diagnostic Endpoints
+
+The `send_test_push` endpoint is a diagnostic tool. It SHOULD surface errors to the caller (HTTP 503 for config errors, HTTP 404 for no tokens, HTTP 502 for send failures) because its purpose is to verify push delivery works.
+
+## Behavior by Notification Type
+
+| Notification Type | Trigger | On Creation Failure | On Push Failure |
+| --- | --- | --- | --- |
+| `game_created` | User creates a game | Log + suppress (**requires fix — GAP-1**) | Log + suppress (best-effort) |
+| `player_joined_game` | User joins a game | Log + suppress (already implemented) | Log + suppress (best-effort) |
+| `game_closed` | User/admin closes a game | Log + suppress (already implemented) | Log + suppress (best-effort) |
+| `game_extended` | User/admin extends a game | Log + suppress (already implemented) | Log + suppress (best-effort) |
+| `scheduled_game_cancelled` | User/admin cancels a scheduled game | Log + suppress (already implemented) | Log + suppress (best-effort) |
+| `scheduled_game_reminder` | Admin cron job | Log + continue to next game (**requires fix — GAP-2**) | Log + suppress (best-effort) |
+| `test_push` | User tests push notifications | Surface error to caller (already implemented) | Surface error to caller (already implemented) |
+
+## Behavior by Failure Type
+
+| Failure Type | Layer | Behavior | Rationale |
+| --- | --- | --- | --- |
+| Database error (insert) | Notification creation | Log + suppress; parent operation succeeds | Notification is secondary to the game operation |
+| Database error (query) | Notification creation (dedup check) | Log + suppress; parent operation succeeds | Same rationale |
+| Template rendering error | Notification creation | Log + suppress; parent operation succeeds | Bad template data should not block game operations |
+| Firebase config missing | Push delivery | Suppressed by default (`suppress_config_error=True`) | App works without push; config error logged once |
+| Firebase config missing | `test_push` endpoint | HTTP 503 returned | Diagnostic endpoint; user needs to know |
+| Invalid FCM token | Push delivery | Token deleted from `push_tokens` table; delivery skipped | Self-healing: stale tokens are cleaned up automatically |
+| FCM HTTP error | Push delivery | Logged; continues to next token | Best-effort; one bad token should not block others |
+| FCM network timeout | Push delivery | Logged; continues to next token | Same as HTTP error |
+| No push tokens for user | Push delivery | Silently skipped | User hasn't registered for push; in-app notification still created |
+| No push tokens for user | `test_push` endpoint | HTTP 404 returned | Diagnostic endpoint; user needs to know |
+| Scheduled reminder — single game failure | Reminder batch job | Log + continue to next game (**requires fix — GAP-2**) | One bad game should not block reminders for other games |
+| Cleanup — DB error | Retention cleanup | Error propagates to admin caller as HTTP 500 | Acceptable: admin can retry; no user-facing impact |
+
+## Retry Policy
+
+**No automatic retries for MVP.**
+
+- If a notification fails to be created, it is lost. The user will not receive it.
+- If a push delivery fails, the in-app notification still exists. The user will see it on next app open.
+- Scheduled reminders that fail for a specific game are not retried. The `scheduled_reminder_processed_at` flag prevents re-processing on subsequent cron runs, so the game is skipped permanently once marked as processed.
+
+**Future consideration:** If notification reliability becomes critical, a dead-letter queue or retry mechanism can be added. This is out of scope for the current MVP.
+
+## Logging Policy
+
+All notification errors MUST be logged with `logger.exception()` (which includes the full stack trace) and the following context fields:
+
+| Context Field | Required | Example |
+| --- | --- | --- |
+| `game_id` | Yes (when available) | `game_id=uuid` |
+| `user_id` | Yes (when available) | `user_id=uuid` |
+| `field_id` | When available | `field_id=uuid` |
+| `notification_type` | Yes | `notification_type="game_created"` |
+| Error description | Yes | Human-readable message describing what failed |
+
+Example log pattern (already used in `games.py`):
+```python
+except Exception:
+    logger.exception(
+        "Failed to create %s notifications",
+        "game_created",
+        extra={"game_id": str(game.id), "field_id": str(game.field_id)},
+    )
+```
+
+Push delivery errors in `_send_push_to_tokens` are logged per token with the token value and error details.
+
+## User-Facing Behavior
+
+- Users are **never** shown notification errors. There is no error toast, banner, or message when a notification fails.
+- If a notification fails to be created, the user simply does not see it in their inbox. They are not informed.
+- If push delivery fails but the in-app notification was created, the user will see the notification when they next open the app (but will not receive a push alert).
+- The parent operation (create game, join game, etc.) always returns success to the user if the game operation itself succeeded.
+
+## Admin-Facing Behavior
+
+- Admin game operations (close, extend, cancel) follow the same "log + suppress" pattern as user operations.
+- The `run_scheduled_game_reminders` admin endpoint returns success even if individual game reminders fail (after GAP-2 is fixed). The admin should check server logs for failures.
+- The `run_notification_cleanup` admin endpoint returns HTTP 500 if cleanup fails. The admin can retry manually.
+- There is no admin dashboard or UI for notification errors. Errors are visible only in server logs.
+
+## Push-Specific Behavior
+
+### Token Lifecycle
+
+1. User registers a push token → stored in `push_tokens` table.
+2. On push delivery, each token is tried individually.
+3. If FCM returns an error code in `INVALID_TOKEN_ERROR_CODES` (`INVALID_ARGUMENT`, `NOT_FOUND`, `UNREGISTERED`, `SENDER_ID_MISMATCH`), the token is deleted from `push_tokens` automatically.
+4. If FCM returns a different error (transient), the token is kept and delivery is skipped for this notification.
+
+### Firebase Configuration
+
+- `FirebaseConfigError` is raised when Firebase credentials are missing or invalid.
+- In all notification creation flows, this error is suppressed by default (`suppress_config_error=True` in `_send_push_to_tokens`).
+- In the `test_push` diagnostic endpoint, this error is surfaced as HTTP 503.
+- The system works without Firebase configured — in-app notifications are always created regardless of push configuration.
+
+## Database-Specific Behavior
+
+### Notification Row Creation
+
+- Notifications are inserted one at a time per recipient (no bulk insert).
+- If a DB insert fails for one recipient, the behavior depends on whether the creation function has per-recipient error handling (currently: no per-recipient try/except in most creation functions — a single DB failure stops the loop for remaining recipients).
+- Dedup checks (`select` before `insert`) prevent duplicate rows for protected types. If the dedup check itself fails (DB error), the creation function raises and is caught by the caller's try/except.
+
+### Partial Unique Index
+
+- The `idx_notifications_user_type_game_unique` partial unique index (ISSUE-030) covers `game_created`, `game_closed`, `player_joined_game`, `scheduled_game_reminder`.
+- `game_extended` uses a separate check (includes `data->>'new_end_time'`).
+- `scheduled_game_cancelled` has **no dedup protection** (known ISSUE-030 gap).
+- If a duplicate insert hits the unique index, Supabase returns an error. The creation function should catch this and continue. Currently, this scenario is handled by the application-level dedup check that runs before the insert.
+
+## Duplicate Handling
+
+Duplicate prevention is handled at two levels:
+
+1. **Application level:** Before inserting a notification, the creation function queries for an existing notification with the same `(user_id, type, game_id)`. If found, the insert is skipped.
+2. **Database level:** The partial unique index acts as a safety net if the application check is bypassed (e.g., concurrent requests).
+
+If a duplicate insert is attempted and caught by the unique index, the Supabase error should be caught by the caller's try/except and logged. The notification is silently skipped.
+
+**Known gap:** `scheduled_game_cancelled` has neither application-level nor database-level dedup (ISSUE-030). This is documented and has an approved follow-up (add to partial unique index).
+
+## Excluded Scope
+
+The following are explicitly out of scope for this specification:
+
+- **Retry mechanisms** — no automatic retries for MVP.
+- **Dead-letter queues** — failed notifications are not persisted for later retry.
+- **Notification delivery guarantees** — the system is best-effort, not at-least-once or exactly-once.
+- **User-facing error reporting** — no UI for notification failures.
+- **Admin notification dashboard** — errors are in server logs only.
+- **Rate limiting** — no notification rate limits defined.
+- **Circuit breaker for push delivery** — if FCM is consistently failing, the system continues trying per notification rather than backing off.
+- **Monitoring and alerting** — no automated alerts for notification failure rates (covered by ISSUE-036 analytics requirements as future work).
+
+## Future Implementation Guidance
+
+### GAP-1 Fix (Priority: High)
+
+Wrap `create_game_created_notifications()` in try/except in `games.py` → `create_game()`, matching the pattern already used by `join_game()`, `close_game()`, `extend_game()`, and `cancel_game()`:
+
+```python
+try:
+    await create_game_created_notifications(...)
+except Exception:
+    logger.exception(
+        "Failed to create game_created notifications",
+        extra={"game_id": str(game.id), "field_id": str(game.field_id)},
+    )
+```
+
+### GAP-2 Fix (Priority: Medium)
+
+Add per-game try/except inside `generate_scheduled_game_reminders()` so that one failing game does not crash the entire batch:
+
+```python
+for game in eligible_games:
+    try:
+        # existing reminder creation logic for this game
+    except Exception:
+        logger.exception(
+            "Failed to create reminder for game",
+            extra={"game_id": str(game["id"])},
+        )
+        continue
+```
+
+### Future Enhancements (Not for MVP)
+
+1. **Bulk insert optimization** — replace per-recipient inserts with a single bulk insert for fan-out notifications (improves performance for large recipient lists).
+2. **Per-recipient error handling** — add try/except around individual recipient inserts within creation functions so one recipient's failure doesn't skip remaining recipients.
+3. **Push delivery retry** — implement a simple retry (1 retry after 30s) for transient FCM failures.
+4. **Circuit breaker** — if FCM fails N times in a row, pause push delivery for M minutes and log a warning.
+5. **Monitoring** — implement ISSUE-036 analytics metrics to track notification failure rates and alert on anomalies.
+
+## Status
+
+Approved.
+
