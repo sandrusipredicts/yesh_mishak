@@ -2587,3 +2587,410 @@ Excluded:
 
 Approved.
 
+---
+
+# ISSUE-037 — Notification Stress Test Plan
+
+## Type
+
+QA / test planning documentation.
+
+## Background
+
+The notification system has been built incrementally across multiple issues. Its behavior under normal usage is well-tested (unit and integration tests cover all 7 notification types, duplicate prevention, retention cleanup, and unread counter accuracy). However, it is unknown how the system behaves when many notifications are created simultaneously, when many users read notifications concurrently, or when the notifications table grows large. No stress test plan exists.
+
+## Goal
+
+Define an approved stress test plan that the team can execute in a staging environment to identify performance bottlenecks, verify correctness under load, and establish baseline performance metrics for the notification system.
+
+## Dependencies
+
+* ISSUE-029 (Notification Event Inventory — defines the 7 notification events, tables, delivery channels, and preference matching logic).
+* ISSUE-030 (Notification Duplication Risk Review — identifies duplicate prevention mechanisms and known race conditions, especially `scheduled_game_cancelled` concurrency gap).
+* ISSUE-032 (Notification Retention Policy Implementation — defines the `POST /admin/notifications/cleanup` endpoint and 90-day retention window).
+* ISSUE-033 (Notification Unread Counter Accuracy — documents the `GET /notifications/unread-count` endpoint, read-state behavior, and frontend polling).
+* ISSUE-036 (Notification Analytics Requirements — defines metrics to collect and data available today).
+
+## System Areas Under Test
+
+| Area | Endpoint / Function | Why It Matters |
+| --- | --- | --- |
+| Notification row creation | `create_game_created_notifications`, `create_player_joined_game_notification`, `create_game_closed_notifications`, `create_game_extended_notifications`, `create_scheduled_game_cancelled_notifications` | Core write path — must handle fan-out without timeouts or duplicates. |
+| Push send fan-out | `_send_push_to_tokens`, `_send_push_for_notifications` | FCM calls are network-bound — must not block notification row creation unacceptably. |
+| Notification preferences matching | `_find_notification_candidates` | Haversine distance calculations and preference filtering for `game_created` — CPU-bound under large user bases. |
+| Unread count endpoint | `GET /notifications/unread-count` | Fetches all user notifications and filters in Python — scales with notification count per user. |
+| Notification inbox retrieval | `GET /notifications` | Returns user's notifications — response size and query time grow with row count. |
+| Mark single read | `PATCH /notifications/{id}/read` | Single-row update — should remain fast. |
+| Mark all read | `PATCH /notifications/read-all` | Updates all unread rows for a user — scales with unread count. |
+| Scheduled game reminder generation | `generate_scheduled_game_reminders` | Batch job that scans all active games and creates notifications for eligible ones — scales with game count. |
+| Duplicate prevention indexes/checks | `idx_notifications_user_type_game_unique`, `idx_notifications_user_game_extended_end_time_unique`, application-level dedup queries | Must hold under concurrent writes. |
+| Retention cleanup | `cleanup_old_notifications` via `POST /admin/notifications/cleanup` | Deletes rows with `created_at < cutoff` — must handle large tables efficiently. |
+
+## Test Environment Requirements
+
+| Requirement | Detail |
+| --- | --- |
+| **Environment** | Staging or local development. Never production unless explicitly approved. |
+| **Database** | Supabase staging project or local PostgreSQL instance with the same schema. |
+| **Push delivery** | Disabled or pointed at a test Firebase project. Do not send pushes to real user devices. |
+| **Users** | Synthetic test users only. Do not use real user accounts. |
+| **Data isolation** | All test data (users, games, fields, preferences, notifications, push tokens) must be tagged or tracked for cleanup. |
+| **Monitoring** | Database query logs enabled. Backend request logs enabled. System metrics (CPU, memory) if infrastructure allows. |
+| **Concurrency tooling** | HTTP load testing tool capable of concurrent requests (e.g., `locust`, `k6`, `wrk`, `hey`, or similar). |
+
+## Test Data Setup
+
+Before executing scenarios, seed the following synthetic data:
+
+1. **Synthetic users** — Create N test users with known IDs (e.g., `stress-user-0001` through `stress-user-NNNN`). Set `role = "user"`, `status = "active"`.
+2. **Synthetic admin** — Create 1–2 admin users for admin-path scenarios.
+3. **Synthetic fields** — Create M test fields with known coordinates and cities.
+4. **Notification preferences** — Create preferences for synthetic users:
+   - Vary match types: `radius` (different distances), `city`, `specific_field`.
+   - Vary sport types: `football`, `basketball`, `both`.
+   - Control the number of matching users per field to set fan-out width.
+5. **Push tokens** — Register 1–3 synthetic FCM tokens per user. Include some known-invalid tokens to test cleanup behavior.
+6. **Existing notifications** — For inbox and cleanup scenarios, pre-seed notification rows at various ages (recent, 30 days, 60 days, 90+ days).
+
+**Data tagging convention:** All synthetic data should use a recognizable prefix (e.g., `stress-test-` in names/IDs) or be recorded in a manifest file for cleanup.
+
+## Stress Scenarios
+
+### Scenario 1: Bulk game_created Fan-Out
+
+**Goal:** Verify behavior when one new game matches many users' notification preferences.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Matching users | 100 / 1,000 / 10,000 (if staging DB supports it) |
+
+**Procedure:**
+1. Seed N users with notification preferences that match a specific field and sport type.
+2. Create a single game at that field via `POST /games`.
+3. Measure time to API response.
+4. Verify notification rows created in the database.
+
+**Checks:**
+- Correct number of notification rows created (one per matching user, excluding organizer).
+- No duplicate rows (query `GROUP BY user_id, type, game_id HAVING COUNT(*) > 1`).
+- API response returns within acceptable time (see success criteria).
+- Push fan-out completes (or times out gracefully) without blocking the API response unacceptably.
+- `GET /notifications/unread-count` returns 1 for each recipient after creation.
+
+### Scenario 2: Many Simultaneous Game Creations
+
+**Goal:** Verify behavior when many games are created in rapid succession, each triggering notification fan-out.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Game creation rate | 10/min / 100/min / burst of 500 |
+| Matching users per game | 50 (moderate fan-out) |
+
+**Procedure:**
+1. Seed 50 users with broad preferences matching multiple fields.
+2. Send concurrent `POST /games` requests at the target rate.
+3. Monitor backend error rate and database latency.
+
+**Checks:**
+- Duplicate prevention holds across concurrent inserts (unique indexes enforced).
+- Database insert throughput remains stable.
+- Backend error rate stays below threshold.
+- No notification rows are lost (total rows = games created × matching users per game, minus any legitimately skipped duplicates).
+
+### Scenario 3: Many Users Reading Notifications Concurrently
+
+**Goal:** Verify unread counter correctness and update performance under concurrent read operations.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Concurrent users calling `GET /notifications/unread-count` | 100 / 500 / 1,000 |
+| Concurrent users calling `PATCH /notifications/{id}/read` | 100 / 500 |
+| Concurrent users calling `PATCH /notifications/read-all` | 50 / 200 |
+
+**Procedure:**
+1. Seed each user with 10 unread notifications.
+2. Send concurrent requests across all three endpoints.
+3. After all requests complete, verify each user's unread count.
+
+**Checks:**
+- Unread count is accurate for every user after operations complete.
+- No cross-user updates (user A's read action does not affect user B's count).
+- No negative unread counts.
+- Response times remain acceptable under load.
+- `PATCH /notifications/read-all` does not inadvertently update another user's rows.
+
+### Scenario 4: Large Inbox Retrieval
+
+**Goal:** Verify `GET /notifications` behavior for users with many notification rows.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Notifications per user | 100 / 1,000 / 10,000 (if supported) |
+
+**Procedure:**
+1. Seed one user with N notification rows (varying types and ages).
+2. Call `GET /notifications` and measure response time and payload size.
+3. Repeat for each load level.
+
+**Checks:**
+- Response time remains under threshold.
+- Payload size is manageable (consider whether pagination is needed).
+- Frontend can render the response without freezing (if frontend testing is in scope).
+- No server memory issues for large result sets.
+
+### Scenario 5: Push Token Fan-Out
+
+**Goal:** Verify push delivery behavior when recipients have multiple devices and mixed token validity.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Tokens per user | 1 / 3 / 5 |
+| Invalid token ratio | 0% / 20% / 50% |
+| Recipients | 100 |
+
+**Procedure:**
+1. Seed 100 users with the specified token distribution (mix of valid and invalid).
+2. Create a game that triggers `game_created` notifications for all 100 users.
+3. Monitor push send results and token cleanup.
+
+**Checks:**
+- Invalid tokens are removed from `push_tokens` table after FCM returns invalid status.
+- Push failures do not block in-app notification row creation.
+- No duplicate push sends for the same token.
+- Valid tokens receive exactly one push per notification.
+
+### Scenario 6: Scheduled Game Reminder Batch
+
+**Goal:** Verify reminder generation for many upcoming games within the reminder window.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Upcoming games within window | 100 / 1,000 |
+| Participants per game | 10 |
+
+**Procedure:**
+1. Seed N games with `scheduled_at` within the 1-hour reminder window, each with 10 participants.
+2. Call `POST /admin/reminders/scheduled-games/run`.
+3. Measure execution time and verify results.
+
+**Checks:**
+- `scheduled_reminder_processed_at` set on all processed games.
+- Correct notification count: games × participants.
+- Duplicate prevention holds (re-running the endpoint produces 0 new notifications).
+- Function returns correct `processed_game_ids`, `skipped_game_ids`, and `notifications_created` counts.
+- Execution time is acceptable for the batch size.
+
+### Scenario 7: Concurrent Cancellation/Close/Extend Paths
+
+**Goal:** Verify duplicate prevention under race conditions, particularly the known `scheduled_game_cancelled` gap (ISSUE-030).
+
+**Procedure:**
+1. **Close race:** Create a game with 10 participants. Send concurrent `POST /games/{id}/close` from organizer and `POST /admin/games/{id}/close` from admin simultaneously. Verify at most one set of `game_closed` notifications is created.
+2. **Extend race:** Create a game with 10 participants. Send concurrent extend requests from organizer and admin with the same target time. Verify at most one set of `game_extended` notifications per end time.
+3. **Cancel race:** Create a game with 10 participants. Send concurrent cancel requests from creator and admin. Count resulting `scheduled_game_cancelled` notification rows per recipient. Document whether duplicates occur (expected per ISSUE-030 finding).
+
+**Checks:**
+- `game_closed`: no duplicate rows (protected by unique index).
+- `game_extended`: no duplicate rows for the same `new_end_time` (protected by unique index).
+- `scheduled_game_cancelled`: document whether duplicates occur. If they do, this confirms the ISSUE-030 finding and validates the priority of the follow-up to add a unique index.
+
+### Scenario 8: Retention Cleanup Under Large Table
+
+**Goal:** Verify `POST /admin/notifications/cleanup` behavior with a large notifications table.
+
+| Parameter | Load Levels |
+| --- | --- |
+| Old rows (> 90 days) | 10,000 / 100,000 |
+| Recent rows (< 90 days) | 10,000 / 100,000 |
+
+**Procedure:**
+1. Seed the notifications table with the specified mix of old and recent rows.
+2. Call `POST /admin/notifications/cleanup`.
+3. Measure execution time and verify results.
+
+**Checks:**
+- Only old notifications (created_at < 90 days ago) are deleted.
+- Recent notifications are untouched.
+- `push_tokens` table is unaffected.
+- `notification_preferences` table is unaffected.
+- Endpoint remains admin-only (non-admin request returns 401/403).
+- `deleted_count` in response matches actual rows removed.
+- Execution time is acceptable.
+
+## Metrics to Collect
+
+Reference ISSUE-036 for analytics metric definitions. During stress testing, collect:
+
+### Application Metrics
+
+| Metric | How to Measure |
+| --- | --- |
+| Notification rows created | `SELECT COUNT(*) FROM notifications` before and after each scenario. |
+| Duplicate rows detected | `SELECT user_id, type, game_id, COUNT(*) FROM notifications GROUP BY 1,2,3 HAVING COUNT(*) > 1`. |
+| Push attempts | Count from `_send_push_to_tokens` return values (requires logging or test instrumentation). |
+| Push failures | Count of non-200 FCM responses (requires logging or test instrumentation). |
+| Invalid tokens removed | `push_tokens` row count before and after. |
+| Cleanup deleted count | `deleted_count` from cleanup endpoint response. |
+| Backend error rate | Count of 4xx/5xx responses during test window. |
+
+### Performance Metrics
+
+| Metric | How to Measure |
+| --- | --- |
+| API response time (p50/p95/p99) | Load testing tool output. |
+| `GET /notifications/unread-count` latency | Measured per request during concurrent read scenarios. |
+| `GET /notifications` latency | Measured per request for large inbox scenarios. |
+| `POST /games` latency (with notification fan-out) | End-to-end time including notification creation. |
+| Reminder batch execution time | Wall clock time for `POST /admin/reminders/scheduled-games/run`. |
+| Cleanup execution time | Wall clock time for `POST /admin/notifications/cleanup`. |
+| DB query latency | From database query logs if available. |
+
+### Infrastructure Metrics (If Available)
+
+| Metric | Source |
+| --- | --- |
+| CPU utilization | Server/container metrics. |
+| Memory utilization | Server/container metrics. |
+| Database connection pool usage | Supabase dashboard or `pg_stat_activity`. |
+| Database disk I/O | Supabase dashboard or `pg_stat_io`. |
+
+## Success Criteria
+
+| Criterion | Threshold |
+| --- | --- |
+| No duplicate notification rows | 0 duplicates for types protected by unique indexes (`game_created`, `game_closed`, `game_extended`, `scheduled_game_reminder`). |
+| No cross-user read/unread updates | Each user's unread count is independently correct after concurrent operations. |
+| Backend error rate | < 1% during expected load scenarios (scenarios 1–6). |
+| `POST /games` response time (with 100-user fan-out) | p95 < 5 seconds. |
+| `POST /games` response time (with 1,000-user fan-out) | p95 < 30 seconds (document actual value for capacity planning). |
+| `GET /notifications/unread-count` response time | p95 < 500ms for users with ≤ 1,000 notifications. |
+| `GET /notifications` response time | p95 < 1 second for users with ≤ 1,000 notifications. |
+| Reminder batch (100 games × 10 participants) | Completes in < 60 seconds. |
+| Cleanup (100k old rows) | Completes in < 120 seconds. |
+| Push failures do not block notification creation | In-app notification rows exist even when all push sends fail. |
+| Cleanup deletes only eligible rows | 0 rows deleted from `push_tokens` or `notification_preferences`. 0 recent notifications deleted. |
+
+## Failure Criteria
+
+Any of the following means the stress test has identified a problem that needs investigation:
+
+| Failure | Severity |
+| --- | --- |
+| Duplicate notification rows where unique indexes should prevent them | Critical |
+| Unread count incorrect for any user after concurrent operations | Critical |
+| `PATCH /notifications/read-all` affects another user's notifications | Critical |
+| Cleanup deletes rows from wrong tables or recent notifications | Critical |
+| Server crashes or sustained 5xx errors during any scenario | Critical |
+| Database connection pool exhaustion | Critical |
+| Notification creation blocks game creation for > 60 seconds (100-user fan-out) | High |
+| Notification creation blocks game creation for > 5 minutes (1,000-user fan-out) | High |
+| `GET /notifications/unread-count` returns negative count | High |
+| Backend error rate > 5% during any scenario | High |
+| Reminder batch fails to complete or times out | Medium |
+| `scheduled_game_cancelled` duplicates under concurrent cancellation (ISSUE-030 known gap) | Low (expected, confirms ISSUE-030) |
+
+## Safety Rules
+
+1. **Do not run stress tests against production** unless explicitly approved by the team lead.
+2. **Use staging or local test environment only.**
+3. **Use synthetic users and synthetic fields/games.** Do not use real user accounts or real field data.
+4. **Disable real push delivery** or use a test Firebase project. Do not send push notifications to real user devices.
+5. **Do not spam real users.** All notification recipients must be synthetic test accounts.
+6. **Record all test dataset IDs** in a manifest file for cleanup. Use a recognizable prefix (e.g., `stress-test-`) for all synthetic data.
+7. **Clean up all test data after execution.** Remove test notifications, games, fields, users, preferences, and push tokens.
+8. **Monitor database health during execution.** If connection pool usage or disk I/O approaches limits, stop the test.
+9. **Run scenarios one at a time** unless specifically testing cross-scenario interaction.
+10. **Do not modify production database schema, indexes, or RLS policies** for stress testing purposes.
+
+## Execution Procedure
+
+Step-by-step procedure for future execution:
+
+### Phase 1: Preparation
+
+1. **Provision staging environment.** Ensure the staging Supabase project has the same schema, indexes, and RLS policies as production.
+2. **Configure push delivery.** Either disable FCM entirely (set `FIREBASE_CREDENTIALS` to empty or use a mock) or point to a test Firebase project.
+3. **Select load testing tool.** Install and configure the chosen tool (`locust`, `k6`, `wrk`, `hey`, or similar).
+4. **Generate authentication tokens.** Create JWT tokens for synthetic users using `create_access_token()` or equivalent.
+
+### Phase 2: Data Seeding
+
+5. **Seed synthetic users.** Insert test users into the `users` table with `stress-test-` prefix.
+6. **Seed synthetic fields.** Insert test fields with known coordinates and cities.
+7. **Seed notification preferences.** Insert preferences for synthetic users matching test fields.
+8. **Seed push tokens.** Insert FCM tokens (real test tokens or placeholder strings) for synthetic users.
+9. **Seed existing notifications** (for scenarios 3, 4, 8). Insert notification rows at various ages.
+10. **Record manifest.** Save all synthetic data IDs to a manifest file.
+
+### Phase 3: Execution
+
+11. **Run each scenario separately.** Execute scenarios 1–8 in order. Record start/end timestamps.
+12. **Collect metrics after each scenario.** Query the database and record application/performance metrics.
+13. **Verify database invariants after each scenario.** Run duplicate detection queries, cross-user checks, and row count validations.
+14. **Document any failures or unexpected behavior** with timestamps, error messages, and query results.
+
+### Phase 4: Verification
+
+15. **Run duplicate detection queries** across all notification types.
+16. **Verify unread counts** for a sample of synthetic users.
+17. **Verify push token cleanup** (invalid tokens removed, valid tokens retained).
+18. **Verify retention cleanup** (only old rows deleted, other tables unaffected).
+
+### Phase 5: Cleanup and Reporting
+
+19. **Delete all test notifications** created during the stress test.
+20. **Delete all test games, fields, game_players, push tokens, and notification preferences.**
+21. **Delete all synthetic users.**
+22. **Verify cleanup completeness** by querying for the `stress-test-` prefix.
+23. **Produce test report** with: scenarios executed, metrics collected, pass/fail per success criterion, identified bottlenecks, and recommendations.
+
+## Cleanup Procedure
+
+After stress test execution, remove all synthetic data in this order (to respect foreign key relationships):
+
+1. Delete from `notifications` where `user_id` matches synthetic user IDs.
+2. Delete from `game_players` where `user_id` or `game_id` matches synthetic data.
+3. Delete from `push_tokens` where `user_id` matches synthetic user IDs.
+4. Delete from `notification_preferences` where `user_id` matches synthetic user IDs.
+5. Delete from `games` where `id` matches synthetic game IDs.
+6. Delete from `fields` where `id` matches synthetic field IDs.
+7. Delete from `users` where `id` matches synthetic user IDs.
+8. Verify: `SELECT COUNT(*) FROM notifications WHERE user_id LIKE 'stress-test-%'` returns 0. Repeat for all tables.
+
+## Scope
+
+Included:
+
+* Approved stress test plan with 8 scenarios.
+* Test environment requirements.
+* Data seeding and cleanup procedures.
+* Metrics to collect (application, performance, infrastructure).
+* Success and failure criteria with concrete thresholds.
+* Safety rules.
+* Step-by-step execution procedure.
+
+Excluded:
+
+* No stress test implementation (no scripts, no tools, no code changes).
+* No new analytics table or migration.
+* No dashboard.
+* No production load testing.
+* No frontend performance testing implementation.
+* No push provider changes.
+* No schema changes.
+
+## Future Implementation Guidance
+
+When implementing the stress test:
+
+1. **Start with scenarios 1, 3, and 4** — they test the most common paths (creation fan-out, reading, inbox retrieval) and can be run with simple HTTP tools.
+2. **Scenario 7 (concurrent races) requires precise timing** — use a load testing tool that supports synchronized request starts, or coordinate multiple parallel curl/HTTP requests.
+3. **Scenario 8 (large table cleanup) is the simplest** — it only requires data seeding and a single API call.
+4. **Adjust load levels based on actual user base.** The suggested levels (100/1,000/10,000) are guidelines. Use current production user counts to set realistic targets.
+5. **Consider automating the data seeding and cleanup** as a standalone script (not part of the application) to make stress tests repeatable.
+6. **Integrate with ISSUE-036 analytics** — if analytics tracking is implemented, stress tests can also validate that analytics events are recorded correctly under load.
+
+## Status
+
+Approved.
+
