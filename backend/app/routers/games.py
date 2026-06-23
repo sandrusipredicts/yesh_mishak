@@ -109,6 +109,9 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
     if not field.get("verified") or field.get("approval_status") != "approved":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field not approved")
 
+    if field.get("status") != "open":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field is not open")
+
     field_sport = field.get("sport_type")
     if field_sport not in (game.sport_type, "both"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field does not support this sport")

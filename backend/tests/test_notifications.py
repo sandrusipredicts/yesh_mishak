@@ -274,6 +274,7 @@ def fake_supabase(monkeypatch, users: dict[str, dict[str, Any]]) -> FakeSupabase
                     "sport_type": "both",
                     "verified": True,
                     "approval_status": "approved",
+                    "status": "open",
                 }
             ],
             "games": [],

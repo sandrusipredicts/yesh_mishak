@@ -80,6 +80,7 @@ def get_fields():
             .select("*")
             .eq("verified", True)
             .eq("approval_status", "approved")
+            .eq("status", "open")
             .range(offset, offset + FIELDS_PAGE_SIZE - 1)
             .execute()
         )

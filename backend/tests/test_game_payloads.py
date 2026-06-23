@@ -91,6 +91,7 @@ def make_field(field_id: str) -> dict[str, Any]:
         "name": field_id,
         "verified": True,
         "approval_status": "approved",
+        "status": "open",
         "sport_type": "both",
     }
 

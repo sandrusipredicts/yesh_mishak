@@ -193,6 +193,7 @@ def make_approved_field(field_id: str = "field-1", sport_type: str = "football")
         "sport_type": sport_type,
         "verified": True,
         "approval_status": "approved",
+        "status": "open",
     }
 
 
@@ -701,6 +702,7 @@ def test_expired_game_is_not_returned_as_field_active_game(monkeypatch) -> None:
                 "name": "Central Field",
                 "verified": True,
                 "approval_status": "approved",
+                "status": "open",
             },
         ],
         "games": [
@@ -737,6 +739,7 @@ def test_expired_game_does_not_block_new_game_creation(monkeypatch) -> None:
                 "sport_type": "football",
                 "verified": True,
                 "approval_status": "approved",
+                "status": "open",
             },
         ],
         "games": [
