@@ -1893,3 +1893,73 @@ There is a lack of database-level uniqueness constraints for:
 * **Priority:** Low
 * **Reason:** The test suite does not currently contain a test verifying that racing cancellation requests are safely handled and do not result in duplicate notifications or pushes. A test simulating concurrent cancellation calls should be added.
 
+---
+
+# ISSUE-031 — Notification Expiration Policy
+
+## Type
+
+Product decision / lifecycle policy.
+
+## Dependencies
+
+* ISSUE-029 (Notification Event Inventory)
+* ISSUE-030 (Notification Duplication Risk Review)
+
+## Background
+
+The notification system stores in-app notification records, but no lifecycle policy existed for old notifications.
+
+## Goal
+
+Define how long notifications are retained, whether they are deleted, and whether they are archived.
+
+## Decision
+
+For MVP, in-app notifications are retained for 90 days.
+
+Notifications older than 90 days may be deleted by a future cleanup job.
+
+No archive table is required for MVP.
+
+Read and unread notifications follow the same retention policy.
+
+Notifications are not an audit log. Business-critical history, compliance records, moderation logs, and operational audit trails must be stored in dedicated audit tables, not in the `notifications` table.
+
+## Policy
+
+* Retention period: 90 days from `created_at`.
+* Deletion: allowed after 90 days.
+* Archive: not required for MVP.
+* Read/unread behavior: `read_at` does not affect expiration.
+* Push notifications: no separate retention policy; push is delivery-only.
+* In-app notifications: stored until deleted by future cleanup logic.
+
+## Rationale
+
+* Prevents unbounded growth of the `notifications` table.
+* Keeps the user notification inbox useful and relevant.
+* Avoids overengineering archive storage before the product needs it.
+* Separates user-facing notifications from audit/compliance records.
+* Makes future cleanup implementation straightforward using `created_at`.
+
+## Scope
+
+Included:
+
+* Product decision for notification retention.
+* Deletion/archive policy.
+* Clarification that notifications are not audit records.
+
+Excluded:
+
+* No cleanup job implementation.
+* No database migration.
+* No archive table.
+* No frontend changes.
+* No backend endpoint changes.
+
+## Status
+
+Approved.
+
