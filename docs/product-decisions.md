@@ -4352,3 +4352,240 @@ This issue is an audit only. No code, migration, schema, or test changes were ma
 
 Approved.
 
+---
+
+# ISSUE-047 — Inactive Field Handling Policy
+
+## Type
+
+Policy / product decision (documentation only — no code changes).
+
+## Purpose
+
+Sports fields in the real world can become permanently closed, demolished, converted to other uses, or otherwise unusable. The system needs a clear policy for what happens to these fields: whether they are hidden, deleted, or kept visible, and how their state affects game creation, admin workflows, duplicate detection, and historical data.
+
+Without a policy, admins may handle inactive fields inconsistently — some deleting records, others changing status, others rejecting — leading to data loss, broken game history, and duplicate re-submissions.
+
+## Scope
+
+This policy covers:
+- What happens to fields that are no longer active or usable.
+- Visibility rules for inactive/closed fields across public and admin interfaces.
+- Game creation and existing game handling.
+- Historical data preservation.
+- Interaction with duplicate detection, user reports, and GovMap imports.
+- The distinction between rejected, closed/inactive, under renovation, duplicate, and deleted.
+
+This policy does NOT cover:
+- Code implementation, schema changes, or migrations.
+- UI design for displaying field status.
+- Automated lifecycle transitions (all transitions are admin-initiated).
+
+## Definitions
+
+| Term | Meaning |
+| --- | --- |
+| **Active field** | A field with `status="open"` and `approval_status="approved"`. Fully operational. |
+| **Closed / inactive field** | A field with `status="closed"`. The physical field is no longer usable — permanently shut down, demolished, converted, or inaccessible. |
+| **Under renovation** | A field with `status="renovation"`. Temporarily unavailable but expected to return to service. |
+| **Rejected field** | A field with `approval_status="rejected"`. The submission was not approved (spam, duplicate, inaccurate, etc.). |
+| **Duplicate field** | A field record that represents the same real-world facility as another record. Handled via duplicate detection (ISSUE-042/043) and moderation guidelines (ISSUE-046). |
+| **Deleted field** | A field physically removed from the database (`DELETE FROM fields`). Irreversible. Cascades to all linked games, notifications, and reports. |
+
+## Business Decision
+
+**Inactive or permanently closed fields are NOT physically deleted by default.**
+
+Rationale:
+1. **History preservation.** Past games are linked to fields via `field_id` foreign key. Deleting a field cascades to all its games (`ON DELETE CASCADE` in `schema.sql` line 44), destroying historical data.
+2. **Duplicate prevention.** Keeping closed fields in the database prevents users from re-submitting the same field and creating duplicate records.
+3. **Audit trail.** Closed fields document what existed and when, which is valuable for data quality and moderation history.
+4. **Reversibility.** A field marked `closed` can be reopened if circumstances change. A deleted field is gone permanently.
+5. **Report history.** Field reports reference `field_id`. Deleting a field orphans or cascades report data.
+
+## Public Visibility Policy
+
+| Field Condition | Current Behavior | Policy |
+| --- | --- | --- |
+| `status="open"`, `approval_status="approved"` | Visible in public listing | **Visible.** Active field. |
+| `status="closed"`, `approval_status="approved"` | Visible in public listing (no `status` filter) | **Should be hidden.** Closed fields should not appear in the public map/listing by default. GAP: `GET /fields/` currently does not filter by `status` — see Implementation Gaps below. |
+| `status="renovation"`, `approval_status="approved"` | Visible in public listing (no `status` filter) | **Policy decision: visible with indicator.** Fields under renovation should remain visible so users know the field exists, but the UI should indicate they are temporarily unavailable. If the UI does not yet support status indicators, hiding is acceptable as an interim measure. GAP: same as above. |
+| `approval_status="pending"` | Hidden from public listing | **Hidden.** Unchanged. |
+| `approval_status="rejected"` | Hidden from public listing | **Hidden.** Unchanged. |
+
+### Implementation Gap: Public Listing Does Not Filter by Status
+
+`GET /fields/` in `backend/app/routers/fields.py` (lines 81–82) filters only by `verified=True` and `approval_status="approved"`. It does not filter by `status`. This means closed and renovation fields that are approved still appear in the public listing.
+
+**Recommended fix (future issue):** Add `.neq("status", "closed")` to the public listing query, or filter to `status="open"` only. The handling of `renovation` fields depends on whether the frontend supports status indicators — if not, filter those out too.
+
+## Admin Visibility Policy
+
+| Field Condition | Visibility |
+| --- | --- |
+| All fields (any status, any approval_status) | **Visible** in admin panel via `GET /admin/fields` |
+| Closed/inactive fields | **Visible** in admin panel. Admins need to see closed fields for audit, duplicate review, and potential reopening. |
+| Deleted fields | **Not visible.** Physically removed from database. |
+
+The admin field listing (`GET /admin/fields` in `backend/app/api/admin.py` lines 416–425) already returns all fields without filtering by `status` or `approval_status`. No change needed.
+
+## Game Creation Policy
+
+| Field Condition | Game Creation |
+| --- | --- |
+| `status="open"`, `approval_status="approved"` | **Allowed** |
+| `status="closed"`, `approval_status="approved"` | **Should be blocked.** Users should not create games on closed fields. |
+| `status="renovation"`, `approval_status="approved"` | **Should be blocked.** Fields under renovation are not currently playable. |
+| `approval_status="pending"` or `"rejected"` | **Blocked.** Already enforced by `POST /games/` (line 109 in `backend/app/routers/games.py`). |
+
+### Implementation Gap: Game Creation Does Not Check Field Status
+
+`POST /games/` in `backend/app/routers/games.py` (line 109) validates `verified` and `approval_status` but does NOT check the field `status`. A game can currently be created on a `closed` or `renovation` field as long as it is `approved`.
+
+**Recommended fix (future issue):** Add a check after line 110:
+```
+if field.get("status") != "open":
+    raise HTTPException(status_code=400, detail="Field is not open")
+```
+
+## Existing Games Policy
+
+When a field transitions from `open` to `closed`:
+
+| Game State | Policy |
+| --- | --- |
+| **Active games** (status `open` or `full`) | **Do not silently delete or cancel.** Admin should review and manually close or cancel these games. Players may already be at the field or planning to attend. |
+| **Upcoming scheduled games** | **Flag for admin review.** Admin should cancel these games and notify participants (if notification system supports it). |
+| **Past/finished games** | **Preserve.** Historical game records must remain linked to the field. They are part of the system's history and user activity records. |
+| **Cancelled games** | **Preserve.** Already terminal state. No action needed. |
+
+**No automatic cascading.** Changing a field's status to `closed` must NOT automatically cancel or delete games. This is a manual admin decision per ISSUE-044 (Re-Approval / Reversal Rules section: "Existing games on this field are NOT automatically affected — the admin should close or cancel active games separately if needed").
+
+## Historical Data Policy
+
+| Data Type | Policy |
+| --- | --- |
+| **Past games** | Preserved. Remain linked to the closed field via `field_id`. |
+| **Game players / participants** | Preserved. Linked to games, which are linked to the field. |
+| **Field reports** | Preserved. Reports document the field's history and may explain why it was closed. |
+| **Notifications** | Preserved until normal cleanup (ISSUE-039). Not affected by field status changes. |
+| **The field record itself** | Preserved. Remains in the database with `status="closed"`. |
+
+## Duplicate Detection Interaction
+
+| Aspect | Policy |
+| --- | --- |
+| **Closed fields in detection scan** | **Included.** `GET /admin/fields/duplicates` already scans all fields without status filter (`backend/app/api/admin.py` lines 468–471). Closed fields must remain in the scan to prevent users from re-submitting the same field. |
+| **Duplicate of a closed field** | Admin should reject the new submission and optionally explain that the field is closed. If the submitter has evidence that the field has reopened, the admin should investigate and potentially reopen the existing record rather than approving a duplicate. |
+| **Closed field is itself a duplicate** | The admin may reject the closed field as a duplicate if it was never the canonical record. If it is the canonical record, keep it and reject the other. |
+
+## User Reports Interaction
+
+| Scenario | Policy |
+| --- | --- |
+| User reports that a field is closed / does not exist | Report is queued for admin review (per ISSUE-041, ISSUE-046). Admin investigates and may set `status="closed"` if confirmed. **The report itself does not change field state.** |
+| User reports that a closed field has reopened | Admin investigates and may set `status="open"` if confirmed. |
+| Multiple users report the same field as closed | Increases confidence but still requires admin verification. No automatic status change regardless of report volume. |
+| User submits a `field_does_not_exist` report | Admin checks satellite imagery and other sources. If confirmed, sets `status="closed"`. If the field never existed (was approved erroneously), admin may also set `approval_status="rejected"`. |
+
+## GovMap / Import Interaction
+
+Consistent with ISSUE-041 rules for future imports:
+
+| Scenario | Policy |
+| --- | --- |
+| GovMap removes a field that exists in the app | **Do not automatically delete.** Flag for admin review. Admin decides whether to mark as `closed` or keep as `open` (the GovMap data may be stale, or the field may have been removed from GovMap's dataset for administrative reasons unrelated to the field's physical existence). |
+| GovMap re-import shows a field marked `closed` in the app | Admin reviews whether the field has reopened. If GovMap still lists it, the physical field may still exist — admin may set `status="open"` after verification. |
+| New GovMap import includes a field that matches a `closed` field | Treat as a duplicate candidate. Do not create a second record. Admin reviews and either reopens the existing record or confirms it should remain closed. |
+
+## Distinction Between Field States
+
+| Condition | `approval_status` | `status` | Meaning | Public Visibility | Game Creation | DB Preserved | Duplicate Detection |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Active approved** | `approved` | `open` | Fully operational field | Visible | Allowed | Yes | Included |
+| **Pending** | `pending` | `open` | Awaiting admin review | Hidden | Blocked | Yes | Included |
+| **Rejected** | `rejected` | `open` | Submission not approved (spam, duplicate, inaccurate) | Hidden | Blocked | Yes | Included |
+| **Under renovation** | `approved` | `renovation` | Temporarily unavailable, expected to return | Visible with indicator (or hidden as interim) | Blocked (policy) | Yes | Included |
+| **Closed / inactive** | `approved` | `closed` | Permanently or indefinitely unavailable | Hidden (policy) | Blocked (policy) | Yes | Included |
+| **Rejected + closed** | `rejected` | `closed` | Was rejected and also physically closed | Hidden | Blocked | Yes | Included |
+| **Deleted** | N/A | N/A | Physically removed from database | Not available | Not available | **No** — cascades to games, reports | Not available |
+
+### Key Distinctions
+
+**Rejected vs. Closed:**
+- `rejected` means the *submission* was not approved — the admin decided the data should not be public (bad location, spam, duplicate, etc.). The field may or may not physically exist.
+- `closed` means the *field* is no longer active in the real world. It may have been a valid, approved field that has since been demolished, converted, or permanently shut down.
+- A field can be both: `approval_status="rejected"` and `status="closed"` — e.g., a submission for a field that was demolished before the admin reviewed it.
+
+**Closed vs. Under Renovation:**
+- `closed` is indefinite or permanent. The field is not expected to return to service, or there is no known timeline.
+- `renovation` is temporary. The field is expected to reopen. Admins should use `renovation` when there is a reasonable expectation of return to service.
+- If a renovation drags on indefinitely with no progress, the admin may change `status` to `closed`.
+
+**Closed vs. Deleted:**
+- `closed` keeps the record. History, reports, and duplicate detection all continue to work. The field can be reopened if circumstances change.
+- `deleted` removes the record permanently. All linked games are cascade-deleted. Reports may be orphaned. Duplicate detection cannot prevent re-submission. **Deletion is irreversible and destructive.**
+
+**Duplicate vs. Closed:**
+- A duplicate is a data quality issue — two records describe the same real-world field. Resolution involves rejecting one record (or merging in a future workflow).
+- Closure is a real-world event — the physical field is no longer usable. A closed field is not a duplicate; it is a single valid record for a field that no longer operates.
+- A field can be both a duplicate and closed, but these are independent concerns.
+
+## Recommended Admin Workflow
+
+When an admin believes a field should be marked as inactive/closed:
+
+| Step | Action | Detail |
+| --- | --- | --- |
+| 1 | **Review evidence** | Check user reports, GovMap data, satellite imagery, local knowledge, and recent game activity on the field. |
+| 2 | **Determine if temporary or permanent** | Is the field under construction? Seasonal closure? Or permanently gone? |
+| 3 | **If temporary** | Set `status="renovation"`. Add a note if possible. The field can be reopened later. |
+| 4 | **If permanent** | Set `status="closed"` via `PATCH /admin/fields/{id}/status` with `{"status": "closed"}`. |
+| 5 | **Review active/upcoming games** | Check if any active or scheduled games exist on this field. If so, manually close or cancel them via the admin game management endpoints. Notify participants if the notification system supports it. |
+| 6 | **Do NOT delete the field** | Unless there is a legal, privacy, or abuse reason (see Edge Cases). |
+| 7 | **Document the reason** | When `rejection_reason` is available on the `fields` table (ISSUE-044 future note #1), record why the field was closed. Until then, use the `notes` field if appropriate. |
+
+## Edge Cases
+
+| Edge Case | Policy |
+| --- | --- |
+| **Field was never physically real** (approved by mistake based on bad data) | Set `approval_status="rejected"` (not just `status="closed"`). The approval was the error, not a real-world closure. |
+| **Legal/privacy request to remove field data** | Physical deletion is appropriate. This is one of the few cases where `DELETE` is justified. Document the deletion reason externally (e.g., in an admin log or audit trail). |
+| **Abusive or offensive field data** | Reject (`approval_status="rejected"`) and set `status="closed"`. Physical deletion only if the content is illegal or poses an ongoing harm. |
+| **Test/development data in production** | Physical deletion is appropriate for cleanup. Test data should not persist in production. |
+| **Field demolished and replaced with a new field at the same location** | Close the old field record. Create (or approve) a new field record for the replacement. They are different fields even though the location is the same. Duplicate detection may flag them — admin should approve both with a note. |
+| **Field changes sport type** (football field converted to basketball) | Update the existing field record's `sport_type` rather than closing and creating a new one. The physical location is the same field. |
+| **GovMap removes a field but users report it still exists** | Keep the field as `open`. User reports and GovMap are both inputs for admin review (ISSUE-041). Admin should verify via satellite imagery or local knowledge before changing status. |
+| **Multiple games scheduled on a field that just closed** | Admin cancels each game individually via `POST /admin/games/{id}/cancel`. No batch cancellation exists currently — this is a manual process. |
+
+## Future Implementation Notes
+
+1. **Public listing status filter.** `GET /fields/` should filter out `closed` fields. Consider also filtering `renovation` fields or including them with a status indicator. This requires a code change to `backend/app/routers/fields.py`.
+2. **Game creation status check.** `POST /games/` should validate `field.status == "open"` before allowing game creation. This requires a code change to `backend/app/routers/games.py`.
+3. **Admin "close field" workflow.** When an admin changes a field's status to `closed`, the system could automatically surface any active/upcoming games on that field for review. Currently, the admin must check manually.
+4. **Closure reason tracking.** When ISSUE-044's `rejection_reason` column is added, consider a parallel `closure_reason` field or repurpose the same column for status-change context.
+5. **Batch game cancellation.** When a field is closed, a "cancel all upcoming games on this field" action would reduce admin workload. Deferred to a future issue.
+6. **Closed field indicator in UI.** The frontend map could show closed fields with a different marker or gray them out, rather than hiding them entirely. This gives users context about why a previously known field is no longer available.
+7. **Scheduled auto-closure.** For fields with a known closure date (e.g., end of a lease), a scheduled status change could automate the transition. Not needed for MVP.
+8. **Audit log for status changes.** Track who changed a field's status and when, similar to `reviewed_at`/`reviewed_by` for field reports. Depends on ISSUE-044 future note #2.
+
+## Acceptance Criteria Mapping
+
+| # | Criterion | Addressed In |
+| --- | --- | --- |
+| 1 | Inactive field policy documented | This section (Business Decision, all subsections) |
+| 2 | Hide vs. archive vs. keep visible answered | Public Visibility Policy, Admin Visibility Policy, Distinction Between Field States |
+| 3 | Inactive/closed distinguished from rejected, renovation, duplicate, deleted | Distinction Between Field States, Key Distinctions |
+| 4 | Consistent with ISSUE-041 through ISSUE-046 | GovMap/Import Interaction (ISSUE-041), Duplicate Detection Interaction (ISSUE-042/043), Game Creation Policy (ISSUE-044), User Reports Interaction (ISSUE-046) |
+| 5 | Public visibility defined | Public Visibility Policy |
+| 6 | Game creation defined | Game Creation Policy |
+| 7 | Admin visibility defined | Admin Visibility Policy |
+| 8 | Historical games defined | Existing Games Policy, Historical Data Policy |
+| 9 | Duplicate detection defined | Duplicate Detection Interaction |
+| 10 | Reports defined | User Reports Interaction |
+| 11 | No code changes required by this issue | This is documentation only. Implementation gaps are documented for future issues. |
+
+## Status
+
+Approved.
+
