@@ -1963,3 +1963,99 @@ Excluded:
 
 Approved.
 
+---
+
+# ISSUE-032 — Implement Notification Retention Policy
+
+## Type
+
+Backend implementation.
+
+## Dependencies
+
+* ISSUE-031 (90-day retention policy decision).
+* ISSUE-029 (Notification Event Inventory — defines the `notifications` table schema).
+
+## Background
+
+ISSUE-031 approved a 90-day retention policy for in-app notifications. This issue implements the cleanup mechanism as an admin-triggered endpoint.
+
+## Goal
+
+Provide a backend endpoint that deletes notifications older than 90 days, accessible only to admins.
+
+## Decision
+
+### Endpoint
+
+`POST /admin/notifications/cleanup`
+
+Protected by `require_admin`. Non-admin users receive 401/403.
+
+### Behavior
+
+* Calculates cutoff as `now - 90 days` (using `get_now()` for testability).
+* Selects all notification rows where `created_at < cutoff` (strict less-than — notifications exactly at the cutoff boundary are NOT deleted).
+* Deletes matching rows by ID using the service-role Supabase client (bypasses RLS).
+* Returns `{ deleted_count, retention_days: 90, cutoff }`.
+
+### What is deleted
+
+* Only rows from the `notifications` table.
+* Both read and unread notifications older than 90 days are deleted.
+
+### What is NOT deleted
+
+* `push_tokens` — push token records are never affected by cleanup.
+* `notification_preferences` — user preference records are never affected by cleanup.
+* `user_moderation_audit` — audit records are never affected by cleanup.
+* Any other table.
+
+### Idempotency
+
+Running cleanup twice in succession is safe. The second run returns `deleted_count: 0`.
+
+### Constants
+
+* `NOTIFICATION_RETENTION_DAYS = 90` defined in `backend/app/routers/notifications.py`.
+
+## Implementation Details
+
+* Cleanup function: `cleanup_old_notifications(now=None)` in `backend/app/routers/notifications.py`.
+* Admin endpoint: `POST /admin/notifications/cleanup` in `backend/app/api/admin.py`.
+* Tests: `backend/tests/test_notification_cleanup.py` (9 tests).
+
+## Tests
+
+| # | Test | Verifies |
+| --- | --- | --- |
+| 1 | Deletes notification older than 90 days | Old notifications are removed |
+| 2 | Does not delete notification newer than 90 days | Recent notifications are preserved |
+| 3 | Does not delete notification exactly at the 90-day cutoff | Boundary condition (strict less-than) |
+| 4 | Deletes old unread notifications | `read_at = NULL` does not prevent deletion |
+| 5 | Deletes old read notifications | `read_at` set does not prevent deletion |
+| 6 | Does not delete push_tokens | Cleanup is scoped to `notifications` only |
+| 7 | Does not delete notification_preferences | Cleanup is scoped to `notifications` only |
+| 8 | Non-admin cannot run cleanup | Authorization enforcement |
+| 9 | Admin cleanup is idempotent | Second run deletes 0 |
+
+## Scope
+
+Included:
+
+* Backend cleanup function.
+* Admin-only endpoint.
+* 9 backend tests.
+
+Excluded:
+
+* No archive table.
+* No automatic cron/scheduler.
+* No frontend UI for cleanup.
+* No changes to notification delivery behavior.
+* No changes to push_tokens, notification_preferences, or other tables.
+
+## Status
+
+Implemented.
+

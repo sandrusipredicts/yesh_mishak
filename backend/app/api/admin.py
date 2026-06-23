@@ -17,6 +17,7 @@ from app.routers.game_lifecycle import (
 )
 from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
+    cleanup_old_notifications,
     create_game_closed_notifications,
     create_game_extended_notifications,
     create_scheduled_game_cancelled_notifications,
@@ -569,6 +570,11 @@ def get_admin_games(
 @router.post("/reminders/scheduled-games/run")
 def run_scheduled_game_reminders(_: dict[str, Any] = Depends(require_admin)):
     return generate_scheduled_game_reminders()
+
+
+@router.post("/notifications/cleanup")
+def run_notification_cleanup(_: dict[str, Any] = Depends(require_admin)):
+    return cleanup_old_notifications(now=get_now())
 
 
 @router.post("/games/{game_id}/close")

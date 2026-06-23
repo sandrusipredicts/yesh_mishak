@@ -18,6 +18,11 @@ from app.routers.notifications import (
 )
 
 
+class _LtSentinel:
+    def __init__(self, column: str) -> None:
+        self.column = column
+
+
 class FakeResponse:
     def __init__(self, data: list[dict[str, Any]], count: int | None = None) -> None:
         self.data = data
@@ -51,6 +56,10 @@ class FakeQuery:
             self.filters.append((column, None))
         else:
             self.filters.append((column, value))
+        return self
+
+    def lt(self, column: str, value: Any) -> "FakeQuery":
+        self.filters.append((_LtSentinel(column), value))
         return self
 
     def in_(self, column: str, values: list[Any]) -> "FakeQuery":
@@ -113,7 +122,10 @@ class FakeQuery:
     def _filtered_rows(self) -> list[dict[str, Any]]:
         rows = self.database.tables.setdefault(self.table_name, [])
         for column, value in self.filters:
-            rows = [row for row in rows if row.get(column) == value]
+            if isinstance(column, _LtSentinel):
+                rows = [row for row in rows if row.get(column.column) is not None and str(row[column.column]) < str(value)]
+            else:
+                rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
         if self.order_by:

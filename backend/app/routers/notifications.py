@@ -13,6 +13,7 @@ from app.services.firebase_push import FirebaseConfigError, send_fcm_notificatio
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 SCHEDULED_GAME_REMINDER_TYPE = "scheduled_game_reminder"
+NOTIFICATION_RETENTION_DAYS = 90
 
 
 class NotificationPreference(BaseModel):
@@ -1265,3 +1266,38 @@ def get_notification_candidates(
 
     field = field_response.data[0]
     return _find_notification_candidates(supabase, field, body.sport_type)
+
+
+def cleanup_old_notifications(
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current_time = now or datetime.now(timezone.utc)
+    cutoff = current_time - timedelta(days=NOTIFICATION_RETENTION_DAYS)
+    cutoff_iso = cutoff.isoformat()
+
+    service_supabase = get_supabase_service_role_client()
+    old_rows = (
+        service_supabase.table("notifications")
+        .select("id")
+        .lt("created_at", cutoff_iso)
+        .execute()
+        .data
+        or []
+    )
+
+    if not old_rows:
+        return {
+            "deleted_count": 0,
+            "retention_days": NOTIFICATION_RETENTION_DAYS,
+            "cutoff": cutoff_iso,
+        }
+
+    old_ids = [row["id"] for row in old_rows if row.get("id")]
+    if old_ids:
+        service_supabase.table("notifications").delete().in_("id", old_ids).execute()
+
+    return {
+        "deleted_count": len(old_ids),
+        "retention_days": NOTIFICATION_RETENTION_DAYS,
+        "cutoff": cutoff_iso,
+    }
