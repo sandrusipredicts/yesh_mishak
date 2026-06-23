@@ -10,6 +10,7 @@ from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
+from app.services.notification_templates import render_notification_template
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 SCHEDULED_GAME_REMINDER_TYPE = "scheduled_game_reminder"
@@ -364,12 +365,16 @@ def create_game_created_notifications(
 
     existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
     field_name = field.get("name") or "Unknown field"
+    rendered = render_notification_template(
+        "game_created", "he",
+        {"sport_type": game["sport_type"], "field_name": field_name},
+    )
     rows = [
         {
             "user_id": user_id,
             "type": "game_created",
-            "title": "נפתח משחק חדש",
-            "body": f"נפתח משחק {game['sport_type']} במגרש {field_name}",
+            "title": rendered["title"],
+            "body": rendered["body"],
             game_id_column: game["id"],
             field_id_column: field.get("id"),
         }
@@ -399,10 +404,9 @@ def create_player_joined_game_notification(
     service_supabase = get_supabase_service_role_client()
     field_name = field.get("name") or "Unknown field"
     player_name = str(joined_user.get("name") or "").strip()
-    body = (
-        f"{player_name} הצטרף למשחק שלך ב-{field_name}"
-        if player_name
-        else f"שחקן חדש הצטרף למשחק שלך ב-{field_name}"
+    rendered = render_notification_template(
+        "player_joined_game", "he",
+        {"player_name": player_name, "field_name": field_name},
     )
     payload = {
         "game_id": game.get("id"),
@@ -413,8 +417,8 @@ def create_player_joined_game_notification(
     row = {
         "user_id": organizer_id,
         "type": "player_joined_game",
-        "title": "שחקן חדש הצטרף למשחק שלך",
-        "body": body,
+        "title": rendered["title"],
+        "body": rendered["body"],
         "game_id": game.get("id"),
         "field_id": field.get("id") or game.get("field_id"),
         "data": payload,
@@ -509,12 +513,15 @@ def create_game_closed_notifications(
         for row in existing_response.data or []
         if row.get("user_id")
     }
+    rendered = render_notification_template(
+        "game_closed", "he", {"field_name": field_name},
+    )
     rows = [
         {
             "user_id": user_id,
             "type": "game_closed",
-            "title": "המשחק נסגר",
-            "body": f"המשחק במגרש {field_name} נסגר על ידי המארגן.",
+            "title": rendered["title"],
+            "body": rendered["body"],
             "game_id": game_id,
             "field_id": field_id,
             "data": {
@@ -593,18 +600,18 @@ def create_scheduled_game_cancelled_notifications(
         if field_rows:
             field_name = field_rows[0].get("name") or field_name
 
-    if cancelled_by_role == "admin":
-        body_text = f"המשחק במגרש {field_name} בוטל על ידי מנהל"
-    else:
-        body_text = f"המשחק במגרש {field_name} בוטל על ידי המארגן"
+    rendered = render_notification_template(
+        "scheduled_game_cancelled", "he",
+        {"field_name": field_name, "cancelled_by_role": cancelled_by_role},
+    )
 
     service_supabase = get_supabase_service_role_client()
     rows = [
         {
             "user_id": user_id,
             "type": "scheduled_game_cancelled",
-            "title": "המשחק בוטל",
-            "body": body_text,
+            "title": rendered["title"],
+            "body": rendered["body"],
             "game_id": game_id,
             "field_id": field_id,
             "data": {
@@ -679,12 +686,15 @@ def create_game_extended_notifications(
         and row["data"].get("new_end_time") == new_end_time_iso
     }
     field_id = game.get("field_id")
+    rendered = render_notification_template(
+        "game_extended", "he", {"time": new_end_time_label},
+    )
     rows = [
         {
             "user_id": user_id,
             "type": "game_extended",
-            "title": "המשחק הוארך",
-            "body": f"שעת הסיום החדשה של המשחק היא {new_end_time_label}",
+            "title": rendered["title"],
+            "body": rendered["body"],
             "game_id": game_id,
             "field_id": field_id,
             "data": {
@@ -796,12 +806,13 @@ def generate_scheduled_game_reminders(
             continue
 
         scheduled_at_iso = scheduled_at.isoformat()
+        rendered = render_notification_template("scheduled_game_reminder", "he")
         rows = [
             {
                 "user_id": user_id,
                 "type": SCHEDULED_GAME_REMINDER_TYPE,
-                "title": "תזכורת למשחק שמתקרב",
-                "body": "המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן.",
+                "title": rendered["title"],
+                "body": rendered["body"],
                 "game_id": game_id,
                 "field_id": game.get("field_id"),
                 "data": {
@@ -936,12 +947,13 @@ def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
     if not tokens:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No push token registered")
 
+    rendered = render_notification_template("test_push", "en")
     try:
         result = _send_push_to_tokens(
             client,
             tokens,
-            "Test notification",
-            "Push notifications are ready.",
+            rendered["title"],
+            rendered["body"],
             {"type": "test_push"},
             suppress_config_error=False,
         )

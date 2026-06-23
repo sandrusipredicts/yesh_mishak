@@ -2322,3 +2322,75 @@ Excluded:
 
 Approved.
 
+---
+
+# ISSUE-035 — Implement Multilingual Notification Templates
+
+## Type
+
+Implementation (backend code change).
+
+## Dependencies
+
+* ISSUE-034 (Notification Localization Requirements — provides the approved copy used as source of truth).
+
+## Purpose
+
+Create a centralized notification template module that replaces all hardcoded Hebrew/English strings in `backend/app/routers/notifications.py` with a single rendering function backed by a template dictionary.
+
+## What Changed
+
+### New file: `backend/app/services/notification_templates.py`
+
+* **`TEMPLATES`** dictionary — maps `(notification_type, language_code)` → `{"title": ..., "body": ...}` for all 7 notification types in Hebrew (`he`) and English (`en`).
+* **`render_notification_template(notification_type, language, variables)`** — renders a template with variable substitution. Handles:
+  - Fallback to Hebrew when the requested language has no template.
+  - `player_joined_game` fallback body when `player_name` is empty/None.
+  - `scheduled_game_cancelled` role-based body variants via `cancelled_by_role` variable (`"creator"` or `"admin"`).
+* **`DEFAULT_LANGUAGE = "he"`** — the fallback language constant.
+
+### Modified file: `backend/app/routers/notifications.py`
+
+All 7 notification creation functions now call `render_notification_template()` instead of using inline Hebrew/English strings:
+
+| Function | Template type | Language |
+| --- | --- | --- |
+| `create_game_created_notifications` | `game_created` | `he` |
+| `create_player_joined_game_notification` | `player_joined_game` | `he` |
+| `create_game_closed_notifications` | `game_closed` | `he` |
+| `create_scheduled_game_cancelled_notifications` | `scheduled_game_cancelled` | `he` |
+| `create_game_extended_notifications` | `game_extended` | `he` |
+| `generate_scheduled_game_reminders` | `scheduled_game_reminder` | `he` |
+| `send_test_push` | `test_push` | `en` |
+
+All functions still pass `language="he"` (or `"en"` for `test_push`) because no user language preference lookup exists yet. This preserves the exact same runtime behavior as before — the generated notification text is byte-identical.
+
+### New file: `backend/tests/test_notification_templates.py`
+
+16 unit tests covering:
+1. Each notification type renders correctly in Hebrew.
+2. Each notification type renders correctly in English.
+3. `player_joined_game` fallback body for empty and None player names.
+4. `scheduled_game_cancelled` creator vs admin role variants.
+5. Fallback to Hebrew for unsupported language codes.
+6. `ValueError` for unknown notification types.
+7. All types have both Hebrew and English templates in the dictionary.
+
+## Behavioral Guarantees
+
+* **No behavior change.** The exact same Hebrew text is generated for all notification types. `test_push` continues to use English.
+* **No database changes.** No new columns, no migrations.
+* **No frontend changes.** Notification content is still stored as plain text at creation time.
+* **All 88 existing tests pass.** The 79 notification tests and 9 cleanup tests continue to pass unchanged, confirming byte-identical output.
+
+## Future: Switching to Per-User Language
+
+To generate notifications in the user's preferred language:
+1. Look up the recipient's language preference before calling `render_notification_template`.
+2. Pass the user's language code instead of the hardcoded `"he"` / `"en"`.
+3. No other changes needed — the template module already supports both languages and falls back to Hebrew.
+
+## Status
+
+Implemented.
+
