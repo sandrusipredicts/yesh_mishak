@@ -1,0 +1,42 @@
+[
+  {
+    "check": "time_data_sanity",
+    "severity": "warning",
+    "game_id": "4d013332-ebfc-47d9-bd40-b3bd970b8ca9",
+    "reason": "created_at is null or unparseable",
+    "data": {},
+    "suggested_fix": null
+  },
+  {
+    "check": "time_data_sanity",
+    "severity": "warning",
+    "game_id": "3b30eaf3-f578-4a7b-83e4-695170f4cecf",
+    "reason": "created_at is null or unparseable",
+    "data": {},
+    "suggested_fix": null
+  },
+  {
+    "check": "time_data_sanity",
+    "severity": "warning",
+    "game_id": "67091872-c3cd-4971-9fe0-7231ae00b861",
+    "reason": "created_at is null or unparseable",
+    "data": {},
+    "suggested_fix": null
+  },
+  {
+    "check": "time_data_sanity",
+    "severity": "warning",
+    "game_id": "ef7680f0-45b9-4dd5-a46f-fe29a2e24ea2",
+    "reason": "created_at is null or unparseable",
+    "data": {},
+    "suggested_fix": null
+  },
+  {
+    "check": "time_data_sanity",
+    "severity": "warning",
+    "game_id": "2f404246-97b7-48ba-a968-77a90f64d3f8",
+    "reason": "created_at is null or unparseable",
+    "data": {},
+    "suggested_fix": null
+  }
+]
