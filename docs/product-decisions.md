@@ -5032,3 +5032,50 @@ Key points:
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-053: Content Moderation Validation
+
+**Date:** 2026-06-23
+**Scope:** Backend code + tests
+**Depends on:** ISSUE-052 (UGC policy)
+
+## Summary
+
+Implements basic backend validation for user-generated content per the ISSUE-052 policy. Rejects clearly invalid content (offensive terms, spam, fake names, personal data leaks) at the API layer before database insertion.
+
+## Implementation
+
+Validation service: `backend/app/services/content_moderation.py`
+
+### Violation categories detected
+
+| Category | Description | Severity |
+|---|---|---|
+| `empty_required` | Required text field is empty | medium |
+| `too_short` | Text below minimum length | low |
+| `too_long` | Text exceeds maximum length | low |
+| `repeated_characters` | Excessive repeated characters (8+) | medium |
+| `denied_term` | Matches local denylist of offensive terms | critical |
+| `fake_name` | Matches known fake/test patterns | high |
+| `multiple_urls` | 2+ URLs where not expected | medium |
+| `personal_data_phone` | Contains phone number pattern | high |
+| `personal_data_email` | Contains email address pattern | high |
+
+### Endpoints protected
+
+| Endpoint | Text fields validated |
+|---|---|
+| `POST /fields/` | `name`, `notes`, `opening_hours`, `city` |
+| `POST /field-reports` | `description` |
+| `POST /games/` | `age_note` |
+| `POST /games/{id}/cancel` | `reason` |
+
+### Admin exemption
+
+Admin endpoints (`PATCH /admin/fields/{id}/status`, etc.) are not affected — they modify metadata fields (status, approval_status), not user-submitted text content.
+
+## Status
+
+Approved.

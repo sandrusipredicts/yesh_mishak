@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
+from app.services.content_moderation import validate_field_report
 
 router = APIRouter(prefix="/field-reports", tags=["field-reports"])
 
@@ -69,6 +70,13 @@ def create_field_report(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid field report category",
+        )
+
+    moderation = validate_field_report(payload.description)
+    if not moderation.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=moderation.message,
         )
 
     _ensure_field_exists(payload.field_id)

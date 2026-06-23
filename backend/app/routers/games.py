@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.services.content_moderation import validate_game_text
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     ensure_game_is_actionable,
@@ -79,6 +80,13 @@ def _normalize_scheduled_at(value: datetime | None) -> datetime | None:
 
 @router.post("/")
 def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require_active_user)):
+    moderation = validate_game_text(age_note=game.age_note)
+    if not moderation.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=moderation.message,
+        )
+
     if game.sport_type not in ("football", "basketball"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -500,6 +508,13 @@ def cancel_game(
     body: GameCancelBody = GameCancelBody(),
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    moderation = validate_game_text(cancel_reason=body.reason)
+    if not moderation.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=moderation.message,
+        )
+
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
 

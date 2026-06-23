@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client
 from app.routers.game_payloads import get_game_payloads_for_fields
+from app.services.content_moderation import validate_field_submission
 
 router = APIRouter(prefix="/fields", tags=["fields"])
 FIELDS_PAGE_SIZE = 1000
@@ -119,6 +120,18 @@ def get_field(field_id: str):
 
 @router.post("/")
 def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(require_active_user)):
+    moderation = validate_field_submission(
+        name=field.name,
+        notes=field.notes,
+        opening_hours=field.opening_hours,
+        city=field.city,
+    )
+    if not moderation.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=moderation.message,
+        )
+
     supabase = get_supabase_client()
     data = {
         "name": field.name,
