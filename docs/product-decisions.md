@@ -2994,3 +2994,87 @@ When implementing the stress test:
 
 Approved.
 
+---
+
+# ISSUE-038 — Execute Notification Stress Testing
+
+## Type
+
+QA execution / test results.
+
+## Date
+
+2026-06-23.
+
+## Dependencies
+
+* ISSUE-037 (Notification Stress Test Plan — source of truth for scenarios, metrics, and success criteria).
+
+## Environment
+
+| Property | Value |
+| --- | --- |
+| Type | Local development (pytest with FakeSupabase) |
+| Database | In-memory FakeSupabase (same API surface as Supabase client) |
+| Push delivery | Mocked (no real FCM calls) |
+| Users | Synthetic only |
+| Concurrency | Sequential (single-threaded) |
+
+## Scenarios Executed
+
+| # | Scenario | Dataset Size | Result |
+| --- | --- | --- | --- |
+| 1 | Bulk game_created fan-out | 100 and 1,000 recipients | PASS |
+| 1b | Fan-out with 100% push failure | 100 recipients | PASS |
+| 2 | Repeated game creation dedup | 50 users, 1 game (x2 calls) | PASS |
+| 2b | Multiple games fan-out | 50 users, 10 games | PASS |
+| 3 | Unread counter accuracy | 100 / 500 / 1,000 notifications | PASS |
+| 3b | Mark single read | 100 notifications | PASS |
+| 3c | Mark all read | 200 notifications | PASS |
+| 3d | Cross-user isolation | 50 notifications per user | PASS |
+| 4 | Large inbox retrieval | 100 / 500 / 1,000 rows | PASS |
+| 4b | Inbox user isolation | 100 own + 100 other | PASS |
+| 5 | Scheduled reminder batch | 50 and 200 games x 10 players | PASS |
+| 5b | Reminder rerun idempotency | 1 game, 10 players | PASS |
+| 6 | Retention cleanup | 1k+1k and 5k+5k rows | PASS |
+| 6b | Cleanup rerun idempotency | 100 old rows | PASS |
+| 7 | Dedup: game_created (5x calls) | 100 users | PASS |
+| 7b | Dedup: game_closed (5x calls) | 20 users | PASS |
+| 7c | Dedup: game_extended same time (5x) | 20 users | PASS |
+| 7d | Dedup: game_extended different times | 10 users, 3 times | PASS |
+| 7e | Dedup: scheduled_game_reminder (5x) | 20 users | PASS |
+| 7f | scheduled_game_cancelled (known gap) | 10 users | PASS (confirms ISSUE-030) |
+
+## Summary Result
+
+**27 tests executed, 27 passed, 0 failed.**
+
+## Critical Issues Found
+
+**No.**
+
+No duplicate notification rows for protected event types. No cross-user contamination. No incorrect unread counts. No cleanup deleting wrong rows. No backend errors or crashes.
+
+## Non-Critical Issues / Follow-Up Recommendations
+
+1. **`scheduled_game_cancelled` dedup gap confirmed** — sequential calls create duplicate rows (10 users got duplicate notifications). Known from ISSUE-030. Follow-up: add to unique index (low priority).
+2. **Large inbox payload** — 1,000 notifications = ~240 KB response. Consider server-side pagination if inbox sizes regularly exceed 500.
+3. **Real database testing** — these tests validate application logic only. A staging database run is recommended to measure real query latency under load (ISSUE-037 future guidance).
+4. **Concurrent request testing** — true race conditions require a load testing tool (k6, locust) for simultaneous HTTP requests.
+
+## Detailed Results
+
+See [docs/notification-stress-test-results.md](notification-stress-test-results.md) for full scenario results, metrics, performance baselines, and issue details.
+
+## Test File
+
+`backend/tests/test_notification_stress.py` — 27 pytest tests covering all 7 ISSUE-037 scenarios. Run with:
+
+```
+cd backend && python -m pytest tests/test_notification_stress.py -v -s
+```
+
+## Status
+
+Executed. All scenarios passed.
+
