@@ -2394,3 +2394,196 @@ To generate notifications in the user's preferred language:
 
 Implemented.
 
+---
+
+# ISSUE-036 — Notification Analytics Requirements
+
+## Type
+
+Product specification / analytics requirements.
+
+## Background
+
+The notification system has grown across multiple issues (ISSUE-029 inventory, ISSUE-032 retention, ISSUE-033 unread counter, ISSUE-034/035 localization). It is not defined which notification data we want to measure. Before building analytics infrastructure, we need an approved list of metrics, their definitions, and whether they can be derived from existing data or require new tracking.
+
+## Goal
+
+Define the approved notification analytics metrics that can be used as a requirements document for future implementation.
+
+## Dependencies
+
+* ISSUE-029 (Notification Event Inventory — defines all 7 notification events, tables, and delivery channels).
+* ISSUE-033 (Notification Unread Counter Accuracy — documents read state behavior and frontend polling).
+* ISSUE-035 (Multilingual Notification Templates — centralizes notification types with template keys).
+
+## Current Data Available Today
+
+The following data already exists in the system and can be queried without code changes:
+
+| Data Point | Source | Notes |
+| --- | --- | --- |
+| Notification created timestamp | `notifications.created_at` | Present on every in-app notification row. |
+| Notification type | `notifications.type` | One of 7 defined types (ISSUE-029). |
+| Recipient | `notifications.user_id` | The user the notification was created for. |
+| Associated game | `notifications.game_id` | Present on game-related notifications. |
+| Associated field | `notifications.field_id` | Present on field-related notifications. |
+| Read timestamp | `notifications.read_at` | Set when user marks notification as read. NULL if unread. |
+| Legacy read flag | `notifications.is_read` | Boolean, supported for backward compatibility. |
+| Notification metadata | `notifications.data` (jsonb) | Contains type-specific data: `cancelled_by_role`, `new_end_time`, `scheduled_at`, etc. |
+| Push tokens per user | `push_tokens` table | One row per user/device. Multi-device supported. |
+| User preferences | `notification_preferences` table | Match type (`radius`, `city`, `specific_field`), sport type, location. |
+
+**Not available today:** push delivery results, frontend open/click events, notification-to-action correlation.
+
+## Approved Notification Analytics Metrics
+
+### Category A — Metrics Partially or Fully Available from Existing Data
+
+#### 1. Notification Created
+
+| Field | Value |
+| --- | --- |
+| **Definition** | A notification row was inserted into the `notifications` table. |
+| **Current Support** | **Available today.** Every in-app notification has a `created_at` timestamp. Can be counted, grouped by type, user, game, field, and date. |
+| **Notes** | This is the closest current proxy for "sent" for in-app notifications. Does not cover push-only events (`test_push` does not insert a notification row). |
+
+#### 2. Notification Read
+
+| Field | Value |
+| --- | --- |
+| **Definition** | User marked a notification as read, represented by `read_at` being set to a non-null timestamp. |
+| **Current Support** | **Available today.** `read_at` is set via `PATCH /notifications/{id}/read` or `PATCH /notifications/read-all`. Can compute read rate per type as `COUNT(read_at IS NOT NULL) / COUNT(*)`. |
+| **Notes** | Does not distinguish between single-read and read-all actions. Both set `read_at`. |
+
+#### 3. Notification Ignored (Partial)
+
+| Field | Value |
+| --- | --- |
+| **Definition** | A notification that was not read or clicked after a defined time window. |
+| **Recommended MVP Definition** | Ignored if `read_at IS NULL` and notification age > 7 days from `created_at`. |
+| **Current Support** | **Partially available today.** Can identify notifications with `read_at IS NULL` older than 7 days. However, true "ignored" requires click tracking (not available), so this is an approximation. |
+| **Notes** | The 7-day window is a product decision, not a technical constraint. Adjust as needed. Notifications older than 90 days are deleted by the retention policy (ISSUE-032). |
+
+### Category B — Metrics Requiring Future Tracking/Events
+
+#### 4. Push Sent Attempted
+
+| Field | Value |
+| --- | --- |
+| **Definition** | The backend attempted to send a push notification through FCM for a specific token. |
+| **Current Support** | **Not persistently tracked.** The `_send_push_to_tokens()` function returns `{"sent": N, "invalid_tokens": N}` at runtime but does not store these counts. |
+| **Future Requirement** | Log each push attempt with: `notification_id`, `push_token_id`, `user_id`, `timestamp`, `result` (sent/failed). |
+| **Event Source** | `backend/app/routers/notifications.py` — `_send_push_to_tokens()` function. |
+
+#### 5. Push Delivered / Push Failed
+
+| Field | Value |
+| --- | --- |
+| **Definition** | FCM accepted (HTTP 200) or rejected a push send attempt. |
+| **Current Support** | **Not persistently tracked.** The `send_fcm_notification()` function in `firebase_push.py` returns the FCM response status, but it is consumed and discarded. |
+| **Future Requirement** | Store push delivery result: `notification_id`, `token_id`, `status_code`, `fcm_error_code` (if failed), `timestamp`. |
+| **Event Source** | `backend/app/services/firebase_push.py` — `send_fcm_notification()` return value. |
+
+#### 6. Notification Opened
+
+| Field | Value |
+| --- | --- |
+| **Definition** | User opened the notification inbox or viewed a notification in the UI. |
+| **Current Support** | **Not tracked.** The frontend `NotificationInboxModal` opens on click but does not emit an analytics event. |
+| **Future Requirement** | Frontend event: `notification_inbox_opened` with `user_id`, `timestamp`, `unread_count_at_open`. Per-notification: `notification_viewed` with `notification_id`, `type`, `timestamp`. |
+| **Event Source** | `frontend/src/components/NotificationInboxModal.jsx`. |
+
+#### 7. Notification Clicked
+
+| Field | Value |
+| --- | --- |
+| **Definition** | User clicked/tapped a notification and navigated to its target (game/field on map). |
+| **Current Support** | **Not tracked.** The frontend handles notification tap navigation but does not emit an analytics event. |
+| **Future Requirement** | Frontend event: `notification_clicked` with `notification_id`, `type`, `game_id`, `field_id`, `timestamp`. |
+| **Event Source** | `frontend/src/components/NotificationInboxModal.jsx` — notification item click handler. |
+
+#### 8. Notification Preference Match
+
+| Field | Value |
+| --- | --- |
+| **Definition** | A user received a `game_created` notification because a notification preference matched the game's location/sport. |
+| **Current Support** | **Not persistently tracked.** The `_find_notification_candidates()` function evaluates preferences at runtime but does not record which preference matched or by what rule. |
+| **Future Requirement** | Store match metadata: `notification_id`, `preference_id`, `match_type` (`radius` / `city` / `specific_field`), `distance_km` (for radius matches). |
+| **Event Source** | `backend/app/routers/notifications.py` — `_find_notification_candidates()`. |
+
+#### 9. Invalid Push Token Removed
+
+| Field | Value |
+| --- | --- |
+| **Definition** | A push token was deleted after FCM returned an invalid/unregistered token error. |
+| **Current Support** | **Operational behavior exists** — invalid tokens are deleted from `push_tokens` at runtime. But the removal is not logged as an analytics event. |
+| **Future Requirement** | Log token removal event: `token_id`, `user_id`, `fcm_error_code`, `timestamp`. |
+| **Event Source** | `backend/app/routers/notifications.py` — `_send_push_to_tokens()` invalid token branch. |
+
+#### 10. Notification Conversion
+
+| Field | Value |
+| --- | --- |
+| **Definition** | User clicked a notification and then performed a valuable action (e.g., joined a game) within a defined attribution window. |
+| **Current Support** | **Not tracked.** Requires event correlation between notification click and subsequent user action. |
+| **Future Requirement** | Correlate `notification_clicked` event with downstream actions (e.g., `POST /games/{id}/join` within N minutes). Requires both click tracking (metric 7) and an attribution model. |
+| **Event Source** | Cross-event correlation between frontend click events and backend action endpoints. |
+
+## Summary Table
+
+| # | Metric | Definition | Current Support | Future Tracking Needed | Priority | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Notification Created | Row inserted into notifications table | Yes — `created_at` | No | P1 | Proxy for "sent" in-app |
+| 2 | Notification Read | `read_at` set on notification | Yes — `read_at` | No | P1 | Does not distinguish single vs read-all |
+| 3 | Notification Clicked | User tapped notification and navigated | No | Yes — frontend event | P1 | Requires frontend tracking |
+| 4 | Push Sent Attempted | Backend called FCM for a token | No | Yes — backend event log | P2 | Runtime data exists but not stored |
+| 5 | Push Delivered / Failed | FCM response status | No | Yes — backend event log | P2 | Runtime data exists but not stored |
+| 6 | Notification Ignored | Unread after 7 days, no click | Partial — unread age | Yes — needs click data | P2 | MVP approximation possible today |
+| 7 | Preference Match | Which preference rule matched | No | Yes — backend event log | P2 | Useful for preference tuning |
+| 8 | Notification Opened | User opened inbox / viewed notification | No | Yes — frontend event | P2 | Distinct from "clicked" |
+| 9 | Invalid Push Token Removed | Token deleted after FCM error | No | Yes — backend event log | P3 | Operational behavior exists |
+| 10 | Notification Conversion | Click → valuable action | No | Yes — event correlation | P3 | Requires click tracking + attribution |
+
+## Design Decisions
+
+1. **The `notifications` table is not an analytics event log.** It stores notification content for user consumption. Analytics should not overload this table with tracking columns.
+2. **Future event-level tracking should use a dedicated analytics/events table** (or external analytics service) to avoid coupling product data with measurement data.
+3. **Metric identity uses `notification_type`, not notification text or language.** Template language (ISSUE-035) does not affect metric grouping.
+4. **Analytics dimensions should use existing identifiers:** `notification_id`, `user_id`, `type`, `game_id`, `field_id`, `created_at`, and event timestamp.
+5. **Avoid storing sensitive or unnecessary user behavior data** beyond what is needed for product improvement. Analytics events should contain IDs and timestamps, not notification content.
+6. **Read-all vs read-single is not distinguished today.** If this distinction becomes important for analytics, a future implementation should record the read method.
+
+## Future Implementation Guidance
+
+When analytics tracking is implemented:
+
+1. **Start with P1 metrics.** Notification Created and Notification Read are already available — build queries or a dashboard view on existing data first.
+2. **Add frontend click tracking next.** Notification Clicked (P1) requires a frontend event emitter in `NotificationInboxModal.jsx` and a backend endpoint or analytics service to receive the events.
+3. **Create a dedicated `notification_events` table** (or use an external analytics service) for event-level tracking. Suggested schema: `id`, `event_type`, `notification_id`, `user_id`, `notification_type`, `game_id`, `field_id`, `metadata` (jsonb), `created_at`.
+4. **Do not retroactively backfill events.** Analytics begins from the point of implementation. Historical data is limited to what the `notifications` table already stores.
+5. **Push analytics (P2) can be added incrementally** by logging inside `_send_push_to_tokens()` without changing the push delivery behavior.
+6. **Conversion tracking (P3) is the most complex metric** — implement only after click tracking is stable and attribution rules are defined.
+
+## Scope
+
+Included:
+
+* Approved metrics list with definitions.
+* Current data availability assessment.
+* Future tracking requirements per metric.
+* Priority classification (P1/P2/P3).
+* Design decisions for future implementation.
+
+Excluded:
+
+* No code changes (backend or frontend).
+* No analytics table or migration.
+* No dashboard or visualization.
+* No frontend tracking implementation.
+* No backend event logging implementation.
+* No third-party analytics integration (e.g., Mixpanel, Amplitude).
+
+## Status
+
+Approved.
+
