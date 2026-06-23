@@ -3443,3 +3443,103 @@ Existing keys (`processed_game_ids`, `skipped_game_ids`, `notifications_created`
 
 Implemented.
 
+---
+
+# ISSUE-041 — Field Ownership and Source-of-Truth Policy
+
+## Type
+
+Policy / specification (documentation only — no code changes).
+
+## Problem
+
+The app has sports fields coming from multiple sources:
+
+1. **GovMap imports** — bulk-imported from the Israeli government GovMap facility database (1,357 fields imported via `backend/scripts/prepare_fields_import.py`).
+2. **User submissions** — created via `POST /fields/` with `approval_status: "pending"` and `verified: false`.
+3. **Admin-created or admin-edited fields** — created or modified by admins through the admin panel (approve, reject, edit, status change).
+4. **User reports** — submitted via `POST /field-reports` using the ISSUE-006 category catalog; stored in the `field_reports` table (ISSUE-007); triaged by admins (ISSUE-010, ISSUE-011).
+
+There is currently no defined policy for what happens when data from different sources conflicts. Without a clear hierarchy, future import/update logic risks silently overwriting admin corrections, auto-merging duplicates, or treating user reports as authoritative field modifications.
+
+## Sources Involved
+
+| Source | Entry Point | Initial `approval_status` | Initial `verified` | `added_by` |
+| --- | --- | --- | --- | --- |
+| GovMap import | SQL insert script (`fields_import.sql`) | `approved` | `true` | `NULL` |
+| User submission | `POST /fields/` | `pending` | `false` | User's `users.id` |
+| Admin-created | Admin panel (direct insert or approval of pending) | `approved` | `true` | Admin's `users.id` or original submitter |
+| Admin-edited | Admin panel (status change, field update) | Unchanged or set by admin | May be set to `true` | Original value preserved |
+| User report | `POST /field-reports` | N/A (separate table) | N/A | N/A |
+
+## Source-of-Truth Hierarchy
+
+Authority flows from highest to lowest:
+
+| Priority | Source | Authority Level | Rationale |
+| --- | --- | --- | --- |
+| 1 (highest) | Admin-created or admin-edited | Absolute | Admin is the final decision-maker. Manual corrections represent verified ground truth. |
+| 2 | GovMap | Trusted external baseline | Government data is the authoritative external source for field existence and location. |
+| 3 | User submission | Proposal | Users contribute field data, but it is unverified until admin-approved. |
+| 4 (lowest) | User report | Signal only | Reports flag issues for admin review. They never directly modify field data. |
+
+## Conflict Resolution Matrix
+
+| Scenario | Source A | Source B | Resolution | Outcome |
+| --- | --- | --- | --- | --- |
+| 1. Admin edits a GovMap field | Admin | GovMap | Admin wins | Admin's values are preserved. Future GovMap re-imports must not overwrite admin-edited attributes. |
+| 2. GovMap re-import has updated data for an unedited field | GovMap (new) | GovMap (existing) | GovMap update applies | Safe to update because no admin has manually edited the field. |
+| 3. GovMap re-import has updated data for an admin-edited field | GovMap (new) | Admin | Admin wins — no automatic overwrite | The field is flagged for admin review. Admin decides whether to accept GovMap's update. |
+| 4. User submits a field that matches an existing GovMap field | User | GovMap | Treated as duplicate candidate | The submission is held for admin review. Admin decides to merge, reject as duplicate, or approve as separate. |
+| 5. User submits a field that matches an existing admin-created field | User | Admin | Treated as duplicate candidate | Same as scenario 4 — admin reviews. |
+| 6. Two GovMap records describe the same real-world field | GovMap | GovMap | No auto-merge | Both records are flagged for admin review. Admin decides which to keep, merge, or reject. |
+| 7. User report claims a GovMap field is wrong | User report | GovMap | Report queued for admin | Admin reviews report and decides whether to edit the field. The report itself does not change field data. |
+| 8. User report claims an admin-edited field is wrong | User report | Admin | Report queued for admin | Same as scenario 7. Admin reviews and decides. |
+| 9. User submits a field that is near but not identical to an existing field | User | Any existing | Treated as potential duplicate | If within a configurable proximity threshold, flagged for review. Otherwise processed as a new pending field. |
+| 10. GovMap removes a field that exists in the app | GovMap (removal) | Existing field | No automatic deletion | Field is flagged for admin review. Admin decides whether to mark as closed, keep, or remove. |
+
+## Rules for User Reports
+
+User reports (ISSUE-006 categories) are governed by these rules:
+
+1. **Reports are non-mutating.** A user report MUST NOT directly change any attribute of a field record (`name`, `lat`, `lng`, `sport_type`, `status`, `approval_status`, `verified`, or any metadata column).
+2. **Reports are review signals.** They exist to inform admin decisions. Admins triage reports through the ISSUE-010 queue and resolve them through the ISSUE-011 workflow.
+3. **Report resolution may trigger admin action.** When an admin resolves a report, they may separately choose to edit the field, change its status, or take no action. The report resolution (`in_review` → `resolved` / `rejected`) is independent of any field change.
+4. **Aggregate reports may increase priority.** If multiple users report the same issue for the same field, this may be used in the future to surface high-priority items, but it still does not auto-modify the field.
+5. **Category-specific notes:**
+   - `field_does_not_exist` — admin may mark field status as `closed` or remove it. Report alone does not trigger removal.
+   - `wrong_location` — admin may update `lat`/`lng`. Report alone does not move the field.
+   - `duplicate_field` — admin may merge or reject one of the duplicates. Report alone does not merge.
+   - `wrong_information` — admin may update metadata. Report alone does not change metadata.
+   - `field_closed`, `under_renovation` — admin may update `status`. Report alone does not change status.
+   - `private_field` — admin may change `status` or `approval_status`. Report alone does not restrict access.
+
+## Rules for Future Imports
+
+When implementing GovMap re-imports or any external data import:
+
+1. **Never overwrite admin-edited fields automatically.** If a field has been modified by an admin after its initial import, the import must skip or flag it for review.
+2. **Track edit provenance.** To enforce rule 1, the system must be able to distinguish between fields that were only set by import and fields that were subsequently edited by an admin. This may require:
+   - An `admin_edited_at` timestamp column, or
+   - An `edit_source` / `last_edited_by` column, or
+   - An audit trail of field modifications.
+   The specific implementation is deferred to a future issue.
+3. **Detect duplicates before inserting.** New import rows must be checked against existing fields by proximity (lat/lng within a threshold) and name similarity. Potential duplicates must be flagged for admin review, not auto-inserted.
+4. **GovMap removals do not auto-delete.** If a field present in the app is absent from a new GovMap export, the field must be flagged for admin review, not automatically deleted or hidden.
+5. **Imports must be idempotent.** Running the same import twice must not create duplicate fields. Use `source_id` (e.g., `layer_sport.XXXXXXXX`) as the dedup key for GovMap records.
+6. **Import results must be auditable.** Every import run should produce a summary (as `prepare_fields_import.py` already does) showing how many fields were added, skipped, flagged, or rejected.
+
+## Open Implementation Notes
+
+These are not required for ISSUE-041 but are documented for future implementation work:
+
+1. **No `admin_edited_at` or `edit_source` column exists yet.** The current `fields` schema has no way to distinguish an admin-edited GovMap field from an untouched GovMap field. Conflict resolution scenario 3 cannot be enforced without this. A future issue should add edit provenance tracking.
+2. **No `source_id` column exists on the `fields` table.** GovMap imported fields have a `source_id` (e.g., `layer_sport.68845729`) in the import CSV but this is not stored in the database. A future issue should add this column to support idempotent re-imports.
+3. **No proximity-based duplicate detection exists.** User submissions and imports are not currently checked against existing fields by location. A future issue should implement proximity matching.
+4. **The `added_by` column is `NULL` for GovMap imports.** This is the current implicit signal that a field was imported rather than user-submitted, but it is not a reliable long-term provenance marker (admin-created fields also have an `added_by` value).
+5. **Field report aggregation is not implemented.** Multiple reports for the same field are stored independently. A future issue could aggregate them for priority surfacing.
+
+## Status
+
+Approved.
+
