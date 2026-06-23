@@ -5005,3 +5005,30 @@ JSON output: [audit-results/game-data-integrity-audit-2026-06-23.json](audit-res
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-052: User-Generated Content Moderation Policy
+
+**Date:** 2026-06-23
+**Scope:** Documentation only (no code changes)
+
+## Summary
+
+Defines a practical moderation policy for all user-generated content in the application, including field submissions, field reports, game notes, cancel reasons, user names, and future content types. Covers allowed/disallowed content, severity levels, decision matrix, admin checklist, repeat abuse handling, and future automation opportunities.
+
+## Decision
+
+The full policy is documented in: [user-generated-content-policy.md](user-generated-content-policy.md)
+
+Key points:
+- Content is classified as allowed, disallowed, or needs-review with concrete examples
+- Severity levels: critical (same-day), high (2 days), medium (5 days), low (next cycle)
+- Admin checklist with 9 verification steps before approval
+- Repeat abuse thresholds: 3+ fake/spam rejections or 2+ offensive rejections trigger user review
+- References ISSUE-041 (source-of-truth), ISSUE-046 (field moderation), ISSUE-047 (inactive fields), ISSUE-049 (review schedule)
+- No automated enforcement — manual admin moderation only
+
+## Status
+
+Approved.
