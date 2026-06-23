@@ -2059,3 +2059,129 @@ Excluded:
 
 Implemented.
 
+---
+
+# ISSUE-033 — Review Notification Unread Counter Accuracy
+
+## Type
+
+Audit / test coverage.
+
+## Dependencies
+
+* ISSUE-029 (Notification Event Inventory — defines all 7 notification events).
+
+## Background
+
+The unread notification badge must always show an accurate count. This audit reviewed every backend endpoint and frontend component involved in the unread counter to verify correctness, identify bugs, and add missing test coverage.
+
+## Unread Counter Source of Truth
+
+`GET /notifications/unread-count` is the authoritative source. It fetches all notifications for the authenticated user using the service-role client (bypasses RLS), filters in Python using `_is_notification_unread()`, and returns `{ unread_count: N }`.
+
+The function `_is_notification_unread()` supports both the canonical `read_at` timestamp column and the legacy `is_read` boolean column.
+
+## Read Single Behavior
+
+`PATCH /notifications/{id}/read` marks a single notification as read:
+* Verifies the notification belongs to the authenticated user (returns 404 otherwise).
+* Sets `read_at` to the current UTC timestamp (or `is_read = True` on legacy schema).
+* Marking an already-read notification is a no-op — it overwrites `read_at` with a new timestamp but does not change the unread count.
+
+## Read All Behavior
+
+`PATCH /notifications/read-all` marks all of the authenticated user's unread notifications as read:
+* Filters by `user_id` AND `read_at IS NULL` (or `is_read = False` on legacy schema).
+* Does not affect other users' notifications.
+* After completion, `GET /notifications/unread-count` returns 0 for the user.
+
+## New Notification Behavior
+
+When a new notification row is inserted (via any of the 7 notification events), it has `read_at = NULL` by default. The next call to `GET /notifications/unread-count` will reflect the increased count.
+
+## Multiple Tabs Behavior
+
+The frontend polls `GET /notifications/unread-count` every 20 seconds (production) or 1 second (development) via `setInterval`. Polling only fires when `document.visibilityState === 'visible'`. If one tab marks notifications as read, other tabs will update within the next polling interval.
+
+No websocket or realtime infrastructure is used. The polling delay (up to 20 seconds in production) is a known and accepted limitation.
+
+## Frontend Counter Design
+
+The frontend uses an optimistic-then-verify pattern:
+
+1. **Read single:** Locally updates the notification in state and computes new count from the updated array, then calls `refreshUnreadCount()` which re-fetches from the server.
+2. **Read all:** Locally sets all notifications to read and count to 0, then calls both `refreshNotifications()` and `refreshUnreadCount()` from the server.
+3. **Badge initialization:** On mount, fetches both `GET /notifications` and `GET /notifications/unread-count` from the server.
+
+The count displayed in the badge is always `Number(unreadCountResult?.unread_count ?? 0)`, which guarantees no negative counts.
+
+## Audit Result
+
+No bugs found. The existing implementation is correct:
+
+* Server endpoint is the authoritative source of truth.
+* Frontend always re-checks the server after optimistic updates.
+* Polling keeps multiple tabs in sync.
+* Negative counts are structurally impossible (server returns a non-negative integer).
+* Read-single on an already-read notification is idempotent.
+
+## Tested Scenarios
+
+### Backend tests (in `test_notifications.py`)
+
+| # | Test | Status |
+| --- | --- | --- |
+| 1 | Unread count returns only current user's unread notifications | Pre-existing |
+| 2 | Unread count uses service-role client | Pre-existing |
+| 3 | Unread count supports legacy `is_read` schema | Pre-existing |
+| 4 | Mark single notification sets `read_at` | Pre-existing |
+| 5 | Cannot mark another user's notification as read | Pre-existing |
+| 6 | Read-all marks only current user's notifications | Pre-existing |
+| 7 | Mark single sets `is_read` on legacy schema | Pre-existing |
+| 8 | Read-all sets `is_read` on legacy schema | Pre-existing |
+| 9 | New notification increases unread count | Pre-existing |
+| 10 | Marking one read decreases unread count by exactly 1 | **Added (ISSUE-033)** |
+| 11 | Marking already-read notification does not change unread count | **Added (ISSUE-033)** |
+| 12 | Mark-all-read sets unread count to 0 | **Added (ISSUE-033)** |
+
+### Frontend tests (in `notifications.spec.js`)
+
+| # | Test | Status |
+| --- | --- | --- |
+| 1 | Badge shows unread count on load; click notification updates badge | Pre-existing |
+| 2 | Mark all read clears badge | Pre-existing |
+| 3 | Legacy `is_read` schema displays and marks correctly | Pre-existing |
+| 4 | Preferences save triggers unread count refresh | Pre-existing |
+| 5 | Scheduled game reminder can be marked read | Pre-existing |
+
+### Scenarios verified by design (not individually testable)
+
+| Scenario | Verified by |
+| --- | --- |
+| Multiple tabs sync | Polling interval in `MapPage.jsx` calls `refreshUnreadCount()` every 20s |
+| No negative badge count | Server returns `len(unread)` which is always >= 0; frontend uses `Number(... ?? 0)` |
+| Server is source of truth | Every optimistic update is followed by `refreshUnreadCount()` server call |
+
+## Known Limitations
+
+* **Polling delay:** Up to 20 seconds in production before another tab reflects read-state changes. Acceptable for MVP.
+* **No realtime push for count updates:** A new notification created by another user's action (e.g., game created) will only appear in the badge after the next poll. Push notifications provide immediate device-level alerting as a mitigation.
+
+## Scope
+
+Included:
+
+* Full backend audit of unread count, read-single, and read-all endpoints.
+* Full frontend audit of badge, inbox modal, polling, and optimistic update logic.
+* 3 new backend tests for missing coverage.
+
+Excluded:
+
+* No code changes to endpoints or frontend components (no bugs found).
+* No new infrastructure (no websockets, no realtime).
+* No changes to notification delivery or retention.
+
+## Status
+
+Documented and tested.
+

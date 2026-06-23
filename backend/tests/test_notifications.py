@@ -637,6 +637,99 @@ def test_read_all_sets_is_read_on_legacy_schema(
     assert "read_at" not in fake_supabase.tables["notifications"][0]
 
 
+def test_mark_read_decreases_unread_count_by_one(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notif-a",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "A",
+            "body": "body",
+            "read_at": None,
+            "created_at": "2026-06-16T10:00:00+00:00",
+        },
+        {
+            "id": "notif-b",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "B",
+            "body": "body",
+            "read_at": None,
+            "created_at": "2026-06-16T09:00:00+00:00",
+        },
+    ]
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    before = client.get("/notifications/unread-count", headers=headers)
+    assert before.json() == {"unread_count": 2}
+
+    client.patch("/notifications/notif-a/read", headers=headers)
+
+    after = client.get("/notifications/unread-count", headers=headers)
+    assert after.json() == {"unread_count": 1}
+
+
+def test_marking_already_read_notification_does_not_change_unread_count(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notif-read",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Already read",
+            "body": "body",
+            "read_at": "2026-06-16T10:00:00+00:00",
+            "created_at": "2026-06-16T09:00:00+00:00",
+        },
+        {
+            "id": "notif-unread",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Still unread",
+            "body": "body",
+            "read_at": None,
+            "created_at": "2026-06-16T08:00:00+00:00",
+        },
+    ]
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    before = client.get("/notifications/unread-count", headers=headers)
+    assert before.json() == {"unread_count": 1}
+
+    client.patch("/notifications/notif-read/read", headers=headers)
+
+    after = client.get("/notifications/unread-count", headers=headers)
+    assert after.json() == {"unread_count": 1}
+
+
+def test_mark_all_read_sets_unread_count_to_zero(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {"id": "n1", "user_id": users["candidate"]["id"], "read_at": None},
+        {"id": "n2", "user_id": users["candidate"]["id"], "read_at": None},
+        {"id": "n3", "user_id": users["candidate"]["id"], "read_at": None},
+    ]
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    before = client.get("/notifications/unread-count", headers=headers)
+    assert before.json() == {"unread_count": 3}
+
+    client.patch("/notifications/read-all", headers=headers)
+
+    after = client.get("/notifications/unread-count", headers=headers)
+    assert after.json() == {"unread_count": 0}
+
+
 def test_save_push_token_stores_token_for_current_user(
     fake_supabase: FakeSupabase,
     users: dict[str, dict[str, Any]],
