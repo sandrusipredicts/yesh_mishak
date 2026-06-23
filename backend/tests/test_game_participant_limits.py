@@ -41,6 +41,7 @@ FIELD = {
     "sport_type": "football",
     "verified": True,
     "approval_status": "approved",
+    "status": "open",
 }
 
 
