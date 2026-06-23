@@ -3926,3 +3926,236 @@ Additionally, `/admin/fields/duplicates` was added to `ADMIN_ENDPOINTS` in `test
 
 Implemented.
 
+---
+
+# ISSUE-044 — Define Field Verification Workflow
+
+## Type
+
+Product decision (documentation only — no code changes).
+
+## Problem
+
+Fields in the system go through an approval workflow: user-submitted fields start as `pending`, admins approve or reject them, and only `approved` fields appear in the public listing. However, the full lifecycle — who can do what, what happens on rejection, how re-approval works, and how duplicate detection interacts with verification — is not formally documented. Without a clear specification:
+
+- Developers may introduce inconsistencies (e.g., allowing games on non-approved fields).
+- Admin behavior is undefined for edge cases (e.g., re-approving a previously rejected field, handling a field flagged as a duplicate).
+- The `GET /fields/{field_id}` endpoint currently returns any field regardless of `approval_status`, which is a potential information leak for pending/rejected fields.
+
+## Scope
+
+This issue defines:
+- The three verification states and their meaning.
+- Visibility rules for each state.
+- Allowed state transitions and who can perform them.
+- Behavior by field source (user-submitted, GovMap-imported, admin-created).
+- Rejection and re-approval rules.
+- How duplicate detection (ISSUE-042/043) interacts with verification.
+
+This issue does NOT:
+- Add new database columns (`reviewed_at`, `reviewed_by`, `rejection_reason` — deferred to implementation).
+- Change any code or API behavior.
+- Define the admin UI for the verification workflow.
+
+## Verification States
+
+| State | `approval_status` | `verified` | Meaning |
+| --- | --- | --- | --- |
+| **Pending** | `pending` | `false` | Field has been submitted but not yet reviewed by an admin. |
+| **Approved** | `approved` | `true` | Field has been reviewed and accepted. Visible to all users. |
+| **Rejected** | `rejected` | `false` | Field has been reviewed and declined (duplicate, inaccurate, spam, etc.). |
+
+The `approval_status` column is the primary state indicator. The `verified` boolean is always kept in sync: `true` only when `approval_status = "approved"`.
+
+Database constraint: `approval_status IN ('pending', 'approved', 'rejected')` (enforced by CHECK constraint in `schema.sql`).
+
+## State Visibility Rules
+
+| Context | Pending | Approved | Rejected |
+| --- | --- | --- | --- |
+| `GET /fields/` (public listing) | Hidden | **Visible** | Hidden |
+| `GET /fields/{field_id}` (direct lookup) | Visible* | **Visible** | Visible* |
+| Game creation (`POST /games/`) | **Blocked** | Allowed | **Blocked** |
+| Admin panel (`GET /admin/fields`) | **Visible** | **Visible** | **Visible** |
+| Admin pending queue (`GET /admin/fields/pending`) | **Visible** | Hidden | Hidden |
+| Duplicate detection (`GET /admin/fields/duplicates`) | Included | Included | Included |
+
+**\* Gap identified:** `GET /fields/{field_id}` does not filter by `approval_status`. Any field is accessible if the caller knows the UUID. This is acceptable for MVP because:
+- Field UUIDs are not enumerable (random UUIDs, not sequential).
+- The submitting user needs to see their own pending field after submission.
+- The response includes `approval_status` so the frontend can handle display accordingly.
+
+**Future consideration:** Add an optional `approval_status` filter or restrict non-approved fields to the submitter + admins only.
+
+**Game creation validation:** The `POST /games/` endpoint already validates `field.verified == True` and `field.approval_status == "approved"` before allowing game creation (see `backend/app/routers/games.py` line 109). Games cannot be created on pending or rejected fields.
+
+## Allowed Transitions
+
+| From | To | Actor | Endpoint | Side Effects |
+| --- | --- | --- | --- | --- |
+| `pending` | `approved` | Admin | `POST /admin/fields/{id}/approve` | Sets `verified=true`, `approval_status="approved"` |
+| `pending` | `rejected` | Admin | `POST /admin/fields/{id}/reject` | Sets `verified=false`, `approval_status="rejected"` |
+| `rejected` | `approved` | Admin | `POST /admin/fields/{id}/approve` | Sets `verified=true`, `approval_status="approved"` |
+| `approved` | `rejected` | Admin | `POST /admin/fields/{id}/reject` | Sets `verified=false`, `approval_status="rejected"` |
+
+Transitions NOT allowed:
+- **Any state → `pending`**: Once a field has been reviewed, it cannot be returned to `pending`. There is no "undo review" action. If an admin made a mistake, they approve or reject again directly.
+- **User-initiated transitions**: Regular users cannot change `approval_status`. They can only submit new fields (which start as `pending`).
+
+## Actor Permissions
+
+| Action | Regular User | Admin |
+| --- | --- | --- |
+| Submit new field | Yes (creates as `pending`) | Yes (creates as `pending`*) |
+| View pending fields in admin panel | No (403) | Yes |
+| Approve field | No | Yes |
+| Reject field | No | Yes |
+| View own pending field by ID | Yes (via `GET /fields/{id}`) | Yes |
+| Create game on pending/rejected field | No (400) | No (400) |
+
+**\* Admin-submitted fields:** When an admin submits a field via `POST /fields/`, it follows the same workflow as user submissions — it starts as `pending` and must be approved. This is intentional: it maintains a consistent audit trail and prevents accidental bypass of the review process. If the admin wants to fast-track, they submit and then immediately approve.
+
+## Behavior by Field Source
+
+### User-Submitted Fields
+
+1. User calls `POST /fields/` with field data.
+2. Field is created with `approval_status="pending"`, `verified=false`, `added_by=<user_id>`.
+3. Field appears in admin pending queue (`GET /admin/fields/pending`).
+4. Admin reviews and approves or rejects.
+5. On approval: field appears in public listing, games can be created on it.
+6. On rejection: field is hidden from public listing, remains accessible by direct ID lookup.
+
+### GovMap-Imported Fields
+
+1. Import script inserts fields with `approval_status="approved"`, `verified=true`, `added_by=null`.
+2. GovMap fields are pre-approved because the data source is authoritative (per ISSUE-041 source-of-truth hierarchy).
+3. No admin review step is required for initial import.
+4. If an admin later discovers a GovMap field is invalid, they can reject it using `POST /admin/fields/{id}/reject`.
+
+### Admin-Created Fields
+
+Per the current implementation, there is no separate "admin create" endpoint. Admins use the same `POST /fields/` endpoint as users. The field starts as `pending` and follows the standard workflow. This is by design — see Actor Permissions above.
+
+## Rejection Rules
+
+### When to Reject
+
+An admin should reject a field when:
+1. **Duplicate:** The field is a confirmed duplicate of an existing approved field (per ISSUE-042 scoring).
+2. **Inaccurate location:** The coordinates do not correspond to an actual sports field.
+3. **Spam or test data:** The submission is not a genuine field.
+4. **Insufficient information:** The field lacks enough detail to verify (e.g., no name, clearly wrong coordinates).
+
+### Rejection Behavior
+
+- Sets `verified=false`, `approval_status="rejected"`.
+- The field is immediately hidden from the public listing.
+- If any games exist on this field (edge case — should not happen because game creation validates approval_status), those games are NOT automatically cancelled. The admin should handle active games separately.
+- The submitting user is NOT notified of rejection (no notification type exists for this; deferred to future implementation).
+
+### Missing Rejection Metadata
+
+The current schema does NOT store:
+- `rejection_reason` — why the field was rejected.
+- `reviewed_by` — which admin reviewed the field.
+- `reviewed_at` — when the review happened.
+
+These columns exist on the `field_reports` table but not on the `fields` table. Adding them is deferred to the implementation issue. For MVP, rejection is a simple status flip without recorded reasoning.
+
+## Re-Approval / Reversal Rules
+
+### Re-Approving a Rejected Field
+
+An admin can re-approve a previously rejected field by calling `POST /admin/fields/{id}/approve`. This is useful when:
+- The initial rejection was a mistake.
+- The field data has been corrected (e.g., coordinates fixed via a user report).
+- New information confirms the field is legitimate.
+
+Behavior: Sets `verified=true`, `approval_status="approved"`. The field reappears in the public listing immediately.
+
+### Revoking Approval (Approved → Rejected)
+
+An admin can reject a previously approved field. This is useful when:
+- The field is discovered to be a duplicate after approval.
+- The field location is found to be incorrect.
+- The physical field no longer exists.
+
+Behavior: Sets `verified=false`, `approval_status="rejected"`. The field is immediately hidden from the public listing. Existing games on this field are NOT automatically affected — the admin should close or cancel active games separately if needed.
+
+### No "Pending" Reversal
+
+There is no transition from `approved` or `rejected` back to `pending`. The `pending` state is reserved for fields that have never been reviewed.
+
+## Interaction with Duplicate Detection (ISSUE-042/043)
+
+### Detection Scope
+
+The duplicate detection endpoint (`GET /admin/fields/duplicates`) scans ALL fields regardless of `approval_status`. This means:
+- Pending fields are checked against approved fields (catches duplicates before approval).
+- Rejected fields are checked against approved fields (identifies previously rejected duplicates).
+- Two pending fields can be flagged as duplicates of each other.
+
+### Recommended Admin Workflow
+
+1. Admin opens the pending queue (`GET /admin/fields/pending`).
+2. Before approving a field, admin checks duplicate detection results (`GET /admin/fields/duplicates`).
+3. If the pending field appears as a duplicate candidate:
+   - **Confirmed duplicate (risk level 1):** Reject the pending field.
+   - **Strong duplicate (risk level 2):** Investigate further. Compare field details manually. Reject if confirmed, approve if distinct.
+   - **Possible duplicate (risk level 3):** Approve unless other signals suggest it's a duplicate.
+4. If no duplicate candidates: proceed with normal review.
+
+### Duplicate Detection Does Not Block Approval
+
+Duplicate detection is advisory only. The admin can approve a field even if it is flagged as a duplicate candidate. This is intentional because:
+- Detection has false positives (e.g., two legitimately distinct fields at the same sports complex).
+- The admin has context that the algorithm does not (e.g., they know the area, they've verified on a map).
+- Blocking approval on detection results would require a more complex workflow with override capabilities.
+
+### Future: Auto-Detection on Submission
+
+When duplicate detection is integrated into the submission flow (per ISSUE-042 future note #2), the system should:
+1. Run detection when a new field is submitted (`POST /fields/`).
+2. If candidates are found, attach them to the pending field record (or store in a `duplicate_candidates` table).
+3. Surface the candidates to the admin during review.
+4. This does NOT change the approval flow — the admin still decides.
+
+## Audit / Future Implementation Notes
+
+1. **Rejection reason column.** Add `rejection_reason TEXT` to the `fields` table to store why a field was rejected. This helps admins understand previous decisions and allows the submitting user to be notified with context.
+
+2. **Review metadata columns.** Add `reviewed_by UUID REFERENCES users(id)` and `reviewed_at TIMESTAMPTZ` to the `fields` table. These enable audit trails and allow the admin panel to show who reviewed each field and when.
+
+3. **Submitter notification on rejection.** Add a new notification type (e.g., `field_rejected`) to inform the submitting user when their field is rejected. Include the rejection reason if available.
+
+4. **Submitter notification on approval.** Add a new notification type (e.g., `field_approved`) to inform the submitting user when their field is approved.
+
+5. **`GET /fields/{field_id}` access control.** Consider restricting non-approved fields so they are only visible to: (a) the user who submitted them (`added_by`), and (b) admins. This prevents information leakage of pending/rejected field data to arbitrary users who know the UUID.
+
+6. **Approved → Rejected game handling.** When an approved field is rejected, consider automatically closing or flagging any active/upcoming games on that field. Currently, this is a manual admin responsibility.
+
+7. **Re-submission after rejection.** Consider allowing users to edit and re-submit rejected fields (returning them to `pending`). This would require a new endpoint and a `pending` reversal transition. Deferred — users can submit a new field instead.
+
+8. **Bulk approval/rejection.** For GovMap imports that introduce many new fields, a bulk approval endpoint would reduce admin workload. Deferred to a future issue.
+
+## Acceptance Criteria Mapping
+
+| # | Criterion | Addressed In |
+| --- | --- | --- |
+| 1 | Three states defined (pending, approved, rejected) | Verification States |
+| 2 | Visibility rules per state documented | State Visibility Rules |
+| 3 | Allowed transitions and actors documented | Allowed Transitions, Actor Permissions |
+| 4 | User-submitted field lifecycle documented | Behavior by Field Source |
+| 5 | GovMap-imported field lifecycle documented | Behavior by Field Source |
+| 6 | Admin-created field lifecycle documented | Behavior by Field Source |
+| 7 | Rejection rules and behavior documented | Rejection Rules |
+| 8 | Re-approval / reversal rules documented | Re-Approval / Reversal Rules |
+| 9 | Duplicate detection interaction documented | Interaction with Duplicate Detection |
+| 10 | Gaps identified and documented | State Visibility Rules (GET by ID gap), Missing Rejection Metadata |
+| 11 | Future implementation notes provided | Audit / Future Implementation Notes |
+
+## Status
+
+Approved.
+
