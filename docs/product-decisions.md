@@ -5179,3 +5179,40 @@ Key decisions:
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-057 — Audit Backend Error Responses
+
+## Type
+
+Quality Assurance / Architecture Audit.
+
+## Dependency
+
+Depends on ISSUE-056.
+
+## Background
+
+To guarantee users receive a consistent and secure error-handling experience across all features, a thorough audit of the entire backend API router code is required to identify status code misalignments, raw detail leaks, and unhandled database queries.
+
+## Goal
+
+Audit all 35 endpoints in the backend router codebase and catalog every exception raise, returned HTTP status code, and security/privacy leak.
+
+## Decision
+
+The backend error responses audit has been completed and approved.
+
+The audit report is documented in: [backend-error-responses-audit.md](backend-error-responses-audit.md)
+
+Key findings:
+- Audited 35 active endpoints and 48 total error raise statements.
+- Confirmed a critical security vulnerability in `POST /fields/` and `POST /field-reports/` where database schema properties (errors, hints, queries) are returned in public API payloads.
+- Identified 18 database query routes lacking exception isolation wrappers (risk of unhandled server crashes).
+- Identified token leakage risk in external push notification test routes.
+- Outlined a remediation action plan to stage these changes in the upcoming implementation ticket.
+
+## Status
+
+Approved.
