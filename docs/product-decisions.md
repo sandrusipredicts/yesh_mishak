@@ -5145,3 +5145,37 @@ Key findings:
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-056 — Create Global Error Handling Strategy
+
+## Type
+
+Architecture / Quality Gate Specification.
+
+## Background
+
+Before mobile client development starts, the system requires a standardized error handling contract across the backend APIs, database connections, frontend React application, and external services to ensure secure, stable, and user-friendly operation under all network conditions.
+
+## Goal
+
+Create a global error handling strategy defining error shapes, taxonomy, HTTP status codes, handling rules, logging policies, security redacts, and frontend UX requirements.
+
+## Decision
+
+The global error handling strategy has been approved.
+
+The full strategy is documented in: [global-error-handling-strategy.md](global-error-handling-strategy.md)
+
+Key decisions:
+- Define target API error shape using an `{"error": {"code": "...", "message": "...", "details": {}, "request_id": "..."}}` wrapper.
+- Establishes a 9-category backend error taxonomy (Validation, Auth, Authz, Not Found, Conflict, Database, External, Rate Limit, Unknown).
+- Maps all errors to specific HTTP status codes and retry behaviors.
+- Restricts database error exposure (masks raw Supabase/PostgREST details from clients).
+- Defines frontend timeout, network offline, and UX form rendering rules.
+- Captures 5 major architectural gaps in the current implementation to form the Phase 1/2/3 backlog.
+
+## Status
+
+Approved.
