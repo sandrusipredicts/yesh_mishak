@@ -174,12 +174,22 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
         {"game_id": created_game["id"], "user_id": current_user["id"]}
     ).execute()
 
-    create_game_created_notifications(
-        supabase=supabase,
-        game=created_game,
-        field=field,
-        organizer_id=current_user["id"],
-    )
+    try:
+        create_game_created_notifications(
+            supabase=supabase,
+            game=created_game,
+            field=field,
+            organizer_id=current_user["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create game_created notifications",
+            extra={
+                "game_id": created_game.get("id"),
+                "field_id": created_game.get("field_id"),
+                "organizer_id": current_user.get("id"),
+            },
+        )
 
     return {"message": "Game created", "game": created_game}
 
