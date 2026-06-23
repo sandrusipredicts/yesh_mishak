@@ -4859,3 +4859,87 @@ When an admin believes a field should be marked as inactive/closed:
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-049 — Operational Field Review Schedule
+
+## Type
+
+Operational policy / workflow decision.
+
+## Dependencies
+
+* ISSUE-041 (Field Ownership and Source-of-Truth Policy)
+* ISSUE-047 (Inactive Field Handling Policy)
+* ISSUE-048 (Inactive Field Lifecycle Behavior)
+
+## Purpose
+
+Define a clear operational maintenance schedule for reviewing the fields database to prevent stale, inaccurate, duplicate, or conflicted field data.
+
+## Decision
+
+The operational review procedures, SLA targets, admin decision rules, and cadences are officially documented in:
+
+* [operational-field-review-schedule.md](file:///c:/Users/orel1/yesh_mishak/docs/operational-field-review-schedule.md)
+
+## Status
+
+Approved.
+
+---
+
+# ISSUE-048: Implement Inactive Field Lifecycle
+
+**Date:** 2026-06-23
+**Scope:** Code + Tests
+**Depends on:** ISSUE-047 (policy), ISSUE-013 (field schema)
+
+## Summary
+
+Implements the inactive field handling policy defined in ISSUE-047 as runtime enforcement in the backend.
+
+## Implemented Behavior
+
+### Public Field Listing (`GET /fields/`)
+- Added `.eq("status", "open")` filter to the public listing query
+- Only fields with `verified=True` AND `approval_status="approved"` AND `status="open"` appear in public results
+- Closed and renovation fields are hidden from public users
+
+### Game Creation (`POST /games/`)
+- Added field status validation after the existing approval check
+- If `field.status != "open"`, returns HTTP 400 with `"Field is not open"`
+- Validation order: approval_status check → status check → sport_type check
+
+### Direct Field Lookup (`GET /fields/{field_id}`)
+- No status filter applied (known MVP gap per ISSUE-047 policy)
+- Closed/renovation fields are still accessible by direct ID lookup
+
+### Admin Endpoints (unchanged)
+- `GET /admin/fields` — returns all fields regardless of status (correct per policy)
+- `GET /admin/fields/pending` — unchanged, filters by approval_status only
+- `PATCH /admin/fields/{id}/status` — unchanged, allows open/closed/renovation transitions
+- `GET /admin/fields/duplicates` — unchanged, scans all fields (correct per policy)
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/app/routers/fields.py` | Added `.eq("status", "open")` to public listing query |
+| `backend/app/routers/games.py` | Added field status != "open" check in game creation |
+| `backend/tests/test_inactive_field_lifecycle.py` | NEW — 23 tests covering all lifecycle scenarios |
+| `backend/tests/test_game_close.py` | Added `"status": "open"` to field fixtures |
+| `backend/tests/test_game_transitions.py` | Added `"status": "open"` to FIELD fixture |
+| `backend/tests/test_game_participant_limits.py` | Added `"status": "open"` to FIELD fixture |
+| `backend/tests/test_game_creator_ownership.py` | Added `"status": "open"` to FIELD fixture |
+| `backend/tests/test_game_payloads.py` | Added `"status": "open"` to `make_field()` |
+| `backend/tests/test_notifications.py` | Added `"status": "open"` to fake_supabase field fixture |
+
+## Migration Steps
+
+No new migrations required. The `status` column with CHECK constraint `('open', 'closed', 'renovation')` already exists per ISSUE-013/schema.sql.
+
+## Status
+
+Approved.
