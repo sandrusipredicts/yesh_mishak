@@ -3543,3 +3543,276 @@ These are not required for ISSUE-041 but are documented for future implementatio
 
 Approved.
 
+---
+
+# ISSUE-042 — Duplicate Field Detection Strategy
+
+## Type
+
+Strategy / specification (documentation only — no code changes).
+
+## Problem
+
+The app contains ~1,357 GovMap-imported fields and accepts user-submitted fields. Multiple sources can describe the same real-world facility:
+
+- A GovMap import and a user submission may refer to the same physical field with slightly different names or coordinates.
+- Two GovMap records from separate import batches may describe the same facility.
+- A user submission may duplicate an admin-created or admin-edited field.
+- Multi-sport complexes may contain multiple fields at nearly the same location that are legitimately separate records.
+
+Without a defined detection strategy, duplicate fields accumulate, confuse users, and split game activity across records that represent the same place. ISSUE-041 established that duplicates must not be auto-merged or auto-deleted — admin review is always required. This document defines the detection signals, matching rules, and scoring model that future implementation should follow.
+
+## Scope
+
+This strategy covers:
+
+- How to identify duplicate candidates among existing fields.
+- How to flag new submissions or imports as potential duplicates of existing fields.
+- What signals to use and how to combine them.
+- What thresholds to apply.
+- What admin review behavior is required.
+
+This strategy does NOT cover:
+
+- Implementation details (database queries, API endpoints, background jobs).
+- Schema changes (columns, indexes, tables).
+- UI design for duplicate review.
+- Automatic resolution or merging logic.
+
+## Duplicate Detection Signals
+
+| # | Signal | Type | Weight | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Same coordinates (exact match) | Coordinate | Very strong | After rounding to 7 decimal places (schema precision). |
+| 2 | Similar coordinates (close proximity) | Coordinate | Strong to moderate | Distance-based, see coordinate strategy below. |
+| 3 | Same normalized name (exact match) | Name | Strong | After normalization (see name strategy below). |
+| 4 | Similar normalized name (fuzzy match) | Name | Moderate | Similarity ratio above threshold. |
+| 5 | Same sport type | Attribute | Supporting | Strengthens other signals but is not sufficient alone. |
+| 6 | Same external source identifier | Identifier | Definitive | If a future `source_id` column exists (ISSUE-041 open note 2). |
+| 7 | Same or nearby city | Location | Supporting | Strengthens coordinate signals for close-proximity cases. |
+| 8 | Source type | Context | Modifying | Admin-edited fields require extra caution per ISSUE-041. |
+| 9 | Field status and approval status | Context | Modifying | Rejected or closed fields are lower-priority duplicate candidates. |
+
+## Normalization Rules
+
+Before comparing field attributes, normalize as follows:
+
+### Name Normalization
+
+1. **Trim whitespace** — remove leading/trailing whitespace and collapse internal runs of whitespace to a single space.
+2. **Lowercase** — convert to lowercase. For Hebrew text, this is a no-op (no case distinction), but apply it uniformly for mixed-language names.
+3. **Remove punctuation** — strip quotes, dashes, periods, parentheses, and other punctuation. Keep digits.
+4. **Normalize Hebrew final letters** — deferred. Hebrew final-form letters (ם/מ, ן/נ, ך/כ, ף/פ, ץ/צ) may appear inconsistently in source data. If the project later supports it, normalize finals to their non-final form before comparison. Until then, treat final and non-final forms as distinct characters.
+5. **Remove generic prefixes/suffixes with caution** — words like "מגרש" (field/court), "כדורגל" (football), "כדורסל" (basketball), "ספורט" (sport), "משולב" (combined), "ציבורי" (public), "שכונתי" (neighborhood) are extremely common in GovMap field names. Removing them can improve matching but also creates false positives (two different fields both named just "מגרש שכונתי" in different cities). Rules:
+   - Only remove generic words if the remaining name has at least 2 non-generic tokens.
+   - Never remove all tokens — if removal would leave an empty string, keep the original.
+   - Generic word removal is a secondary normalization step, not the primary one. Always compare with and without removal.
+
+### Coordinate Normalization
+
+1. **Round to schema precision** — the `fields` table uses `numeric(10, 7)`. Round both lat and lng to 7 decimal places before comparison.
+2. **Use Haversine distance** — the codebase already has `_distance_km()` in `backend/app/routers/notifications.py` (Haversine formula). Use the same approach for duplicate detection.
+
+### City Normalization
+
+1. **Use existing `_normalize_city()`** — strip, lowercase, collapse whitespace. Already implemented in `notifications.py`.
+2. **City match is supporting only** — same city strengthens a coordinate match but is never sufficient on its own.
+
+## Coordinate Matching Strategy
+
+Distance between two fields is computed using the Haversine formula and classified into risk bands:
+
+| Band | Distance | Signal Strength | Rationale |
+| --- | --- | --- | --- |
+| Exact | 0 m (identical lat/lng after rounding) | Very strong | Two records at the same point almost certainly describe the same facility. |
+| Very close | ≤ 10 m | Strong | GPS/geocoding variance. Different sources may place the same field within a few meters. |
+| Nearby | 11–50 m | Moderate | Could be the same field with inaccurate coordinates, or two adjacent fields in a sports complex. |
+| Review zone | 51–100 m | Weak | Possible duplicate in a large park or campus. May also be legitimately separate fields. |
+| Far | > 100 m | None | Not a coordinate-based duplicate candidate. Other signals (name, source_id) could still apply. |
+
+### Threshold Configuration
+
+These thresholds are initial proposals, not hardcoded production values:
+
+```
+DUPLICATE_DISTANCE_EXACT_M = 0
+DUPLICATE_DISTANCE_VERY_CLOSE_M = 10
+DUPLICATE_DISTANCE_NEARBY_M = 50
+DUPLICATE_DISTANCE_REVIEW_ZONE_M = 100
+```
+
+Thresholds should be configurable (environment variable or settings) so they can be tuned after observing real-world data. Israeli sports complexes often have multiple fields within 30–80 m of each other, so the "nearby" and "review zone" bands must be used in combination with other signals, never alone.
+
+## Name Matching Strategy
+
+### Exact Normalized Match
+
+After applying all normalization rules, compare the two normalized names. If they are identical, this is a strong duplicate signal.
+
+### Fuzzy Similarity
+
+For non-identical names, compute a similarity ratio. The recommended approach is token-based similarity (e.g., Jaccard similarity on word tokens, or sequence-based like `difflib.SequenceMatcher`):
+
+| Similarity | Signal Strength | Example |
+| --- | --- | --- |
+| ≥ 0.90 | Strong | "מגרש כדורגל עירוני" vs "מגרש כדורגל עירוני רמלה" |
+| 0.70–0.89 | Moderate | "מגרש ספורט הפועל" vs "מגרש הפועל" |
+| 0.50–0.69 | Weak | "מגרש כדורגל" vs "מגרש כדורסל" (generic names, different sport) |
+| < 0.50 | None | Names are too different to contribute to a duplicate signal. |
+
+### Name-Only Matching Limitations
+
+Name similarity alone is a weak duplicate signal because:
+
+- Many fields share generic names ("מגרש שכונתי", "מגרש כדורגל", "מגרש משולב").
+- Two fields in different cities can have identical names and be completely separate facilities.
+- Name similarity must always be combined with coordinate proximity to produce a meaningful duplicate signal.
+
+## Scoring and Risk Levels
+
+Combine signals into a duplicate risk classification:
+
+### Risk Levels
+
+| Level | Label | Meaning | Required Action |
+| --- | --- | --- | --- |
+| 1 | **Confirmed duplicate candidate** | Very high confidence that two records describe the same field. | Flag for admin review. Suggest merge. |
+| 2 | **Strong duplicate candidate** | High confidence, but some ambiguity. | Flag for admin review. Present both records side by side. |
+| 3 | **Possible duplicate candidate** | Some evidence, but could be legitimately separate. | Flag for admin review with lower priority. |
+| 4 | **Not enough evidence** | Signals are too weak or contradictory. | No action. Do not flag. |
+
+### Scoring Rules
+
+| Rule | Signals Required | Risk Level |
+| --- | --- | --- |
+| R1 | Same `source_id` (future) | 1 — Confirmed |
+| R2 | Exact coordinates + exact normalized name | 1 — Confirmed |
+| R3 | Exact coordinates + different name + same sport type | 2 — Strong |
+| R4 | Very close (≤ 10 m) + similar name (≥ 0.70) + same sport type | 2 — Strong |
+| R5 | Very close (≤ 10 m) + exact normalized name + different sport type | 2 — Strong |
+| R6 | Nearby (11–50 m) + exact normalized name + same sport type | 2 — Strong |
+| R7 | Nearby (11–50 m) + similar name (≥ 0.70) + same sport type | 3 — Possible |
+| R8 | Nearby (11–50 m) + same sport type + different name (< 0.70) | 3 — Possible |
+| R9 | Review zone (51–100 m) + exact normalized name + same sport type | 3 — Possible |
+| R10 | Review zone (51–100 m) + similar name + same sport type | 4 — Not enough (unless additional signals) |
+| R11 | Close coordinates (≤ 50 m) + different sport type + different name | 4 — Not enough |
+| R12 | Similar name (≥ 0.70) + far coordinates (> 100 m) | 4 — Not enough |
+| R13 | Same name + far coordinates + same city | 3 — Possible (same city elevates) |
+| R14 | Any match involving admin-edited or admin-created field | Elevate to at least level 2 — always require admin review |
+
+### Multi-Sport Complex Rule
+
+Close coordinates (≤ 50 m) with different `sport_type` values should NOT be treated as a confirmed duplicate. Sports complexes frequently contain separate football and basketball fields at the same location. These are legitimate separate records. Only flag as "possible" (level 3) if other signals (name similarity) support it.
+
+## Admin Review Behavior
+
+Duplicate detection produces review candidates. It never takes automatic action on field data.
+
+### What duplicate detection MUST do:
+
+1. Create a duplicate candidate record (or queue entry) linking two field records with a risk level and the signals that triggered it.
+2. Surface candidates to admins through an admin review interface.
+3. Present both field records side by side with their source type, creation date, and all attributes.
+4. Allow the admin to choose one of the following actions:
+   - **Merge** — combine the two records into one, choosing which attributes to keep.
+   - **Reject as duplicate** — mark one record as rejected/duplicate.
+   - **Keep both** — dismiss the duplicate candidate. Both fields remain active.
+   - **Link** — mark the records as related but distinct (e.g., two fields in the same complex).
+
+### What duplicate detection MUST NOT do:
+
+1. Auto-delete any field record.
+2. Auto-merge field records.
+3. Overwrite admin-created or admin-edited field data (ISSUE-041 hierarchy).
+4. Automatically reject user submissions without admin review.
+5. Change `approval_status`, `verified`, `status`, or any field attribute.
+6. Block user submissions from being created. A submission flagged as a potential duplicate should still be stored as `pending` — the duplicate flag is metadata for the admin review queue, not a rejection mechanism.
+
+## Conflict Behavior with ISSUE-041 Source-of-Truth Policy
+
+Duplicate detection must respect the ISSUE-041 source-of-truth hierarchy at every step:
+
+| ISSUE-041 Rule | Duplicate Detection Implication |
+| --- | --- |
+| Admin is highest authority | If an admin-edited field is flagged as a duplicate of a GovMap or user-submitted field, the admin-edited field's data takes precedence in any suggested merge. |
+| GovMap is trusted baseline | GovMap-vs-GovMap duplicates are presented neutrally — neither has higher authority. Admin decides. |
+| User submissions are proposals | A user submission flagged as duplicating an existing field does not challenge the existing field's data. The admin reviews whether to merge, keep, or reject the submission. |
+| User reports are non-mutating | A `duplicate_field` user report (ISSUE-006) is a signal for the admin queue. It feeds into the same admin review flow but does not trigger automatic duplicate detection scoring. |
+| No auto-overwrite of admin data | Duplicate resolution must not auto-apply GovMap or user-submitted values over admin-edited values, even during a merge operation. |
+| GovMap re-imports check for duplicates | ISSUE-041 rule 3 (detect duplicates before inserting) is implemented using this detection strategy. |
+
+## Examples
+
+### Example 1: Confirmed Duplicate (GovMap + User Submission)
+
+- **Field A (GovMap):** name="מגרש כדורגל הפועל", lat=32.0853000, lng=34.7818000, sport_type=football, approval_status=approved
+- **Field B (User submission):** name="מגרש כדורגל הפועל", lat=32.0853000, lng=34.7818000, sport_type=football, approval_status=pending
+
+Signals: exact coordinates, exact normalized name, same sport type.
+Rule: R2. Risk level: 1 — Confirmed duplicate candidate.
+Action: Flag for admin review. Suggest merging B into A (GovMap has higher authority per ISSUE-041).
+
+### Example 2: Strong Duplicate (Slightly Different Location)
+
+- **Field A (GovMap):** name="מגרש כדורגל עירוני", lat=31.2530000, lng=34.7910000, sport_type=football
+- **Field B (User submission):** name="מגרש כדורגל העירוני", lat=31.2530500, lng=34.7910300, sport_type=football
+
+Signals: ~6 m apart (very close), similar name (0.91 after normalization), same sport type.
+Rule: R4. Risk level: 2 — Strong duplicate candidate.
+Action: Flag for admin review.
+
+### Example 3: Possible Duplicate (Nearby, Same Sport, Different Name)
+
+- **Field A (GovMap):** name="מגרש ספורט צפון", lat=32.7940000, lng=35.0100000, sport_type=basketball
+- **Field B (GovMap):** name="מגרש שכונתי", lat=32.7943000, lng=35.0102000, sport_type=basketball
+
+Signals: ~38 m apart (nearby), different names (similarity < 0.50), same sport type.
+Rule: R8. Risk level: 3 — Possible duplicate candidate.
+Action: Flag for admin review with lower priority. May be two separate courts in the same area.
+
+### Example 4: Not a Duplicate (Multi-Sport Complex)
+
+- **Field A:** name="מגרש כדורגל פארק הירקון", lat=32.0970000, lng=34.8050000, sport_type=football
+- **Field B:** name="מגרש כדורסל פארק הירקון", lat=32.0970500, lng=34.8051000, sport_type=basketball
+
+Signals: ~12 m apart (very close), similar names but different sport words, different sport type.
+Rule: R11 (close + different sport type + different name after sport word removal). Risk level: 4 — Not enough evidence.
+Action: No flag. These are likely separate facilities in the same park.
+
+### Example 5: Same Name, Different City
+
+- **Field A:** name="מגרש שכונתי", city="חיפה", lat=32.7940000, lng=34.9890000
+- **Field B:** name="מגרש שכונתי", city="באר שבע", lat=31.2520000, lng=34.7910000
+
+Signals: exact normalized name, far coordinates (> 170 km), different city.
+Rule: R12. Risk level: 4 — Not enough evidence.
+Action: No flag. Generic name match at distant locations is not meaningful.
+
+### Example 6: Admin-Edited Field Flagged
+
+- **Field A (admin-edited):** name="מגרש כדורגל מתוקן", lat=31.7680000, lng=35.2130000, sport_type=football
+- **Field B (GovMap re-import):** name="מגרש כדורגל", lat=31.7680200, lng=35.2130100, sport_type=football
+
+Signals: ~3 m apart (very close), similar name (0.75), same sport type.
+Rule: R4 → R14 elevates to at least level 2. Risk level: 2 — Strong (admin involvement).
+Action: Flag for admin review. Admin-edited data is not overwritten. Admin decides whether GovMap's updated data should be applied.
+
+## Future Implementation Notes
+
+1. **Duplicate candidate table.** A `duplicate_candidates` table (or similar) will be needed to store pairs of field IDs, risk level, triggering signals, and admin resolution status. Schema design is deferred to the implementation issue.
+2. **Detection triggers.** Duplicate detection should run:
+   - On every new user field submission (`POST /fields/`), comparing the submission against all existing `approved` fields.
+   - During GovMap re-imports, comparing new import rows against all existing fields.
+   - On-demand via an admin endpoint that scans all existing fields for internal duplicates.
+3. **Performance.** Comparing every new field against all existing fields is O(n). With ~1,400 fields, this is trivial. If the field count grows significantly, a spatial index (PostGIS, or a simple lat/lng bounding-box pre-filter) can reduce the comparison set.
+4. **Similarity library.** Python's `difflib.SequenceMatcher` is sufficient for MVP name similarity. If Hebrew-specific tokenization or stemming is needed later, consider a library like `fuzzywuzzy` or `rapidfuzz`.
+5. **`source_id` column.** ISSUE-041 identified that `source_id` is not stored in the database. Adding this column would enable rule R1 (same source_id = confirmed duplicate), which is the highest-confidence detection signal for GovMap re-imports.
+6. **User report integration.** When a user submits a `duplicate_field` report (ISSUE-006), the system could auto-run duplicate detection between the reported field and nearby fields, pre-populating a duplicate candidate record for the admin. This is an optimization, not a requirement.
+7. **Batch vs real-time.** Initial implementation should support both:
+   - Real-time: check on submission/import (blocks or flags before insert).
+   - Batch: admin-triggered scan of existing fields (background job).
+
+## Status
+
+Approved.
+
