@@ -23,6 +23,7 @@ from app.routers.notifications import (
     create_scheduled_game_cancelled_notifications,
     generate_scheduled_game_reminders,
 )
+from app.services.duplicate_detection import find_duplicates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -460,6 +461,19 @@ def update_admin_field_status(
     _: dict[str, Any] = Depends(require_admin),
 ):
     return update_field_status_record(field_id, body)
+
+
+@router.get("/fields/duplicates")
+def get_field_duplicates(_: dict[str, Any] = Depends(require_admin)):
+    fields = (
+        get_supabase_client()
+        .table("fields")
+        .select(ADMIN_FIELD_COLUMNS + ",added_by")
+        .execute()
+        .data
+        or []
+    )
+    return find_duplicates(fields)
 
 
 def _attach_field_names(games: list[dict[str, Any]]) -> list[dict[str, Any]]:

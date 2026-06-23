@@ -3816,3 +3816,113 @@ Action: Flag for admin review. Admin-edited data is not overwritten. Admin decid
 
 Approved.
 
+---
+
+# ISSUE-043 — Implement Duplicate Field Detection Tooling
+
+## Type
+
+Implementation (code changes + tests).
+
+## Background
+
+ISSUE-042 defined the duplicate field detection strategy. This issue implements the detection tooling as a reusable backend service and admin-only endpoint. Detection is read-only — it identifies duplicate candidates but never modifies field data.
+
+## Implementation
+
+### Service Module
+
+`backend/app/services/duplicate_detection.py` — reusable detection logic:
+
+- `_haversine_m(lat1, lng1, lat2, lng2)` — Haversine distance in meters (mirrors `_distance_km` from `notifications.py`).
+- `normalize_name(name)` — NFC normalization, trim, lowercase, remove punctuation, collapse whitespace.
+- `name_similarity(name_a, name_b)` — `difflib.SequenceMatcher` ratio, with and without generic token removal. Returns the higher score.
+- `score_pair(field_a, field_b)` — applies ISSUE-042 scoring rules R2–R14. Returns a candidate dict or `None` (not enough evidence).
+- `find_duplicates(fields)` — O(n²) pairwise comparison with bounding-box pre-filter. Returns actionable candidates sorted by risk level then distance.
+
+### Configurable Thresholds
+
+```python
+DISTANCE_VERY_CLOSE_M = 10
+DISTANCE_NEARBY_M = 50
+DISTANCE_REVIEW_ZONE_M = 100
+NAME_SIMILARITY_STRONG = 0.90
+NAME_SIMILARITY_MODERATE = 0.70
+```
+
+### Generic Token List
+
+Hebrew and English generic field words removed during secondary name comparison (only if ≥2 non-generic tokens remain):
+`מגרש`, `כדורגל`, `כדורסל`, `ספורט`, `משולב`, `ציבורי`, `שכונתי`, `field`, `court`, `football`, `basketball`, `sport`.
+
+### Admin Endpoint
+
+`GET /admin/fields/duplicates`
+
+- Requires admin authentication (`require_admin`).
+- Loads all fields from the database (including `added_by` for admin-involvement detection).
+- Returns duplicate candidates as a JSON array, sorted by highest risk first.
+- Does not mutate the database.
+
+Response shape per candidate:
+
+```json
+{
+  "field_a": {"id": "...", "name": "...", "lat": ..., "lng": ..., "sport_type": "...", "city": "...", "status": "...", "approval_status": "...", "verified": ...},
+  "field_b": {"id": "...", ...},
+  "distance_m": 0.0,
+  "name_similarity": 1.0,
+  "matching_signals": ["exact_coordinates", "exact_name", "same_sport_type"],
+  "risk_level": 1,
+  "risk_label": "confirmed duplicate candidate",
+  "reason": "Same coordinates and same name"
+}
+```
+
+## Tests
+
+19 tests in `backend/tests/test_duplicate_detection.py`:
+
+| # | Test | Validates |
+| --- | --- | --- |
+| 1 | `test_normalize_name_trims_and_lowercases` | Name normalization basics |
+| 2 | `test_normalize_name_removes_punctuation` | Punctuation removal |
+| 3 | `test_normalize_name_collapses_whitespace` | Whitespace normalization |
+| 4 | `test_name_similarity_exact` | Identical names = 1.0 |
+| 5 | `test_name_similarity_different` | Unrelated names < 0.50 |
+| 6 | `test_same_coordinates_same_name_confirmed` | R2: confirmed duplicate |
+| 7 | `test_very_close_similar_name_same_sport_strong` | R4: strong duplicate |
+| 8 | `test_nearby_same_sport_different_name_possible` | R8: possible duplicate |
+| 9 | `test_far_similar_name_not_enough` | R12: excluded |
+| 10 | `test_close_different_sport_not_confirmed` | Multi-sport complex rule |
+| 11 | `test_admin_involved_elevates_to_strong` | R14: admin elevation |
+| 12 | `test_find_duplicates_returns_sorted_candidates` | Integration: sorting |
+| 13 | `test_find_duplicates_excludes_not_enough_evidence` | Only actionable results |
+| 14 | `test_find_duplicates_result_shape` | Response shape validation |
+| 15 | `test_exact_coords_different_name_same_sport_strong` | R3: strong duplicate |
+| 16 | `test_same_name_far_same_city_possible` | R13: same-city elevation |
+| 17 | `test_admin_duplicates_endpoint_requires_admin` | 403 for non-admin |
+| 18 | `test_admin_duplicates_endpoint_returns_candidates` | Endpoint returns results |
+| 19 | `test_admin_duplicates_endpoint_empty_when_no_duplicates` | Empty when no matches |
+
+Additionally, `/admin/fields/duplicates` was added to `ADMIN_ENDPOINTS` in `test_admin_me.py`, so the existing parametrized tests also cover admin-allow, regular-user-reject, and no-token-reject (3 additional tests).
+
+## Test Results
+
+- `test_duplicate_detection.py`: 19 passed
+- `test_admin_me.py`: 36 passed (including 3 new parametrized for `/admin/fields/duplicates`)
+
+## Files Changed
+
+| File | Change |
+| --- | --- |
+| `backend/app/services/duplicate_detection.py` | New: detection service module |
+| `backend/app/api/admin.py` | Added import + `GET /admin/fields/duplicates` endpoint |
+| `backend/tests/test_duplicate_detection.py` | New: 19 tests |
+| `backend/tests/test_admin_me.py` | Added `/admin/fields/duplicates` to `ADMIN_ENDPOINTS` |
+| `docs/product-decisions.md` | This section |
+
+## Status
+
+Implemented.
+

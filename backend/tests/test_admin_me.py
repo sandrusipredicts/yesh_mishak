@@ -126,6 +126,7 @@ def configure_test_settings(monkeypatch) -> None:
 ADMIN_ENDPOINTS = [
     "/admin/me",
     "/admin/fields",
+    "/admin/fields/duplicates",
     "/admin/field-reports",
     "/admin/games",
     "/admin/users",
