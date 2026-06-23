@@ -658,7 +658,9 @@ def test_admin_field_report_status_rejects_invalid_status(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "status must be in_review, resolved, or rejected"
+    assert response.json()["message"] == "status must be in_review, resolved, or rejected"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "VALIDATION_ERROR"
     assert fake_client.tables["field_reports"][0]["status"] == "open"
     assert fake_client.tables["field_reports"][0]["reviewed_at"] is None
     assert fake_client.tables["field_reports"][0]["reviewed_by"] is None

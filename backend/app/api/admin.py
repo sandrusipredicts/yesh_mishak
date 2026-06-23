@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator
 
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.errors import raise_api_error
 from app.routers.fields import FieldStatusUpdate, update_field_status_record
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -186,30 +187,34 @@ def _perform_moderation_action(
         .execute()
     )
     if not target.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            code="USER_NOT_FOUND",
+            message="User not found",
         )
 
     target_user = target.data[0]
 
     if target_user["role"] == "admin":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot moderate admin users",
+            code="FORBIDDEN",
+            message="Cannot moderate admin users",
         )
 
     required_status = ACTION_REQUIRED_CURRENT_STATUS[action_type]
     if target_user["status"] != required_status:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"User is not currently {required_status}",
+            code="CONFLICT",
+            message=f"User is not currently {required_status}",
         )
 
     if action_type in ("ban", "suspend") and not body.reason:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reason is required",
+            code="VALIDATION_ERROR",
+            message="Reason is required",
         )
 
     new_status = ACTION_TO_NEW_STATUS[action_type]
@@ -345,9 +350,10 @@ def get_admin_field_reports(
     _: dict[str, Any] = Depends(require_admin),
 ):
     if status_filter and status_filter not in FIELD_REPORT_STATUSES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="status must be open, in_review, resolved, or rejected",
+            code="VALIDATION_ERROR",
+            message="status must be open, in_review, resolved, or rejected",
         )
 
     query = (
@@ -370,9 +376,10 @@ def update_admin_field_report_status(
     current_user: dict[str, Any] = Depends(require_admin),
 ):
     if body.status not in FIELD_REPORT_REVIEW_STATUSES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="status must be in_review, resolved, or rejected",
+            code="VALIDATION_ERROR",
+            message="status must be in_review, resolved, or rejected",
         )
 
     response = (
@@ -390,9 +397,10 @@ def update_admin_field_report_status(
     )
 
     if not response.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Field report not found",
+            code="REPORT_NOT_FOUND",
+            message="Field report not found",
         )
 
     return {"message": "Field report status updated", "report": response.data[0]}
@@ -543,7 +551,11 @@ def _get_game(game_id: str) -> dict[str, Any]:
     )
 
     if not response.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="GAME_NOT_FOUND",
+            message="Game not found",
+        )
 
     return response.data[0]
 
@@ -551,11 +563,12 @@ def _get_game(game_id: str) -> dict[str, Any]:
 def _ensure_admin_active_game(game: dict[str, Any]) -> None:
     try:
         ensure_game_is_actionable(game, supabase=get_supabase_client())
-    except HTTPException as exc:
-        raise HTTPException(
+    except HTTPException:
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game is not active",
-        ) from exc
+            code="GAME_NOT_ACTIONABLE",
+            message="Game is not active",
+        )
 
 
 @router.get("/games")
@@ -564,9 +577,10 @@ def get_admin_games(
     _: dict[str, Any] = Depends(require_admin),
 ):
     if status_filter and status_filter not in ("active", "finished"):
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="status must be active or finished",
+            code="VALIDATION_ERROR",
+            message="status must be active or finished",
         )
 
     if status_filter == "active":
@@ -632,9 +646,10 @@ def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requi
 
     expires_at = game.get("expires_at")
     if not expires_at:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game expires_at is missing",
+            code="VALIDATION_ERROR",
+            message="Game expires_at is missing",
         )
 
     current_expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
@@ -687,23 +702,26 @@ def cancel_admin_game(
     game = _get_game(game_id)
 
     if game.get("status") not in ACTIVE_GAME_STATUSES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game is not active",
+            code="GAME_NOT_ACTIONABLE",
+            message="Game is not active",
         )
 
     scheduled_at = parse_game_datetime(game.get("scheduled_at"))
     if scheduled_at is None:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only scheduled games can be cancelled",
+            code="GAME_NOT_ACTIONABLE",
+            message="Only scheduled games can be cancelled",
         )
 
     now = get_now()
     if scheduled_at <= now:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot cancel a game after its scheduled start time",
+            code="GAME_NOT_ACTIONABLE",
+            message="Cannot cancel a game after its scheduled start time",
         )
 
     service_supabase = get_supabase_service_role_client()
@@ -744,9 +762,10 @@ def _update_field_approval(field_id: str, updates: dict[str, Any]) -> dict[str, 
     )
 
     if not response.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Field not found",
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
         )
 
     return response.data[0]

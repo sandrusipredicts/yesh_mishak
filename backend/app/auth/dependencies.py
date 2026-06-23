@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.jwt import decode_access_token
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -13,18 +14,20 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token",
+            code="AUTH_REQUIRED",
+            message="Missing bearer token",
         )
 
     payload = decode_access_token(credentials.credentials)
     user_id = payload.get("sub")
 
     if not user_id:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            code="AUTH_INVALID",
+            message="Invalid token",
         )
 
     response = (
@@ -37,9 +40,10 @@ def get_current_user(
     )
 
     if not response.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            code="AUTH_INVALID",
+            message="User not found",
         )
 
     return response.data[0]
@@ -48,23 +52,27 @@ def get_current_user(
 def require_active_user(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     user_status = current_user.get("status", "active")
     if user_status == "banned":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is banned",
+            code="ACCOUNT_RESTRICTED",
+            message="Account is banned",
         )
     if user_status == "suspended":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is suspended",
+            code="ACCOUNT_RESTRICTED",
+            message="Account is suspended",
         )
     return current_user
 
 
 def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if current_user.get("role") != "admin":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            code="FORBIDDEN",
+            message="Admin access required",
         )
 
     return current_user
+

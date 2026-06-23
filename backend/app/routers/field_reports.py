@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 from app.services.content_moderation import validate_field_report
 
 router = APIRouter(prefix="/field-reports", tags=["field-reports"])
@@ -58,7 +59,11 @@ def _ensure_field_exists(field_id: str) -> None:
     )
 
     if not response.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Field not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
 
 
 @router.post("")
@@ -67,16 +72,18 @@ def create_field_report(
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
     if payload.category not in ALLOWED_FIELD_REPORT_CATEGORIES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid field report category",
+            code="VALIDATION_ERROR",
+            message="Invalid field report category",
         )
 
     moderation = validate_field_report(payload.description)
     if not moderation.allowed:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=moderation.message,
+            code="CONTENT_REJECTED",
+            message=moderation.message,
         )
 
     _ensure_field_exists(payload.field_id)
@@ -90,19 +97,19 @@ def create_field_report(
 
     try:
         response = get_supabase_client().table("field_reports").insert(data).execute()
-    except Exception as exc:
-        raise HTTPException(
+    except Exception:
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "message": "Failed to create field report",
-                "supabase_error": _format_supabase_error(exc),
-            },
-        ) from exc
+            code="DATABASE_ERROR",
+            message="Failed to create field report",
+        )
 
     if not response.data:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "Failed to create field report"},
+            code="INTERNAL_SERVER_ERROR",
+            message="Failed to create field report",
         )
 
     return {"message": "Field report created", "report": response.data[0]}
+

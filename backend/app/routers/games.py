@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.errors import raise_api_error
 from app.services.content_moderation import validate_game_text
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -62,7 +63,16 @@ def _get_single_with_client(
 ) -> dict[str, Any]:
     response = supabase.table(table).select("*").eq("id", item_id).limit(1).execute()
     if not response.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail)
+        code = "NOT_FOUND"
+        if "Game" in not_found_detail:
+            code = "GAME_NOT_FOUND"
+        elif "Field" in not_found_detail:
+            code = "FIELD_NOT_FOUND"
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=code,
+            message=not_found_detail,
+        )
     return response.data[0]
 
 
@@ -82,25 +92,32 @@ def _normalize_scheduled_at(value: datetime | None) -> datetime | None:
 def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require_active_user)):
     moderation = validate_game_text(age_note=game.age_note)
     if not moderation.allowed:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=moderation.message,
+            code="CONTENT_REJECTED",
+            message=moderation.message,
         )
 
     if game.sport_type not in ("football", "basketball"):
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game sport_type must be football or basketball",
+            code="VALIDATION_ERROR",
+            message="Game sport_type must be football or basketball",
         )
 
     if game.players_present > game.max_players:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="players_present must be less than or equal to max_players",
+            code="VALIDATION_ERROR",
+            message="players_present must be less than or equal to max_players",
         )
 
     if game.min_age is not None and game.max_age is not None and game.min_age > game.max_age:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid age range")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invalid age range",
+        )
 
     supabase = get_supabase_client()
     field = _get_single("fields", game.field_id, "Field not found")
@@ -109,20 +126,33 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
     is_scheduled_game = scheduled_at is not None
 
     if scheduled_at is not None and scheduled_at <= now:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="scheduled_at must be in the future",
+            code="VALIDATION_ERROR",
+            message="scheduled_at must be in the future",
         )
 
     if not field.get("verified") or field.get("approval_status") != "approved":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field not approved")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="FIELD_NOT_OPEN",
+            message="Field not approved",
+        )
 
     if field.get("status") != "open":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field is not open")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="FIELD_NOT_OPEN",
+            message="Field is not open",
+        )
 
     field_sport = field.get("sport_type")
     if field_sport not in (game.sport_type, "both"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Field does not support this sport")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Field does not support this sport",
+        )
 
     existing_games = (
         supabase.table("games")
@@ -141,14 +171,16 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
             parse_game_datetime(existing_game.get("scheduled_at")) == scheduled_at
             for existing_game in existing_active_games
         ):
-            raise HTTPException(
+            raise_api_error(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Scheduled game already exists for this field and sport at this time",
+                code="CONFLICT",
+                message="Scheduled game already exists for this field and sport at this time",
             )
     elif any(is_game_started(existing_game, now) for existing_game in existing_active_games):
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Active game already exists for this field",
+            code="CONFLICT",
+            message="Active game already exists for this field",
         )
 
     started_at = scheduled_at or now
@@ -342,9 +374,17 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_activ
         result_data = result_data[0] if result_data else {}
 
     if "error" in result_data:
-        raise HTTPException(
+        err_msg = result_data["error"]
+        if "full" in err_msg.lower():
+            code = "GAME_FULL"
+        elif "not open" in err_msg.lower():
+            code = "FIELD_NOT_OPEN"
+        else:
+            code = "CONFLICT"
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result_data["error"],
+            code=code,
+            message=err_msg,
         )
 
     updated_game = result_data["game"]
@@ -397,7 +437,11 @@ def leave_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
         .execute()
     )
     if not membership.data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not in game")
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="CONFLICT",
+            message="User not in game",
+        )
 
     supabase.table("game_players").delete().eq("id", membership.data[0]["id"]).execute()
 
@@ -419,9 +463,10 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
     _ensure_active_game(game)
 
     if game.get("created_by") != current_user["id"]:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the organizer can close game",
+            code="FORBIDDEN",
+            message="Only the organizer can close game",
         )
 
     response = (
@@ -437,9 +482,10 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
         "Game not found",
     )
     if updated_game.get("status") != "finished":
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Game close update did not persist",
+            code="INTERNAL_SERVER_ERROR",
+            message="Game close update did not persist",
         )
 
     try:
@@ -468,9 +514,10 @@ def extend_game(game_id: str, current_user: dict[str, Any] = Depends(require_act
     _ensure_active_game(game)
 
     if game.get("created_by") != current_user["id"]:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the organizer can extend game",
+            code="FORBIDDEN",
+            message="Only the organizer can extend game",
         )
 
     current_expires = datetime.fromisoformat(game["expires_at"].replace("Z", "+00:00"))
@@ -510,38 +557,43 @@ def cancel_game(
 ):
     moderation = validate_game_text(cancel_reason=body.reason)
     if not moderation.allowed:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=moderation.message,
+            code="CONTENT_REJECTED",
+            message=moderation.message,
         )
 
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
 
     if game.get("status") not in ACTIVE_GAME_STATUSES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game is not active",
+            code="GAME_NOT_ACTIONABLE",
+            message="Game is not active",
         )
 
     scheduled_at = parse_game_datetime(game.get("scheduled_at"))
     if scheduled_at is None:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only scheduled games can be cancelled",
+            code="GAME_NOT_ACTIONABLE",
+            message="Only scheduled games can be cancelled",
         )
 
     now = get_now()
     if scheduled_at <= now:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot cancel a game after its scheduled start time",
+            code="GAME_NOT_ACTIONABLE",
+            message="Cannot cancel a game after its scheduled start time",
         )
 
     if game.get("created_by") != current_user["id"]:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the organizer can cancel game",
+            code="FORBIDDEN",
+            message="Only the organizer can cancel game",
         )
 
     service_supabase = get_supabase_service_role_client()

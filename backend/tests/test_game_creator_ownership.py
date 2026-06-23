@@ -123,7 +123,9 @@ def test_non_creator_cannot_close_game(monkeypatch):
     response = client.post("/games/game-1/close", headers=_headers(OTHER))
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Only the organizer can close game"
+    assert response.json()["message"] == "Only the organizer can close game"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FORBIDDEN"
     assert tables["games"][0]["status"] == "open"
 
 
@@ -149,7 +151,9 @@ def test_non_creator_cannot_extend_game(monkeypatch):
     response = client.post("/games/game-1/extend", headers=_headers(OTHER))
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Only the organizer can extend game"
+    assert response.json()["message"] == "Only the organizer can extend game"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FORBIDDEN"
     assert tables["games"][0]["expires_at"] == original_expires
 
 
@@ -173,7 +177,9 @@ def test_non_creator_cannot_cancel_game(monkeypatch):
     response = client.post("/games/game-1/cancel", json={}, headers=_headers(OTHER))
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Only the organizer can cancel game"
+    assert response.json()["message"] == "Only the organizer can cancel game"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "FORBIDDEN"
     assert tables["games"][0]["status"] == "open"
 
 
@@ -232,7 +238,9 @@ def test_creator_cannot_close_finished_game(monkeypatch):
     response = client.post("/games/game-1/close", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_close_cancelled_game(monkeypatch):
@@ -241,7 +249,9 @@ def test_creator_cannot_close_cancelled_game(monkeypatch):
     response = client.post("/games/game-1/close", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_extend_finished_game(monkeypatch):
@@ -250,7 +260,9 @@ def test_creator_cannot_extend_finished_game(monkeypatch):
     response = client.post("/games/game-1/extend", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_extend_cancelled_game(monkeypatch):
@@ -259,7 +271,9 @@ def test_creator_cannot_extend_cancelled_game(monkeypatch):
     response = client.post("/games/game-1/extend", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    assert response.json()["message"] == "Game already closed"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_cancel_finished_game(monkeypatch):
@@ -268,7 +282,9 @@ def test_creator_cannot_cancel_finished_game(monkeypatch):
     response = client.post("/games/game-1/cancel", json={}, headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    assert response.json()["message"] == "Game is not active"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 def test_creator_cannot_cancel_already_cancelled_game(monkeypatch):
@@ -277,7 +293,9 @@ def test_creator_cannot_cancel_already_cancelled_game(monkeypatch):
     response = client.post("/games/game-1/cancel", json={}, headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    assert response.json()["message"] == "Game is not active"
+    assert response.json()["error"] is True
+    assert response.json()["code"] == "GAME_NOT_ACTIONABLE"
 
 
 # ═══════════════════════════════════════════════════════════════

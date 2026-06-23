@@ -136,7 +136,10 @@ def test_cancelled_game_cannot_be_joined(monkeypatch):
     response = client.post("/games/game-1/join", headers=_headers(OTHER_USER))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -147,7 +150,10 @@ def test_cancelled_game_cannot_be_extended_by_creator(monkeypatch):
     response = client.post("/games/game-1/extend", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -158,7 +164,10 @@ def test_cancelled_game_cannot_be_extended_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/extend", headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
 
 
 def test_cancelled_game_cannot_be_closed_by_creator(monkeypatch):
@@ -168,7 +177,10 @@ def test_cancelled_game_cannot_be_closed_by_creator(monkeypatch):
     response = client.post("/games/game-1/close", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -179,7 +191,10 @@ def test_cancelled_game_cannot_be_closed_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/close", headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -190,7 +205,10 @@ def test_cancelled_game_cannot_be_cancelled_again_by_creator(monkeypatch):
     response = client.post("/games/game-1/cancel", json={}, headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -201,7 +219,10 @@ def test_cancelled_game_cannot_be_cancelled_again_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/cancel", json={}, headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -212,7 +233,10 @@ def test_cancelled_game_cannot_be_left(monkeypatch):
     response = client.post("/games/game-1/leave", headers=_headers(OTHER_USER))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "cancelled"
 
 
@@ -228,7 +252,10 @@ def test_finished_game_cannot_be_joined(monkeypatch):
     response = client.post("/games/game-1/join", headers=_headers(OTHER_USER))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -239,7 +266,10 @@ def test_finished_game_cannot_be_extended_by_creator(monkeypatch):
     response = client.post("/games/game-1/extend", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -250,7 +280,10 @@ def test_finished_game_cannot_be_extended_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/extend", headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
 
 
 def test_finished_game_cannot_be_cancelled_by_creator(monkeypatch):
@@ -260,7 +293,10 @@ def test_finished_game_cannot_be_cancelled_by_creator(monkeypatch):
     response = client.post("/games/game-1/cancel", json={}, headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -271,7 +307,10 @@ def test_finished_game_cannot_be_cancelled_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/cancel", json={}, headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -282,7 +321,10 @@ def test_finished_game_cannot_be_closed_again_by_creator(monkeypatch):
     response = client.post("/games/game-1/close", headers=_headers(CREATOR))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -293,7 +335,10 @@ def test_finished_game_cannot_be_closed_again_by_admin(monkeypatch):
     response = client.post("/admin/games/game-1/close", headers=_headers(ADMIN))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game is not active"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "not active" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 
@@ -304,7 +349,10 @@ def test_finished_game_cannot_be_left(monkeypatch):
     response = client.post("/games/game-1/leave", headers=_headers(OTHER_USER))
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Game already closed"
+    err = response.json()
+    assert err["error"] is True
+    assert err["code"] == "GAME_NOT_ACTIONABLE"
+    assert "already closed" in err["message"].lower()
     assert tables["games"][0]["status"] == "finished"
 
 

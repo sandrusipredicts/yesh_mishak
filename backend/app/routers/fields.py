@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 from app.routers.game_payloads import get_game_payloads_for_fields
 from app.services.content_moderation import validate_field_submission
 
@@ -52,9 +53,10 @@ class FieldStatusUpdate(BaseModel):
 
 def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[str, Any]:
     if body.status not in ALLOWED_FIELD_STATUSES:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid field status",
+            code="VALIDATION_ERROR",
+            message="Invalid field status",
         )
 
     supabase = get_supabase_client()
@@ -65,7 +67,11 @@ def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[s
         .execute()
     )
     if not response.data:
-        raise HTTPException(status_code=404, detail="Field not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
     return {"message": "Status updated", "field": response.data[0]}
 
 
@@ -109,7 +115,11 @@ def get_field(field_id: str):
     supabase = get_supabase_client()
     response = supabase.table("fields").select("*").eq("id", field_id).execute()
     if not response.data:
-        raise HTTPException(status_code=404, detail="Field not found")
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
     field = response.data[0]
 
     active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields([field_id])
@@ -127,9 +137,10 @@ def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(requ
         city=field.city,
     )
     if not moderation.allowed:
-        raise HTTPException(
+        raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=moderation.message,
+            code="CONTENT_REJECTED",
+            message=moderation.message,
         )
 
     supabase = get_supabase_client()
@@ -151,16 +162,12 @@ def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(requ
     }
     try:
         response = supabase.table("fields").insert(data).execute()
-    except Exception as exc:
-        error = _format_supabase_error(exc)
-        raise HTTPException(
+    except Exception:
+        raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "message": "Failed to create field",
-                "supabase_error": error,
-                "insert_data": data,
-            },
-        ) from exc
+            code="DATABASE_ERROR",
+            message="Failed to create field",
+        )
 
     return {"message": "Field submitted for VAR approval", "field": response.data[0]}
 
@@ -172,3 +179,4 @@ def update_field_status(
     _: dict[str, Any] = Depends(require_admin),
 ):
     return update_field_status_record(field_id, body)
+
