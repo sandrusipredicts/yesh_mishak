@@ -5079,3 +5079,35 @@ Admin endpoints (`PATCH /admin/fields/{id}/status`, etc.) are not affected — t
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-054: Production Support Handbook
+
+**Date:** 2026-06-23
+**Scope:** Documentation only (no code changes)
+
+## Summary
+
+A practical production support handbook/runbook that enables a new operator or admin to handle day-to-day support operations: user reports, incorrect fields, problematic games, and abusive users. Includes severity levels, step-by-step workflows, checklists, operational command reference, documentation templates, and a complete admin API quick-reference table.
+
+## Decision
+
+The full handbook is documented in: [production-support-handbook.md](production-support-handbook.md)
+
+Key sections:
+- User report triage and action decision tables
+- Field correction procedures with source-of-truth hierarchy
+- Problematic game investigation and admin actions
+- Abusive user handling with evidence requirements and thresholds
+- 4-level severity classification with response times
+- 9-step support workflow
+- 5 operational checklists
+- Admin API endpoint quick reference (all 20 endpoints)
+- Explicit "what not to do" rules
+- 5 documentation templates for consistent record-keeping
+- 10 future improvement items
+
+## Status
+
+Approved.
