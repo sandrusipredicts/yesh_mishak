@@ -2530,3 +2530,275 @@ def test_notification_candidates_endpoint_rejects_regular_users(
     )
 
     assert response.status_code == 403
+
+
+# ═══════════════════════════════════════════════════════════════
+# ISSUE-040: Notification failure handling tests
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_game_creation_succeeds_when_notification_creation_raises(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": "00000000-0000-0000-0000-000000000101",
+        },
+    ]
+
+    monkeypatch.setattr(
+        "app.routers.games.create_game_created_notifications",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("DB exploded")),
+    )
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Game created"
+    assert response.json()["game"]["id"] is not None
+    assert len(fake_supabase.tables["games"]) == 1
+
+
+def test_game_creation_still_creates_notifications_on_success(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": "00000000-0000-0000-0000-000000000101",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = fake_service_supabase.tables["notifications"]
+    assert len(notifications) == 1
+    assert notifications[0]["type"] == "game_created"
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
+
+
+def test_game_creation_notification_failure_is_logged(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+    caplog,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.games.create_game_created_notifications",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("template boom")),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="app.routers.games"):
+        response = TestClient(app).post(
+            "/games/",
+            json={
+                "field_id": "00000000-0000-0000-0000-000000000101",
+                "sport_type": "football",
+                "players_present": 1,
+                "max_players": 10,
+            },
+            headers=auth_headers(users["organizer"]),
+        )
+
+    assert response.status_code == 200
+    assert any(
+        "Failed to create game_created notifications" in record.message
+        for record in caplog.records
+    )
+
+
+def test_scheduled_reminder_batch_continues_after_one_game_fails(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game_ok_1 = make_scheduled_game(users, id="game-ok-1", field_id="00000000-0000-0000-0000-000000000101")
+    game_bad = make_scheduled_game(users, id="game-bad", field_id="00000000-0000-0000-0000-000000000101")
+    game_ok_2 = make_scheduled_game(users, id="game-ok-2", field_id="00000000-0000-0000-0000-000000000101")
+
+    fake_supabase.tables["games"] = [game_ok_1, game_bad, game_ok_2]
+    fake_supabase.tables["game_players"] = [
+        {"id": "gp-1", "game_id": "game-ok-1", "user_id": users["organizer"]["id"]},
+        {"id": "gp-2", "game_id": "game-bad", "user_id": users["organizer"]["id"]},
+        {"id": "gp-3", "game_id": "game-ok-2", "user_id": users["organizer"]["id"]},
+    ]
+
+    original_insert = FakeQuery.insert
+
+    def failing_insert(self, payload):
+        payloads = payload if isinstance(payload, list) else [payload]
+        for row in payloads:
+            if row.get("game_id") == "game-bad" and row.get("type") == "scheduled_game_reminder":
+                raise RuntimeError("DB insert failed for game-bad")
+        return original_insert(self, payload)
+
+    monkeypatch.setattr(FakeQuery, "insert", failing_insert)
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", lambda *a, **kw: {"ok": True})
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert "game-ok-1" in result["processed_game_ids"]
+    assert "game-ok-2" in result["processed_game_ids"]
+    assert "game-bad" in result["failed_game_ids"]
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["game_id"] == "game-bad"
+    assert result["notifications_created"] == 2
+
+    reminders = scheduled_game_reminder_notifications(fake_supabase)
+    reminder_game_ids = {r["game_id"] for r in reminders}
+    assert "game-ok-1" in reminder_game_ids
+    assert "game-ok-2" in reminder_game_ids
+    assert "game-bad" not in reminder_game_ids
+
+
+def test_scheduled_reminder_batch_idempotent_after_partial_failure(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game_ok = make_scheduled_game(users, id="game-ok", field_id="00000000-0000-0000-0000-000000000101")
+    game_bad = make_scheduled_game(users, id="game-bad", field_id="00000000-0000-0000-0000-000000000101")
+
+    fake_supabase.tables["games"] = [game_ok, game_bad]
+    fake_supabase.tables["game_players"] = [
+        {"id": "gp-1", "game_id": "game-ok", "user_id": users["organizer"]["id"]},
+        {"id": "gp-2", "game_id": "game-bad", "user_id": users["organizer"]["id"]},
+    ]
+
+    call_count = {"n": 0}
+    original_insert = FakeQuery.insert
+
+    def failing_insert_once(self, payload):
+        payloads = payload if isinstance(payload, list) else [payload]
+        for row in payloads:
+            if row.get("game_id") == "game-bad" and row.get("type") == "scheduled_game_reminder":
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    raise RuntimeError("transient failure")
+        return original_insert(self, payload)
+
+    monkeypatch.setattr(FakeQuery, "insert", failing_insert_once)
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", lambda *a, **kw: {"ok": True})
+
+    run1 = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+    assert "game-ok" in run1["processed_game_ids"]
+    assert "game-bad" in run1["failed_game_ids"]
+
+    run2 = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 1, tzinfo=timezone.utc),
+    )
+
+    assert "game-ok" in run2["skipped_game_ids"]
+    assert "game-bad" in run2["processed_game_ids"]
+    assert run2["notifications_created"] == 1
+
+    reminders = scheduled_game_reminder_notifications(fake_supabase)
+    ok_reminders = [r for r in reminders if r["game_id"] == "game-ok"]
+    bad_reminders = [r for r in reminders if r["game_id"] == "game-bad"]
+    assert len(ok_reminders) == 1
+    assert len(bad_reminders) == 1
+
+
+def test_scheduled_reminder_failure_is_logged(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+    caplog,
+) -> None:
+    game = make_scheduled_game(users, id="game-fail")
+    fake_supabase.tables["games"] = [game]
+    fake_supabase.tables["game_players"] = [
+        {"id": "gp-1", "game_id": "game-fail", "user_id": users["organizer"]["id"]},
+    ]
+
+    original_insert = FakeQuery.insert
+
+    def failing_insert(self, payload):
+        payloads = payload if isinstance(payload, list) else [payload]
+        for row in payloads:
+            if row.get("game_id") == "game-fail" and row.get("type") == "scheduled_game_reminder":
+                raise RuntimeError("db error")
+        return original_insert(self, payload)
+
+    monkeypatch.setattr(FakeQuery, "insert", failing_insert)
+
+    with caplog.at_level(logging.ERROR, logger="app.routers.notifications"):
+        result = run_scheduled_reminders(
+            fake_supabase,
+            datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+        )
+
+    assert "game-fail" in result["failed_game_ids"]
+    assert any(
+        "Failed to process scheduled game reminder" in record.message
+        for record in caplog.records
+    )
+
+
+def test_scheduled_reminder_result_shape_includes_failure_fields(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    game = make_scheduled_game(users)
+    fake_supabase.tables["games"] = [game]
+    set_game_participants(fake_supabase, game["id"], [users["organizer"]["id"]])
+    monkeypatch.setattr("app.routers.notifications.send_fcm_notification", lambda *a, **kw: {"ok": True})
+
+    result = run_scheduled_reminders(
+        fake_supabase,
+        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+    )
+
+    assert "processed_game_ids" in result
+    assert "skipped_game_ids" in result
+    assert "failed_game_ids" in result
+    assert "errors" in result
+    assert "notifications_created" in result
+    assert "notifications" in result
+    assert result["failed_game_ids"] == []
+    assert result["errors"] == []

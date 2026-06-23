@@ -3346,3 +3346,100 @@ for game in eligible_games:
 
 Approved.
 
+---
+
+# ISSUE-040 — Implement Notification Failure Handling
+
+## Type
+
+Implementation (code changes + tests).
+
+## Background
+
+ISSUE-039 defined the notification error handling specification and identified two gaps:
+
+1. **GAP-1:** `create_game_created_notifications` in `games.py` was NOT wrapped in try/except — a notification failure could cause game creation to return HTTP 500 even though the game was already created.
+2. **GAP-2:** `generate_scheduled_game_reminders` had NO per-game try/except — one bad game could crash the entire reminder batch.
+
+This issue implements the fixes for both gaps.
+
+## Changes
+
+### A. game_created notification creation — best-effort (GAP-1 fix)
+
+In `backend/app/routers/games.py` → `create_game()`, wrapped the `create_game_created_notifications(...)` call in try/except, matching the pattern already used by `join_game()`, `close_game()`, `extend_game()`, and `cancel_game()`.
+
+On failure:
+- Exception logged via `logger.exception()` with `game_id`, `field_id`, `organizer_id` context.
+- Game creation returns normal success response.
+- No internal error exposed to user.
+
+### B. Scheduled reminder per-game isolation (GAP-2 fix)
+
+In `backend/app/routers/notifications.py` → `generate_scheduled_game_reminders()`, wrapped the per-game processing block (from dedup check through notification insert and push delivery) in try/except.
+
+On failure:
+- Exception logged via `logger.exception()` with `game_id` and `field_id` context.
+- Failed game added to `failed_game_ids` list and `errors` list.
+- Processing continues to next eligible game.
+- Idempotency preserved: failed games are NOT marked as processed, so they are retried on the next cron run.
+
+Added `import logging` and `logger = logging.getLogger(__name__)` to `notifications.py` (previously had no logging).
+
+### C. Extended response shape
+
+`generate_scheduled_game_reminders()` return value extended with two new keys (backward-compatible):
+
+```json
+{
+  "processed_game_ids": ["..."],
+  "skipped_game_ids": ["..."],
+  "failed_game_ids": ["..."],
+  "errors": [{"game_id": "...", "error": "..."}],
+  "notifications_created": 0,
+  "notifications": []
+}
+```
+
+Existing keys (`processed_game_ids`, `skipped_game_ids`, `notifications_created`, `notifications`) are unchanged.
+
+## Tests Added
+
+7 new tests in `backend/tests/test_notifications.py`:
+
+| # | Test | Validates |
+| --- | --- | --- |
+| 1 | `test_game_creation_succeeds_when_notification_creation_raises` | GAP-1: game creation returns 200 even when notifications throw |
+| 2 | `test_game_creation_still_creates_notifications_on_success` | Normal path: notifications still created when no error |
+| 3 | `test_game_creation_notification_failure_is_logged` | GAP-1: failure logged with correct message |
+| 4 | `test_scheduled_reminder_batch_continues_after_one_game_fails` | GAP-2: 3 games, 1 fails, other 2 processed; failed_game_ids populated |
+| 5 | `test_scheduled_reminder_batch_idempotent_after_partial_failure` | GAP-2: failed game retried on next run; no duplicates |
+| 6 | `test_scheduled_reminder_failure_is_logged` | GAP-2: failure logged with correct message |
+| 7 | `test_scheduled_reminder_result_shape_includes_failure_fields` | Response shape includes new `failed_game_ids` and `errors` keys |
+
+## Test Results
+
+- `test_notifications.py`: 86 passed, 0 failed
+- `test_notification_templates.py`: 16 passed, 0 failed
+- `test_notification_stress.py`: 27 passed, 0 failed
+- **Total: 129 passed, 0 failed**
+
+## Files Changed
+
+| File | Change |
+| --- | --- |
+| `backend/app/routers/games.py` | Wrapped `create_game_created_notifications` in try/except |
+| `backend/app/routers/notifications.py` | Added logging import + logger; wrapped per-game reminder logic in try/except; extended return shape with `failed_game_ids` and `errors` |
+| `backend/tests/test_notifications.py` | Added 7 new failure handling tests |
+| `docs/product-decisions.md` | This section |
+
+## Remaining Known Limitations
+
+1. **No per-recipient isolation** — within a single notification creation function (e.g., `create_game_created_notifications`), if the bulk insert fails partway through, some recipients may not get notifications. Per-recipient try/except is a future enhancement (ISSUE-039 future guidance).
+2. **No retry mechanism** — failed notifications are lost. Failed reminder games are retried on the next cron run (because `scheduled_reminder_processed_at` is not set), but other notification types have no retry.
+3. **`scheduled_game_cancelled` still has no dedup** — unchanged from ISSUE-030.
+
+## Status
+
+Implemented.
+
