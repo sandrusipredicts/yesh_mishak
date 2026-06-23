@@ -4354,6 +4354,278 @@ Approved.
 
 ---
 
+# ISSUE-046 — Field Moderation Guidelines
+
+## Type
+
+Policy / moderation guidelines (documentation only — no code changes).
+
+## Purpose
+
+Admins review user-submitted sports fields and decide whether to approve, reject, or investigate further. Without clear guidelines, different admins may make inconsistent decisions — one admin approves a field that another would reject, leading to data quality drift, user confusion, and duplicate accumulation.
+
+This document provides practical moderation guidelines so that any admin, new or experienced, can make consistent, defensible field approval decisions.
+
+## Scope
+
+These guidelines cover:
+- When to approve, reject, or hold a field for further review.
+- How to handle duplicates, location accuracy issues, sport type mismatches, private/restricted fields, unsafe fields, and incomplete submissions.
+- How to resolve conflicting evidence from different sources.
+- A decision checklist for everyday moderation.
+
+These guidelines do NOT cover:
+- Implementation details (code, endpoints, UI).
+- Schema or migration changes.
+- Automated moderation rules (all decisions are manual).
+
+## Admin Moderation Principles
+
+1. **Accuracy over speed.** It is better to delay approval than to approve a bad field. Users can wait; wrong data erodes trust.
+2. **No single-signal decisions.** Never approve or reject based on one factor alone. Duplicate detection is advisory (ISSUE-042). A user submission is not automatically trustworthy. A generic name is not automatically a rejection reason.
+3. **Reversibility.** Approval and rejection are reversible (ISSUE-044). An incorrect decision can be corrected, but it is better to get it right the first time.
+4. **Source hierarchy.** Follow the ISSUE-041 source-of-truth hierarchy: Admin > GovMap > User submission > User report. GovMap data is a trusted baseline but not infallible. Admin corrections always take precedence.
+5. **When in doubt, investigate.** If a submission is ambiguous, prefer "needs further review" over a premature approve or reject.
+6. **Consistency.** Apply these guidelines uniformly. Do not give preferential treatment to frequent submitters or apply stricter scrutiny to new users.
+7. **Preservation.** Rejected fields are kept in the database for audit, history, and duplicate prevention (ISSUE-044). Rejection is not deletion.
+
+## Approval Criteria
+
+Approve a field when ALL of the following are true:
+
+| # | Criterion | How to Verify |
+| --- | --- | --- |
+| A1 | The field appears to be a real, physical sports field | Check satellite imagery or map services for the submitted coordinates |
+| A2 | The submitted location is on or immediately adjacent to the actual field | Marker should be within the field boundary or very close to it (see Location Accuracy below) |
+| A3 | The sport type matches the field | A football field should not be listed as basketball, and vice versa. "Both" is acceptable for multi-sport fields |
+| A4 | The field is publicly accessible or reasonably usable by target users | Public parks, municipal facilities, open community fields. See Public/Private/Restricted rules below |
+| A5 | The field is not an obvious duplicate of an existing approved field | Check duplicate detection results (ISSUE-042/043). See Duplicate Handling below |
+| A6 | There are no serious safety, privacy, or access concerns | No reports of unsafe conditions, private property, military zones, etc. |
+
+## Rejection Criteria
+
+Reject a field when ANY of the following are true:
+
+| # | Criterion | Examples |
+| --- | --- | --- |
+| R1 | Spam, fake, test data, or abusive content | Name is "test123", "asdf", offensive language, or clearly not a real field name |
+| R2 | The location is clearly not a sports field | Marker points to a residential building, highway, body of water, empty desert, commercial building |
+| R3 | The field is private/restricted and should not be promoted publicly | Private residential courts, military facilities, closed corporate campuses (see Public/Private/Restricted rules) |
+| R4 | Confirmed duplicate of an existing approved field | Duplicate detection risk level 1, verified by admin. See Duplicate Handling below |
+| R5 | The sport type is clearly wrong and cannot be corrected | A swimming pool listed as a football field, a tennis court listed as basketball, with no way to edit sport type in the current workflow |
+| R6 | The field does not exist | Satellite imagery shows no field at the location, and no other evidence supports its existence |
+| R7 | The information is too unreliable to approve and cannot be verified | No map evidence, no satellite imagery, no other data source confirms the field, and the submission has no corroborating detail |
+
+## "Needs Further Review" Criteria
+
+Hold a field for further review when ANY of the following are true:
+
+| # | Criterion | What to Investigate |
+| --- | --- | --- |
+| F1 | Location accuracy is uncertain | Marker is in the general area but not clearly on the field. Check satellite imagery from multiple dates/sources |
+| F2 | Duplicate detection flags a possible or strong candidate | Risk level 2 or 3 from ISSUE-042/043. Compare both fields manually before deciding |
+| F3 | The field appears to be inside a school, military area, private facility, gated complex, or restricted property | Verify whether public access is available. Some school fields are open after hours; some are not |
+| F4 | User reports or external data conflict with the submission | A user report says the field does not exist, but the submission looks plausible. Investigate before deciding |
+| F5 | The sport type is unclear | The field might support multiple sports, or the satellite imagery is ambiguous. Check for goalposts, hoops, markings |
+| F6 | The field may be temporarily closed, under renovation, or unsafe | Approve the location but set `status` to `closed` or `renovation` if the field exists but is not currently usable |
+| F7 | The submitted name is generic | Names like "מגרש כדורגל" or "מגרש שכונתי" without a distinguishing qualifier. The field may still be real — investigate location |
+| F8 | More admin or manual verification is needed | Any other situation where the evidence is insufficient for a confident approve or reject |
+
+## Duplicate Handling Rules
+
+Use the ISSUE-042/043 risk levels to guide duplicate decisions:
+
+| Risk Level | Label | Admin Action |
+| --- | --- | --- |
+| 1 | Confirmed duplicate | **Reject** the pending submission as a duplicate, unless the admin has a specific reason to keep both (e.g., the existing record is stale and the new submission has better data — in that case, approve the new one and reject or update the old one) |
+| 2 | Strong duplicate | **Investigate manually.** Compare field names, coordinates, sport types, and satellite imagery for both records. If they are the same field, reject the newer submission. If they are legitimately different (e.g., adjacent fields in a complex), approve both |
+| 3 | Possible duplicate | **Do not reject automatically.** Review the context. Possible duplicates are often false positives — two fields in the same neighborhood with generic names. Approve if the fields are clearly distinct |
+| 4 | Not enough evidence | **Do not treat as a duplicate.** Proceed with normal review |
+
+Additional duplicate rules:
+- Duplicate detection is advisory only. It never auto-rejects (ISSUE-042, ISSUE-044).
+- When rejecting as a duplicate, mentally note which existing field is the "keeper." In the future, a merge workflow will formalize this.
+- If both fields in a duplicate pair are pending, approve the one with better data and reject the other.
+- If the pending field has better data than the existing approved field (e.g., more accurate coordinates, better name), consider updating the approved field and then rejecting the pending one — or approve the pending one and reject the old one.
+
+## Location Accuracy Rules
+
+| Band | Description | Admin Action |
+| --- | --- | --- |
+| **Exact / Acceptable** | Marker is on or immediately adjacent to the actual field (visible in satellite imagery). Within ~10 m of the field boundary. | Approve (if all other criteria pass) |
+| **Minor offset** | Marker is close enough that users can find the field. Within ~50 m. The field is clearly visible nearby. | Approve if other evidence is strong (correct name, sport type, city). The offset does not meaningfully impair usability. |
+| **Unclear** | Marker is in the general area (~50–200 m) but not clearly on the field. Multiple fields or facilities are nearby. | Needs further review. Check satellite imagery, cross-reference with GovMap data, compare with other submissions for the same area. |
+| **Wrong** | Marker points to an unrelated location (different neighborhood, no field visible within 200 m). | Reject (R2 or R6). If the field might exist elsewhere, reject this submission and wait for a corrected one. Do not approve and hope the user meant a different location. |
+
+Practical tips:
+- Use Google Maps satellite view or similar to verify locations.
+- GovMap coordinates are generally accurate to within 5–20 m. User-submitted coordinates depend on their device GPS and how carefully they placed the marker.
+- Israeli sports complexes often have multiple fields within 30–80 m. Two fields at 40 m apart with the same sport type may be the same field (inaccurate marker) or two adjacent fields. Check satellite imagery.
+
+## Sport Type Validation Rules
+
+| Situation | Admin Action |
+| --- | --- |
+| Sport type matches visible field features (goalposts → football, hoops → basketball) | Approve |
+| Field clearly supports both sports (common in smaller Israeli municipal fields) | Approve if sport type is set to "both." If set to only one sport, consider whether it matters — approve if it is one of the supported sports |
+| Sport type is clearly wrong (hoops visible but listed as football) | Reject (R5) if the admin cannot correct the sport type. If admin can edit the field, correct and approve |
+| Sport type is ambiguous (open flat area, no visible equipment) | Needs further review (F5). A generic open field might support multiple sports. Approve as "both" if plausible |
+
+## Public / Private / Restricted Field Rules
+
+| Field Type | Examples | Admin Action |
+| --- | --- | --- |
+| **Public** | Municipal parks, public sports facilities, open community centers | Approve (if other criteria pass) |
+| **Semi-public** | School fields open after hours, community center fields available to members, kibbutz fields open to visitors | Needs further review (F3). Approve if there is reasonable evidence of public access. Add a note about access restrictions if known |
+| **Private** | Residential backyard courts, private club facilities (members only with no public access), corporate campus courts | Reject (R3). Private fields should not be promoted on a public platform |
+| **Restricted** | Military bases, closed government facilities, construction zones | Reject (R3). These locations should not be listed for safety and access reasons |
+| **Uncertain** | Gated community fields, fields behind fences with unclear ownership | Needs further review (F3). Investigate access. If public access is plausible, approve with a note. If not, reject |
+
+## Handling Unsafe / Unusable Fields
+
+| Situation | Admin Action |
+| --- | --- |
+| Field exists but is reported as unsafe (broken glass, flooding, structural damage) | Approve the field location but set `status` to `closed`. The field is real, but users should know it is not currently safe. Once repaired, status can be changed to `open`. |
+| Field is under construction or renovation | Approve the field location but set `status` to `renovation`. |
+| Field exists but is permanently decommissioned (converted to parking lot, building built on top) | Reject (R6). The field no longer exists. |
+| Field exists but has seasonal limitations (muddy in winter, flooded) | Approve. Seasonal conditions are not a rejection reason. Users and field reports can flag temporary issues. |
+
+## Handling Incomplete Submissions
+
+| Missing Information | Admin Action |
+| --- | --- |
+| No name provided | Reject only if the location is also unclear. If the location clearly shows a real field, approve — the name can be improved later via user reports or admin edits. |
+| No city provided | Approve if the location is clearly accurate. City can be inferred from coordinates. |
+| No surface type, nets, or water information | Approve. These are secondary attributes and can be updated later. Lack of metadata is not a rejection reason. |
+| No opening hours | Approve. Opening hours are optional and frequently unknown. |
+| No notes | Approve. Notes are optional. |
+| Only generic name and approximate location, no other detail | Needs further review (F7, F8). A submission with nothing but "מגרש כדורגל" and a vague coordinate requires investigation before approval. |
+
+## Handling Conflicting Evidence
+
+When different sources disagree, follow the ISSUE-041 source-of-truth hierarchy:
+
+| Conflict | Resolution |
+| --- | --- |
+| User submission says field exists, but satellite imagery shows nothing | Reject (R6) unless the satellite imagery is outdated. Check image date if available. |
+| User report says field is closed, but submission says it is open | Needs further review. Check satellite imagery and other reports. If evidence supports closure, approve but set `status` to `closed`. |
+| GovMap data and user submission have different coordinates for the same named field | Prefer GovMap coordinates (ISSUE-041 hierarchy). If the user's coordinates are more accurate based on satellite imagery, the admin may update the GovMap record. |
+| Two users submit the same field with different sport types | Investigate which sport type is correct. Approve the accurate one. If both are partially correct, approve as "both." |
+| User report says field is private, but submission says it is public | Needs further review (F3). Investigate access. Err on the side of caution — if access is unclear, do not approve until verified. |
+| Duplicate detection flags two fields, but satellite imagery shows two distinct adjacent fields | Approve both. Duplicate detection has false positives, especially for sports complexes. The admin's visual confirmation overrides the algorithm. |
+
+## Decision Checklist
+
+Use this checklist for every pending field review:
+
+| Step | Check | Action |
+| --- | --- | --- |
+| 1 | **Is it spam or test data?** | If yes → Reject (R1) |
+| 2 | **Does the location show a real sports field?** | Check satellite imagery. If no field visible → Reject (R6). If unclear → Further review (F1) |
+| 3 | **Is the location accurate enough?** | Check marker placement against field boundary. If wrong → Reject (R2). If unclear → Further review (F1). If acceptable → Continue |
+| 4 | **Is it a duplicate?** | Check duplicate detection results. Risk 1 → Reject (R4). Risk 2 → Further review (F2). Risk 3 → Review context, likely approve. No match → Continue |
+| 5 | **Is the sport type correct?** | Compare with visible field features. If wrong → Reject (R5). If unclear → Further review (F5). If correct → Continue |
+| 6 | **Is the field publicly accessible?** | If private/restricted → Reject (R3). If semi-public → Further review (F3). If public → Continue |
+| 7 | **Are there safety or usability concerns?** | If unsafe → Approve but set status to `closed`. If under renovation → Approve but set status to `renovation`. If fine → Continue |
+| 8 | **Any conflicting reports or evidence?** | If yes → Further review (F4). If no → Continue |
+| 9 | **Approve** | All checks passed → Approve the field |
+
+## Examples
+
+### Example 1: Clear Approval
+
+**Submission:** name="מגרש כדורגל פארק הירקון", lat=32.0970, lng=34.8050, sport_type=football, city="תל אביב"
+**Satellite check:** Large football field visible at the coordinates in a public park.
+**Duplicate check:** No candidates found.
+**Decision:** **Approve.** Real field, accurate location, correct sport type, public park, no duplicates.
+
+### Example 2: Clear Rejection — Spam
+
+**Submission:** name="test123", lat=0.0, lng=0.0, sport_type=football, city=""
+**Satellite check:** Coordinates point to the Gulf of Guinea (0,0 is the "null island").
+**Decision:** **Reject (R1).** Spam or test data.
+
+### Example 3: Clear Rejection — Confirmed Duplicate
+
+**Submission:** name="מגרש כדורגל הפועל", lat=32.0853, lng=34.7818, sport_type=football, city="תל אביב"
+**Duplicate check:** Risk level 1 (confirmed) — exact coordinates and exact name match with existing approved field.
+**Decision:** **Reject (R4).** Confirmed duplicate of an existing approved field.
+
+### Example 4: Needs Further Review — Strong Duplicate
+
+**Submission:** name="מגרש כדורגל עירוני", lat=32.0853050, lng=34.7818050, sport_type=football, city="תל אביב"
+**Duplicate check:** Risk level 2 (strong) — 7 m apart, similar name, same sport type.
+**Satellite check:** One field visible at the location.
+**Decision:** **Reject (R4)** after manual verification confirms it is the same field. If satellite imagery showed two adjacent fields, the decision would be Approve.
+
+### Example 5: Needs Further Review — School Field
+
+**Submission:** name="מגרש בית ספר השלום", lat=31.7680, lng=35.2130, sport_type=basketball, city="ירושלים"
+**Satellite check:** Basketball court visible inside a school compound, behind a fence.
+**Decision:** **Further review (F3).** Some school fields are open after hours. If public access is verified, approve. If not, reject (R3).
+
+### Example 6: Approve with Status Change — Unsafe Field
+
+**Submission:** name="מגרש כדורסל שכונת נווה שאנן", lat=32.7870, lng=35.0100, sport_type=basketball, city="חיפה"
+**Satellite check:** Basketball court visible, but a recent user report says it has broken glass and damaged hoops.
+**Decision:** **Approve** the field (it is real, public, and at the correct location) but set `status` to `closed`. The field can be reopened when conditions improve.
+
+### Example 7: Rejection — Wrong Location
+
+**Submission:** name="מגרש כדורגל", lat=31.9500, lng=34.8700, sport_type=football, city="רמלה"
+**Satellite check:** Coordinates point to a residential neighborhood. No field visible within 200 m.
+**Decision:** **Reject (R2/R6).** The location does not correspond to a sports field.
+
+### Example 8: Approve — Generic Name but Good Location
+
+**Submission:** name="מגרש שכונתי", lat=31.2530, lng=34.7910, sport_type=football, city="באר שבע"
+**Satellite check:** Small neighborhood football field clearly visible at the exact coordinates.
+**Duplicate check:** No candidates found.
+**Decision:** **Approve.** The name is generic (F7 trigger) but the location is accurate and the field is real. A generic name alone is not a rejection reason.
+
+## Relationship to ISSUE-041 Through ISSUE-045
+
+| Issue | Relationship to These Guidelines |
+| --- | --- |
+| ISSUE-041 (Field Ownership and Source-of-Truth Policy) | Establishes the source hierarchy (Admin > GovMap > User > Report) that governs conflict resolution in these guidelines. GovMap is a trusted baseline; user reports are signals only. |
+| ISSUE-042 (Duplicate Field Detection Strategy) | Defines the scoring model (risk levels 1–4) used in the Duplicate Handling section. Detection thresholds and matching rules come directly from ISSUE-042. |
+| ISSUE-043 (Duplicate Field Detection Tooling) | Provides the `GET /admin/fields/duplicates` endpoint that admins use during the duplicate check step. Detection is read-only and advisory. |
+| ISSUE-044 (Field Verification Workflow) | Defines the three states (pending/approved/rejected), allowed transitions, and visibility rules that these guidelines operate within. Approval sets `verified=true, approval_status="approved"`. Rejection sets `verified=false, approval_status="rejected"`. |
+| ISSUE-045 (Field Approval Workflow Audit) | Confirms that the implementation matches ISSUE-044's specification. Identifies test coverage gaps (G3–G9) but no behavioral gaps that would affect these guidelines. |
+
+## Future Implementation Notes
+
+1. **Rejection reason capture.** When ISSUE-044 future note #1 is implemented (adding `rejection_reason` to the `fields` table), admins should record which rejection criterion (R1–R7) applies. This enables rejection analytics and helps other admins understand past decisions.
+2. **Moderation queue UI.** A future admin UI should surface duplicate detection results alongside the pending field during review, so admins do not need to manually check a separate endpoint.
+3. **Moderation guidelines in-app.** Consider embedding a condensed version of the Decision Checklist in the admin panel, visible during field review.
+4. **Approval/rejection metrics.** Track approval rate, rejection reasons, and average review time to identify moderation bottlenecks and guideline effectiveness.
+5. **Merge workflow.** When a duplicate merge feature is built, update these guidelines to cover when to merge vs. reject. Currently, the only option for duplicates is rejection.
+6. **Escalation path.** For ambiguous cases (F1–F8), define an escalation process if more than one admin disagrees. Currently, any admin can approve or reject independently.
+## Acceptance Criteria Mapping
+
+| # | Criterion | Addressed In |
+| --- | --- | --- |
+| 1 | Moderation guideline document exists | This section |
+| 2 | Clearly defines when to approve | Approval Criteria (A1–A6), Decision Checklist |
+| 3 | Clearly defines when to reject | Rejection Criteria (R1–R7), Decision Checklist |
+| 4 | Clearly defines when to investigate further | "Needs Further Review" Criteria (F1–F8), Decision Checklist |
+| 5 | Consistent with ISSUE-041 through ISSUE-045 | Relationship to ISSUE-041 Through ISSUE-045 |
+| 6 | Gives admins practical decision rules | Decision Checklist, Examples |
+| 7 | No single-signal automatic decisions | Admin Moderation Principles (#2), Duplicate Handling Rules, Decision Checklist |
+| 8 | Documents duplicate handling | Duplicate Handling Rules |
+| 9 | Documents private/restricted fields | Public/Private/Restricted Field Rules |
+| 10 | Documents unsafe fields | Handling Unsafe/Unusable Fields |
+| 11 | Documents wrong location | Location Accuracy Rules |
+| 12 | Documents unclear sport type | Sport Type Validation Rules |
+| 13 | Documents incomplete submissions | Handling Incomplete Submissions |
+| 14 | Documents conflicting evidence | Handling Conflicting Evidence |
+
+## Status
+
+Approved.
+
+---
+
 # ISSUE-047 — Inactive Field Handling Policy
 
 ## Type
@@ -4568,7 +4840,6 @@ When an admin believes a field should be marked as inactive/closed:
 6. **Closed field indicator in UI.** The frontend map could show closed fields with a different marker or gray them out, rather than hiding them entirely. This gives users context about why a previously known field is no longer available.
 7. **Scheduled auto-closure.** For fields with a known closure date (e.g., end of a lease), a scheduled status change could automate the transition. Not needed for MVP.
 8. **Audit log for status changes.** Track who changed a field's status and when, similar to `reviewed_at`/`reviewed_by` for field reports. Depends on ISSUE-044 future note #2.
-
 ## Acceptance Criteria Mapping
 
 | # | Criterion | Addressed In |
@@ -4588,4 +4859,3 @@ When an admin believes a field should be marked as inactive/closed:
 ## Status
 
 Approved.
-
