@@ -4943,3 +4943,44 @@ No new migrations required. The `status` column with CHECK constraint `('open', 
 ## Status
 
 Approved.
+
+---
+
+# ISSUE-050: Game Data Integrity Audit
+
+**Date:** 2026-06-23
+**Scope:** Script + Tests + Documentation
+
+## Summary
+
+A runnable, read-only audit that detects inconsistent, orphaned, invalid, or suspicious game records. Produces structured findings grouped by check, with severity levels and suggested fixes. Does not modify any data.
+
+## Decision
+
+Implemented as a backend script (`backend/scripts/audit_game_data_integrity.py`) following the existing scripts pattern. The audit reuses `ACTIVE_GAME_STATUSES` from `game_lifecycle.py` and defines `ALLOWED_GAME_STATUSES` based on the schema CHECK constraint.
+
+## Checks Implemented
+
+1. **games_without_valid_fields** — null or missing field_id (critical)
+2. **games_without_valid_creators** — null or missing created_by (critical)
+3. **invalid_game_status** — status not in [open, full, finished, cancelled] (critical)
+4. **invalid_participant_counts** — negative/null players_present, zero/null max_players, players_present > max_players (critical/warning)
+5. **status_count_contradictions** — full but under capacity, open but at capacity (warning)
+6. **games_on_inactive_fields** — active game on closed/renovation/unapproved/unverified field (warning)
+7. **scheduled_game_inconsistencies** — scheduled_at in past but game still active (info)
+8. **participant_table_inconsistencies** — count mismatch, orphaned rows, duplicates, missing users (critical/warning)
+9. **time_data_sanity** — missing created_at, cancelled without cancelled_at (warning/info)
+
+## How to Run
+
+```bash
+cd backend
+python -m scripts.audit_game_data_integrity        # human-readable
+python -m scripts.audit_game_data_integrity --json  # JSON output
+```
+
+Full documentation: [game-data-integrity-audit.md](game-data-integrity-audit.md)
+
+## Status
+
+Approved.
