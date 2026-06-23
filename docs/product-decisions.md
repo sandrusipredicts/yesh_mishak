@@ -2185,3 +2185,140 @@ Excluded:
 
 Documented and tested.
 
+---
+
+# ISSUE-034 — Notification Localization Requirements
+
+## Type
+
+Product specification / localization policy.
+
+## Dependencies
+
+* ISSUE-029 (Notification Event Inventory — defines all 7 notification events and their current text).
+
+## Purpose
+
+Define the official Hebrew and English notification copy for every notification type, establish the localization policy, and document the current default-language behavior and future implementation path.
+
+## Supported Languages
+
+| Language | Code | Direction | Status |
+| --- | --- | --- | --- |
+| Hebrew | `he` | RTL | Current default for notification content |
+| English | `en` | LTR | Defined in this document; not yet generated at runtime |
+
+## Source of Truth for Notification Copy
+
+This section is the canonical reference for approved notification title and body text in both languages. Backend notification creation code must use these templates (or their equivalent) when generating notification rows.
+
+## Current Default Language Behavior
+
+Today, all notification titles and bodies are hardcoded in Hebrew in the backend notification creation functions (`backend/app/routers/notifications.py`). The one exception is `test_push`, which uses English.
+
+The frontend UI chrome (inbox title, buttons, labels) is localized via i18n (`frontend/src/locales/he/common.js` and `frontend/src/locales/en/common.js`), but the notification content displayed inside the inbox comes directly from the stored `title` and `body` columns — it is not translated at read time.
+
+No user language preference is consulted when generating notification text. The backend does not look up the recipient's language setting.
+
+## Notification Localization Table
+
+| # | Type | Hebrew Title | Hebrew Body Template | English Title | English Body Template | Variables | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `game_created` | נפתח משחק חדש | נפתח משחק {sport_type} במגרש {field_name} | New game opened | A new {sport_type} game opened at {field_name} | `sport_type`, `field_name` | |
+| 2 | `player_joined_game` | שחקן חדש הצטרף למשחק שלך | {player_name} הצטרף למשחק שלך ב-{field_name} | A new player joined your game | {player_name} joined your game at {field_name} | `player_name`, `field_name` | Fallback body when player_name is empty: **HE** שחקן חדש הצטרף למשחק שלך ב-{field_name} / **EN** A new player joined your game at {field_name} |
+| 3 | `game_closed` | המשחק נסגר | המשחק במגרש {field_name} נסגר על ידי המארגן. | Game closed | The game at {field_name} was closed by the organizer. | `field_name` | |
+| 4 | `game_extended` | המשחק הוארך | שעת הסיום החדשה של המשחק היא {time} | Game extended | The new game end time is {time} | `time` | `time` is formatted as HH:MM |
+| 5a | `scheduled_game_cancelled` (creator) | המשחק בוטל | המשחק במגרש {field_name} בוטל על ידי המארגן | Game cancelled | The game at {field_name} was cancelled by the organizer | `field_name` | Body varies by `cancelled_by_role` |
+| 5b | `scheduled_game_cancelled` (admin) | המשחק בוטל | המשחק במגרש {field_name} בוטל על ידי מנהל | Game cancelled | The game at {field_name} was cancelled by an admin | `field_name` | Body varies by `cancelled_by_role` |
+| 6 | `scheduled_game_reminder` | תזכורת למשחק שמתקרב | המשחק שלך מתחיל בעוד שעה. אל תשכח להגיע בזמן. | Upcoming game reminder | Your game starts in one hour. Don't forget to arrive on time. | (none) | |
+| 7 | `test_push` | בדיקת התראות | התראות Push מוכנות. | Test notification | Push notifications are ready. | (none) | Push-only; no in-app notification row. Currently uses English. |
+
+## Template Variables
+
+| Variable | Type | Source | Fallback |
+| --- | --- | --- | --- |
+| `{field_name}` | string | `fields.name` via field lookup | `"Unknown field"` (EN) / `"Unknown field"` (HE, current behavior) |
+| `{sport_type}` | string | `games.sport_type` | Raw value (`football` / `basketball`) |
+| `{player_name}` | string | `users.name` of the joining player | Empty string triggers fallback body template |
+| `{time}` | string | `new_end_time` formatted as `HH:MM` | N/A (always derived from the extend action) |
+
+## Fallback Behavior
+
+| Scenario | Current Behavior | Approved Behavior |
+| --- | --- | --- |
+| `field_name` is missing or null | Uses `"Unknown field"` | Same — use `"Unknown field"` (EN) or `"מגרש לא ידוע"` (HE, future) |
+| `player_name` is empty | Uses fallback body: `שחקן חדש הצטרף למשחק שלך ב-{field_name}` | Same — use language-appropriate fallback body |
+| `sport_type` value | Inserted raw (`football` / `basketball`) | Future: localize to `כדורגל`/`כדורסל` (HE) or `Football`/`Basketball` (EN) |
+| User language preference unavailable | Generates Hebrew | Fallback to Hebrew for MVP |
+| Missing language template | N/A (only Hebrew exists today) | Fallback to Hebrew if English template is missing |
+
+## Directionality Rules
+
+* Hebrew notification content is suitable for RTL display. The frontend already applies RTL layout when the app language is Hebrew.
+* English notification content is suitable for LTR display.
+* The notification `title` and `body` columns store plain text — no HTML or directional markers are needed.
+* The frontend inbox component renders notification content in the current app direction. If a Hebrew notification is displayed while the app is in English (LTR) mode, the text may appear left-aligned. This is acceptable for MVP because notifications are currently always in Hebrew.
+
+## Key Design Questions and Answers
+
+### 1. What is the default notification language today?
+
+Hebrew. All notification titles and bodies are generated in Hebrew, except `test_push` which uses English.
+
+### 2. Where should future notification templates live?
+
+In backend code, centralized in a dedicated notification template module or dictionary within `backend/app/routers/notifications.py`. Templates should be keyed by `(notification_type, language_code)`.
+
+### 3. Are titles/bodies stored already localized, or resolved at read time?
+
+**Stored already localized.** The `title` and `body` columns on the `notifications` table contain the final text generated at creation time. There is no read-time resolution. This is the approved MVP approach.
+
+### 4. How should push and in-app notification text stay consistent?
+
+Push notifications use the same `title` and `body` values as the in-app notification row. Both are generated from the same template at creation time. This must remain the case — push and in-app must never diverge.
+
+### 5. What happens if a language value is missing?
+
+Fallback to Hebrew. If a template for the user's preferred language does not exist, generate the notification in Hebrew.
+
+### 6. Should notification history change language if the user changes app language later?
+
+**No.** Notifications are stored with their generated text at creation time. Changing the app language does not retranslate historical notifications. This is acceptable because:
+* Retranslation would require re-rendering every stored notification.
+* The `title`/`body` columns are plain text, not template references.
+* Users who switch languages will see new notifications in their new language, but old ones remain in the language they were created in.
+
+## Future Implementation Guidance
+
+When runtime localization is implemented (in a future issue):
+
+1. **Add a user language preference lookup** to notification creation functions. The backend should determine the recipient's preferred language before generating text.
+2. **Create a template dictionary** mapping `(notification_type, language_code)` → `(title_template, body_template)`. Use the approved copy from this document.
+3. **Localize `sport_type`** values in notification bodies (`football` → `כדורגל` / `Football`).
+4. **Localize the field_name fallback** (`"Unknown field"` → `"מגרש לא ידוע"` for Hebrew).
+5. **Generate both push and in-app text from the same template** to prevent divergence.
+6. **Do not retranslate existing notifications.** Only new notifications should use the recipient's language.
+7. **If user language is not set**, default to Hebrew.
+
+## Scope
+
+Included:
+
+* Approved Hebrew and English copy for all 7 notification types.
+* Template variable definitions and fallback rules.
+* Directionality guidance.
+* Current default-language behavior documentation.
+* Future implementation guidance.
+
+Excluded:
+
+* No runtime localization implementation (no code changes to notification creation).
+* No database schema changes.
+* No migrations.
+* No frontend changes.
+* No changes to notification delivery or retention behavior.
+
+## Status
+
+Approved.
+
