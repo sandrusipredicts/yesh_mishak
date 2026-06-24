@@ -6022,3 +6022,323 @@ Future implementation should:
 
 Approved.
 
+# ISSUE-066: Backend Logging Audit
+
+## Status
+
+Approved.
+
+## Audit Scope
+
+This audit reviewed the existing backend logging implementation against the ISSUE-065 logging policy. It is documentation-only and does not implement logging changes.
+
+Reviewed areas:
+
+* Authentication API and helpers: `backend/app/api/auth.py`, `backend/app/auth/dependencies.py`, `backend/app/auth/google.py`, `backend/app/auth/jwt.py`, `backend/app/auth/passwords.py`.
+* Admin APIs: `backend/app/api/admin.py`.
+* Field APIs: `backend/app/routers/fields.py`, `backend/app/routers/field_reports.py`.
+* Game APIs and payload helpers: `backend/app/routers/games.py`, `backend/app/routers/game_lifecycle.py`, `backend/app/routers/game_payloads.py`.
+* Notification APIs, scheduled reminder generation, cleanup helpers, and push-token flows: `backend/app/routers/notifications.py`.
+* Push service: `backend/app/services/firebase_push.py`.
+* Backend services: `backend/app/services/content_moderation.py`, `backend/app/services/duplicate_detection.py`, `backend/app/services/notification_templates.py`.
+* Error handling and app entrypoint: `backend/app/errors.py`, `backend/app/main.py`.
+* Database/config support: `backend/app/db/supabase.py`, `backend/app/core/config.py`.
+* Backend scripts: `backend/scripts/audit_game_data_integrity.py`, `backend/scripts/prepare_fields_import.py`, `backend/scripts/govmap_facility_splitter.py`, `backend/scripts/verify_notification_settings_payload.py`.
+
+Commands and searches run:
+
+```powershell
+git status --short
+rg -n "ISSUE-065|Application Logging Policy|Structured Severity Matrix|Sensitive-data Policy|Mandatory Log Fields|Final Recommendation" docs\product-decisions.md
+rg -n "logger|logging|print\(|traceback|exc_info|HTTPException|Exception|except\b|raise_api_error" backend\app backend\scripts -g "*.py"
+rg --files backend\app backend\scripts | rg "\.py$"
+```
+
+## Logging Inventory
+
+| Area | Current logging behavior |
+| --- | --- |
+| App-level exception handling | `backend/app/main.py` defines a logger and logs unhandled exceptions with `logger.exception("Unhandled error occurred during request processing")`. |
+| Auth API | `backend/app/api/auth.py` logs Google login start, Google login success, and `last_login` update success/failure. Password login/register do not log success/failure. |
+| Google auth helper | `backend/app/auth/google.py` has extensive INFO/WARNING/ERROR logging around Google token claims, email lookup, Supabase user lookup/insert, and Google user creation. |
+| Admin API | `backend/app/api/admin.py` logs notification side-effect failures for admin game close/extend/cancel. It does not log most admin/moderation successes or failures. |
+| Games router | `backend/app/routers/games.py` logs notification side-effect failures for game-created, player-joined, game-closed, game-extended, and game-cancelled notifications. Core game actions mostly have no application logs. |
+| Notifications router | `backend/app/routers/notifications.py` logs per-game scheduled reminder processing failures. Several push and compatibility fallback failures are silent. |
+| Game payload helper | `backend/app/routers/game_payloads.py` logs Supabase batched select start events and batched select failures. |
+| Fields and field reports | `backend/app/routers/fields.py` and `backend/app/routers/field_reports.py` do not define loggers. Database write failures are converted to API errors without logging. |
+| Push service | `backend/app/services/firebase_push.py` does not define a logger. FCM failures are raised to callers or swallowed by callers. |
+| Services | `content_moderation.py`, `duplicate_detection.py`, and `notification_templates.py` have no logger usage found. |
+| Scripts | Backend scripts use `print()` for command output. This is acceptable for manual CLI scripts, but it is not structured operational logging if any script becomes scheduled or production-run. |
+| Traceback / `exc_info` | No explicit `traceback` or `exc_info` usage was found by repository search. Stack traces currently come from `logger.exception()`. |
+
+## Gap Analysis
+
+| ID | File path | Function / endpoint | Current behavior | Expected behavior per ISSUE-065 | Severity | Recommendation | Follow-up issue |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| LOG-AUDIT-001 | `backend/app/auth/google.py` | `_token_debug_claims`, `_log_google_user_lookup_debug`, `verify_google_token`, `find_or_create_google_user` | Logs email addresses, decoded Google token claims, derived names, and user lookup details. | Never log emails, Google ID token contents/claims, or sensitive identity details. Use `user_id`, sanitized auth outcome, `error_code`, and request context. | High | Remove or redact sensitive fields. Replace with structured event names and sanitized auth categories. | Yes |
+| LOG-AUDIT-002 | `backend/app/api/auth.py` | `POST /auth/google` | Successful Google login log includes `email`. | Login success should log `user_id`, auth method, endpoint, method, request ID, and timing, but not email or phone. | High | Redact email and standardize the success log. | Yes |
+| LOG-AUDIT-003 | `backend/app/auth/google.py` | Supabase user lookup/create exception paths | Logs formatted Supabase errors and exception reprs; API exceptions may include raw Supabase detail. | Log sanitized database error category/status only. Do not log or expose raw third-party/database payloads. | High | Sanitize Supabase error logging and response detail. | Yes |
+| LOG-AUDIT-004 | `backend/app/auth/dependencies.py`, `backend/app/auth/jwt.py`, `backend/app/api/auth.py` | Token validation, restricted-user checks, admin checks, password login/register | Missing structured logs for suspicious invalid tokens, restricted account access attempts, admin denial, and password login/register success/failure. | INFO for successful auth events; WARNING for repeated/suspicious invalid token, suspended/banned access, and permission denial. Avoid noisy logs for ordinary unauthenticated probes. | Medium | Add rate-limited/sampled auth warnings and sanitized success/failure events. | Yes |
+| LOG-AUDIT-005 | `backend/app/main.py` | Global exception handler | Logs a generic unhandled exception with stack trace but without endpoint, method, user, request ID, error code, or execution time. | ERROR logs must include mandatory fields when available and support request correlation. | High | Add structured exception logging once request ID/context middleware exists. | Yes |
+| LOG-AUDIT-006 | Multiple backend files | All existing logger calls | Existing logs are mostly free-form strings with inconsistent `extra` fields and no shared `request_id`, `endpoint`, `method`, `error_code`, or `execution_time`. | ISSUE-065 requires structured fields and consistent names. | High | Introduce structured logging standards in a dedicated implementation issue. | Yes |
+| LOG-AUDIT-007 | `backend/app/routers/fields.py` | `POST /fields` / `create_field` | Database insert failures are caught and returned as `DATABASE_ERROR` without logging. Successful field submissions are not logged. | Field submission success should be INFO; database write failure should be ERROR with sanitized context. | High | Add sanitized INFO/ERROR logs for field submission and failure. | Yes |
+| LOG-AUDIT-008 | `backend/app/routers/field_reports.py` | `POST /field-reports` / `create_field_report` | Database insert failures are caught and returned as `DATABASE_ERROR` without logging. Successful reports are not logged. | Report submission success should be INFO; database write failure should be ERROR with sanitized context. | High | Add sanitized INFO/ERROR logs for report submission and failure. | Yes |
+| LOG-AUDIT-009 | `backend/app/routers/games.py` | Game create/join/leave/close/extend/cancel endpoints | Core game action successes and business-rule denials are mostly not logged. | INFO for successful game lifecycle actions; WARNING for suspicious or repeated permission/business-rule denials. | Medium | Add structured lifecycle logs and carefully scoped warning logs. | Yes |
+| LOG-AUDIT-010 | `backend/app/routers/games.py`, `backend/app/api/admin.py` | Notification side effects after game/admin actions | Notification side-effect failures use `logger.exception()`, which emits ERROR-level logs while the parent action succeeds. | Best-effort notification side-effect failures should usually be WARNING unless they break the user-facing operation or indicate systemic failure. | Medium | Downgrade expected side-effect failures to WARNING with sanitized context; keep ERROR for systemic failures. | Yes |
+| LOG-AUDIT-011 | `backend/app/routers/notifications.py` | `_send_push_to_tokens` | `FirebaseConfigError` and generic push exceptions are swallowed silently; invalid token cleanup is silent. | Push failures should log WARNING/ERROR with counts, sanitized FCM status, notification type, and no push tokens. | High | Add sanitized push failure and invalid-token cleanup logs. | Yes |
+| LOG-AUDIT-012 | `backend/app/routers/notifications.py`, `backend/app/api/admin.py` | `generate_scheduled_game_reminders`, `cleanup_old_notifications`, admin scheduled-job endpoints | Scheduled jobs lack start/finish logs and consistent failure logs. Per-game reminder failures are logged but miss job context and mandatory fields. | Scheduled jobs require INFO start/finish with counts/timing, WARNING partial failures, ERROR failed jobs, and CRITICAL only for systemic failure. | Medium | Add structured job lifecycle logs. | Yes |
+| LOG-AUDIT-013 | `backend/app/api/admin.py` | User moderation, field moderation, field report status, admin game actions | `user_moderation_audit` exists for user moderation. Field moderation, field report review, and admin game actions do not have durable audit tables; application logs are also sparse. | Durable "who changed what, when, why" records belong in audit tables. Logs should support operations, not serve as the official audit record. | Medium | Open separate audit-table issues for field moderation, field reports, and admin game actions; add operational logs separately. | Yes |
+| LOG-AUDIT-014 | `backend/app/routers/game_payloads.py` | `_fetch_rows_by_ids` | Logs every batched select start at INFO and logs exception reprs on failure. | Read-path logs should avoid noise and use structured timing/error fields. Raw exception reprs should be sanitized if they may contain backend details. | Low | Reduce noisy INFO logs or convert to debug once structured logging exists; sanitize exception output. | Yes |
+| LOG-AUDIT-015 | `backend/scripts/*` | Manual scripts | Scripts use `print()` for output and summaries. | Manual CLI output can use `print()`, but production/scheduled execution should use structured job logs. | Low | Leave manual scripts as-is; add structured logging if any script becomes scheduled or production-run. | Conditional |
+| LOG-AUDIT-016 | Backend-wide | CRITICAL severity | No CRITICAL logs were found. | CRITICAL should be used for system-wide outage, credential exposure, data-loss risk, or broken auth/config preventing core operation. | High | Define CRITICAL event points in a future implementation issue, especially Supabase unavailable, auth configuration failure, and notification credential failure. | Yes |
+| LOG-AUDIT-017 | `backend/app/routers/notifications.py` | Push token save/delete/test push, notification preference/list flows | Push-token and notification preference flows have limited or no logs for success/failure. | Log sanitized push operation failures and relevant operational counts. Never log push tokens. | Medium | Add sanitized logs for push-token failures and test-push failures; avoid logging token values. | Yes |
+| LOG-AUDIT-018 | `backend/app/routers/notifications.py` | Notification compatibility fallbacks | Some `APIError` compatibility fallbacks happen silently. | Schema drift or compatibility fallback should produce low-volume WARNING logs when operationally meaningful. | Low | Add throttled WARNING logs for schema-drift fallback paths if they recur in production. | Yes |
+| LOG-AUDIT-019 | Field/game/report moderation callers | Content moderation rejection and validation paths | Moderation rejections and validation/business-rule failures are often returned to the client without application logs. | Moderation rejects should be WARNING when they represent policy enforcement or repeated suspicious behavior; ordinary validation errors should not be noisy. | Medium | Add targeted warning logs for moderation enforcement and repeated suspicious patterns. | Yes |
+
+## Sensitive-data Violations
+
+Confirmed sensitive-data gaps against ISSUE-065:
+
+* `backend/app/auth/google.py` logs emails in Google lookup, verification, user-found, user-create, and debug paths.
+* `backend/app/api/auth.py` logs email on successful Google login.
+* `backend/app/auth/google.py` logs decoded Google token claims through `_token_debug_claims`. Even though the raw token string is not logged, token-derived claims are sensitive and should not appear in application logs.
+* `backend/app/auth/google.py` logs formatted Supabase error details and exception reprs. These may contain implementation details or database response payloads that should be sanitized before logging.
+
+No direct logging of passwords, refresh tokens, raw JWTs, raw Google ID tokens, raw authorization headers, phone numbers, or push notification token values was found by the required search. This conclusion is limited to the searched Python backend files.
+
+## Missing Critical Logs
+
+No existing `CRITICAL` logging was found.
+
+Missing CRITICAL candidates from ISSUE-065:
+
+* Backend cannot connect to Supabase for core request handling over a sustained period.
+* Authentication configuration is broken, causing login/session validation to fail globally.
+* Firebase or push credentials are missing/invalid in a way that disables all push delivery.
+* A credential, token, or other secret is detected in logs or an outbound error payload.
+* A schema drift or migration issue causes broad write failures across production endpoints.
+
+These should become implementation follow-ups after structured logging and request correlation exist.
+
+## Silent Failure Risks
+
+| File path | Function / area | Risk | Severity | Recommendation |
+| --- | --- | --- | --- | --- |
+| `backend/app/routers/notifications.py` | `_send_push_to_tokens` | Firebase config and generic push exceptions are swallowed, making push delivery failures hard to detect. | High | Log sanitized warning/error events with counts and reason categories. |
+| `backend/app/routers/fields.py` | `create_field` | Database insert failures are returned as generic API errors without server-side operational context. | High | Log sanitized ERROR with user and request context. |
+| `backend/app/routers/field_reports.py` | `create_field_report` | Report insert failures are returned as generic API errors without server-side operational context. | High | Log sanitized ERROR with user and request context. |
+| `backend/app/routers/notifications.py` | Notification compatibility fallbacks | API errors during compatibility fallbacks can hide schema drift. | Medium | Add low-volume warning logs when fallback paths are used. |
+| `backend/app/api/admin.py` | Scheduled-job trigger endpoints | Start/finish/failure are not logged at the admin endpoint level. | Medium | Add job lifecycle logs with counts and timing. |
+| `backend/app/auth/dependencies.py` | Auth restriction and admin checks | Suspended/banned/admin-denied access attempts are not logged. | Medium | Add targeted warnings without logging tokens or emails. |
+
+## Audit-table vs Log Misuse
+
+Current good pattern:
+
+* `backend/app/api/admin.py` writes durable user moderation actions to `user_moderation_audit`. This aligns with ISSUE-065 because it records who changed what, when, and why.
+
+Current gaps:
+
+* Field moderation decisions do not appear to have a dedicated audit table.
+* Field report review/status changes do not appear to have a dedicated audit table beyond the current row fields such as reviewer/timestamp.
+* Admin game close/extend/cancel actions are logged only indirectly through notification failure logs, not through a durable audit table.
+* Application logs should not become the official record for moderation decisions. Separate migration-backed audit tables should be proposed in future issues if durable accountability is required.
+
+## Noisy Logging Risks
+
+* `backend/app/auth/google.py` has verbose auth debug logs and logs sensitive identity details. This is both noisy and privacy-sensitive.
+* `backend/app/routers/game_payloads.py` logs batched select starts on read paths. This may be too noisy for high-traffic map/field loads unless moved to debug-level telemetry or sampled structured metrics.
+* Notification side-effect failures currently use `logger.exception()` in several places. Some of these should be WARNING because the primary user action still succeeds.
+
+## Prioritized Remediation Backlog
+
+1. Remove/redact sensitive Google auth logs and email logging in auth success paths.
+2. Add structured request correlation: `request_id`, endpoint, method, execution time, and consistent event names.
+3. Add sanitized ERROR logs for field and field-report write failures.
+4. Add sanitized WARNING/ERROR logs for Firebase push failures and invalid-token cleanup counts.
+5. Standardize game lifecycle logs: INFO for successful create/join/leave/close/extend/cancel and targeted WARNING for suspicious denials.
+6. Add scheduled job lifecycle logs for reminder generation and notification cleanup.
+7. Define CRITICAL event points for systemic Supabase/auth/Firebase outages and suspected credential exposure.
+8. Create audit-table follow-up issues for field moderation, field report review history, and admin game actions if durable accountability is required.
+9. Reduce or reclassify noisy read-path and side-effect logs after structured logging exists.
+
+## Findings Summary
+
+The backend has partial logging coverage, mostly around Google auth debugging, notification side-effect failures, scheduled reminder item failures, and batched Supabase reads. The largest gaps are not missing loggers alone; they are inconsistent structure, missing mandatory fields, missing request correlation, sensitive identity data in auth logs, silent push failures, and missing operational logs for field/report database writes.
+
+The most urgent remediation is to remove or redact sensitive Google auth logs before expanding logging elsewhere. The next priority is structured request-level logging so future INFO/WARNING/ERROR/CRITICAL events include the ISSUE-065 mandatory fields consistently.
+
+## GitHub Issue Comment Summary
+
+ISSUE-066 audit completed as documentation only.
+
+Reviewed backend auth, admin, fields, games, notifications, push service, services, scripts, app error handling, and scheduled reminder/cleanup paths. Existing logging is partial and inconsistent. Key gaps:
+
+* Sensitive auth logs currently include emails and decoded Google token claims.
+* Most logs lack mandatory ISSUE-065 fields such as request ID, endpoint, method, error code, and execution time.
+* `POST /fields` and field report submission convert database failures to API errors without backend ERROR logs.
+* Push notification failures can be swallowed silently.
+* Scheduled jobs lack start/finish/failure lifecycle logs.
+* No CRITICAL logs exist for systemic outages or credential exposure.
+* User moderation has an audit table, but field moderation, field report review, and admin game actions need separate audit-table follow-ups if durable accountability is required.
+
+Recommended follow-up issues:
+
+1. Redact sensitive Google auth logging.
+2. Add structured request logging and request IDs.
+3. Add sanitized field/report write-failure logs.
+4. Add sanitized push failure logs.
+5. Add game lifecycle and scheduled-job logs.
+6. Define CRITICAL outage/security logging points.
+7. Add audit tables for field moderation/report/admin game actions if product requires durable records.
+
+## Files Modified
+
+* `docs/product-decisions.md`
+
+No backend runtime, frontend runtime, database, migration, endpoint, or logging behavior changes were made.
+
+# ISSUE-067: Implement Missing Backend Logs
+
+## Status
+
+Implemented.
+
+## Policy References
+
+This implementation follows:
+
+* ISSUE-065: Application Logging Policy.
+* ISSUE-066: Backend Logging Audit.
+
+The implementation intentionally does not add request ID middleware, monitoring, metrics, alerting, a new logging framework, backend API contract changes, or database changes.
+
+## ISSUE-066 Findings Addressed
+
+| ISSUE-066 finding | Resolution in ISSUE-067 |
+| --- | --- |
+| LOG-AUDIT-001 / LOG-AUDIT-002 | Google/password login logs now avoid email, phone, password, JWT, Google token, and decoded Google claim payloads. Existing Google auth debug logs were redacted to IDs, booleans, and sanitized exception types. |
+| LOG-AUDIT-004 | Added password login success and failure logs; added sanitized Google login success/failure logs. |
+| LOG-AUDIT-008 | Added field report creation success and database failure logs. |
+| LOG-AUDIT-009 | Added game creation success and game close success/failure logs for creator close and admin close. |
+| LOG-AUDIT-010 | Changed game notification side-effect failures touched by this issue from ERROR-style `logger.exception()` to WARNING logs with `notifications.generate.failure`. |
+| LOG-AUDIT-011 | Added push notification failure logs for Firebase config failures, send failures, and invalid-token cleanup without logging token values. |
+| LOG-AUDIT-012 | Added admin-triggered scheduled job start, finish, and fatal failure logs for scheduled game reminders and notification cleanup. Scheduled reminder item failures now use WARNING with job context. |
+| LOG-AUDIT-013 | Added operational field approval/rejection logs. Durable audit-table work remains a separate follow-up. |
+
+## Implemented Logs
+
+| Area | Event | Severity | Why it exists | Context fields included |
+| --- | --- | --- | --- | --- |
+| Login success | `auth.login.success` | INFO | Records successful password and Google login without storing sensitive identity data. | `auth_method`, `endpoint`, `method`, `user_id`, `result`, plus non-sensitive null/presence flags for Google login. |
+| Login failure | `auth.login.failure` | WARNING | Records credential/token verification failure for operational/security review. | `auth_method`, `endpoint`, `method`, `status_code`, `error_code`, `result`, `attempt_id` for Google. |
+| Last-login update failure | `auth.last_login.failure` | WARNING | Records a non-blocking login side-effect failure while preserving successful login behavior. | `auth_method`, `endpoint`, `method`, `user_id`, `error_code`, `exception_type`, `result`. |
+| Google auth helper logs | `auth.google_token.*`, `auth.google_user.*` | INFO/WARNING/ERROR | Preserves operational visibility for Google auth while redacting sensitive data identified by ISSUE-066. | `auth_method`, `attempt_id`, `user_id` when known, boolean presence flags, `error_code`, `exception_type`, `result`. |
+| Game creation | `games.create.success` | INFO | Records successful game creation for support and operations. | `endpoint`, `method`, `user_id`, `game_id`, `field_id`, `sport_type`, `result`. |
+| Game close | `games.close.success` / `games.close.failure` | INFO/ERROR | Records successful close and persisted-update failure. | `endpoint`, `method`, `user_id` or `actor_user_id`, `game_id`, `field_id`, `closed_by_role`, `error_code` on failure, `result`. |
+| Field approval | `fields.moderation.approve` | INFO | Records an admin field approval decision. | `endpoint`, `method`, `actor_user_id`, `field_id`, `approval_status`, `verified`, `result`. |
+| Field rejection | `fields.moderation.reject` | INFO | Records an admin field rejection decision. | `endpoint`, `method`, `actor_user_id`, `field_id`, `approval_status`, `verified`, `result`. |
+| Field report creation | `field_reports.create.success` / `field_reports.create.failure` | INFO/ERROR | Records successful field report submission and database insert failure. | `endpoint`, `method`, `user_id`, `field_id`, `report_id` on success, `error_code`, `exception_type`, `result`. |
+| Notification generation failure | `notifications.generate.failure` | WARNING | Records best-effort notification creation failures after the parent action succeeds. | `notification_type`, `game_id`, `field_id`, `user_id` or `actor_user_id`, `error_code`, `exception_type`, `result`. |
+| Scheduled reminder item failure | `jobs.scheduled_game_reminders.item_failure` | WARNING | Records one failed reminder while the batch continues. | `job_name`, `notification_type`, `game_id`, `field_id`, `error_code`, `exception_type`, `result`. |
+| Push notification failure | `notifications.push.failure` | WARNING/ERROR | Records FCM send failures, invalid-token cleanup, and user-visible test-push/config failures. | `notification_type`, `external_service`, `recipient_count`, `sent_count`, `invalid_token_count`, `status_code` when available, `user_id` for test push, `error_code`, `exception_type`, `result`. |
+| Scheduled job start | `jobs.scheduled_game_reminders.start`, `jobs.notification_cleanup.start` | INFO | Records admin-triggered operational job start. | `job_name`, `trigger`, `actor_user_id`, `endpoint`, `method`. |
+| Scheduled job finish | `jobs.scheduled_game_reminders.finish`, `jobs.notification_cleanup.finish` | INFO | Records operational job completion and counts. | `job_name`, `trigger`, `actor_user_id`, `endpoint`, `method`, `result`, `processed_count`, `skipped_count`, `failed_count`, `notifications_created` or `deleted_count`, `execution_time_ms`. |
+| Scheduled job fatal failure | `jobs.scheduled_game_reminders.failure`, `jobs.notification_cleanup.failure` | ERROR | Records a job that cannot complete. | `job_name`, `trigger`, `actor_user_id`, `endpoint`, `method`, `result`, `error_code`, `exception_type`, `execution_time_ms`. |
+
+## Sensitive-data Validation
+
+New and updated logs avoid:
+
+* Passwords and password hashes.
+* JWT access tokens.
+* Google ID token values.
+* Full decoded Google claim payloads.
+* Authorization headers.
+* Emails and phone numbers.
+* Push notification tokens.
+* Notification title/body text.
+* Field report descriptions.
+
+Validation included tests asserting that password login logs do not include submitted credentials, field report logs do not include report description text, and push failure logs do not include device token values.
+
+## Tests Executed
+
+Command run from `backend`:
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests\test_manual_auth.py tests\test_google_auth.py tests\test_game_close.py tests\test_field_reports_api.py tests\test_admin_me.py tests\test_notifications.py
+```
+
+Result:
+
+* 166 passed.
+* 561 warnings from existing dependency deprecations (`supabase/gotrue`, FastAPI/Starlette asyncio deprecation warnings).
+
+An earlier attempt from the repository root failed because Python could not resolve the backend `app` package. The successful command was rerun from `backend`, which matches the existing test layout.
+
+## Example Log Shapes
+
+Examples below show representative messages and structured fields. IDs are illustrative only.
+
+```text
+INFO password login succeeded
+event=auth.login.success auth_method=password endpoint=/auth/login method=POST user_id=user-1 result=success
+```
+
+```text
+WARNING password login failed
+event=auth.login.failure auth_method=password endpoint=/auth/login method=POST status_code=401 error_code=AUTH_INVALID result=failure
+```
+
+```text
+INFO game created
+event=games.create.success endpoint=/games/ method=POST user_id=user-1 game_id=game-1 field_id=field-1 sport_type=football result=success
+```
+
+```text
+WARNING Failed to create game_created notifications
+event=notifications.generate.failure notification_type=game_created game_id=game-1 field_id=field-1 user_id=user-1 error_code=NOTIFICATION_GENERATION_FAILED exception_type=RuntimeError result=partial_failure
+```
+
+```text
+ERROR test push failed because Firebase is not configured
+event=notifications.push.failure notification_type=test_push external_service=firebase_fcm user_id=user-1 recipient_count=1 error_code=FIREBASE_CONFIG_ERROR result=failure
+```
+
+## Files Changed
+
+Runtime logging changes:
+
+* `backend/app/api/auth.py`
+* `backend/app/auth/google.py`
+* `backend/app/routers/games.py`
+* `backend/app/api/admin.py`
+* `backend/app/routers/field_reports.py`
+* `backend/app/routers/notifications.py`
+
+Test changes:
+
+* `backend/tests/test_manual_auth.py`
+* `backend/tests/test_game_close.py`
+* `backend/tests/test_field_reports_api.py`
+* `backend/tests/test_admin_me.py`
+* `backend/tests/test_notifications.py`
+
+Documentation:
+
+* `docs/product-decisions.md`
+
+## Remaining Logging Gaps
+
+The following ISSUE-066 gaps remain intentionally out of scope for ISSUE-067:
+
+* Request ID middleware and global request correlation.
+* Full structured JSON logging configuration.
+* CRITICAL outage/security logging points.
+* Durable audit tables for field moderation, field report review history, and admin game actions.
+* Broad logging for every game lifecycle action beyond game creation and close.
+* General validation/business-rule denial logging.
+* Broader admin action logging outside the explicitly requested field approval/rejection and scheduled job paths.
+* Metrics, monitoring, alerting, or log retention implementation.
+

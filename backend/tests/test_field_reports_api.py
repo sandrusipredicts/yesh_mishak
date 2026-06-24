@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -116,21 +117,22 @@ def make_client(monkeypatch, fake_supabase: FakeSupabase) -> TestClient:
     return TestClient(app)
 
 
-def test_authenticated_user_can_submit_field_report(monkeypatch) -> None:
+def test_authenticated_user_can_submit_field_report(monkeypatch, caplog) -> None:
     configure_settings(monkeypatch)
     user = make_user()
     fake_supabase = make_fake_supabase(user)
     client = make_client(monkeypatch, fake_supabase)
 
-    response = client.post(
-        "/field-reports",
-        json={
-            "field_id": "field-1",
-            "category": "wrong_location",
-            "description": "The pin is on the wrong block.",
-        },
-        headers=auth_headers(user),
-    )
+    with caplog.at_level(logging.INFO, logger="app.routers.field_reports"):
+        response = client.post(
+            "/field-reports",
+            json={
+                "field_id": "field-1",
+                "category": "wrong_location",
+                "description": "The pin is on the wrong block.",
+            },
+            headers=auth_headers(user),
+        )
 
     assert response.status_code == 200
     report = response.json()["report"]
@@ -151,6 +153,16 @@ def test_authenticated_user_can_submit_field_report(monkeypatch) -> None:
         .data
     )
     assert selected == [report]
+    success_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "field_reports.create.success"
+    ]
+    assert success_records
+    assert success_records[-1].report_id == report["id"]
+    assert success_records[-1].field_id == "field-1"
+    assert success_records[-1].user_id == user["id"]
+    assert "The pin is on the wrong block." not in caplog.text
 
 
 def test_field_report_description_is_optional(monkeypatch) -> None:
@@ -244,20 +256,29 @@ def test_field_report_rejects_client_controlled_review_fields(monkeypatch) -> No
     assert fake_supabase.tables["field_reports"] == []
 
 
-def test_field_report_insert_failure_returns_clean_api_error(monkeypatch) -> None:
+def test_field_report_insert_failure_returns_clean_api_error(monkeypatch, caplog) -> None:
     configure_settings(monkeypatch)
     user = make_user()
     fake_supabase = make_fake_supabase(user)
     fake_supabase.fail_field_report_insert = True
     client = make_client(monkeypatch, fake_supabase)
 
-    response = client.post(
-        "/field-reports",
-        json={"field_id": "field-1", "category": "field_closed"},
-        headers=auth_headers(user),
-    )
+    with caplog.at_level(logging.ERROR, logger="app.routers.field_reports"):
+        response = client.post(
+            "/field-reports",
+            json={"field_id": "field-1", "category": "field_closed"},
+            headers=auth_headers(user),
+        )
 
     assert response.status_code == 500
     assert response.json()["message"] == "Failed to create field report"
     assert response.json()["error"] is True
     assert response.json()["code"] == "DATABASE_ERROR"
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "field_reports.create.failure"
+    ]
+    assert failure_records
+    assert failure_records[-1].error_code == "DATABASE_ERROR"
+    assert failure_records[-1].field_id == "field-1"

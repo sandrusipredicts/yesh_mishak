@@ -23,22 +23,16 @@ def _format_supabase_error(exc: Exception) -> dict[str, str]:
 def _token_debug_claims(token: str) -> dict[str, Any]:
     try:
         claims = jwt.decode(token, options={"verify_signature": False})
-    except Exception as exc:
+    except Exception:
         return {
-            "decode_error": str(exc),
-            "token_length": len(token),
+            "decode_failed": True,
         }
 
     return {
-        "aud": claims.get("aud"),
-        "iss": claims.get("iss"),
-        "email": claims.get("email"),
-        "email_verified": claims.get("email_verified"),
         "has_sub": bool(claims.get("sub")),
         "has_name": bool(claims.get("name")),
-        "iat": claims.get("iat"),
-        "exp": claims.get("exp"),
-        "token_length": len(token),
+        "email_present": bool(claims.get("email")),
+        "email_verified_present": claims.get("email_verified") is not None,
     }
 
 
@@ -54,34 +48,58 @@ def _log_google_user_lookup_debug(email: str, attempt_id: str) -> None:
         )
     except Exception as exc:
         logger.warning(
-            "google_login[%s] optional user debug lookup failed for email=%s error=%r",
-            attempt_id,
-            email,
-            exc,
+            "google user debug lookup failed",
+            extra={
+                "event": "auth.google_user_lookup.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
         )
         return
 
     if not debug_response.data:
-        logger.info("google_login[%s] optional user debug lookup found no row for email=%s", attempt_id, email)
+        logger.info(
+            "google user debug lookup found no row",
+            extra={
+                "event": "auth.google_user_lookup.not_found",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "result": "not_found",
+            },
+        )
         return
 
     user = debug_response.data[0]
     logger.info(
-        "google_login[%s] optional user debug row id=%s email=%s has_google_sub=%s username_is_null=%s phone_is_null=%s has_password_hash=%s last_login_is_null=%s",
-        attempt_id,
-        user.get("id"),
-        user.get("email"),
-        bool(user.get("google_sub")),
-        user.get("username") is None,
-        user.get("phone_number") is None,
-        bool(user.get("password_hash")),
-        user.get("last_login") is None,
+        "google user debug lookup found row",
+        extra={
+            "event": "auth.google_user_lookup.found",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+            "user_id": user.get("id"),
+            "has_google_sub": bool(user.get("google_sub")),
+            "username_is_null": user.get("username") is None,
+            "phone_is_null": user.get("phone_number") is None,
+            "has_password_hash": bool(user.get("password_hash")),
+            "last_login_is_null": user.get("last_login") is None,
+            "result": "success",
+        },
     )
 
 
 def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, Any]:
     settings = get_settings()
-    logger.info("google_login[%s] token received claims=%s", attempt_id, _token_debug_claims(token))
+    logger.info(
+        "google token verification started",
+        extra={
+            "event": "auth.google_token.verify.start",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+        },
+    )
 
     try:
         token_info = id_token.verify_oauth2_token(
@@ -91,10 +109,17 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         )
     except ValueError as exc:
         logger.warning(
-            "google_login[%s] returning 401 during Google token verification error=%r claims=%s",
-            attempt_id,
-            exc,
-            _token_debug_claims(token),
+            "google token verification failed",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "status_code": status.HTTP_401_UNAUTHORIZED,
+                "error_code": "AUTH_INVALID",
+                "exception_type": exc.__class__.__name__,
+                "claim_presence": _token_debug_claims(token),
+                "result": "failure",
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -106,17 +131,17 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
 
     if not email or not google_sub:
         logger.warning(
-            "google_login[%s] returning 401 because required claims are missing email=%s has_sub=%s verified_claims=%s",
-            attempt_id,
-            email,
-            bool(google_sub),
-            {
-                "aud": token_info.get("aud"),
-                "iss": token_info.get("iss"),
-                "email": token_info.get("email"),
-                "email_verified": token_info.get("email_verified"),
-                "has_sub": bool(token_info.get("sub")),
+            "google token required claims missing",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "status_code": status.HTTP_401_UNAUTHORIZED,
+                "error_code": "AUTH_INVALID",
+                "email_present": bool(email),
+                "has_sub": bool(google_sub),
                 "has_name": bool(token_info.get("name")),
+                "result": "failure",
             },
         )
         raise HTTPException(
@@ -126,12 +151,15 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
 
     name = token_info.get("name") or email.split("@", maxsplit=1)[0]
     logger.info(
-        "google_login[%s] token verified email=%s has_sub=%s has_name=%s using_name=%s",
-        attempt_id,
-        email,
-        bool(google_sub),
-        bool(token_info.get("name")),
-        name,
+        "google token verified",
+        extra={
+            "event": "auth.google_token.verify.success",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+            "has_sub": bool(google_sub),
+            "has_name": bool(token_info.get("name")),
+            "result": "success",
+        },
     )
 
     return {
@@ -146,10 +174,13 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
     supabase = get_supabase_client()
     email = google_user["email"]
     logger.info(
-        "google_login[%s] looking up existing user by email=%s google_sub_present=%s",
-        attempt_id,
-        email,
-        bool(google_user.get("google_sub")),
+        "looking up existing Google user",
+        extra={
+            "event": "auth.google_user.lookup.start",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+            "google_sub_present": bool(google_user.get("google_sub")),
+        },
     )
 
     try:
@@ -162,7 +193,17 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         )
     except Exception as exc:
         error = _format_supabase_error(exc)
-        logger.exception("google_login[%s] Supabase users select failed: %s", attempt_id, error)
+        logger.exception(
+            "Google user lookup failed",
+            extra={
+                "event": "auth.google_user.lookup.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -175,16 +216,27 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
     if existing_user.data:
         user = existing_user.data[0]
         logger.info(
-            "google_login[%s] existing user found id=%s email=%s name_present=%s",
-            attempt_id,
-            user.get("id"),
-            user.get("email"),
-            bool(user.get("name")),
+            "existing Google user found",
+            extra={
+                "event": "auth.google_user.lookup.success",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "user_id": user.get("id"),
+                "name_present": bool(user.get("name")),
+                "result": "success",
+            },
         )
         _log_google_user_lookup_debug(email, attempt_id)
         return existing_user.data[0]
 
-    logger.info("google_login[%s] no existing user found; creating Google user email=%s", attempt_id, email)
+    logger.info(
+        "creating Google user",
+        extra={
+            "event": "auth.google_user.create.start",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+        },
+    )
     try:
         created_user = (
             supabase.table("users")
@@ -199,7 +251,17 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         )
     except Exception as exc:
         error = _format_supabase_error(exc)
-        logger.exception("google_login[%s] Supabase users insert failed: %s", attempt_id, error)
+        logger.exception(
+            "Google user insert failed",
+            extra={
+                "event": "auth.google_user.create.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -210,7 +272,16 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         ) from exc
 
     if not created_user.data:
-        logger.error("google_login[%s] user insert returned no rows email=%s", attempt_id, email)
+        logger.error(
+            "Google user insert returned no rows",
+            extra={
+                "event": "auth.google_user.create.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "DATABASE_ERROR",
+                "result": "failure",
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -221,10 +292,14 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         )
 
     logger.info(
-        "google_login[%s] created Google user id=%s email=%s",
-        attempt_id,
-        created_user.data[0].get("id"),
-        created_user.data[0].get("email"),
+        "Google user created",
+        extra={
+            "event": "auth.google_user.create.success",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+            "user_id": created_user.data[0].get("id"),
+            "result": "success",
+        },
     )
     _log_google_user_lookup_debug(email, attempt_id)
     return created_user.data[0]

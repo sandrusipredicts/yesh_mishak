@@ -1,4 +1,5 @@
 import logging
+from time import perf_counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -447,18 +448,22 @@ def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
 
 
 @router.post("/fields/{field_id}/approve")
-def approve_field(field_id: str, _: dict[str, Any] = Depends(require_admin)):
+def approve_field(field_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     return _update_field_approval(
         field_id=field_id,
         updates={"verified": True, "approval_status": "approved"},
+        actor_user_id=str(current_user["id"]),
+        event="fields.moderation.approve",
     )
 
 
 @router.post("/fields/{field_id}/reject")
-def reject_field(field_id: str, _: dict[str, Any] = Depends(require_admin)):
+def reject_field(field_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     return _update_field_approval(
         field_id=field_id,
         updates={"verified": False, "approval_status": "rejected"},
+        actor_user_id=str(current_user["id"]),
+        event="fields.moderation.reject",
     )
 
 
@@ -596,13 +601,111 @@ def get_admin_games(
 
 
 @router.post("/reminders/scheduled-games/run")
-def run_scheduled_game_reminders(_: dict[str, Any] = Depends(require_admin)):
-    return generate_scheduled_game_reminders()
+def run_scheduled_game_reminders(current_user: dict[str, Any] = Depends(require_admin)):
+    start = perf_counter()
+    logger.info(
+        "scheduled game reminders job started",
+        extra={
+            "event": "jobs.scheduled_game_reminders.start",
+            "job_name": "scheduled_game_reminders",
+            "trigger": "admin",
+            "actor_user_id": current_user.get("id"),
+            "endpoint": "/admin/reminders/scheduled-games/run",
+            "method": "POST",
+        },
+    )
+    try:
+        result = generate_scheduled_game_reminders()
+    except Exception as exc:
+        logger.exception(
+            "scheduled game reminders job failed",
+            extra={
+                "event": "jobs.scheduled_game_reminders.failure",
+                "job_name": "scheduled_game_reminders",
+                "trigger": "admin",
+                "actor_user_id": current_user.get("id"),
+                "endpoint": "/admin/reminders/scheduled-games/run",
+                "method": "POST",
+                "result": "failure",
+                "error_code": "SCHEDULED_JOB_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "execution_time_ms": round((perf_counter() - start) * 1000, 2),
+            },
+        )
+        raise
+
+    logger.info(
+        "scheduled game reminders job finished",
+        extra={
+            "event": "jobs.scheduled_game_reminders.finish",
+            "job_name": "scheduled_game_reminders",
+            "trigger": "admin",
+            "actor_user_id": current_user.get("id"),
+            "endpoint": "/admin/reminders/scheduled-games/run",
+            "method": "POST",
+            "result": "partial_failure" if result.get("failed_game_ids") else "success",
+            "processed_count": len(result.get("processed_game_ids", [])),
+            "skipped_count": len(result.get("skipped_game_ids", [])),
+            "failed_count": len(result.get("failed_game_ids", [])),
+            "notifications_created": result.get("notifications_created", 0),
+            "execution_time_ms": round((perf_counter() - start) * 1000, 2),
+        },
+    )
+    return result
 
 
 @router.post("/notifications/cleanup")
-def run_notification_cleanup(_: dict[str, Any] = Depends(require_admin)):
-    return cleanup_old_notifications(now=get_now())
+def run_notification_cleanup(current_user: dict[str, Any] = Depends(require_admin)):
+    start = perf_counter()
+    logger.info(
+        "notification cleanup job started",
+        extra={
+            "event": "jobs.notification_cleanup.start",
+            "job_name": "notification_cleanup",
+            "trigger": "admin",
+            "actor_user_id": current_user.get("id"),
+            "endpoint": "/admin/notifications/cleanup",
+            "method": "POST",
+        },
+    )
+    try:
+        result = cleanup_old_notifications(now=get_now())
+    except Exception as exc:
+        logger.exception(
+            "notification cleanup job failed",
+            extra={
+                "event": "jobs.notification_cleanup.failure",
+                "job_name": "notification_cleanup",
+                "trigger": "admin",
+                "actor_user_id": current_user.get("id"),
+                "endpoint": "/admin/notifications/cleanup",
+                "method": "POST",
+                "result": "failure",
+                "error_code": "SCHEDULED_JOB_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "execution_time_ms": round((perf_counter() - start) * 1000, 2),
+            },
+        )
+        raise
+
+    logger.info(
+        "notification cleanup job finished",
+        extra={
+            "event": "jobs.notification_cleanup.finish",
+            "job_name": "notification_cleanup",
+            "trigger": "admin",
+            "actor_user_id": current_user.get("id"),
+            "endpoint": "/admin/notifications/cleanup",
+            "method": "POST",
+            "result": "success",
+            "processed_count": result.get("deleted_count", 0),
+            "skipped_count": 0,
+            "failed_count": 0,
+            "deleted_count": result.get("deleted_count", 0),
+            "execution_time_ms": round((perf_counter() - start) * 1000, 2),
+        },
+    )
+    return result
 
 
 @router.post("/games/{game_id}/close")
@@ -620,20 +723,40 @@ def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requir
     )
     updated_game = response.data[0]
 
+    logger.info(
+        "game closed by admin",
+        extra={
+            "event": "games.close.success",
+            "endpoint": "/admin/games/{game_id}/close",
+            "method": "POST",
+            "actor_user_id": current_user.get("id"),
+            "game_id": game_id,
+            "field_id": updated_game.get("field_id"),
+            "closed_by_role": "admin",
+            "result": "success",
+        },
+    )
+
     try:
         create_game_closed_notifications(
             supabase=supabase,
             game=updated_game,
             closed_by_user_id=current_user["id"],
         )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.warning(
             "Failed to create game closed notifications after successful admin close",
             extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "game_closed",
                 "game_id": game_id,
-                "closed_by_user_id": current_user.get("id"),
+                "actor_user_id": current_user.get("id"),
                 "field_id": updated_game.get("field_id"),
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
             },
+            exc_info=True,
         )
 
     return {"message": "Game closed", "game": updated_game}
@@ -752,7 +875,13 @@ def cancel_admin_game(
     return {"message": "Game cancelled", "game": updated_game}
 
 
-def _update_field_approval(field_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+def _update_field_approval(
+    field_id: str,
+    updates: dict[str, Any],
+    *,
+    actor_user_id: str,
+    event: str,
+) -> dict[str, Any]:
     response = (
         get_supabase_client()
         .table("fields")
@@ -768,4 +897,22 @@ def _update_field_approval(field_id: str, updates: dict[str, Any]) -> dict[str, 
             message="Field not found",
         )
 
-    return response.data[0]
+    field = response.data[0]
+    logger.info(
+        "field moderation decision applied",
+        extra={
+            "event": event,
+            "endpoint": (
+                "/admin/fields/{field_id}/approve"
+                if updates.get("approval_status") == "approved"
+                else "/admin/fields/{field_id}/reject"
+            ),
+            "method": "POST",
+            "actor_user_id": actor_user_id,
+            "field_id": field_id,
+            "approval_status": updates.get("approval_status"),
+            "verified": updates.get("verified"),
+            "result": "success",
+        },
+    )
+    return field

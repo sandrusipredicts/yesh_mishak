@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import pytest
@@ -837,3 +838,62 @@ def test_admin_stats_rejects_regular_user(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected_event", "expected_status", "expected_verified"),
+    [
+        ("/admin/fields/field-1/approve", "fields.moderation.approve", "approved", True),
+        ("/admin/fields/field-1/reject", "fields.moderation.reject", "rejected", False),
+    ],
+)
+def test_admin_field_moderation_logs_decision(
+    monkeypatch,
+    caplog,
+    endpoint: str,
+    expected_event: str,
+    expected_status: str,
+    expected_verified: bool,
+) -> None:
+    configure_test_settings(monkeypatch)
+
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [
+                {
+                    "id": "field-1",
+                    "verified": False,
+                    "approval_status": "pending",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+
+    with caplog.at_level(logging.INFO, logger="app.api.admin"):
+        response = TestClient(app).post(
+            endpoint,
+            headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["approval_status"] == expected_status
+    assert response.json()["verified"] is expected_verified
+    moderation_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == expected_event
+    ]
+    assert moderation_records
+    assert moderation_records[-1].actor_user_id == admin_user["id"]
+    assert moderation_records[-1].field_id == "field-1"
+    assert moderation_records[-1].approval_status == expected_status

@@ -217,6 +217,20 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
         {"game_id": created_game["id"], "user_id": current_user["id"]}
     ).execute()
 
+    logger.info(
+        "game created",
+        extra={
+            "event": "games.create.success",
+            "endpoint": "/games/",
+            "method": "POST",
+            "user_id": current_user.get("id"),
+            "game_id": created_game.get("id"),
+            "field_id": created_game.get("field_id"),
+            "sport_type": created_game.get("sport_type"),
+            "result": "success",
+        },
+    )
+
     try:
         create_game_created_notifications(
             supabase=supabase,
@@ -224,14 +238,20 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
             field=field,
             organizer_id=current_user["id"],
         )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.warning(
             "Failed to create game_created notifications",
             extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "game_created",
                 "game_id": created_game.get("id"),
                 "field_id": created_game.get("field_id"),
-                "organizer_id": current_user.get("id"),
+                "user_id": current_user.get("id"),
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
             },
+            exc_info=True,
         )
 
     return {"message": "Game created", "game": created_game}
@@ -482,11 +502,39 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
         "Game not found",
     )
     if updated_game.get("status") != "finished":
+        logger.error(
+            "game close update did not persist",
+            extra={
+                "event": "games.close.failure",
+                "endpoint": "/games/{game_id}/close",
+                "method": "POST",
+                "user_id": current_user.get("id"),
+                "game_id": game_id,
+                "field_id": updated_game.get("field_id"),
+                "closed_by_role": "creator",
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "result": "failure",
+            },
+        )
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_SERVER_ERROR",
             message="Game close update did not persist",
         )
+
+    logger.info(
+        "game closed",
+        extra={
+            "event": "games.close.success",
+            "endpoint": "/games/{game_id}/close",
+            "method": "POST",
+            "user_id": current_user.get("id"),
+            "game_id": game_id,
+            "field_id": updated_game.get("field_id"),
+            "closed_by_role": "creator",
+            "result": "success",
+        },
+    )
 
     try:
         create_game_closed_notifications(
@@ -494,14 +542,20 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
             game=updated_game,
             closed_by_user_id=current_user["id"],
         )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.warning(
             "Failed to create game closed notifications after successful close",
             extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "game_closed",
                 "game_id": game_id,
-                "closed_by_user_id": current_user.get("id"),
+                "user_id": current_user.get("id"),
                 "field_id": updated_game.get("field_id"),
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
             },
+            exc_info=True,
         )
 
     return {"message": "Game closed", "game": updated_game}

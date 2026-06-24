@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,6 +10,7 @@ from app.errors import raise_api_error
 from app.services.content_moderation import validate_field_report
 
 router = APIRouter(prefix="/field-reports", tags=["field-reports"])
+logger = logging.getLogger(__name__)
 
 ALLOWED_FIELD_REPORT_CATEGORIES = {
     "wrong_location",
@@ -97,7 +99,20 @@ def create_field_report(
 
     try:
         response = get_supabase_client().table("field_reports").insert(data).execute()
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "field report creation failed",
+            extra={
+                "event": "field_reports.create.failure",
+                "endpoint": "/field-reports",
+                "method": "POST",
+                "user_id": current_user.get("id"),
+                "field_id": payload.field_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="DATABASE_ERROR",
@@ -111,5 +126,18 @@ def create_field_report(
             message="Failed to create field report",
         )
 
-    return {"message": "Field report created", "report": response.data[0]}
+    report = response.data[0]
+    logger.info(
+        "field report created",
+        extra={
+            "event": "field_reports.create.success",
+            "endpoint": "/field-reports",
+            "method": "POST",
+            "user_id": current_user.get("id"),
+            "field_id": report.get("field_id"),
+            "report_id": report.get("id"),
+            "result": "success",
+        },
+    )
+    return {"message": "Field report created", "report": report}
 

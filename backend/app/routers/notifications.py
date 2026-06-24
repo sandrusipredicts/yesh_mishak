@@ -204,6 +204,7 @@ def _send_push_to_tokens(
 ) -> dict[str, int]:
     sent = 0
     invalid_tokens = 0
+    notification_type = str((data or {}).get("type") or "unknown")
 
     for token_row in tokens:
         token = token_row.get("token")
@@ -212,16 +213,59 @@ def _send_push_to_tokens(
 
         try:
             result = send_fcm_notification(token, title, body, data)
-        except FirebaseConfigError:
+        except FirebaseConfigError as exc:
             if not suppress_config_error:
                 raise
+            logger.error(
+                "push notification configuration failure",
+                extra={
+                    "event": "notifications.push.failure",
+                    "notification_type": notification_type,
+                    "external_service": "firebase_fcm",
+                    "recipient_count": len(tokens),
+                    "sent_count": sent,
+                    "invalid_token_count": invalid_tokens,
+                    "error_code": "FIREBASE_CONFIG_ERROR",
+                    "exception_type": exc.__class__.__name__,
+                    "result": "failure",
+                },
+            )
             return {"sent": sent, "invalid_tokens": invalid_tokens}
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "push notification send failed",
+                extra={
+                    "event": "notifications.push.failure",
+                    "notification_type": notification_type,
+                    "external_service": "firebase_fcm",
+                    "recipient_count": len(tokens),
+                    "sent_count": sent,
+                    "invalid_token_count": invalid_tokens,
+                    "error_code": "PUSH_SEND_FAILED",
+                    "exception_type": exc.__class__.__name__,
+                    "result": "partial_failure",
+                },
+                exc_info=True,
+            )
             continue
 
         if result.get("invalid_token"):
             invalid_tokens += 1
             _delete_push_token(client, token)
+            logger.warning(
+                "invalid push token removed",
+                extra={
+                    "event": "notifications.push.failure",
+                    "notification_type": notification_type,
+                    "external_service": "firebase_fcm",
+                    "status_code": result.get("status_code"),
+                    "recipient_count": len(tokens),
+                    "sent_count": sent,
+                    "invalid_token_count": invalid_tokens,
+                    "error_code": "INVALID_PUSH_TOKEN",
+                    "result": "partial_failure",
+                },
+            )
         elif result.get("ok"):
             sent += 1
 
@@ -848,13 +892,20 @@ def generate_scheduled_game_reminders(
             _send_push_for_notifications(service_supabase, created_notifications)
             notifications.extend(created_notifications)
             processed_game_ids.append(game_id)
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.warning(
                 "Failed to process scheduled game reminder",
                 extra={
+                    "event": "jobs.scheduled_game_reminders.item_failure",
+                    "job_name": "scheduled_game_reminders",
+                    "notification_type": SCHEDULED_GAME_REMINDER_TYPE,
                     "game_id": game_id,
                     "field_id": game.get("field_id"),
+                    "error_code": "NOTIFICATION_GENERATION_FAILED",
+                    "exception_type": exc.__class__.__name__,
+                    "result": "partial_failure",
                 },
+                exc_info=True,
             )
             failed_game_ids.append(game_id)
             errors.append({"game_id": game_id, "error": "reminder processing failed"})
@@ -992,6 +1043,18 @@ def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
             suppress_config_error=False,
         )
     except FirebaseConfigError:
+        logger.error(
+            "test push failed because Firebase is not configured",
+            extra={
+                "event": "notifications.push.failure",
+                "notification_type": "test_push",
+                "external_service": "firebase_fcm",
+                "user_id": current_user.get("id"),
+                "recipient_count": len(tokens),
+                "error_code": "FIREBASE_CONFIG_ERROR",
+                "result": "failure",
+            },
+        )
         raise_api_error(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code="EXTERNAL_SERVICE_ERROR",
@@ -999,6 +1062,20 @@ def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
         )
 
     if result["sent"] == 0 and result["invalid_tokens"] == 0:
+        logger.error(
+            "test push could not be sent",
+            extra={
+                "event": "notifications.push.failure",
+                "notification_type": "test_push",
+                "external_service": "firebase_fcm",
+                "user_id": current_user.get("id"),
+                "recipient_count": len(tokens),
+                "sent_count": result["sent"],
+                "invalid_token_count": result["invalid_tokens"],
+                "error_code": "PUSH_SEND_FAILED",
+                "result": "failure",
+            },
+        )
         raise_api_error(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code="EXTERNAL_SERVICE_ERROR",

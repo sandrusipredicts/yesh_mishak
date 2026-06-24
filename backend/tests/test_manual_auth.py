@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -180,34 +181,56 @@ def test_register_rejects_password_mismatch(monkeypatch) -> None:
     assert err["message"] == "Passwords do not match"
 
 
-def test_login_accepts_valid_username_and_password(monkeypatch) -> None:
+def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     register_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
     TestClient(app).post("/auth/register", json=register_payload())
 
-    response = TestClient(app).post(
-        "/auth/login",
-        json={"username": "manual-user", "password": "strongpass123"},
-    )
+    with caplog.at_level(logging.INFO, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
 
     assert response.status_code == 200
     assert response.json()["user"]["username"] == "manual-user"
+    success_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.login.success"
+    ]
+    assert success_records
+    assert success_records[-1].auth_method == "password"
+    assert success_records[-1].user_id == response.json()["user"]["id"]
+    assert "manual@example.com" not in caplog.text
+    assert "strongpass123" not in caplog.text
 
 
-def test_login_rejects_wrong_password(monkeypatch) -> None:
+def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     TestClient(app).post("/auth/register", json=register_payload())
 
-    response = TestClient(app).post(
-        "/auth/login",
-        json={"username": "manual-user", "password": "wrongpass123"},
-    )
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "wrongpass123"},
+        )
 
     assert response.status_code == 401
     err = response.json()
     assert err["error"] is True
     assert err["code"] == "AUTH_INVALID"
     assert err["message"] == "Invalid username or password"
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.login.failure"
+    ]
+    assert failure_records
+    assert failure_records[-1].auth_method == "password"
+    assert failure_records[-1].error_code == "AUTH_INVALID"
+    assert "manual-user" not in caplog.text
+    assert "wrongpass123" not in caplog.text

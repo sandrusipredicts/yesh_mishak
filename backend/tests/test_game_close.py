@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -202,7 +203,7 @@ def freeze_game_time(monkeypatch, now: datetime) -> None:
     monkeypatch.setattr("app.routers.games.get_now", lambda: now)
 
 
-def test_create_current_game_without_scheduled_at_still_works(monkeypatch) -> None:
+def test_create_current_game_without_scheduled_at_still_works(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     now = datetime(2026, 6, 16, 18, 0, tzinfo=timezone.utc)
     freeze_game_time(monkeypatch, now)
@@ -216,22 +217,32 @@ def test_create_current_game_without_scheduled_at_still_works(monkeypatch) -> No
     }
     client = make_client(monkeypatch, tables)
 
-    response = client.post(
-        "/games/",
-        json={
-            "field_id": "field-1",
-            "sport_type": "football",
-            "players_present": 1,
-            "max_players": 5,
-        },
-        headers=auth_headers(creator),
-    )
+    with caplog.at_level(logging.INFO, logger="app.routers.games"):
+        response = client.post(
+            "/games/",
+            json={
+                "field_id": "field-1",
+                "sport_type": "football",
+                "players_present": 1,
+                "max_players": 5,
+            },
+            headers=auth_headers(creator),
+        )
 
     assert response.status_code == 200
     created_game = response.json()["game"]
     assert created_game["scheduled_at"] is None
     assert created_game["started_at"] == "2026-06-16T18:00:00+00:00"
     assert tables["game_players"][0]["user_id"] == creator["id"]
+    create_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "games.create.success"
+    ]
+    assert create_records
+    assert create_records[-1].game_id == created_game["id"]
+    assert create_records[-1].field_id == "field-1"
+    assert create_records[-1].user_id == creator["id"]
 
 
 def test_create_scheduled_game_in_future_works(monkeypatch) -> None:
@@ -447,7 +458,7 @@ def test_duplicate_exact_scheduled_game_is_rejected(monkeypatch) -> None:
     assert len(tables["games"]) == 1
 
 
-def test_game_creator_can_close_game(monkeypatch) -> None:
+def test_game_creator_can_close_game(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     creator = make_user("creator")
     tables = {
@@ -465,11 +476,21 @@ def test_game_creator_can_close_game(monkeypatch) -> None:
     }
     client = make_client(monkeypatch, tables)
 
-    response = client.post("/games/game-1/close", headers=auth_headers(creator))
+    with caplog.at_level(logging.INFO, logger="app.routers.games"):
+        response = client.post("/games/game-1/close", headers=auth_headers(creator))
 
     assert response.status_code == 200
     assert response.json()["game"]["status"] == "finished"
     assert tables["games"][0]["status"] == "finished"
+    close_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "games.close.success"
+    ]
+    assert close_records
+    assert close_records[-1].game_id == "game-1"
+    assert close_records[-1].user_id == creator["id"]
+    assert close_records[-1].closed_by_role == "creator"
 
 
 def test_non_creator_cannot_close_game(monkeypatch) -> None:

@@ -883,6 +883,7 @@ def test_test_push_firebase_config_error_returns_clean_api_error(
     fake_supabase: FakeSupabase,
     monkeypatch,
     users: dict[str, dict[str, Any]],
+    caplog,
 ) -> None:
     fake_supabase.tables["push_tokens"] = [
         {"id": "own-token", "user_id": users["candidate"]["id"], "token": "own-token"},
@@ -895,16 +896,26 @@ def test_test_push_firebase_config_error_returns_clean_api_error(
 
     monkeypatch.setattr("app.routers.notifications.send_fcm_notification", failing_send)
 
-    response = TestClient(app).post(
-        "/notifications/test-push",
-        headers=auth_headers(users["candidate"]),
-    )
+    with caplog.at_level(logging.ERROR, logger="app.routers.notifications"):
+        response = TestClient(app).post(
+            "/notifications/test-push",
+            headers=auth_headers(users["candidate"]),
+        )
 
     assert response.status_code == 502
     err = response.json()
     assert err["error"] is True
     assert err["code"] == "EXTERNAL_SERVICE_ERROR"
     assert err["message"] == "Firebase push service configuration error"
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "notifications.push.failure"
+    ]
+    assert len(failure_records) == 1
+    assert failure_records[-1].notification_type == "test_push"
+    assert failure_records[-1].error_code == "FIREBASE_CONFIG_ERROR"
+    assert "own-token" not in caplog.text
 
 
 
@@ -2127,6 +2138,7 @@ def test_admin_scheduled_reminder_runner_uses_service_role_for_internal_tables(
     fake_supabase: FakeSupabase,
     monkeypatch,
     users: dict[str, dict[str, Any]],
+    caplog,
 ) -> None:
     game = make_scheduled_game(users)
     fake_supabase.tables["games"] = [game]
@@ -2149,10 +2161,11 @@ def test_admin_scheduled_reminder_runner_uses_service_role_for_internal_tables(
         ),
     )
 
-    response = TestClient(app).post(
-        "/admin/reminders/scheduled-games/run",
-        headers=auth_headers(users["admin"]),
-    )
+    with caplog.at_level(logging.INFO, logger="app.api.admin"):
+        response = TestClient(app).post(
+            "/admin/reminders/scheduled-games/run",
+            headers=auth_headers(users["admin"]),
+        )
 
     assert response.status_code == 200
     assert response.json()["notifications_created"] == 1
@@ -2160,6 +2173,17 @@ def test_admin_scheduled_reminder_runner_uses_service_role_for_internal_tables(
     assert fake_supabase.tables["games"][0]["scheduled_reminder_processed_at"] == (
         "2026-06-22T19:00:00+00:00"
     )
+    events = [getattr(record, "event", None) for record in caplog.records]
+    assert "jobs.scheduled_game_reminders.start" in events
+    assert "jobs.scheduled_game_reminders.finish" in events
+    finish_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "jobs.scheduled_game_reminders.finish"
+    )
+    assert finish_record.actor_user_id == users["admin"]["id"]
+    assert finish_record.notifications_created == 1
+    assert finish_record.failed_count == 0
 
 
 def test_no_participants_marks_scheduled_game_reminder_processed_without_notifications(
@@ -2187,6 +2211,7 @@ def test_push_failure_does_not_block_scheduled_game_reminder_creation(
     fake_supabase: FakeSupabase,
     monkeypatch,
     users: dict[str, dict[str, Any]],
+    caplog,
 ) -> None:
     game = make_scheduled_game(users)
     fake_supabase.tables["games"] = [game]
@@ -2200,13 +2225,23 @@ def test_push_failure_does_not_block_scheduled_game_reminder_creation(
 
     monkeypatch.setattr("app.routers.notifications.send_fcm_notification", fail_push)
 
-    result = run_scheduled_reminders(
-        fake_supabase,
-        datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
-    )
+    with caplog.at_level(logging.WARNING, logger="app.routers.notifications"):
+        result = run_scheduled_reminders(
+            fake_supabase,
+            datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
+        )
 
     assert result["notifications_created"] == 1
     assert len(scheduled_game_reminder_notifications(fake_supabase)) == 1
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "notifications.push.failure"
+    ]
+    assert failure_records
+    assert failure_records[-1].notification_type == "scheduled_game_reminder"
+    assert failure_records[-1].error_code == "PUSH_SEND_FAILED"
+    assert "bad-token" not in caplog.text
 
 
 def test_scheduled_game_reminder_visible_to_recipient_via_get_notifications(
@@ -2495,7 +2530,7 @@ def test_join_game_succeeds_when_player_joined_notification_fails(
     )
 
     client = TestClient(app)
-    caplog.set_level(logging.ERROR, logger="app.routers.games")
+    caplog.set_level(logging.WARNING, logger="app.routers.games")
 
     join_response = client.post(
         "/games/00000000-0000-0000-0000-000000000301/join",
@@ -2679,7 +2714,7 @@ def test_game_creation_notification_failure_is_logged(
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("template boom")),
     )
 
-    with caplog.at_level(logging.ERROR, logger="app.routers.games"):
+    with caplog.at_level(logging.WARNING, logger="app.routers.games"):
         response = TestClient(app).post(
             "/games/",
             json={
@@ -2696,6 +2731,14 @@ def test_game_creation_notification_failure_is_logged(
         "Failed to create game_created notifications" in record.message
         for record in caplog.records
     )
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "notifications.generate.failure"
+    ]
+    assert failure_records
+    assert failure_records[-1].notification_type == "game_created"
+    assert failure_records[-1].error_code == "NOTIFICATION_GENERATION_FAILED"
 
 
 def test_scheduled_reminder_batch_continues_after_one_game_fails(
@@ -2820,7 +2863,7 @@ def test_scheduled_reminder_failure_is_logged(
 
     monkeypatch.setattr(FakeQuery, "insert", failing_insert)
 
-    with caplog.at_level(logging.ERROR, logger="app.routers.notifications"):
+    with caplog.at_level(logging.WARNING, logger="app.routers.notifications"):
         result = run_scheduled_reminders(
             fake_supabase,
             datetime(2026, 6, 22, 19, 0, tzinfo=timezone.utc),
@@ -2831,6 +2874,14 @@ def test_scheduled_reminder_failure_is_logged(
         "Failed to process scheduled game reminder" in record.message
         for record in caplog.records
     )
+    item_failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "jobs.scheduled_game_reminders.item_failure"
+    ]
+    assert item_failure_records
+    assert item_failure_records[-1].job_name == "scheduled_game_reminders"
+    assert item_failure_records[-1].notification_type == "scheduled_game_reminder"
 
 
 def test_scheduled_reminder_result_shape_includes_failure_fields(

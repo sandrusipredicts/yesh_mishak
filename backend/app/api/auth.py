@@ -85,32 +85,80 @@ def _ensure_unique(column: str, value: str, message: str) -> None:
 def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
     try:
         get_supabase_client().table("users").update({"last_login": _now_iso()}).eq("id", user_id).execute()
-        logger.info("google_login[%s] users.last_login updated user_id=%s", attempt_id, user_id)
+        logger.info(
+            "auth last_login update succeeded",
+            extra={
+                "event": "auth.last_login.success",
+                "auth_method": attempt_id,
+                "user_id": user_id,
+                "endpoint": "/auth/login" if attempt_id == "password" else "/auth/google",
+                "method": "POST",
+                "result": "success",
+            },
+        )
     except Exception as exc:
         logger.warning(
-            "google_login[%s] users.last_login update failed but login will continue user_id=%s error=%r",
-            attempt_id,
-            user_id,
-            exc,
+            "auth last_login update failed but login will continue",
+            extra={
+                "event": "auth.last_login.failure",
+                "auth_method": attempt_id,
+                "user_id": user_id,
+                "endpoint": "/auth/login" if attempt_id == "password" else "/auth/google",
+                "method": "POST",
+                "result": "partial_failure",
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+            },
         )
 
 
 @router.post("/google", response_model=TokenResponse)
 def google_login(payload: GoogleAuthRequest) -> TokenResponse:
     attempt_id = uuid4().hex[:10]
-    logger.info("google_login[%s] request started", attempt_id)
-    google_user = verify_google_token(payload.token, attempt_id=attempt_id)
-    user = find_or_create_google_user(google_user, attempt_id=attempt_id)
+    logger.info(
+        "google login request started",
+        extra={
+            "event": "auth.login.start",
+            "auth_method": "google",
+            "endpoint": "/auth/google",
+            "method": "POST",
+            "attempt_id": attempt_id,
+        },
+    )
+    try:
+        google_user = verify_google_token(payload.token, attempt_id=attempt_id)
+        user = find_or_create_google_user(google_user, attempt_id=attempt_id)
+    except HTTPException as exc:
+        logger.warning(
+            "google login failed",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "google",
+                "endpoint": "/auth/google",
+                "method": "POST",
+                "status_code": exc.status_code,
+                "error_code": "AUTH_INVALID" if exc.status_code == status.HTTP_401_UNAUTHORIZED else "AUTH_FAILURE",
+                "attempt_id": attempt_id,
+                "result": "failure",
+            },
+        )
+        raise
 
     _update_last_login(str(user["id"]), attempt_id=attempt_id)
     token_response = _create_token_response(user)
     logger.info(
-        "google_login[%s] login succeeded user_id=%s email=%s username_is_null=%s phone_is_null=%s",
-        attempt_id,
-        token_response.user.id,
-        token_response.user.email,
-        token_response.user.username is None,
-        token_response.user.phone_number is None,
+        "google login succeeded",
+        extra={
+            "event": "auth.login.success",
+            "auth_method": "google",
+            "endpoint": "/auth/google",
+            "method": "POST",
+            "user_id": token_response.user.id,
+            "attempt_id": attempt_id,
+            "result": "success",
+            "username_is_null": token_response.user.username is None,
+            "phone_is_null": token_response.user.phone_number is None,
+        },
     )
     return token_response
 
@@ -152,6 +200,18 @@ def register(payload: RegisterRequest) -> TokenResponse:
 def login(payload: LoginRequest) -> TokenResponse:
     user = _get_user_by_column("username", payload.username)
     if not user or not verify_password(payload.password, user.get("password_hash")):
+        logger.warning(
+            "password login failed",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "password",
+                "endpoint": "/auth/login",
+                "method": "POST",
+                "status_code": status.HTTP_401_UNAUTHORIZED,
+                "error_code": "AUTH_INVALID",
+                "result": "failure",
+            },
+        )
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_INVALID",
@@ -159,7 +219,19 @@ def login(payload: LoginRequest) -> TokenResponse:
         )
 
     _update_last_login(str(user["id"]), attempt_id="password")
-    return _create_token_response(user)
+    token_response = _create_token_response(user)
+    logger.info(
+        "password login succeeded",
+        extra={
+            "event": "auth.login.success",
+            "auth_method": "password",
+            "endpoint": "/auth/login",
+            "method": "POST",
+            "user_id": token_response.user.id,
+            "result": "success",
+        },
+    )
+    return token_response
 
 
 @router.post("/check-username", response_model=AvailabilityResponse)
