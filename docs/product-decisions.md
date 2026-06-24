@@ -8683,3 +8683,96 @@ No backend runtime, frontend runtime, database, migration, endpoint, notificatio
 5. **Email infrastructure** — when email is added for any purpose, include broadcast capability for security and outage notifications.
 6. **Communication drill** — include communication steps in the ISSUE-071 incident response drill.
 
+---
+
+# ISSUE-073: Performance Baseline Report
+
+## Status
+
+Approved.
+
+## Type
+
+Measurement / documentation.
+
+## Goal
+
+Create an official performance baseline report for future comparison.
+
+## Environment Description
+
+- **Local Development System:** Windows 10/11 x64
+- **Backend Environment:** Python 3.12, FastAPI, TestClient, FakeSupabase (in-memory mock database, no network/database latency)
+- **Frontend Environment:** React, Vite, Playwright Test runner (Chromium headless, mock APIs to isolate frontend latency)
+
+## Measurement Methodology
+
+### Frontend:
+- **Command/Tool:** Playwright Test Runner (Chromium headless).
+- **Location:** [baseline.spec.js](file:///c:/Users/orel1/yesh_mishak/frontend/tests/performance/baseline.spec.js).
+- **Method:** 
+  - **Initial App Load:** Navigate to `/` and measure duration from navigation start to the presence of the `.auth-toolbar` element (with a pre-seeded authenticated user session to direct the load straight to the Map page).
+  - **Map Load:** Navigate to `/` and measure duration from navigation start to the rendering of the first `.field-marker-icon` element on the map canvas.
+  - **Field Panel Open:** Select a field marker, perform a `.click({ force: true })`, and measure the duration from click start to the presence of the `.field-details-panel` element.
+  - **Notification Load:** Perform a `.click()` on the floating notification bell button and measure the duration from click start to the presence of the `.notifications-modal` container.
+  - **Runs:** 20 iterations.
+
+### Backend:
+- **Command/Tool:** FastAPI `TestClient` benchmark script.
+- **Location:** [benchmark_endpoints.py](file:///c:/Users/orel1/yesh_mishak/backend/scripts/benchmark_endpoints.py).
+- **Method:** 
+  - **GET /fields:** Repeatedly invoke `GET /fields` with no authorization headers, retrieving a mocked list of 50 fields.
+  - **GET /games/active:** Repeatedly invoke `GET /games/active` with no authorization headers, retrieving active games on the mock database.
+  - **Login:** Repeatedly invoke `POST /auth/login` with a JSON payload containing `{"username": "benchuser", "password": "password"}`. This triggers a real bcrypt password verification against a pre-hashed password, introducing realistic CPU hashing cost.
+  - **Create Game:** Repeatedly invoke `POST /games/` with a valid JSON payload creating a football game. A `reset_supabase()` function is called before each run to restore the database to a clean initial state, ensuring each request successfully returns status 200 (created) instead of 400 (conflict).
+  - **Runs:** 20 iterations.
+
+## Frontend Performance Results
+
+| Metric | Target | Runs | Min (ms) | Avg (ms) | Median (ms) | P95 (ms) | Max (ms) | Notes/Limitations |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Initial App Load** | Local (Vite Dev) | 20 | 214 | 269 | 255 | 314 | 470 | Isolated frontend rendering; Leaflet tile requests aborted. |
+| **Map Load** | Local (Vite Dev) | 20 | 223 | 283 | 269 | 329 | 494 | Includes fetching fields and rendering 50 Leaflet markers. |
+| **Field Panel Open** | Local (Vite Dev) | 20 | 23 | 31 | 31 | 39 | 57 | Pure CSS and React render time of the aside drawer. |
+| **Notification Load** | Local (Vite Dev) | 20 | 73 | 85 | 83 | 100 | 122 | Modal open transition + rendering 30 notification items. |
+
+## Backend Performance Results
+
+| Endpoint | Target | Runs | Min (ms) | Avg (ms) | Median (ms) | P95 (ms) | Max (ms) | Notes/Limitations |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **GET /fields** | Local (FakeSupabase) | 20 | 12.3 | 14.8 | 14.2 | 15.9 | 25.3 | In-memory lookup, returns 50 mock fields. |
+| **GET /games/active** | Local (FakeSupabase) | 20 | 7.0 | 7.8 | 7.6 | 8.8 | 8.9 | In-memory lookup and filtration of active games. |
+| **POST /auth/login** | Local (FakeSupabase) | 20 | 256.4 | 273.2 | 261.8 | 312.6 | 314.8 | Includes full bcrypt hashing process (CPU-bound bottleneck). |
+| **POST /games/** | Local (FakeSupabase) | 20 | 6.5 | 9.2 | 9.5 | 11.7 | 13.2 | Successful creation on a clean field, notifications generated. |
+
+## Limitations
+
+- **Mocked DB & Network:** The backend measurements use `FakeSupabase` and `TestClient` (in-process calls). Real production database query latencies (Supabase PostgREST + Postgres connection pool) and network round-trip times are excluded.
+- **Frontend Assets Mocking:** Leaflet map tiles are aborted during the Playwright test run to isolate app performance. Real-world tile loading adds asset fetching latency.
+- **Hardware Dependency:** Measurements depend on the CPU and memory performance of the host running the test.
+
+## Recommended Future Thresholds
+
+- **Initial App Load (production):** Average < 1500ms (accounting for production network and tile loading).
+- **Map Load (production):** Average < 2000ms.
+- **Field Panel Open:** Average < 100ms.
+- **Notification Load:** Average < 200ms.
+- **GET /fields:** Average < 250ms (real DB/network).
+- **GET /games/active:** Average < 250ms (real DB/network).
+- **POST /auth/login:** Average < 450ms (bcrypt is intentionally slow but should remain under 500ms).
+- **POST /games/:** Average < 400ms (accounting for notification generation and DB writes).
+
+## Follow-up Optimization Candidates
+
+1. **Bcrypt Salt Rounds:** `bcrypt.gensalt()` uses the default rounds (12). This represents >90% of the `POST /auth/login` latency (~260ms CPU time). While secure, this is a CPU bottleneck. Ensure hosting environments have sufficient CPU or consider offloading auth to Supabase Auth which runs asynchronously/externally.
+2. **GET /fields Payload and Filtration:** As the number of fields grows, `GET /fields` returns all fields. In-memory serialisation takes ~15ms for 50 fields. We should enforce spatial bounding box filtering (already supported in the router parameters) to keep payload sizes small.
+
+---
+
+## Files Modified
+
+- [product-decisions.md](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md) — Appended ISSUE-073 performance baseline report.
+- [benchmark_endpoints.py](file:///c:/Users/orel1/yesh_mishak/backend/scripts/benchmark_endpoints.py) — Updated to include all requested endpoints with repeatable stats and database reset capability.
+- [baseline.spec.js](file:///c:/Users/orel1/yesh_mishak/frontend/tests/performance/baseline.spec.js) [NEW] — Playwright test script to automate repeatable frontend measurements.
+
+
