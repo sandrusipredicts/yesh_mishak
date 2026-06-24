@@ -9325,4 +9325,836 @@ No backend runtime, frontend runtime, database, migration, endpoint, caching, in
 3. **Phase 2 metrics middleware** — implement per-request latency recording to enable continuous SLA monitoring and automated alerting per ISSUE-069.
 4. **Post-deployment measurement automation** — integrate `measure_production_api.py` into the deployment process or CI.
 
+# ISSUE-076: Database Query Performance Audit
+
+## Status
+
+Approved.
+
+## Type
+
+Audit / documentation.
+
+## Goal
+
+Audit every database query path across the backend to identify performance risks, N+1 patterns, unbounded queries, missing pagination, Python-side filtering, fan-out patterns, and payload growth risks. All findings are grounded in actual code review — no assumptions.
+
+This is documentation only. No code, indexes, caching, queries, migrations, endpoints, or application behavior were changed.
+
+## Policy References
+
+* ISSUE-073: Performance Baseline Report — local measurements (FakeSupabase/TestClient).
+* ISSUE-074: Production API Response Times — real production measurements.
+* ISSUE-075: API Performance Thresholds — Class A/B/C thresholds, SLA definitions.
+
+## Audit Scope
+
+### Files Reviewed
+
+| File | Tables accessed |
+| --- | --- |
+| `backend/app/routers/fields.py` | fields |
+| `backend/app/routers/games.py` | games, game_players, fields |
+| `backend/app/routers/game_payloads.py` | games, game_players, users |
+| `backend/app/routers/game_lifecycle.py` | games |
+| `backend/app/routers/notifications.py` | notifications, notification_preferences, push_tokens, game_players, fields, games |
+| `backend/app/routers/field_reports.py` | field_reports, fields |
+| `backend/app/api/admin.py` | fields, games, game_players, users, field_reports, notifications, user_moderation_audit |
+| `backend/app/api/auth.py` | users |
+| `backend/app/auth/google.py` | users |
+| `backend/app/auth/dependencies.py` | users |
+
+### Supabase Query Method Usage
+
+Validated by grep across `backend/app/`:
+
+| Method | Occurrences | Files |
+| --- | --- | --- |
+| `.table(` | 105 | 10 files |
+| `.select(` | present in all query files |
+| `.eq(` | most common filter |
+| `.in_(` | used for batch lookups (game_payloads, notifications, admin) |
+| `.range(` | only in `fields.py` GET /fields pagination loop |
+| `.order(` | notifications, admin listings, games |
+| `.limit(` | single-row lookups, admin finished games |
+| `.execute()` | every query path |
+
+---
+
+## 1. Query Inventory
+
+### 1.1 Fields
+
+#### GET /fields — `fields.py:78` get_fields()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields, games, game_players, users |
+| Supabase calls | **Minimum 4, unbounded maximum** (see Section 8) |
+| Sequential or batched | Sequential pagination loop + batched game lookups |
+| Pagination | Yes — `FIELDS_PAGE_SIZE = 1000`, client-side accumulation loop |
+| Filtering | DB-side: `verified=True`, `approval_status=approved`, `status=open` |
+| N+1 pattern | No per-field N+1 — uses batched `get_game_payloads_for_fields()` |
+| Data volume risk | **Critical** — fetches ALL approved fields, no spatial/viewport filtering |
+| Index risk | High — composite index on (verified, approval_status, status) likely needed |
+| Response payload risk | **Critical** — returns all fields with full game + participant data |
+| User-facing | Yes — called on every app open |
+| Risk level | **Critical** |
+| Recommendation | Add spatial bounding-box filter, increase page size or use single query, consider lazy game loading |
+| Follow-up required | **Yes — P1** |
+
+**Query chain:**
+1. `fields.select("*").eq("verified", True).eq("approval_status", "approved").eq("status", "open").range(offset, offset+999)` — repeated in loop until page < 1000
+2. `get_game_payloads_for_fields(field_ids)` → calls `_get_active_status_games_for_fields()`:
+   - `games.select("*").in_("field_id", batch).in_("status", ["open","full"])` — batched by 100 field IDs
+3. `finish_expired_games()` — may call `games.update({"status":"finished"}).eq("id", game_id)` per expired game (sequential writes)
+4. `attach_participants_to_games()`:
+   - `game_players.select("game_id,user_id").in_("game_id", batch)` — batched by 100
+   - `users.select("id,username,name").in_("id", batch)` — batched by 100
+
+#### GET /fields/{id} — `fields.py:113` get_field()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields, games, game_players, users |
+| Supabase calls | 4 minimum (field lookup + game payloads for 1 field) |
+| Sequential or batched | Sequential |
+| Pagination | No — single field |
+| Filtering | DB-side: `id = field_id` |
+| N+1 pattern | No |
+| Data volume risk | Low — single field |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### POST /fields — `fields.py:131` create_field()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields |
+| Supabase calls | 1 (insert) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### PATCH /fields/{id}/status — `fields.py:175` update_field_status()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields |
+| Supabase calls | 1 (update + eq) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+---
+
+### 1.2 Games
+
+#### GET /games/active — `games.py:260` get_active_games()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, users |
+| Supabase calls | 3+ (games query, then attach_participants batches) |
+| Sequential or batched | Sequential: fetch all → filter → attach participants |
+| Pagination | **No** — fetches ALL games with active status |
+| Filtering | DB-side: `status IN ("open","full")`. Python-side: `is_game_started()` filter, `finish_expired_games()` |
+| N+1 pattern | No — batched participant lookup |
+| Data volume risk | **Medium** — grows with concurrent active games, but active games are naturally bounded (games expire after 2h) |
+| Index risk | Medium — index on `status` column would help |
+| Response payload risk | Medium — includes full participant list per game |
+| User-facing | Yes |
+| Risk level | **Medium** |
+| Recommendation | Add `.order("started_at", desc=True).limit(N)` for safety; active games are naturally bounded but no hard cap exists |
+| Follow-up required | No (acceptable for now, monitor) |
+
+**Note:** `finish_expired_games()` performs **sequential write-back** — for each expired game found, it calls `games.update({"status":"finished"}).eq("id", game_id)`. If many games expire simultaneously (e.g., after a server outage), this creates N sequential Supabase calls.
+
+#### GET /games/upcoming — `games.py:277` get_upcoming_games()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, users |
+| Supabase calls | 3+ (same pattern as /active) |
+| Pagination | **No** — fetches ALL active-status games, filters in Python |
+| Filtering | DB-side: `status IN ("open","full")`. Python-side: `is_game_upcoming()` |
+| Data volume risk | Medium — same as /active |
+| Risk level | **Medium** |
+| Recommendation | Same as /active |
+| Follow-up required | No |
+
+**Shared query inefficiency:** Both `/active` and `/upcoming` execute the same `games.select("*").in_("status", ACTIVE_GAME_STATUSES)` query and then split results in Python. A single endpoint calling this query once and splitting would halve the DB calls if the frontend fetches both.
+
+#### GET /games/me — `games.py:296` get_my_games()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | game_players, games, fields, users |
+| Supabase calls | **5–8 minimum** |
+| Sequential or batched | Sequential chain |
+| Pagination | **No** — fetches ALL games the user ever created or joined |
+| Filtering | DB-side: `user_id` for game_players, `created_by` for games. Python-side: status categorization |
+| N+1 pattern | No — batched field name and participant lookups |
+| Data volume risk | **High** — grows linearly with user's game history (no limit on past/cancelled games returned) |
+| Response payload risk | **High** — returns 4 arrays (active, upcoming, past, cancelled) each with field names and full participant lists |
+| User-facing | Yes |
+| Risk level | **High** |
+| Recommendation | Add pagination/limit to past and cancelled game arrays, or add a `limit` query parameter |
+| Follow-up required | **Yes** |
+
+**Query chain:**
+1. `game_players.select("game_id").eq("user_id", user_id)` — all game memberships
+2. `games.select("*").eq("created_by", user_id)` — all created games (unbounded)
+3. `games.select("*").in_("id", participant_game_ids)` — all joined games (unbounded, batched by Supabase limit)
+4. `_attach_field_names()` → `fields.select("id,name").in_("id", field_ids)` — batched
+5. `attach_participants_to_games()` → `game_players` + `users` batched lookups (×4 categories)
+
+#### POST /games/ — `games.py:91` create_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields, games, game_players, notification_preferences, notifications, push_tokens |
+| Supabase calls | **6+ minimum** (field lookup, existing games check, insert game, insert game_player, notification generation) |
+| Sequential or batched | Sequential |
+| N+1 pattern | **Yes in notification path** — `_find_notification_candidates()` fetches ALL enabled notification_preferences and filters in Python (see Section 4) |
+| Data volume risk | Medium |
+| Risk level | **Medium** |
+| Recommendation | Notification candidate filtering should move to DB-side |
+| Follow-up required | Yes (as part of notification optimization) |
+
+#### POST /games/{id}/join — `games.py:381` join_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, fields, notifications, push_tokens |
+| Supabase calls | 4+ (game lookup, RPC join_game_atomic, field lookup for notification, notification insert + push) |
+| Risk level | **Low** — single-game operation |
+| Follow-up required | No |
+
+#### POST /games/{id}/leave — `games.py:445` leave_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players |
+| Supabase calls | 4 (game lookup, membership check, delete membership, update game) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### POST /games/{id}/close — `games.py:479` close_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, fields, notifications, push_tokens |
+| Supabase calls | 5+ (game lookup, update, notification generation with participant lookup + field lookup + dedup check + insert + push) |
+| N+1 pattern | Push notifications sent **per-user sequentially** via `_send_push_to_tokens()` loop |
+| Risk level | **Medium** |
+| Recommendation | Batch push sending if participant count grows |
+| Follow-up required | No (acceptable for current scale) |
+
+#### POST /games/{id}/extend — `games.py:564` extend_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, notifications, push_tokens |
+| Supabase calls | 5+ |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### POST /games/{id}/cancel — `games.py:606` cancel_game()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, fields, notifications, push_tokens |
+| Supabase calls | 5+ |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+---
+
+### 1.3 Notifications
+
+#### GET /notifications — `notifications.py:923` get_notifications()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notifications |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL notifications for user, ordered by created_at desc |
+| Data volume risk | **High** — grows unbounded over time per user (90-day retention, but could be thousands) |
+| Response payload risk | **High** — returns full notification objects with no limit |
+| User-facing | Yes |
+| Risk level | **High** |
+| Recommendation | Add `.limit(N)` and pagination support; consider cursor-based pagination |
+| Follow-up required | **Yes** |
+
+#### GET /notifications/unread-count — `notifications.py:937` get_unread_notification_count()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notifications |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL user notifications, counts unread in Python |
+| Filtering | DB-side: `user_id`. **Python-side: unread check** |
+| Data volume risk | **High** — fetches all notifications just to count unread ones |
+| User-facing | Yes — **polled every 20s in production** |
+| Risk level | **High** |
+| Recommendation | Use `.eq("read_at", None)` (or `.is_("read_at", "null")`) with `count="exact"` instead of fetching all rows. Current implementation transfers all notification data over the network every 20 seconds just to count. |
+| Follow-up required | **Yes — P2** |
+
+**This is the second-most impactful query inefficiency after GET /fields.** Every active user triggers a full table scan of their notifications every 20 seconds. With 90-day retention, a user with 500 notifications transfers ~500 full notification objects 3 times per minute.
+
+#### POST /notifications/push-token — `notifications.py:951` save_push_token()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | push_tokens |
+| Supabase calls | 2 (check existing + upsert) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### DELETE /notifications/push-token — `notifications.py:990` delete_push_token()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | push_tokens |
+| Supabase calls | 1 |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### POST /notifications/test-push — `notifications.py:1016` send_test_push()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | push_tokens |
+| Supabase calls | 1 + per-token push calls |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### PATCH /notifications/read-all — `notifications.py:1088` mark_all_notifications_read()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notifications |
+| Supabase calls | 2 (fetch all to detect schema, then bulk update) |
+| Filtering | Fetches ALL user notifications to detect column schema, then updates unread ones |
+| Risk level | **Medium** — unnecessary full fetch for schema detection |
+| Recommendation | Cache or probe schema once at startup instead of per-request |
+| Follow-up required | No (not a hot path) |
+
+#### PATCH /notifications/{id}/read — `notifications.py:1126` mark_notification_read()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notifications |
+| Supabase calls | 2 (fetch + update) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### GET /notifications/preferences — `notifications.py:1162` get_preferences()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notification_preferences |
+| Supabase calls | 1 |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### PUT /notifications/preferences — `notifications.py:1321` save_preferences()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notification_preferences |
+| Supabase calls | 3–10+ depending on path (settings mode: fetch existing + upsert radius + upsert city + per-field upserts + delete stale) |
+| Risk level | **Low** — infrequent user action |
+| Follow-up required | No |
+
+#### _find_notification_candidates() — `notifications.py:320`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notification_preferences |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL enabled notification_preferences globally |
+| Filtering | DB-side: `enabled=True` only. **All sport_type, location, city, radius, field matching happens in Python** |
+| Data volume risk | **Critical** — grows with total user count × preferences per user. Every preference row for every user is loaded on every game creation. |
+| Risk level | **High** |
+| Recommendation | Move filtering to DB-side: add sport_type filter, add field_id filter for specific_field type, use PostGIS or bounding box for radius |
+| Follow-up required | **Yes — P2** |
+
+#### generate_scheduled_game_reminders() — `notifications.py:810`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, notifications, game_players, push_tokens |
+| Supabase calls | **1 + 4 per eligible game** (existing reminders check, participant lookup, insert, mark processed, push) |
+| Sequential or batched | Sequential per-game loop |
+| N+1 pattern | **Yes** — per-game: check existing reminders, get participants, insert notifications, mark processed |
+| Data volume risk | Medium — bounded by number of scheduled games within reminder window |
+| Risk level | **Medium** |
+| Recommendation | Batch the per-game queries if scheduled games grow significantly |
+| Follow-up required | No (admin-triggered, infrequent) |
+
+#### cleanup_old_notifications() — `notifications.py:1422`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | notifications |
+| Supabase calls | 2 (select old IDs + delete by IDs) |
+| Data volume risk | Medium — selects all IDs older than 90 days, could be large |
+| Risk level | **Medium** |
+| Recommendation | Consider batched deletion if notification volume grows |
+| Follow-up required | No |
+
+---
+
+### 1.4 Users / Auth
+
+#### POST /auth/login — `auth.py:199` login()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users |
+| Supabase calls | 2 (user lookup by username + update last_login) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### POST /auth/google — `auth.py:115` google_login()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users |
+| Supabase calls | 2–4 (user lookup + optional debug lookup + optional insert + update last_login) |
+| Note | `_log_google_user_lookup_debug()` performs an extra `users.select("*").eq("email", email)` query every Google login for debug logging. This is unnecessary in production. |
+| Risk level | **Low** (but wasteful debug query) |
+| Recommendation | Remove or conditionalize `_log_google_user_lookup_debug()` in production |
+| Follow-up required | No (minor optimization) |
+
+#### POST /auth/register — `auth.py:166` register()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users |
+| Supabase calls | 4 (3 uniqueness checks + 1 insert) |
+| Note | Three sequential uniqueness checks: username, email, phone_number. Could be a single query. |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### Auth dependency: get_current_user() — `dependencies.py:13`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users |
+| Supabase calls | 1 per authenticated request |
+| Note | Called on EVERY authenticated endpoint. Single indexed lookup by `id`. |
+| Risk level | **Low** — single row by primary key |
+| Follow-up required | No |
+
+---
+
+### 1.5 Field Reports
+
+#### POST /field-reports — `field_reports.py:71` create_field_report()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields, field_reports |
+| Supabase calls | 2 (field existence check + insert) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+---
+
+### 1.6 Admin
+
+#### GET /admin/stats — `admin.py:410` get_admin_stats()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields, games, users |
+| Supabase calls | **6** (verified_fields, pending_fields, active_games, total_users, rejected_fields, finished_games) |
+| Sequential or batched | All 6 are sequential |
+| Note | `active_games` count calls `_count_rows_in()` which for active games fetches ALL active games with `select("*")` to run `finish_expired_games()`. This is a full table scan + potential writes. |
+| Risk level | **Medium** |
+| Recommendation | Consider a simpler count query for the stats dashboard that doesn't trigger expiry processing |
+| Follow-up required | No (admin-only, low frequency) |
+
+#### GET /admin/monitoring — `admin.py:921` get_monitoring()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, users, fields, notifications |
+| Supabase calls | **8+** (active_games via _count_rows_in, users_24h, users_7d, total_users, pending_fields, recent_notifications, unread_notifications, db_health_check) |
+| Sequential or batched | All sequential |
+| Filtering | DB-side for time ranges. `unread_notifications` uses `.is_("read_at", "null")` which is correct but returns all IDs — could use `count="exact"` instead. |
+| Risk level | **Medium** |
+| Recommendation | Use `count="exact"` for counts instead of fetching rows and counting in Python |
+| Follow-up required | No (admin-only) |
+
+#### GET /admin/users — `admin.py:139` get_admin_users()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL users |
+| Data volume risk | **High** — grows with total registered users, no limit |
+| Risk level | **Medium** (admin-only) |
+| Recommendation | Add pagination |
+| Follow-up required | No (admin-only, but should be addressed when user count grows) |
+
+#### GET /admin/fields — `admin.py:425` get_admin_fields()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL fields |
+| Data volume risk | Medium |
+| Risk level | **Low** (admin-only) |
+| Follow-up required | No |
+
+#### GET /admin/fields/pending — `admin.py:437` get_pending_fields()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields |
+| Supabase calls | 1 |
+| Pagination | No — but naturally bounded (pending fields should be small) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### GET /admin/fields/duplicates — `admin.py:479` get_field_duplicates()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | fields |
+| Supabase calls | 1 |
+| Pagination | **No** — fetches ALL fields for duplicate detection |
+| Note | Duplicate detection (`find_duplicates()`) runs in Python on all fields |
+| Risk level | **Low** (admin-only, infrequent) |
+| Follow-up required | No |
+
+#### GET /admin/games — `admin.py:579` get_admin_games()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, fields, game_players, users |
+| Supabase calls | **6–12** depending on filter (active and/or finished, each needs games + field names + participants) |
+| Pagination | Partial — finished games limited to 50, active games unlimited |
+| Note | Calls `_get_games_by_statuses()` which fetches games + `_format_admin_games()` which attaches field names + participants. When no filter, runs BOTH active and finished queries. |
+| Risk level | **Medium** (admin-only but heavy) |
+| Follow-up required | No |
+
+#### GET /admin/field-reports — `admin.py:348` get_admin_field_reports()
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | field_reports, fields, users |
+| Supabase calls | 3 (reports + field names batch + user names batch) |
+| Pagination | **No** — fetches all reports |
+| Risk level | **Low** (admin-only, small volume) |
+| Follow-up required | No |
+
+#### Admin moderation actions (ban/unban/suspend/unsuspend) — `admin.py:174`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | users, user_moderation_audit |
+| Supabase calls | 3 (lookup + update + audit insert) |
+| Risk level | **Low** |
+| Follow-up required | No |
+
+#### Admin game actions (close/extend/cancel) — `admin.py:711,765,819`
+
+| Attribute | Value |
+| --- | --- |
+| Tables queried | games, game_players, fields, notifications, push_tokens |
+| Supabase calls | 5+ each (same pattern as user-facing game actions) |
+| Risk level | **Low** (admin-only, single-game operations) |
+| Follow-up required | No |
+
+#### POST /admin/reminders/scheduled-games/run — `admin.py:603`
+
+| Attribute | Value |
+| --- | --- |
+| Delegates to | `generate_scheduled_game_reminders()` |
+| See | Section 1.3 above |
+| Risk level | **Medium** |
+| Follow-up required | No |
+
+#### POST /admin/notifications/cleanup — `admin.py:657`
+
+| Attribute | Value |
+| --- | --- |
+| Delegates to | `cleanup_old_notifications()` |
+| See | Section 1.3 above |
+| Risk level | **Medium** |
+| Follow-up required | No |
+
+---
+
+## 2. Heavy Query Findings
+
+### Finding 1: GET /fields fetches all approved fields on every request
+
+**File:** `fields.py:78`
+**Severity:** Critical
+
+The pagination loop accumulates ALL approved/verified/open fields into memory before returning. With `FIELDS_PAGE_SIZE = 1000`, this makes ceil(N/1000) sequential Supabase HTTP requests where N = total approved fields. Then `get_game_payloads_for_fields()` makes additional batched queries for ALL field IDs.
+
+**Measured impact:** 4,211ms average in production (ISSUE-074).
+
+### Finding 2: GET /notifications/unread-count fetches all notifications to count
+
+**File:** `notifications.py:937`
+**Severity:** High
+
+Fetches `select("*")` for all user notifications and counts unread in Python. Should use `select("id", count="exact")` with a read_at filter. This endpoint is **polled every 20 seconds** by every active client.
+
+### Finding 3: _find_notification_candidates() fetches ALL global preferences
+
+**File:** `notifications.py:320`
+**Severity:** High
+
+On every game creation, fetches ALL enabled notification_preferences rows globally. With 1000 users having 3 preferences each, this transfers 3000 rows. All sport_type, location, and field matching happens in Python.
+
+### Finding 4: GET /games/me has no limit on historical games
+
+**File:** `games.py:296`
+**Severity:** High
+
+Fetches ALL games the user ever created or joined (including all finished and cancelled), attaches field names and participants to all of them. For an active user with 200+ past games, this is a substantial query chain.
+
+### Finding 5: finish_expired_games() does sequential writes
+
+**File:** `game_lifecycle.py:73`
+**Severity:** Medium
+
+When called (from `/games/active`, `/games/upcoming`, admin game listings, `_count_rows_in` for active games), it loops through all fetched games and calls `games.update().eq("id", game_id).execute()` individually for each expired game. After a server outage, many games could expire simultaneously.
+
+---
+
+## 3. N+1 and Fan-Out Findings
+
+### N+1 Patterns Identified
+
+| Location | Pattern | Severity |
+| --- | --- | --- |
+| `game_lifecycle.py:73` finish_expired_games() | Per-expired-game sequential UPDATE | Medium |
+| `notifications.py:810` generate_scheduled_game_reminders() | Per-game: check existing + get participants + insert + mark processed | Medium |
+| `notifications.py:197` _send_push_to_tokens() | Per-token sequential FCM call + potential delete | Low (bounded by user's device count) |
+
+### Fan-Out Patterns Identified
+
+| Location | Pattern | Severity |
+| --- | --- | --- |
+| `game_payloads.py:132` attach_participants_to_games() | For N games: batch game_players → batch users. Batched correctly in groups of 100. | Low |
+| `notifications.py:380` create_game_created_notifications() | For N candidates: dedup check + batch insert + per-user push | Medium |
+| `notifications.py:275` _send_push_for_notifications() | Per-notification, per-token sequential push | Medium |
+
+### Correctly Batched Operations
+
+The `game_payloads.py` module uses `_select_with_in_batches()` with `SUPABASE_IN_FILTER_BATCH_SIZE = 100` and retry logic. This is the correct pattern for Supabase/PostgREST which has URL length limits on `in_()` filters.
+
+---
+
+## 4. Pagination and Filtering Findings
+
+### Endpoints Missing Pagination
+
+| Endpoint | File:Line | User-facing | Current behavior | Risk |
+| --- | --- | --- | --- | --- |
+| GET /fields | fields.py:78 | Yes | Fetches ALL approved fields | **Critical** |
+| GET /notifications | notifications.py:923 | Yes | Fetches ALL user notifications | **High** |
+| GET /games/me (past/cancelled) | games.py:296 | Yes | Fetches ALL historical games | **High** |
+| GET /games/active | games.py:260 | Yes | Fetches ALL active games | Medium (naturally bounded) |
+| GET /games/upcoming | games.py:277 | Yes | Fetches ALL upcoming games | Medium (naturally bounded) |
+| GET /admin/users | admin.py:139 | No (admin) | Fetches ALL users | Medium |
+| GET /admin/fields | admin.py:425 | No (admin) | Fetches ALL fields | Low |
+| GET /admin/field-reports | admin.py:348 | No (admin) | Fetches ALL reports | Low |
+
+### Python-Side Filtering (data transferred but discarded)
+
+| Location | What is filtered in Python | Should be DB-side |
+| --- | --- | --- |
+| `notifications.py:937` unread-count | All notifications → count unread | Yes — use count query with read_at filter |
+| `notifications.py:320` _find_notification_candidates | sport_type, location radius, city, field_id matching | Yes — at least sport_type and field_id |
+| `games.py:260` get_active_games | `is_game_started()` check after fetching | Partially — could filter `scheduled_at <= now` in DB |
+| `games.py:277` get_upcoming_games | `is_game_upcoming()` check after fetching | Same as above |
+| `admin.py:103` _count_rows_in (active games) | Fetches all active games to run finish_expired_games() | Partially — count query + separate expiry job |
+
+---
+
+## 5. Index Risk Assessment
+
+### Likely Required Indexes
+
+| Table | Columns | Used by | Priority |
+| --- | --- | --- | --- |
+| fields | (verified, approval_status, status) | GET /fields — composite filter on every app open | **High** |
+| games | (status) | Every active/upcoming game query + admin stats | **High** |
+| games | (field_id, status) | get_game_payloads_for_fields — called from GET /fields | **High** |
+| notifications | (user_id, created_at) | GET /notifications, unread-count — called frequently | **High** |
+| notifications | (user_id, read_at) | unread-count — should be DB-side count | **High** |
+| game_players | (game_id) | attach_participants — called from most game endpoints | Medium |
+| game_players | (user_id) | GET /games/me — user's game membership | Medium |
+| notification_preferences | (enabled) | _find_notification_candidates — full scan on every game creation | Medium |
+| push_tokens | (user_id) | Push notification delivery | Low |
+
+**Note:** Supabase/PostgreSQL may have some of these indexes already via primary keys and foreign keys. This assessment covers the query patterns that would benefit from explicit indexes. Actual index status should be verified in Supabase dashboard.
+
+---
+
+## 6. Endpoint Risk Ranking
+
+| Rank | Endpoint | Risk | Class | Key issue |
+| --- | --- | --- | --- | --- |
+| 1 | GET /fields | **Critical** | A | Unbounded field fetch + game fan-out. 4.2s production. |
+| 2 | GET /notifications/unread-count | **High** | B | Full notification fetch to count. Polled every 20s. |
+| 3 | GET /notifications | **High** | B | No pagination. Unbounded growth. |
+| 4 | GET /games/me | **High** | B | No limit on historical games. Multiple query chains. |
+| 5 | _find_notification_candidates() | **High** | Internal | Global preference scan on every game creation. |
+| 6 | GET /games/active | Medium | B | No hard cap. finish_expired_games sequential writes. |
+| 7 | GET /games/upcoming | Medium | B | Same as /active. |
+| 8 | GET /admin/stats | Medium | C | 6 sequential queries. Active games full fetch. |
+| 9 | GET /admin/monitoring | Medium | C | 8+ sequential queries. |
+| 10 | GET /admin/games | Medium | C | Heavy query chain for both active + finished. |
+| 11 | generate_scheduled_game_reminders | Medium | Job | Per-game N+1 pattern. |
+| 12 | cleanup_old_notifications | Medium | Job | Potentially large select + delete. |
+| 13–rest | All others | Low | Various | Single-row or bounded operations. |
+
+---
+
+## 7. GET /fields Deep Dive
+
+### How Many Supabase Calls Can It Make?
+
+Let F = number of approved/verified/open fields, G = number of active games across those fields, P = number of distinct players in those games.
+
+| Step | Calls | Formula |
+| --- | --- | --- |
+| Field pagination loop | ceil(F / 1000) | 1 call per 1000 fields |
+| Game lookup batches | ceil(F / 100) | `_select_with_in_batches` with batch size 100 |
+| Expired game write-back | 0 to G | 1 UPDATE per expired game found |
+| Player lookup batches | ceil(G / 100) | game_players by game_id |
+| User lookup batches | ceil(P / 100) | users by id |
+| **Total minimum** | **4** | 50 fields, 10 games, 10 players |
+| **With 500 fields, 100 games, 200 players** | **~12** | 1 + 5 + 0 + 1 + 2 + retries |
+| **With 5000 fields, 500 games, 1000 players** | **~65** | 5 + 50 + varies + 5 + 10 |
+
+### Does It Fetch All Approved Fields?
+
+**Yes.** The `while True` loop at line 84 accumulates every page until `len(page) < FIELDS_PAGE_SIZE`. There is no bounding-box, viewport, proximity, or any spatial filter. Every approved, verified, open field in the database is returned.
+
+### Does It Use Bounds / Spatial Filtering?
+
+**No.** The query filters only on `verified=True`, `approval_status=approved`, `status=open`. There are no lat/lng/bounds parameters. The frontend's map viewport is not communicated to the backend.
+
+### Does It Enrich Fields With Game Data?
+
+**Yes.** After fetching all fields, it calls `get_game_payloads_for_fields(field_ids)` which:
+1. Fetches all active-status games for those fields (batched by 100 field IDs).
+2. Runs `finish_expired_games()` on the result (potential per-game writes).
+3. Splits into active vs upcoming games.
+4. Calls `attach_participants_to_games()` which fetches game_players and then users for all those games.
+5. Returns `active_games_by_field_id` and `upcoming_games_by_field_id` maps.
+
+### Per-Field or Batched Game Lookups?
+
+**Batched.** `_select_with_in_batches()` in `game_payloads.py` batches field IDs into groups of 100 for the `in_()` filter. This is correct and avoids N+1. The same batching applies to player and user lookups.
+
+### Does the Code Path Explain Production Slowness?
+
+**Yes.** The 4,211ms production average from ISSUE-074 is fully explained by:
+
+1. **Sequential Supabase HTTP round-trips:** Each `.execute()` call is a synchronous HTTP request from Railway (backend) to Supabase (PostgREST). Each request has ~100-200ms of network latency.
+2. **Multiple sequential calls:** Even with 50 fields and 20 games, the minimum path is ~4 sequential HTTP calls. With the actual production data volume, this is likely 6-12+ calls.
+3. **No parallelism:** All Supabase calls are synchronous and sequential. The Python code uses `supabase-py` which is synchronous.
+4. **Full data transfer:** `select("*")` on fields and games transfers all columns. No column pruning.
+5. **Game payload fan-out:** The game attachment step (games → game_players → users) multiplies the call count.
+
+**Estimated latency breakdown (for ~50 fields, ~20 active games):**
+- 1 field page fetch: ~200ms
+- 1 game batch: ~200ms
+- 0-2 expired game writes: ~0-400ms
+- 1 game_players batch: ~200ms
+- 1 users batch: ~200ms
+- Response serialization: ~50ms
+- **Total estimate: ~850ms–1,250ms for 50 fields**
+
+The measured 4,211ms suggests either more fields than estimated, additional Supabase latency variance, or Railway cold-start effects. The linear growth pattern means this will get worse as more fields are approved.
+
+---
+
+## 8. Recommended Remediation Backlog
+
+### P1 — Critical (blocks SLA compliance)
+
+| # | Issue | Endpoint | Recommendation |
+| --- | --- | --- | --- |
+| 1 | Unbounded field fetch with game fan-out | GET /fields | Add viewport bounding-box parameters. Only fetch fields within the client's map bounds. Reduce Supabase round-trips. Consider deferring game attachment to per-field lazy load. |
+
+### P2 — High (significant user impact)
+
+| # | Issue | Endpoint | Recommendation |
+| --- | --- | --- | --- |
+| 2 | Full notification fetch for count | GET /notifications/unread-count | Replace `select("*")` + Python count with `select("id", count="exact").is_("read_at", "null")` or equivalent. Eliminates data transfer on the highest-frequency polling endpoint. |
+| 3 | Unbounded notification list | GET /notifications | Add `.limit(50)` default with cursor-based pagination support. |
+| 4 | Unbounded historical games | GET /games/me | Add `.limit(20)` to past_games and cancelled_games queries. Add optional pagination parameter. |
+| 5 | Global preference scan | _find_notification_candidates() | Add DB-side filters for sport_type and notification_type. For radius type, consider bounding-box pre-filter. |
+
+### P3 — Medium (optimization opportunities)
+
+| # | Issue | Location | Recommendation |
+| --- | --- | --- | --- |
+| 6 | Sequential expired game writes | finish_expired_games() | Batch the UPDATE into a single `.in_("id", expired_ids).update(...)` call. |
+| 7 | Duplicate active game queries | GET /active + GET /upcoming | Both fetch the same query. If frontend fetches both, consider a combined endpoint. |
+| 8 | Admin stats full game fetch | GET /admin/stats | Use `count="exact"` for active games count without triggering finish_expired_games. Run expiry separately. |
+| 9 | Admin monitoring sequential queries | GET /admin/monitoring | Could parallelize with async, but admin-only so low priority. |
+| 10 | Debug query in Google auth | find_or_create_google_user | Remove or conditionalize `_log_google_user_lookup_debug()`. |
+
+### P4 — Low (minor, future-proof)
+
+| # | Issue | Location | Recommendation |
+| --- | --- | --- | --- |
+| 11 | Admin user list no pagination | GET /admin/users | Add pagination when user count exceeds ~500. |
+| 12 | Registration 3 sequential uniqueness checks | POST /auth/register | Could combine into single query, but registration is rare. |
+| 13 | Schema detection fetch in mark-all-read | PATCH /notifications/read-all | Cache schema detection. Low priority — infrequent endpoint. |
+
+---
+
+## 9. Final Recommendation
+
+1. **GET /fields is the #1 priority.** It is the only Critical-risk endpoint, the only ISSUE-075 SLA violation, and affects every user on every app open. Fix this first.
+
+2. **GET /notifications/unread-count is #2.** It is polled every 20 seconds and transfers unnecessary data. The fix (use count query) is simple and high-impact.
+
+3. **Add missing indexes.** The composite index on fields(verified, approval_status, status) and the index on notifications(user_id, read_at) should be evaluated in Supabase dashboard. These support the two highest-impact queries.
+
+4. **Add pagination to user-facing list endpoints.** GET /notifications and GET /games/me (past/cancelled) will degrade as data grows. Simple `.limit()` additions prevent future incidents.
+
+5. **Move notification candidate filtering to DB-side.** The global preference scan is the largest hidden cost in the game creation flow.
+
+6. **Batch expired game writes.** `finish_expired_games()` is called from multiple endpoints and could cause latency spikes after any period of inactivity.
+
+All of these are out of scope for ISSUE-076 (audit only) and should be dedicated follow-up issues.
+
+---
+
+## Files Changed
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-076 database query performance audit.
+
+No backend runtime, frontend runtime, database, migration, endpoint, caching, index, query, or application behavior changes were made.
+
+## Follow-up Issues Recommended
+
+1. **P1: GET /fields spatial filtering + query reduction** — Add viewport bounding-box parameters. Current 4.2s violates Class A SLA.
+2. **P2: GET /notifications/unread-count count query** — Replace full fetch with count query. Polled every 20s.
+3. **P2: GET /notifications pagination** — Add default limit + cursor-based pagination.
+4. **P2: GET /games/me historical game limit** — Add limit to past and cancelled game arrays.
+5. **P2: Notification candidate DB-side filtering** — Move sport_type and location filtering to Supabase query.
+6. **P3: Batch expired game updates** — Replace per-game sequential UPDATEs with single batched UPDATE.
+7. **P3: Database index review** — Evaluate and add composite indexes for high-frequency query patterns in Supabase dashboard.
+
 
