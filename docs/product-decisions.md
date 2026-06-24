@@ -9003,5 +9003,326 @@ Documentation:
 4. **Load testing** — measure performance under concurrent requests to identify concurrency bottlenecks.
 5. **Railway cold-start measurement** — isolate first-request latency from steady-state latency.
 
+# ISSUE-075: API Performance Thresholds
+
+## Status
+
+Approved.
+
+## Type
+
+Specification / product decision.
+
+## Goal
+
+Define official API performance thresholds and internal SLA targets for the Yesh Mishak platform. All thresholds are grounded in actual production measurements from ISSUE-074, local baseline measurements from ISSUE-073, and the monitoring framework from ISSUE-069.
+
+This is documentation only. No code, endpoints, caching, indexes, database queries, migrations, or monitoring changes are implemented by this issue.
+
+## Policy References
+
+* ISSUE-069: Production Monitoring Requirements — defines 39 metrics, dashboard sections, SLO candidates, and phased monitoring rollout.
+* ISSUE-070: Implement Production Monitoring — implements `GET /admin/monitoring` endpoint.
+* ISSUE-073: Performance Baseline Report — local measurements using FakeSupabase/TestClient (zero network latency).
+* ISSUE-074: Production API Response Times — real production measurements over HTTPS to Railway + Supabase.
+
+## Data Sources
+
+| Source | Date | Environment | Notes |
+| --- | --- | --- | --- |
+| ISSUE-073 | 2026-06-24 | Local, FakeSupabase, TestClient | No network or DB latency. Measures pure application code cost. |
+| ISSUE-074 | 2026-06-24 | Production, Railway → Supabase, httpx over HTTPS | Real network, real database. 20 runs per endpoint. |
+
+---
+
+## 1. Endpoint Classification
+
+### Class A — Critical User Journey
+
+Endpoints on the critical path for app load, login, and initial data display. These directly determine the user's first impression and perceived app speed.
+
+| Endpoint | Role in user journey |
+| --- | --- |
+| `GET /` | Health check. Used by uptime monitors and load balancers. |
+| `GET /fields` | Initial map data. Called on every app open. Blocks map rendering until complete. |
+| `POST /auth/login` | Password login. Blocks user from accessing the app. |
+| `POST /auth/google` | Google login. Blocks user from accessing the app. |
+
+### Class B — Frequent User Operations
+
+Endpoints called during normal app use after initial load. Latency affects perceived responsiveness but does not block the core experience.
+
+| Endpoint | Role in user journey |
+| --- | --- |
+| `GET /games/active` | Active games list. Called when viewing games. |
+| `GET /games/upcoming` | Upcoming games list. Called when viewing scheduled games. |
+| `GET /notifications/` | Notification inbox. Called when user opens notifications. |
+| `GET /notifications/unread-count` | Badge count. Polled periodically (every 20s in production, 1s in dev). |
+| `GET /notifications/preferences` | Notification settings. Called when user opens settings. |
+| `POST /games/` | Create game. User-initiated, latency tolerance is higher. |
+| `POST /games/{id}/join` | Join game. User-initiated. |
+| `POST /games/{id}/leave` | Leave game. User-initiated. |
+| `POST /games/{id}/close` | Close game. User-initiated. |
+
+### Class C — Administrative Operations
+
+Endpoints used by admins for monitoring, moderation, and operations. Latency tolerance is higher since these are not user-facing.
+
+| Endpoint | Role |
+| --- | --- |
+| `GET /admin/stats` | Admin dashboard statistics. |
+| `GET /admin/monitoring` | Production monitoring (ISSUE-070). |
+| `GET /admin/fields` | Admin field list. |
+| `GET /admin/fields/pending` | Pending moderation queue. |
+| `GET /admin/games` | Admin game list. |
+| `GET /admin/users` | Admin user list. |
+| `GET /admin/field-reports` | Field report list. |
+| `POST /admin/reminders/scheduled-games/run` | Scheduled job trigger. |
+| `POST /admin/notifications/cleanup` | Cleanup job trigger. |
+
+---
+
+## 2. Performance Thresholds Per Class
+
+### Class A — Critical User Journey
+
+| Metric | Target (p50) | Warning (p50) | Critical (p50) | Target (p95) | Warning (p95) | Critical (p95) | Max acceptable |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Response time | < 500 ms | > 500 ms | > 2,000 ms | < 1,000 ms | > 1,500 ms | > 5,000 ms | 10,000 ms |
+
+### Class B — Frequent User Operations
+
+| Metric | Target (p50) | Warning (p50) | Critical (p50) | Target (p95) | Warning (p95) | Critical (p95) | Max acceptable |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Response time | < 500 ms | > 750 ms | > 3,000 ms | < 1,500 ms | > 2,000 ms | > 5,000 ms | 15,000 ms |
+
+### Class C — Administrative Operations
+
+| Metric | Target (p50) | Warning (p50) | Critical (p50) | Target (p95) | Warning (p95) | Critical (p95) | Max acceptable |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Response time | < 2,000 ms | > 3,000 ms | > 10,000 ms | < 5,000 ms | > 8,000 ms | > 15,000 ms | 30,000 ms |
+
+---
+
+## 3. Endpoint Threshold Table
+
+### Measured Endpoints (ISSUE-074 production data)
+
+| Endpoint | Class | Measured avg (ms) | Measured p95 (ms) | Target p50 (ms) | Warning p50 (ms) | Critical p50 (ms) | Status | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `GET /` | A | 263 | 361 | < 500 | > 500 | > 2,000 | **PASS** | Healthy. Well within target. |
+| `GET /fields` | A | 4,211 | 4,181 | < 500 | > 500 | > 2,000 | **CRITICAL VIOLATION** | 8.4x above target. See Section 7. |
+| `GET /games/active` | B | 416 | 440 | < 500 | > 750 | > 3,000 | **PASS** | Within target. Near warning at p50 for Class A but classified as Class B. |
+| `GET /games/upcoming` | B | 408 | 444 | < 500 | > 750 | > 3,000 | **PASS** | Within target. |
+
+### Not Yet Measured — Provisional Thresholds
+
+These endpoints were not measured in ISSUE-074 because authentication tokens were not provided or because measurement requires creating real data. Thresholds are provisional and must be validated when measurements become available.
+
+| Endpoint | Class | Provisional target p50 (ms) | Provisional warning p50 (ms) | Provisional critical p50 (ms) | Basis for estimate | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `POST /auth/login` | A | < 500 | > 750 | > 2,000 | ISSUE-073 local: 273ms avg (bcrypt-dominated). Production adds ~200ms network. Expect ~470ms. | Not yet measured |
+| `POST /auth/google` | A | < 1,000 | > 1,500 | > 3,000 | Includes Google token verification HTTP call + DB lookup. Higher than password login due to external call. | Not yet measured |
+| `GET /notifications/` | B | < 500 | > 750 | > 3,000 | Simple DB query filtered by user_id. Expect similar to `GET /games/active` (~400ms). | Not yet measured |
+| `GET /notifications/unread-count` | B | < 300 | > 500 | > 2,000 | Single count query. Should be faster than full notification list. | Not yet measured |
+| `GET /notifications/preferences` | B | < 300 | > 500 | > 2,000 | Single row lookup. Minimal query. | Not yet measured |
+| `POST /games/` | B | < 1,000 | > 1,500 | > 5,000 | ISSUE-073 local: 9.2ms (no notification fan-out in mock). Production includes DB writes + notification generation. | Not yet measured |
+| `POST /games/{id}/join` | B | < 500 | > 750 | > 3,000 | DB read + validation + write. Expect similar to game queries. | Not yet measured |
+| `GET /admin/stats` | C | < 2,000 | > 3,000 | > 10,000 | Multiple aggregate queries. Expect slower than single-table queries. | Not yet measured |
+| `GET /admin/monitoring` | C | < 2,000 | > 3,000 | > 10,000 | Multiple DB queries + health check (ISSUE-070). | Not yet measured |
+
+---
+
+## 4. SLA Definitions
+
+### 4.1 Availability SLA
+
+| Metric | Target | Measurement window | Measurement source | Exclusions |
+| --- | --- | --- | --- | --- |
+| API availability | 99.5% | 30-day rolling | Percentage of non-5xx responses from `GET /` health check | Planned maintenance windows (announced 24h+ in advance per ISSUE-072) |
+
+**Definition:** A request is "available" if it returns any HTTP status code other than 5xx within the maximum acceptable latency (10s for Class A). A timeout counts as unavailable.
+
+### 4.2 Latency SLA
+
+| Metric | Target | Measurement window | Measurement source |
+| --- | --- | --- | --- |
+| Class A p50 | < 500 ms | 7-day rolling | `measure_production_api.py` or future metrics middleware |
+| Class A p95 | < 1,000 ms | 7-day rolling | Same |
+| Class B p50 | < 500 ms | 7-day rolling | Same |
+| Class B p95 | < 1,500 ms | 7-day rolling | Same |
+
+**Note:** These are internal targets, not external commitments to users. They define the bar that triggers investigation and action.
+
+### 4.3 Measurement Source
+
+| Phase | Source | Automation |
+| --- | --- | --- |
+| Phase 1 (current) | Manual runs of `measure_production_api.py` | Weekly or after each deployment |
+| Phase 2 | Request metrics middleware recording per-request latency | Continuous, automated |
+| Phase 3 | SLO burn-rate monitoring | Continuous with automated alerting |
+
+### 4.4 Review Frequency
+
+| Review type | Frequency | Who |
+| --- | --- | --- |
+| Threshold compliance check | After every deployment | Deploying engineer |
+| Weekly performance review | Weekly | Engineering lead |
+| Threshold recalibration | Quarterly, or after major infrastructure changes | Engineering team |
+| SLA review | Quarterly | Engineering + product |
+
+---
+
+## 5. Alerting Thresholds
+
+### Phase 1 (Current — Manual)
+
+No automated alerting. Check after each deployment and weekly.
+
+| Condition | Action |
+| --- | --- |
+| Any Class A endpoint p50 > warning threshold | Investigate. Check recent deployments and Supabase health. |
+| Any Class A endpoint p50 > critical threshold | **P1 incident.** Follow ISSUE-071 runbook 4.8 (High Response Time). |
+| Any endpoint returning 5xx errors | Investigate immediately. |
+| `GET /fields` p50 > 2,000 ms | **Known critical violation.** Track remediation progress. |
+
+### Phase 2 (Future — Automated)
+
+When metrics middleware is implemented (per ISSUE-069 Phase 2):
+
+| Priority | Alert condition | Threshold | Channel |
+| --- | --- | --- | --- |
+| P1 | Class A p50 > critical for > 5 min | > 2,000 ms sustained | Operator notification |
+| P1 | Class A p95 > critical for > 5 min | > 5,000 ms sustained | Operator notification |
+| P2 | Class A p50 > warning for > 15 min | > 500 ms sustained | Operator notification (lower urgency) |
+| P2 | Class B p50 > warning for > 15 min | > 750 ms sustained | Operator notification (lower urgency) |
+| P3 | Class C p50 > warning for > 30 min | > 3,000 ms sustained | Daily report |
+
+### Escalation
+
+| Condition | Escalation |
+| --- | --- |
+| Class A critical violation sustained > 15 min | L2 (engineering lead) per ISSUE-071 escalation policy |
+| Class A critical violation sustained > 1 hour | L2 + L3 (product owner) |
+| Any endpoint consistently exceeding warning for > 7 days | Create a performance optimization issue |
+
+---
+
+## 6. Review Process
+
+### Post-Deployment Check
+
+After every backend deployment:
+
+1. Run `measure_production_api.py` with at least 10 runs.
+2. Compare results against the threshold table in Section 3.
+3. If any measured endpoint crosses a warning threshold that was previously within target: investigate before proceeding.
+4. If any endpoint crosses a critical threshold: treat as a P1 incident per ISSUE-071.
+
+### Weekly Performance Review
+
+1. Run `measure_production_api.py` with 20 runs.
+2. Record results (timestamp, endpoint, avg, p95).
+3. Compare against previous week's results.
+4. Flag any endpoint where avg increased by > 50% week-over-week.
+5. Update the threshold table if infrastructure changes justify recalibration.
+
+### Threshold Recalibration
+
+Thresholds should be recalibrated when:
+
+* Production infrastructure changes (new hosting provider, Supabase plan change, region change).
+* Traffic patterns change significantly (10x user growth, new heavy endpoint added).
+* Phase 2 metrics middleware provides continuous data that contradicts manual measurement assumptions.
+* Provisional thresholds are replaced with measured values.
+
+### Promoting Provisional Thresholds
+
+When a previously unmeasured endpoint is measured:
+
+1. Record at least 20 production runs.
+2. Compare measured values against the provisional threshold.
+3. If measured values are within target: promote to "measured" status.
+4. If measured values exceed warning: adjust the threshold only if the current performance is acceptable and optimization is not planned. Otherwise, keep the target and create an optimization issue.
+
+---
+
+## 7. GET /fields — Current Critical Violation
+
+### Current State
+
+| Metric | Value |
+| --- | --- |
+| Measured avg (ISSUE-074) | 4,211 ms |
+| Measured median | 4,107 ms |
+| Measured p95 | 4,181 ms |
+| Measured max | 6,370 ms |
+
+### Desired State
+
+| Metric | Target |
+| --- | --- |
+| p50 | < 500 ms |
+| p95 | < 1,000 ms |
+
+### Gap
+
+| Metric | Current | Target | Gap |
+| --- | --- | --- | --- |
+| p50 | 4,107 ms | 500 ms | **8.2x above target** |
+| p95 | 4,181 ms | 1,000 ms | **4.2x above target** |
+
+### SLA Violation
+
+**Yes.** `GET /fields` currently violates the proposed Class A latency SLA on every request. It exceeds both the warning threshold (500 ms) and the critical threshold (2,000 ms). Under the Phase 2 alerting rules, this would trigger a sustained P1 alert.
+
+### Root Cause (from ISSUE-074 analysis)
+
+1. **Pagination loop:** The endpoint fetches ALL approved, verified, open fields via sequential Supabase PostgREST HTTP requests in a `while True` loop with `FIELDS_PAGE_SIZE` batches. Each batch is a separate network round-trip (~100-200ms).
+2. **Game payload fan-out:** After fetching all fields, `get_game_payloads_for_fields()` makes additional Supabase queries for all field IDs.
+3. **No spatial filtering:** The endpoint returns every open field regardless of the client's map viewport.
+
+### Remediation Priority
+
+**P1 — highest priority performance issue.** This endpoint is on the critical user journey (Class A). Every user experiences 4+ second load times on every app open.
+
+### Recommended Remediation Path
+
+1. Add spatial bounding-box query parameters (lat/lng bounds) so the frontend sends its viewport and the backend filters server-side.
+2. Reduce pagination round-trips by increasing page size or using a single query when field count is manageable.
+3. Evaluate whether game payload attachment can be deferred or loaded lazily per-field.
+
+This remediation is out of scope for ISSUE-075 (documentation only) and should be a dedicated follow-up issue.
+
+---
+
+## 8. Final Recommendation
+
+1. **Adopt these thresholds immediately.** Run `measure_production_api.py` after every deployment and compare results against Section 3.
+
+2. **Address `GET /fields` as a P1 issue.** It is the only endpoint currently in critical violation. Every other measured endpoint passes.
+
+3. **Complete authenticated measurements.** Re-run `measure_production_api.py` with `PROD_USER_JWT` and `PROD_ADMIN_JWT` to replace provisional thresholds with measured values for notification and admin endpoints.
+
+4. **Plan for Phase 2 metrics middleware.** Manual measurement is sufficient now but does not catch regressions between checks. Continuous per-request latency recording (ISSUE-069 Phase 2) is needed for reliable SLA enforcement.
+
+5. **Recalibrate quarterly.** These thresholds are based on early production data with low traffic. As traffic grows, latency profiles will change and thresholds may need adjustment.
+
+---
+
+## Files Changed
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-075 API performance thresholds.
+
+No backend runtime, frontend runtime, database, migration, endpoint, caching, index, or application behavior changes were made.
+
+## Follow-up Issues Recommended
+
+1. **GET /fields performance optimization** — P1. Current 4.2s avg violates the Class A critical threshold by 8.2x. Implement spatial filtering and reduce Supabase round-trips.
+2. **Authenticated endpoint measurement** — re-run `measure_production_api.py` with user/admin JWTs to replace provisional thresholds.
+3. **Phase 2 metrics middleware** — implement per-request latency recording to enable continuous SLA monitoring and automated alerting per ISSUE-069.
+4. **Post-deployment measurement automation** — integrate `measure_production_api.py` into the deployment process or CI.
 
 
