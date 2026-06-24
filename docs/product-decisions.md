@@ -7121,3 +7121,967 @@ Documentation:
 4. **Phase 2 push delivery metrics** — aggregate push success/failure counts from logs or a counters table to populate `push_notifications` section.
 5. **Runtime metadata** — add app version and environment detection once deployment infrastructure is confirmed.
 
+# ISSUE-071: Incident Response Playbook
+
+## Status
+
+Approved.
+
+## Type
+
+Specification / product decision.
+
+## Goal
+
+Define a complete production incident response playbook for the Yesh Mishak platform. The playbook must be written so that a future developer with no project history can follow it end to end.
+
+This is documentation only. No code, endpoints, metrics, logging, middleware, database migrations, or runtime behavior changes are implemented by this issue.
+
+## Policy References
+
+* ISSUE-054: Production Support Handbook — defines day-to-day support operations, severity levels, support workflow, checklists, and documentation templates.
+* ISSUE-065: Application Logging Policy — defines structured log events, severity matrix, mandatory log fields, and sensitive-data rules.
+* ISSUE-066: Backend Logging Audit — inventories existing logging and gaps.
+* ISSUE-067: Implement Missing Backend Logs — adds structured log events for auth, games, field reports, notifications, scheduled jobs, and field moderation.
+* ISSUE-068: Sensitive Data Logging Review — confirms no sensitive data appears in logs after ISSUE-067.
+* ISSUE-069: Production Monitoring Requirements — defines 39 metrics, dashboard sections, SLO candidates, and phased monitoring rollout.
+* ISSUE-070: Implement Production Monitoring — implements `GET /admin/monitoring` endpoint returning live DB-sourced metrics with unavailable-metric markers.
+
+## Architecture Context
+
+| Component | Technology | Hosting |
+| --- | --- | --- |
+| Backend API | Python / FastAPI | Hosting provider TBD (no platform config in repo) |
+| Frontend | React / Vite | Vercel (`frontend/vercel.json` present) |
+| Database | PostgreSQL | Supabase (managed) |
+| Push notifications | Firebase Cloud Messaging (FCM) | Google Cloud (via service account) |
+| Authentication | JWT (local) + Google OAuth | Backend-issued JWTs; Google ID token verification |
+| Monitoring | `GET /admin/monitoring` | Admin-only JSON endpoint (ISSUE-070) |
+| Logs | Python `logging` with structured events | Stdout/stderr (ISSUE-065/067) |
+
+---
+
+## 1. Severity Matrix
+
+### P0 — Critical
+
+**Business impact:** Complete service outage or data loss. All or most users are affected. Core product functionality is unavailable.
+
+**Example incidents:**
+
+* Backend API completely unreachable (all endpoints return errors or timeout).
+* Database / Supabase unreachable for all queries.
+* Authentication broken for all users (JWT secret misconfiguration, Google OAuth global failure).
+* Suspected data corruption affecting multiple records.
+* Security breach — credential leak, unauthorized data access, authentication bypass.
+
+**Expected response urgency:** Immediate. Drop all other work. Begin investigation within 15 minutes of detection.
+
+### P1 — High
+
+**Business impact:** Major feature broken or significant degradation. Many users affected but the app is partially functional.
+
+**Example incidents:**
+
+* Login failures for one auth method (Google OAuth down but password login works, or vice versa).
+* Push notifications failing for all users.
+* Scheduled jobs failing with fatal errors (reminders not sent).
+* Sustained 5xx error rate > 5% for > 5 minutes.
+* Admin endpoints completely non-functional.
+* Deployment failure leaving backend in broken state.
+
+**Expected response urgency:** Within 1 hour. Prioritize over other work.
+
+### P2 — Moderate
+
+**Business impact:** Non-critical feature broken or degraded. Some users affected. Core flows (login, create/join game) still work.
+
+**Example incidents:**
+
+* Notification generation failures (users miss non-critical updates).
+* Elevated but not critical error rate (1-5% 5xx sustained).
+* High response times (p95 > 2s) but requests eventually succeed.
+* One admin function failing while others work.
+* Pending moderation backlog growing beyond threshold.
+
+**Expected response urgency:** Within 4 hours during business hours. Can wait until next business day if detected off-hours.
+
+### P3 — Low
+
+**Business impact:** Minor issue. Cosmetic, informational, or affecting very few users. No core functionality broken.
+
+**Example incidents:**
+
+* Single user login issue (not systemic).
+* Elevated invalid push token count (self-healing).
+* Monitoring endpoint returning stale but not incorrect data.
+* Dependency vulnerability flagged with no known exploit in use.
+
+**Expected response urgency:** Next business day or next scheduled review cycle.
+
+---
+
+## 2. Standard Incident Workflow
+
+Every incident follows these eight steps. Steps may be abbreviated for P3 incidents.
+
+### Step 1: Detect
+
+How the incident was discovered.
+
+| Detection method | Source |
+| --- | --- |
+| Monitoring endpoint | `GET /admin/monitoring` returns `status: degraded` or unexpected metric values |
+| Backend logs | Structured log events: `auth.login.failure`, `games.close.failure`, `notifications.push.failure`, `jobs.*.failure` |
+| Supabase dashboard | Database health, connection pool, query errors |
+| Vercel dashboard | Frontend deployment failures, availability issues |
+| Health check | `GET /` returns non-200 or times out |
+| User report | Report submitted via the app or direct communication |
+| Deployment | Deployment fails or new deployment introduces errors |
+| Manual review | Periodic operational check per ISSUE-069 Phase 1 routine |
+
+### Step 2: Confirm
+
+Verify the incident is real and not a false positive.
+
+* Check `GET /admin/monitoring` for current system status.
+* Check `GET /` health endpoint.
+* Check backend logs for error events.
+* Check Supabase dashboard for database health.
+* If detection was a user report, attempt to reproduce.
+* Determine scope: how many users/features are affected?
+
+### Step 3: Contain
+
+Stop the incident from getting worse.
+
+* If caused by a bad deployment: roll back immediately.
+* If caused by a runaway process: stop the process.
+* If security incident: revoke compromised credentials.
+* If database issue: avoid write operations that could corrupt data further.
+* Document the containment action taken.
+
+### Step 4: Investigate
+
+Find the root cause.
+
+* Review backend logs for the time window around incident start.
+* Check recent deployments (`git log --oneline -10`).
+* Check environment variables and configuration.
+* Check external service status (Supabase, Google OAuth, Firebase).
+* Check `GET /admin/monitoring` for specific metric sections.
+* Cross-reference with ISSUE-069 metric catalog for relevant signals.
+
+### Step 5: Recover
+
+Apply the fix.
+
+* Deploy a fix or rollback.
+* Restart services if needed.
+* Re-run failed scheduled jobs if applicable.
+* Restore data from backups if data was lost (coordinate with Supabase support).
+
+### Step 6: Verify
+
+Confirm the fix worked.
+
+* Check `GET /` returns `{"status": "ok"}`.
+* Check `GET /admin/monitoring` returns `status: ok`.
+* Test the specific feature that was broken.
+* Monitor logs for recurrence of error events.
+* Confirm user-reported symptoms are resolved.
+
+### Step 7: Postmortem
+
+Document what happened (see Section 6 for template).
+
+Required for all P0 and P1 incidents. Recommended for P2 if the root cause was non-obvious.
+
+### Step 8: Follow-up Issue Creation
+
+Create issues for:
+
+* Any code fix that was applied as a hotfix and needs proper review.
+* Any monitoring gap that delayed detection.
+* Any process improvement identified in the postmortem.
+* Any preventive measure that would avoid recurrence.
+
+---
+
+## 3. Standard Incident Information
+
+Every incident record must include:
+
+| Field | Description | Example |
+| --- | --- | --- |
+| Incident ID | Sequential identifier | INC-001 |
+| Severity | P0 / P1 / P2 / P3 | P1 |
+| Title | Short description | "Google OAuth login failing for all users" |
+| Start time | When the incident began (UTC ISO 8601) | 2026-07-15T14:30:00Z |
+| Detection time | When the incident was detected | 2026-07-15T14:45:00Z |
+| End time | When the incident was resolved | 2026-07-15T15:10:00Z |
+| Duration | Total incident duration | 40 min |
+| Time to detect | Start time → detection time | 15 min |
+| Impact | What was affected and for how many users | "All Google OAuth users could not log in. Password login was unaffected." |
+| Root cause | Technical cause | "GOOGLE_CLIENT_ID environment variable was unset after deployment config change." |
+| Fix applied | What resolved the incident | "Restored GOOGLE_CLIENT_ID in deployment environment. Redeployed." |
+| Validation performed | How resolution was confirmed | "Tested Google login successfully. Monitored logs for 15 min — no auth.login.failure events with auth_method=google." |
+| Follow-up issues | Issues created to prevent recurrence | "ISSUE-XXX: Add environment variable validation on startup." |
+
+---
+
+## 4. Incident Runbooks
+
+### 4.1 Backend Down
+
+**Severity:** P0 if all endpoints unreachable. P1 if partially degraded.
+
+**Detection method:** Health check `GET /` fails. `GET /admin/monitoring` unreachable. User reports that the app is not working.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-03 `api.availability` — below threshold.
+* ISSUE-069 M-32 `deployment.backend.health` — health check fails.
+* Backend logs stop appearing (no new events).
+
+**Immediate actions:**
+
+1. Check hosting provider dashboard (Railway, Render, or whichever is deployed) for service status.
+2. Check Vercel dashboard for frontend status (to isolate backend vs full outage).
+3. Attempt `GET /` from a different network to rule out local connectivity.
+4. Check if a recent deployment occurred — `git log --oneline -5` on the deployed branch.
+
+**Investigation steps:**
+
+1. Check hosting provider logs for crash, OOM, or startup errors.
+2. Check if environment variables are set correctly (SUPABASE_URL, SUPABASE_KEY, JWT_SECRET, GOOGLE_CLIENT_ID).
+3. Check Supabase dashboard — if Supabase is down, the backend may crash on startup if DB connectivity is required.
+4. Check recent git commits for breaking changes.
+5. Review backend structured logs (last 30 min before outage) for ERROR/CRITICAL events.
+
+**Rollback decision tree:**
+
+```
+Was there a deployment in the last 2 hours?
+├── YES → Did the outage start after the deployment?
+│   ├── YES → Roll back to the previous deployment immediately.
+│   └── NO → Continue investigation. Deployment is likely not the cause.
+└── NO → The cause is external or infrastructure-related.
+    ├── Check Supabase status.
+    ├── Check hosting provider status.
+    └── Check DNS and networking.
+```
+
+**Escalation path:**
+
+* If hosting provider is down → check their status page. Nothing to do except wait and communicate.
+* If cause is unknown after 30 minutes → escalate to engineering lead.
+* If data loss is suspected → escalate to engineering lead immediately.
+
+**Recovery steps:**
+
+1. Apply the fix (rollback, config correction, or code fix).
+2. Verify `GET /` returns 200.
+3. Verify `GET /admin/monitoring` returns valid JSON with `status: ok`.
+4. Test one authenticated flow (login + list games).
+
+**Validation steps:**
+
+1. `GET /` returns `{"status": "ok"}`.
+2. `GET /admin/monitoring` returns `status: ok` and `database.healthy: true`.
+3. Backend logs show normal event flow (auth.login.success, etc.).
+4. No new ERROR/CRITICAL events for 15 minutes.
+
+**Postmortem required:** Yes (P0/P1).
+
+---
+
+### 4.2 Database / Supabase Down
+
+**Severity:** P0 if all DB operations fail. P1 if intermittent.
+
+**Detection method:** `GET /admin/monitoring` returns `database.healthy: false`. Backend logs show `error_code: DATABASE_ERROR`. Multiple endpoints return 500.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-28 `database.availability` — unavailable.
+* ISSUE-069 M-29 `database.error.count` — elevated.
+* ISSUE-069 M-30 `database.connection_pool` — saturated.
+* ISSUE-070 monitoring endpoint `database.healthy: false` with `error_type` populated.
+
+**Immediate actions:**
+
+1. **Connectivity validation:** Check Supabase dashboard at `https://supabase.com/dashboard` for project status.
+2. **Service status validation:** Check Supabase status page (`https://status.supabase.com`) for ongoing incidents.
+3. Verify the `SUPABASE_URL` and `SUPABASE_KEY` environment variables are correct and not expired.
+4. Attempt a direct query from the Supabase SQL editor to rule out backend-specific issues.
+
+**Investigation steps:**
+
+1. Check if the issue is Supabase-wide or project-specific.
+2. Check Supabase project quotas — free tier may have connection or storage limits.
+3. Check if a recent migration or schema change broke queries.
+4. Review backend logs for the first DATABASE_ERROR event to identify the triggering query.
+5. Check connection pool usage if accessible (`pg_stat_activity`).
+
+**Temporary mitigation options:**
+
+* If connection pool is exhausted: restart the backend to clear stale connections.
+* If Supabase is in maintenance: communicate to users that the service is temporarily unavailable.
+* If a specific query is failing: check if a recent migration introduced a breaking schema change.
+
+**Recovery verification:**
+
+1. Supabase dashboard shows healthy status.
+2. `GET /admin/monitoring` returns `database.healthy: true`.
+3. Create a test game or run `GET /admin/stats` to verify read/write operations.
+4. Run `GET /admin/monitoring` to confirm `active_games`, `active_users`, and `notifications` sections return valid counts.
+5. Monitor backend logs for 15 minutes — no DATABASE_ERROR events.
+
+**Escalation path:**
+
+* Supabase outage → wait, monitor status page, communicate downtime.
+* Project-specific issue → contact Supabase support if self-diagnosis fails.
+
+**Postmortem required:** Yes (P0/P1).
+
+---
+
+### 4.3 Login Failure
+
+**Severity:** P1 if all users affected. P2 if only one auth method or intermittent.
+
+**Detection method:** Backend logs show elevated `auth.login.failure` events. User reports they cannot log in. `GET /admin/monitoring` shows `active_users.last_24h` dropping unexpectedly.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-07 `auth.login.success.count` — sudden drop.
+* ISSUE-069 M-08 `auth.login.failure.count` — spike.
+* ISSUE-069 M-09 `auth.login.failure.rate` — elevated.
+* Backend logs: `auth.login.failure` events with `auth_method` and `error_code` fields.
+
+**Immediate actions:**
+
+1. Check backend logs to determine which auth method is failing (`auth_method: google` vs `auth_method: password`).
+2. Check the `error_code` field in failure logs to classify the failure type.
+
+**Google auth checks:**
+
+1. Verify `GOOGLE_CLIENT_ID` environment variable is set and correct.
+2. Check if Google OAuth service is operational — attempt token verification manually or check Google Cloud status.
+3. Review logs for `auth.google_token.verify.start` without a corresponding success event.
+4. Check if the client is sending an expired or malformed token (look for `exception_type` in log `extra`).
+
+**JWT checks:**
+
+1. Verify `JWT_SECRET` environment variable is set.
+2. Check if JWTs are being generated correctly — attempt a password login and inspect the response.
+3. If existing tokens are failing (authenticated requests return 401): check if `JWT_SECRET` changed between token issuance and verification.
+4. Review logs for `auth.token.invalid` events with `error_code: AUTH_INVALID`.
+
+**Environment variable checks:**
+
+| Variable | Purpose | How to verify |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | Google OAuth token verification | Must match the client ID in Google Cloud Console |
+| `JWT_SECRET` | JWT signing and verification | Must be consistent across deployments. Changing it invalidates all existing tokens. |
+| `SUPABASE_URL` | Database connectivity for user lookup | Backend cannot authenticate if it cannot query users |
+| `SUPABASE_KEY` | Database auth | Must have read access to `users` table |
+
+**Auth endpoint validation:**
+
+1. Test `POST /auth/login` with valid credentials — expect 200.
+2. Test `POST /auth/google` with a valid Google ID token — expect 200.
+3. Test an authenticated endpoint with the returned JWT — expect 200.
+4. If login succeeds but subsequent requests fail: the issue is JWT verification, not login.
+
+**Recovery steps:**
+
+1. Fix the identified configuration or service issue.
+2. If `JWT_SECRET` was changed: all existing user sessions are invalidated. Users must re-login. This is expected.
+3. Verify both login methods work.
+4. Monitor `auth.login.success` events for 15 minutes.
+
+**Postmortem required:** Yes for P1. Recommended for P2 if caused by a configuration error.
+
+---
+
+### 4.4 Notification Failure
+
+**Severity:** P2 in most cases. P1 if users are consistently missing critical game updates.
+
+**Detection method:** Backend logs show `notifications.generate.failure` events. `GET /admin/monitoring` shows `notifications.created_last_24h` is unexpectedly low.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-21 `notifications.generate.failure.count` — elevated.
+* ISSUE-069 M-24 `notifications.created.count` — dropped.
+* ISSUE-070 monitoring endpoint: `notifications.created_last_24h` and `notifications.unread_total`.
+
+**Notification generation log review:**
+
+1. Search backend logs for `event: notifications.generate.failure`.
+2. Check the `notification_type` field — which notification types are failing?
+3. Check the `error_code` field — is it `DATABASE_ERROR` (Supabase issue) or something else?
+4. Check if game creation is still succeeding (`games.create.success`) — notifications are a side-effect of game actions.
+
+**Database validation:**
+
+1. Check Supabase connectivity (`GET /admin/monitoring` → `database.healthy`).
+2. Query `SELECT COUNT(*) FROM notifications WHERE created_at >= NOW() - INTERVAL '1 hour'` to verify recent notification creation.
+3. Check if the `notifications` table has any schema issues.
+
+**Recovery steps:**
+
+1. If Supabase was temporarily unavailable: notifications during the outage are lost (best-effort design per ISSUE-065). No recovery needed for past notifications.
+2. If a code bug: fix and deploy.
+3. Verify new game actions generate notifications correctly.
+
+**Postmortem required:** Recommended if notifications were missing for > 2 hours during active hours.
+
+---
+
+### 4.5 Push Notification Failure
+
+**Severity:** P2 normally. P1 if all push delivery is failing.
+
+**Detection method:** Backend logs show `notifications.push.failure` events. Users report not receiving push notifications.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-22 `notifications.push.failure.count` — elevated.
+* ISSUE-069 M-23 `notifications.push.invalid_token.count` — spike.
+* ISSUE-070 monitoring endpoint: `push_notifications.source_available: false` (not yet implemented; use logs).
+
+**Push service validation:**
+
+1. Check Firebase console for FCM service status.
+2. Check if Firebase credentials are configured correctly (service account JSON or ADC).
+3. Review logs for `external_service: firebase_fcm` and the associated error codes.
+4. Check `invalid_token_count` in push failure logs — high counts suggest stale device tokens, not a service issue.
+
+**Investigation by error type:**
+
+| Error pattern in logs | Likely cause | Action |
+| --- | --- | --- |
+| `FIREBASE_CONFIG_ERROR` | Service account misconfigured | Verify Firebase credentials in environment |
+| `INVALID_PUSH_TOKEN` (high count) | Stale device registrations | Expected. Tokens self-heal when users reopen the app. |
+| FCM returns 401/403 | Credentials expired or revoked | Re-download service account key from Firebase console |
+| FCM returns 500/503 | Firebase service outage | Wait. Check Firebase status page. |
+| All pushes failing | Likely credentials or config issue | Verify all Firebase environment variables |
+
+**Recovery steps:**
+
+1. Fix credentials or wait for service recovery.
+2. Test using `POST /admin/test-push` if available, or create a test game and verify push delivery.
+3. Monitor `notifications.push.failure` events for 15 minutes.
+
+**Postmortem required:** Only if all push delivery was broken for > 1 hour.
+
+---
+
+### 4.6 Scheduled Jobs Failure
+
+**Severity:** P2 for single job failure. P1 if repeated failures cause users to miss all reminders.
+
+**Detection method:** Backend logs show `jobs.*.failure` events. No `jobs.*.finish` event after a `jobs.*.start` event.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-25 `jobs.scheduled_game_reminders.success` — failure event instead of finish event.
+* ISSUE-069 M-26 `jobs.notification_cleanup.success` — failure event.
+* ISSUE-069 M-27 `jobs.scheduled_game_reminders.execution_time_ms` — exceeding threshold.
+* ISSUE-070 monitoring endpoint: `scheduled_jobs.source_available: false` (not yet implemented; use logs).
+
+**Investigation steps:**
+
+1. Check backend logs for the specific job name: `jobs.scheduled_game_reminders.failure` or `jobs.notification_cleanup.failure`.
+2. Check the `exception_type` and `error_code` fields in the failure log.
+3. Check if Supabase is healthy — most job failures are DB-related.
+4. Check `processed_count`, `failed_count`, and `skipped_count` fields in the job finish/failure log.
+5. If partial failure: check which specific games or notifications failed.
+
+**Recovery steps:**
+
+1. Fix the underlying issue (usually Supabase connectivity or data inconsistency).
+2. Re-run the failed job manually via admin endpoint:
+   * Reminders: `POST /admin/reminders/scheduled-games/run`
+   * Cleanup: `POST /admin/notifications/cleanup`
+3. Verify job completes with `result: success` in logs.
+4. Check `processed_count` and `failed_count` in the finish log.
+
+**Postmortem required:** Only if users missed reminders for scheduled games that then occurred without notification.
+
+---
+
+### 4.7 High API Error Rate
+
+**Severity:** P1 if > 5% 5xx sustained > 5 min. P2 if 1-5% sustained.
+
+**Detection method:** Backend logs show elevated ERROR events. Hosting provider metrics show high 5xx rate.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-01 `api.error_rate.5xx` — above threshold.
+* ISSUE-069 M-02 `api.error_rate.4xx` — above threshold (may indicate broken client).
+* ISSUE-070 monitoring endpoint: `api_errors.source_available: false` (not yet implemented).
+
+**Investigation steps:**
+
+1. Check backend logs for ERROR-level events in the affected time window.
+2. Identify which endpoints are generating errors (look for `endpoint` field in logs).
+3. Check if errors correlate with a recent deployment.
+4. Check Supabase health — most 5xx errors are database-related.
+5. Check if errors are concentrated on one endpoint or distributed across many.
+
+**Recovery steps:**
+
+1. If caused by a deployment: roll back.
+2. If caused by Supabase: follow the Supabase Down runbook (4.2).
+3. If caused by a specific endpoint bug: deploy a fix or disable the endpoint temporarily.
+4. Monitor error rate for 15 minutes after fix.
+
+**Postmortem required:** Yes for P1. Recommended for P2.
+
+---
+
+### 4.8 High Response Time
+
+**Severity:** P2 if p95 > 2s sustained. P1 if requests are timing out.
+
+**Detection method:** Hosting provider metrics show slow responses. Users report the app is slow. Backend logs show high `execution_time_ms` values.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-04/M-05/M-06 `api.response_time.p50/p95/p99` — above thresholds.
+* ISSUE-070 monitoring endpoint: `response_time.source_available: false` (not yet implemented).
+
+**Investigation steps:**
+
+1. Identify which endpoints are slow (check `execution_time_ms` in backend logs).
+2. Check Supabase dashboard for query performance and connection pool usage (M-30).
+3. Check if the hosting provider is throttling or resource-constrained.
+4. Check if a specific query is slow (large fan-out notification generation, complex game queries).
+5. Check for N+1 query patterns in the affected endpoint.
+
+**Recovery steps:**
+
+1. If Supabase is overloaded: check connection pool, look for long-running queries.
+2. If hosting provider is throttled: scale up or restart.
+3. If a specific endpoint is slow: optimize the query or add caching.
+4. Temporary mitigation: restart the backend to clear any accumulated state.
+
+**Postmortem required:** Recommended if sustained > 30 minutes.
+
+---
+
+### 4.9 Deployment Failure
+
+**Severity:** P1 if the backend is left in a broken state. P2 if deployment simply failed and the previous version is still running.
+
+**Detection method:** Hosting provider dashboard shows failed deployment. `GET /` returns non-200 after deployment.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-32 `deployment.backend.health` — health check fails.
+* ISSUE-069 M-33 `deployment.frontend.status` — deployment failure.
+
+**Investigation steps:**
+
+1. Check hosting provider deployment logs for build or startup errors.
+2. Check if the deployment introduced missing environment variables.
+3. Check if dependencies changed (`requirements.txt` or `package.json` changes).
+4. Check if database migrations are needed but were not applied.
+5. For frontend (Vercel): check Vercel build logs for TypeScript or build errors.
+
+**Recovery steps:**
+
+1. If the backend is broken: roll back to the previous deployment immediately.
+2. If the deployment simply failed (previous version still running): fix the issue and redeploy.
+3. For frontend Vercel failures: check build logs, fix, and trigger a new deployment.
+
+**Post-deployment verification:**
+
+1. `GET /` returns `{"status": "ok"}`.
+2. `GET /admin/monitoring` returns valid JSON.
+3. Test one authenticated flow.
+4. Check backend logs for 5 minutes — no new errors.
+
+**Postmortem required:** Only if the broken deployment reached production and affected users.
+
+---
+
+### 4.10 Admin Function Failure
+
+**Severity:** P2 normally. P1 if admins cannot perform critical moderation during an active abuse incident.
+
+**Detection method:** Admin reports that an admin endpoint is returning errors. Backend logs show errors for admin endpoints.
+
+**Monitoring signals:**
+
+* Backend logs: ERROR events with `endpoint` matching `/admin/*`.
+* ISSUE-070 monitoring endpoint: may be unreachable if admin auth itself is broken.
+
+**Investigation steps:**
+
+1. Determine which admin endpoint is failing.
+2. Check if admin authentication is working (`require_admin` dependency).
+3. Check if the issue is specific to one endpoint or all admin endpoints.
+4. If all admin endpoints fail: check JWT verification and the `role` field in the users table for the admin user.
+5. If one endpoint fails: check backend logs for that specific endpoint's error events.
+
+**Recovery steps:**
+
+1. If admin auth is broken: check JWT_SECRET and the admin user's `role` column in the database.
+2. If a specific endpoint has a bug: deploy a fix.
+3. If the admin user's role was changed: restore it via direct Supabase SQL editor query (emergency only — document this).
+
+**Postmortem required:** Only if the failure prevented critical moderation actions.
+
+---
+
+### 4.11 Security Incident
+
+**Severity:** P0 for confirmed breaches. P1 for suspected incidents.
+
+**Detection method:** Unusual patterns in logs. Reports of unauthorized access. Credential exposure detected.
+
+**Monitoring signals:**
+
+* ISSUE-069 M-36 `auth.login.failure.burst` — possible brute-force.
+* ISSUE-069 M-38 `auth.restricted_access.count` — banned users attempting access.
+* Backend logs: unusual patterns in `auth.login.failure` events.
+
+#### 4.11.1 Sensitive Data Exposure
+
+**Containment steps:**
+
+1. Identify what data was exposed and through which channel.
+2. If exposed via logs: determine where logs are shipped. Rotate any credentials that appeared in logs.
+3. If exposed via API response: deploy a fix immediately to stop the exposure.
+4. If exposed via a third-party service: contact the service provider.
+5. Document all exposed data types (per ISSUE-065 sensitive-data policy: passwords, JWTs, emails, phone numbers, push tokens, etc.).
+6. Assess blast radius: how many users or records were affected?
+
+**Recovery:**
+
+1. Rotate all potentially compromised credentials (JWT_SECRET, SUPABASE_KEY, Firebase service account key, GOOGLE_CLIENT_ID secret).
+2. If JWT_SECRET is rotated: all user sessions are invalidated. Users must re-login.
+3. Purge exposed data from any accessible log stores.
+
+#### 4.11.2 Authentication Bypass
+
+**Containment steps:**
+
+1. If a specific bypass is identified: deploy a fix or disable the affected endpoint.
+2. If unclear: consider temporarily disabling the backend until the bypass is understood.
+3. Review backend logs for `auth.login.success` events that should not have occurred.
+4. Check for users with `role: admin` who should not be admins.
+
+**Recovery:**
+
+1. Fix the bypass vulnerability.
+2. Audit all actions performed by the bypassed session.
+3. Rotate JWT_SECRET to invalidate all sessions.
+4. Review and restore any data modified by the unauthorized session.
+
+#### 4.11.3 Suspicious Admin Activity
+
+**Containment steps:**
+
+1. Identify the admin user (`actor_user_id` in logs).
+2. Review all admin actions in logs: `fields.moderation.*`, `admin.user_moderation.*`, `games.close.*`, `games.cancel.*`.
+3. Check `user_moderation_audit` table for recent ban/unban/suspend actions.
+4. If the admin account is compromised: suspend the admin user immediately via direct DB query (emergency only).
+5. Rotate JWT_SECRET to invalidate all sessions including the compromised admin.
+
+**Recovery:**
+
+1. Review and reverse any unauthorized admin actions.
+2. Restore any improperly moderated fields, games, or users.
+3. Change or revoke the compromised admin's access.
+4. Audit all admin accounts — verify each admin user is a real authorized person.
+
+**Postmortem required:** Yes. All security incidents require a postmortem regardless of severity.
+
+---
+
+### 4.12 Data Corruption Incident
+
+**Severity:** P0 if widespread. P1 if limited to specific records.
+
+**Detection method:** Game data integrity audit finds critical findings. Admin reports inconsistent data. Users report incorrect game state.
+
+**Monitoring signals:**
+
+* Game data integrity audit script: `python -m scripts.audit_game_data_integrity --json` returns exit code 1.
+* `GET /admin/monitoring` shows unexpected counts (e.g., active_games count doesn't match expectations).
+* Backend logs show unexpected state transitions.
+
+**Investigation steps:**
+
+1. Run the game data integrity audit: `cd backend && python -m scripts.audit_game_data_integrity --json`.
+2. Identify affected records from audit output.
+3. Determine the time window of corruption — when did the first bad record appear?
+4. Check backend logs during that time window for errors or unusual patterns.
+5. Check if a recent deployment or migration introduced the corruption.
+6. Check if a direct DB edit was made outside the API.
+
+**Containment steps:**
+
+1. Do NOT modify corrupted data without documenting the current state first.
+2. Export affected records for evidence.
+3. If corruption is ongoing: identify and stop the cause (bad endpoint, broken migration, etc.).
+4. If a migration caused it: do NOT run another migration to "fix" it without engineering review.
+
+**Recovery steps:**
+
+1. Document every corrupted record.
+2. Determine the correct state for each record based on audit data and logs.
+3. Apply corrections via admin API endpoints where possible. Use direct SQL only as a last resort with engineering approval.
+4. Re-run the integrity audit to verify corrections.
+5. Test affected features end-to-end.
+
+**Postmortem required:** Yes. Data corruption always requires a postmortem.
+
+---
+
+## 5. Communication Templates
+
+### 5.1 Internal Incident Announcement
+
+```
+INCIDENT DECLARED: [INC-XXX] [Title]
+
+Severity: [P0/P1/P2/P3]
+Detected: [YYYY-MM-DD HH:MM UTC]
+Impact: [Brief description of user impact]
+
+Current status: [Investigating / Containing / Recovering]
+Lead: [Name or handle]
+Next update: [Time of next update]
+```
+
+### 5.2 Incident Resolved Update
+
+```
+INCIDENT RESOLVED: [INC-XXX] [Title]
+
+Severity: [P0/P1/P2/P3]
+Duration: [X hours Y minutes]
+Impact: [Brief description of what was affected]
+
+Root cause: [One-sentence summary]
+Fix applied: [One-sentence summary]
+
+Postmortem: [Scheduled for YYYY-MM-DD / Not required for P3]
+```
+
+### 5.3 Postmortem Summary
+
+```
+POSTMORTEM: [INC-XXX] [Title]
+
+Date: [YYYY-MM-DD]
+Severity: [P0/P1/P2/P3]
+Duration: [X hours Y minutes]
+Lead: [Name or handle]
+
+What happened: [2-3 sentence summary]
+
+Timeline:
+- [HH:MM UTC] Incident began
+- [HH:MM UTC] Incident detected
+- [HH:MM UTC] Investigation started
+- [HH:MM UTC] Root cause identified
+- [HH:MM UTC] Fix applied
+- [HH:MM UTC] Incident resolved
+- [HH:MM UTC] Verification complete
+
+Root cause: [Detailed explanation]
+
+Detection: [How was it detected? Was detection timely?]
+
+Corrective actions:
+1. [Action taken to fix the immediate issue]
+
+Preventive actions:
+1. [Action to prevent recurrence — with issue number if created]
+
+Follow-up issues:
+- ISSUE-XXX: [Description]
+```
+
+---
+
+## 6. Postmortem Requirements
+
+### When required
+
+* All P0 incidents — mandatory.
+* All P1 incidents — mandatory.
+* P2 incidents — required if root cause was non-obvious or if the incident lasted > 4 hours.
+* All security incidents — mandatory regardless of severity.
+* All data corruption incidents — mandatory.
+
+### What the postmortem must answer
+
+| Question | Purpose |
+| --- | --- |
+| **What happened?** | Factual timeline of the incident |
+| **Why did it happen?** | Root cause analysis. Use "5 whys" to get past the immediate cause. |
+| **Why did detection fail or succeed?** | Were monitoring/logs sufficient? Was the right person notified? How long between incident start and detection? |
+| **What corrective actions were taken?** | What was done to fix the immediate issue |
+| **What preventive actions are needed?** | What changes would prevent this class of incident from recurring |
+
+### Postmortem principles
+
+* **Blameless.** Focus on systems and processes, not individuals.
+* **Thorough.** Include the full timeline, not just the fix.
+* **Actionable.** Every preventive action must result in a follow-up issue with an owner.
+* **Timely.** Complete the postmortem within 5 business days of incident resolution.
+
+---
+
+## 7. Evidence Collection Checklist
+
+For every P0 and P1 incident, collect the following evidence before it expires or is overwritten:
+
+### Logs
+
+- [ ] Backend structured log events for the incident time window (30 min before to 30 min after).
+- [ ] Filter for ERROR and CRITICAL level events.
+- [ ] Filter for the specific `event` names related to the incident category.
+- [ ] Save raw log output to a file with the incident ID.
+
+### Monitoring Snapshots
+
+- [ ] `GET /admin/monitoring` output at time of detection.
+- [ ] `GET /admin/monitoring` output after resolution.
+- [ ] Supabase dashboard screenshots (database health, connection pool, query performance) if relevant.
+- [ ] Hosting provider dashboard screenshots (deployment status, resource usage) if relevant.
+- [ ] Vercel dashboard screenshots (deployment status) if frontend was affected.
+
+### Error Samples
+
+- [ ] At least 3 representative error log entries with full `extra` fields.
+- [ ] HTTP response status codes and error messages returned to users (sanitized — no sensitive data).
+- [ ] Exception types and stack traces from server logs (internal only — never share with users).
+
+### Deployment Identifiers
+
+- [ ] Git commit hash of the deployed version at incident time.
+- [ ] Git commit hash of the version deployed as a fix (if a deployment was the fix).
+- [ ] `git log --oneline` output showing recent commits around the incident.
+- [ ] Hosting provider deployment ID or URL if available.
+
+### Screenshots (if applicable)
+
+- [ ] Screenshots of error states in the app (frontend errors visible to users).
+- [ ] Screenshots of external service dashboards (Supabase, Firebase, hosting provider).
+- [ ] Do NOT include screenshots containing sensitive user data (emails, phone numbers, etc.).
+
+### Game Data Integrity (if data corruption is suspected)
+
+- [ ] Full output of `python -m scripts.audit_game_data_integrity --json` before any corrections.
+- [ ] List of affected record IDs (game_id, field_id, user_id).
+- [ ] Export of affected records from Supabase SQL editor.
+
+---
+
+## 8. Escalation Policy
+
+### Escalation levels
+
+| Level | Who | When to escalate |
+| --- | --- | --- |
+| **L1: On-call operator** | Any team member with admin access | First responder for all incidents. Handles P2/P3 independently. |
+| **L2: Engineering lead** | Senior developer or tech lead | P0/P1 incidents. Any incident unresolved after 30 min. Any incident requiring code changes. |
+| **L3: Product owner** | Product owner / stakeholder | P0 incidents affecting all users. Security incidents with data exposure. Policy decisions needed during incident. |
+| **L4: External support** | Supabase support, Firebase support, hosting provider support | When the root cause is in a third-party managed service and self-diagnosis is exhausted. |
+
+### Escalation triggers
+
+| Condition | Escalate to |
+| --- | --- |
+| Incident unresolved after 30 minutes | L2 |
+| Root cause unknown after 1 hour | L2 |
+| Data loss confirmed or suspected | L2 + L3 |
+| Security breach confirmed | L2 + L3 |
+| Supabase is the root cause and self-fix is not possible | L4 (Supabase support) |
+| Firebase credentials need rotation | L2 (requires Firebase console access) |
+| Hosting provider issue | L4 (hosting provider support) |
+| Unclear if issue affects user data privacy | L3 |
+
+### Escalation etiquette
+
+* Always include the incident ID, severity, current status, and what you have already tried.
+* Do not escalate without first checking the obvious: health endpoint, recent deployments, environment variables, external service status pages.
+* When escalating to external support, include: project ID, time window, error messages (sanitized), and what you have already ruled out.
+
+---
+
+## 9. Final Recommendation
+
+This playbook provides incident response coverage for the current Yesh Mishak architecture. Key points:
+
+1. **Start using it immediately.** The runbooks work with the existing monitoring tools: `GET /admin/monitoring` (ISSUE-070), backend structured logs (ISSUE-067), Supabase dashboard, and Vercel dashboard.
+
+2. **Assign incident response roles.** Even for a small team, one person should be the designated first responder during active hours. Document who that is.
+
+3. **Practice the workflow.** Before a real incident occurs, walk through the "Backend Down" runbook once with a simulated failure (e.g., temporarily set an invalid SUPABASE_URL and observe the behavior, then restore it).
+
+4. **Keep the playbook updated.** When the hosting provider is confirmed and Phase 2 monitoring (ISSUE-069) is implemented, update the runbooks with provider-specific commands and automated detection methods.
+
+5. **Postmortems are non-negotiable for P0/P1.** They are the mechanism for improving the system. Without them, the same incidents will recur.
+
+---
+
+## 10. Documentation Review Summary
+
+### What was reviewed
+
+| Document | Relevance to this playbook |
+| --- | --- |
+| ISSUE-054: Production Support Handbook | Existing severity levels, support workflow, escalation conditions, documentation templates. This playbook extends ISSUE-054 for production infrastructure incidents. |
+| ISSUE-065: Application Logging Policy | Structured event names, severity matrix, mandatory log fields, sensitive-data rules. Used to define detection methods and evidence collection. |
+| ISSUE-066: Backend Logging Audit | Inventory of existing logging and gaps. Informed which metrics are detectable via logs vs need Phase 2. |
+| ISSUE-067: Implement Missing Backend Logs | Specific log events available: `auth.login.*`, `games.create/close.*`, `notifications.generate/push.failure`, `jobs.*.start/finish/failure`, `fields.moderation.*`. Used to define monitoring signals in each runbook. |
+| ISSUE-068: Sensitive Data Logging Review | Confirmed no sensitive data in logs. Ensured evidence collection procedures do not expose sensitive data. |
+| ISSUE-069: Production Monitoring Requirements | 39 metrics, thresholds, SLO candidates, Phase 1/2/3 rollout. Used as the basis for monitoring signals in every runbook. |
+| ISSUE-070: Implement Production Monitoring | `GET /admin/monitoring` endpoint — available metrics (active_games, active_users, notifications, moderation, database health) and unavailable metrics (api_errors, response_time, scheduled_jobs, push_notifications). Used to define detection and verification steps. |
+| `docs/production-support-handbook.md` | ISSUE-054 full handbook with operational procedures, admin endpoints, game integrity audit, and templates. |
+| `docs/global-error-handling-strategy.md` | Error handling approach, response format, logging requirements for errors. |
+
+### Relationship to ISSUE-054 Production Support Handbook
+
+ISSUE-054 covers **day-to-day support operations**: handling user reports, field corrections, game issues, and abusive users.
+
+ISSUE-071 covers **production infrastructure incidents**: service outages, database failures, authentication breakdowns, deployment failures, and security incidents.
+
+The two documents are complementary:
+
+* ISSUE-054 severity levels (Critical/High/Medium/Low) map to response time SLAs for support tasks.
+* ISSUE-071 severity levels (P0/P1/P2/P3) map to response urgency for infrastructure incidents.
+* ISSUE-054 post-incident review checklist is a simplified version of the ISSUE-071 postmortem template.
+* When a support task (ISSUE-054) reveals an infrastructure problem, escalate to the ISSUE-071 incident workflow.
+
+---
+
+## Files Changed
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-071 incident response playbook.
+
+No backend runtime, frontend runtime, database, migration, endpoint, logging, metrics, middleware, or application behavior changes were made.
+
+## Follow-up Issues Recommended
+
+1. **Assign incident response roles** — document who is the on-call first responder and escalation contacts.
+2. **Create an incident log** — a persistent file or document tracking all incidents with their INC-XXX identifiers.
+3. **Phase 2 monitoring** — implement metrics middleware to enable automated detection for api_errors, response_time, and other Phase 2 metrics (per ISSUE-069).
+4. **Incident response drill** — walk through the Backend Down runbook once with a simulated failure before production launch.
+5. **External uptime monitoring** — set up a free external monitor (e.g., UptimeRobot) for `GET /` and the frontend URL (per ISSUE-069 recommendation).
+6. **Automated alerting** — when Phase 2 monitoring is implemented, add P1/P2 threshold-based alerts per ISSUE-069 Section 7.
+
