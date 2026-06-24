@@ -57,16 +57,34 @@ function assertSafeConfiguration() {
     fail("BASE_URL is required. Use a local or staging URL only.");
   }
 
-  const lowerBaseUrl = baseUrl.toLowerCase();
-  const looksProduction =
-    lowerBaseUrl.includes("production") ||
-    lowerBaseUrl.includes("prod.") ||
-    lowerBaseUrl.includes("-prod") ||
-    lowerBaseUrl.includes("yeshmishak.com");
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(baseUrl);
+  } catch (e) {
+    // Fail closed if the URL is invalid or malformed.
+    fail("Invalid BASE_URL. It must be a valid URL.");
+  }
 
-  if (looksProduction && !allowProduction) {
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  const localHosts = ["localhost", "127.0.0.1"];
+  const prodHosts = ["yeshmishak.com", "www.yeshmishak.com"];
+
+  const isLocal = localHosts.includes(hostname);
+  const isProd = prodHosts.includes(hostname);
+
+  // Validate parsed.hostname exactly against an explicit allowlist.
+  // Using exact hostname matching instead of substring matching/includes prevents
+  // potential bypasses from attacker-controlled domains containing the target domain as a substring.
+  if (!isLocal && !isProd) {
+    fail(`Host '${hostname}' is not in the explicit allowlist of authorized test targets.`);
+  }
+
+  // Keep safety checks intact and do not weaken any checks.
+  // Production hosts are only allowed if allowProduction is explicitly set to true.
+  if (isProd && !allowProduction) {
     fail(
-      "Refusing to run against a production-looking BASE_URL. Set ALLOW_PRODUCTION_LOAD_TEST=true only after explicit approval."
+      "Refusing to run against a production BASE_URL. Set ALLOW_PRODUCTION_LOAD_TEST=true only after explicit approval."
     );
   }
 }
