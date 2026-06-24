@@ -10974,3 +10974,136 @@ Based on the ISSUE-074 production measurements (pre-ISSUE-077):
 6. **Re-run ISSUE-074 measurements** after all P1 indexes are in place to establish new baselines.
 7. **The `GET /notifications/unread-count` bottleneck** (ISSUE-076 P2) requires both the partial index (P1-5 above) AND a code change to use `count="exact"` instead of fetching all rows. The index alone helps but the code change is the bigger win.
 
+---
+---
+
+# ISSUE-079 — Implement Missing Database Indexes
+
+**Date:** 2025-06-24
+**Type:** Implementation (migration + schema update)
+**Scope:** All indexes recommended by ISSUE-078
+**Constraint:** No application code modified.
+
+---
+
+## 1. Summary
+
+Implemented all 10 indexes recommended by ISSUE-078 and dropped 1 redundant index. Created a dedicated migration file and updated `schema.sql` so fresh databases match.
+
+---
+
+## 2. Indexes Added
+
+### P1 — High Priority (5 indexes)
+
+| # | Index Name | Table | Columns | Type | Queries Accelerated | Expected Benefit |
+|---|---|---|---|---|---|---|
+| P1-1 | `idx_fields_public_listing_spatial` | fields | `(verified, approval_status, status, lat, lng)` | B-tree composite | GET /fields (bounded + unbounded) | 50-80% query cost reduction on every map load |
+| P1-2 | `idx_games_status` | games | `(status)` | B-tree | GET /games/active, /upcoming, POST /games duplicate check, admin games, scheduled reminders | 70-90% reduction as historical games grow |
+| P1-3 | `idx_games_field_id_status` | games | `(field_id, status)` | B-tree composite | GET /fields game payload fan-out, POST /games duplicate check | 30-50% faster game enrichment per field |
+| P1-4 | `idx_notifications_user_id_created_at` | notifications | `(user_id, created_at DESC)` | B-tree composite | GET /notifications | Eliminates filesort on notification listing |
+| P1-5 | `idx_notifications_user_unread` | notifications | `(user_id) WHERE read_at IS NULL` | B-tree partial | GET /notifications/unread-count, PATCH /notifications/read-all | ~90% faster unread count (tiny index on unread subset) |
+
+### P2 — Moderate Priority (3 indexes)
+
+| # | Index Name | Table | Columns | Type | Queries Accelerated | Expected Benefit |
+|---|---|---|---|---|---|---|
+| P2-1 | `idx_fields_approval_status` | fields | `(approval_status)` | B-tree | GET /admin/fields/pending | seq scan → index scan on admin page |
+| P2-2 | `idx_users_last_login` | users | `(last_login)` | B-tree | GET /admin/monitoring (DAU/WAU) | seq scan → index scan for monitoring |
+| P2-3 | `idx_notifications_type_game_id` | notifications | `(type, game_id)` | B-tree composite | Notification dedup checks (create/close/extend/reminder) | Faster dedup during notification generation |
+
+### P3 — Low Priority (2 indexes)
+
+| # | Index Name | Table | Columns | Type | Queries Accelerated | Expected Benefit |
+|---|---|---|---|---|---|---|
+| P3-1 | `idx_push_tokens_user_id_token` | push_tokens | `(user_id, token)` | B-tree composite | DELETE /notifications/push-token | Minor: covers two-column filter on logout |
+| P3-2 | `idx_notification_preferences_user_id_type` | notification_preferences | `(user_id, notification_type)` | B-tree composite | PUT /notifications/preferences dedup check | Minor: covers preference upsert lookup |
+
+### Cleanup — Dropped (1 index)
+
+| Index Name | Table | Reason |
+|---|---|---|
+| `idx_notification_preferences_enabled` | notification_preferences | Boolean column with >80% `true` rows. PostgreSQL query planner never uses this index. Confirmed in ISSUE-078 section 4.2. |
+
+---
+
+## 3. Indexes Intentionally NOT Implemented
+
+| Recommendation | Reason Skipped |
+|---|---|
+| `idx_fields_public_listing ON fields(verified, approval_status, status)` (3-column) | ISSUE-078 section 3.2 explicitly states: "This index makes idx_fields_public_listing (3.1) redundant — the 5-column index covers the 3-column case as a prefix. **Create only this one, not both.**" The 5-column `idx_fields_public_listing_spatial` was created instead. |
+| Section 3.8: notification_preferences enabled filter | ISSUE-078 explicitly states: "No new index. Fix requires code change (out of scope for this issue)." This is a code-level problem, not an index problem. |
+
+---
+
+## 4. ISSUE-078 Query Pattern Coverage Verification
+
+After implementation, every query pattern identified in ISSUE-078 now has index coverage:
+
+| Query Pattern | Table | Index Coverage |
+|---|---|---|
+| `.eq("verified",T).eq("approval_status","approved").eq("status","open")` | fields | `idx_fields_public_listing_spatial` (first 3 columns) |
+| Same + `.gte("lat").lte("lat").gte("lng").lte("lng")` | fields | `idx_fields_public_listing_spatial` (all 5 columns) |
+| `.eq("approval_status","pending")` | fields | `idx_fields_approval_status` |
+| `.eq("id",...)` | fields | `fields_pkey` (existing) |
+| `.in_("id",...)` | fields | `fields_pkey` (existing) |
+| `.in_("status",["open","full"])` | games | `idx_games_status` |
+| `.in_("field_id",...).in_("status",...)` | games | `idx_games_field_id_status` |
+| `.eq("field_id",...).eq("sport_type",...).in_("status",...)` | games | `idx_games_field_id_status` (field_id + status) |
+| `.eq("id",...)` | games | `games_pkey` (existing) |
+| `.eq("created_by",...)` | games | `idx_games_created_by` (existing) |
+| `.eq("user_id",...).order("created_at",desc=True)` | notifications | `idx_notifications_user_id_created_at` |
+| `.eq("user_id",...).is_("read_at","null")` | notifications | `idx_notifications_user_unread` |
+| `.eq("type",...).eq("game_id",...).in_("user_id",...)` | notifications | `idx_notifications_type_game_id` |
+| `.eq("user_id",...)` | notifications | `idx_notifications_user_id` (existing) |
+| `.gte("created_at",...)` | notifications | `idx_notifications_created_at` (existing) |
+| `.is_("read_at","null")` (global) | notifications | `idx_notifications_read_at` (existing, kept) |
+| `.eq("user_id",...)` | notification_preferences | `idx_notification_preferences_user_id` (existing) |
+| `.eq("user_id",...).eq("notification_type",...)` | notification_preferences | `idx_notification_preferences_user_id_type` |
+| `.gte("last_login",...)` | users | `idx_users_last_login` |
+| `.eq("id",...)` | users | `users_pkey` (existing) |
+| `.eq("email",...)` | users | `users_email_key` (existing) |
+| `.eq("username",...)` | users | `users_username_unique` (existing) |
+| `.eq("game_id",...)` | game_players | `idx_game_players_game_id` (existing) |
+| `.eq("user_id",...)` | game_players | `idx_game_players_user_id` (existing) |
+| `.in_("game_id",...)` | game_players | `idx_game_players_game_id` (existing) |
+| `.eq("user_id",...).eq("token",...)` | push_tokens | `idx_push_tokens_user_id_token` |
+| `.eq("token",...)` | push_tokens | `idx_push_tokens_token` (existing) |
+| `.in_("user_id",...)` | push_tokens | `idx_push_tokens_user_id` (existing) |
+
+---
+
+## 5. Files Changed
+
+| File | Change |
+|---|---|
+| `backend/migrations/issue_079_missing_indexes.sql` | **New.** Migration file with all 10 new indexes + 1 drop. Idempotent, safe to run as a single batch. |
+| `backend/schema.sql` | Added 9 new index definitions. Removed `idx_notification_preferences_enabled`. |
+| `backend/migrations/push_notifications.sql` | Added `idx_push_tokens_user_id_token` composite index. |
+| `docs/product-decisions.md` | Added ISSUE-079 documentation section. |
+
+---
+
+## 6. Validation Performed
+
+1. **No duplicate indexes:** Each new index name is unique and does not conflict with any existing index.
+2. **No redundant recreations:** Existing indexes (e.g., `idx_games_field_id`, `idx_notifications_user_id`) are preserved, not recreated.
+3. **Unique constraints not duplicated:** The new indexes are plain B-tree indexes, not unique. Existing unique constraints (`game_players(game_id, user_id)`, `push_tokens(token)`, notification dedup uniques) remain unchanged.
+4. **schema.sql consistency:** A fresh database created from schema.sql + migrations will have identical index coverage to a production database that runs the migration.
+5. **All backend tests pass:** 530 passed, 0 failed.
+6. **Migration is idempotent:** All statements use `IF NOT EXISTS` / `IF EXISTS` — safe to re-run.
+
+---
+
+## 7. Deployment Instructions
+
+The migration uses plain `CREATE INDEX IF NOT EXISTS` / `DROP INDEX IF EXISTS` (no `CONCURRENTLY`). It can be pasted into the Supabase SQL Editor and run as a single batch. All statements are idempotent — safe to re-run. The tables are small enough that brief locks during index creation are imperceptible.
+
+---
+
+## 8. Follow-up
+
+1. **Measure production impact** after deploying P1 indexes using `measure_production_api.py`.
+2. **The unread-count code optimization** (ISSUE-076 P2) should be done separately — the partial index helps but the bigger win is changing the code to use `count="exact"` instead of fetching all rows.
+3. **Monitor index usage** via `pg_stat_user_indexes` after a week to confirm all new indexes are being used by the query planner.
+

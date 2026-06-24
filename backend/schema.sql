@@ -134,6 +134,7 @@ create table if not exists user_moderation_audit (
 );
 
 create index if not exists idx_users_status on users(status);
+create index if not exists idx_users_last_login on users(last_login);
 alter table user_moderation_audit enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
@@ -142,7 +143,11 @@ grant select, update on public.users to service_role;
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
 create index if not exists idx_fields_added_by on fields(added_by);
+create index if not exists idx_fields_public_listing_spatial on fields(verified, approval_status, status, lat, lng);
+create index if not exists idx_fields_approval_status on fields(approval_status);
 create index if not exists idx_games_field_id on games(field_id);
+create index if not exists idx_games_field_id_status on games(field_id, status);
+create index if not exists idx_games_status on games(status);
 create index if not exists idx_games_created_by on games(created_by);
 create index if not exists idx_games_scheduled_at on games(scheduled_at);
 create index if not exists idx_games_scheduled_reminder_processed_at on games(scheduled_reminder_processed_at);
@@ -158,10 +163,13 @@ create index if not exists idx_field_reports_created_at on field_reports(created
 create index if not exists idx_field_reports_field_id_status on field_reports(field_id, status);
 create index if not exists idx_notification_preferences_user_id on notification_preferences(user_id);
 create index if not exists idx_notification_preferences_field_id on notification_preferences(field_id);
-create index if not exists idx_notification_preferences_enabled on notification_preferences(enabled);
+create index if not exists idx_notification_preferences_user_id_type on notification_preferences(user_id, notification_type);
 grant usage on schema public to service_role;
 grant select, insert, update, delete on table public.notification_preferences to service_role;
 create index if not exists idx_notifications_user_id on notifications(user_id);
+create index if not exists idx_notifications_user_id_created_at on notifications(user_id, created_at desc);
+create index if not exists idx_notifications_user_unread on notifications(user_id) where read_at is null;
+create index if not exists idx_notifications_type_game_id on notifications(type, game_id);
 create index if not exists idx_notifications_read_at on notifications(read_at);
 create index if not exists idx_notifications_created_at on notifications(created_at);
 create index if not exists idx_notifications_game_id on notifications(game_id);

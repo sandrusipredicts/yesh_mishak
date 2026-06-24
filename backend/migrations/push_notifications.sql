@@ -8,6 +8,7 @@ create table if not exists push_tokens (
 
 create index if not exists idx_push_tokens_user_id on push_tokens(user_id);
 create index if not exists idx_push_tokens_token on push_tokens(token);
+create index if not exists idx_push_tokens_user_id_token on push_tokens(user_id, token);
 
 -- Multi-device support: a push token must be unique per device, never per user.
 -- Legacy databases created before this migration may carry a single-column
