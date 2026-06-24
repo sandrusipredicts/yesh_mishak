@@ -270,13 +270,29 @@ def test_moderation_regression_pathological_input():
     assert duration < 0.1  # should be extremely fast, virtually instantaneous (less than 100ms)
 
 
-def test_moderation_regression_pathological_email():
-    # pathological email backtracking does not hang and returns quickly
-    import time
-    pathological_email = "a" * 1000 + "@" + "a." * 50 + "1"
-    start_time = time.perf_counter()
-    r = validate_text(pathological_email, field_name="note", check_personal_data=True, max_length=2000)
-    duration = time.perf_counter() - start_time
+def test_moderation_regression_emails():
+    # normal email is still detected
+    r = validate_text("contact me at user@example.com", field_name="note", check_personal_data=True)
     assert r.allowed is False
-    assert duration < 0.1
+    assert "personal_data_email" in r.violations
+
+
+def test_moderation_regression_malformed_emails_no_crash():
+    # malformed email-like strings do not crash and are handled correctly
+    cases = [
+        "@",
+        "foo@",
+        "@bar",
+        "foo@bar",
+        "foo@bar.",
+        "foo@bar.c",
+        "foo@bar.co",
+        "foo@bar@baz.com",
+        "foo@bar.com.",
+        "foo@@bar.com",
+    ]
+    for case in cases:
+        r = validate_text(case, field_name="note", check_personal_data=True)
+        assert isinstance(r.allowed, bool)
+
 

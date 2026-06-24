@@ -34,9 +34,42 @@ PHONE_PATTERN = re.compile(
     r"(?<!\d)0\d[\d\-]{6,11}(?!\d)"
     r"|(?<!\d)\+972[\d\-]{7,12}(?!\d)"
 )
-EMAIL_PATTERN = re.compile(
-    r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}"
-)
+def _contains_email_like_token(text: str) -> bool:
+    tokens = text.split()
+    punctuation_to_strip = ".,!?()[]{}<>;:\"'*"
+    
+    for token in tokens:
+        token = token.strip(punctuation_to_strip)
+        if not token:
+            continue
+        
+        # Require exactly one '@'
+        if token.count('@') != 1:
+            continue
+            
+        local_part, domain_part = token.split('@')
+        
+        # Require non-empty local part
+        if not local_part:
+            continue
+            
+        # Require non-empty domain part
+        if not domain_part:
+            continue
+            
+        # Require at least one '.' in the domain
+        if '.' not in domain_part:
+            continue
+            
+        # Require final TLD length >= 2
+        domain_segments = domain_part.split('.')
+        tld = domain_segments[-1]
+        if len(tld) < 2:
+            continue
+            
+        return True
+        
+    return False
 
 MAX_LENGTH_DEFAULT = 1000
 MAX_LENGTH_SHORT = 200
@@ -136,7 +169,7 @@ def validate_text(
             result.allowed = False
             result.severity = "high"
             result.message = f"{field_name} must not contain phone numbers"
-        if EMAIL_PATTERN.search(stripped):
+        if _contains_email_like_token(stripped):
             result.violations.append("personal_data_email")
             result.allowed = False
             result.severity = "high"
