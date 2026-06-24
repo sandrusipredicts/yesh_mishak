@@ -5347,3 +5347,50 @@ Deferred to future issues:
 
 Implemented.
 
+---
+
+# ISSUE-061 — Add Migration For Fields Has Nets Schema Drift
+
+## Type
+
+Database migration / production incident follow-up.
+
+## Background
+
+Production `POST /fields` failed with:
+
+```json
+{ "error": true, "code": "DATABASE_ERROR", "message": "Failed to create field" }
+```
+
+## Root Cause
+
+The backend/frontend field creation flow sends `has_nets`, but the production `public.fields` table was missing the `has_nets` column.
+
+## Production Hotfix
+
+A manual Supabase hotfix was applied:
+
+```sql
+alter table public.fields
+add column if not exists has_nets boolean not null default false;
+```
+
+After the hotfix, `POST /fields` succeeded and new field rows were inserted with `approval_status = pending`, `verified = false`, and `has_nets` populated correctly.
+
+## Repository Fix
+
+Added a repository migration to prevent future schema drift:
+
+`backend/migrations/fields_has_nets.sql`
+
+The canonical schema already includes:
+
+```sql
+has_nets boolean not null default false
+```
+
+## Status
+
+Implemented.
+
