@@ -13913,3 +13913,335 @@ Reviewer basis: All P0 items verified complete. Critical bottlenecks resolved or
 |------|--------|
 | `docs/product-decisions.md` | This section (ISSUE-090 performance review checkpoint) |
 
+# ISSUE-091: Application Security Review Checklist
+
+## Status
+
+Approved checklist. Documentation only.
+
+## Purpose
+
+This section is the official security review checklist for the Yesh Mishak project. It centralizes the required checks a reviewer must perform before launch or before any feature is considered production-ready.
+
+This issue does not fix vulnerabilities, certify the system as secure, or change application behavior. It defines how to review security. Any risk discovered while using this checklist must be recorded as `FAIL` or `NOT VERIFIED` and tracked through a follow-up issue.
+
+## Security Review Scope
+
+The security review covers:
+
+- Authentication
+- Authorization
+- Database
+- API
+- Frontend
+- Infrastructure
+- Third Party Services
+
+## Repository Context Reviewed
+
+This checklist was written after inspecting the current repository security surfaces, including:
+
+| Area | Evidence inspected |
+|------|--------------------|
+| Authentication flow | `backend/app/api/auth.py`, `backend/app/auth/google.py`, `backend/app/auth/jwt.py`, `backend/app/auth/dependencies.py` |
+| JWT/session handling | `backend/app/auth/jwt.py`, `frontend/src/api/auth.js`, `frontend/src/api/client.js`, `frontend/src/App.jsx` |
+| Admin authorization | `backend/app/auth/dependencies.py`, `backend/app/api/admin.py`, `frontend/src/components/AdminRoute.jsx` |
+| User authorization | `backend/app/routers/games.py`, `backend/app/routers/fields.py`, `backend/app/routers/field_reports.py`, `backend/app/routers/notifications.py` |
+| Supabase usage | `backend/app/db/supabase.py`, `backend/schema.sql`, `backend/migrations/*` |
+| RLS assumptions | migrations and product decisions referencing Supabase policies/grants |
+| API routers | `backend/app/api/*`, `backend/app/routers/*`, `backend/app/main.py` |
+| Notifications and push tokens | `backend/app/routers/notifications.py`, `backend/app/services/firebase_push.py`, `frontend/src/firebaseMessaging.js`, `frontend/src/components/NotificationsModal.jsx` |
+| Frontend environment variables | `frontend/.env.example`, `frontend/src/*`, `frontend/vercel.json` |
+| Backend environment variables | `backend/.env.example`, `backend/app/core/config.py` |
+| Third-party services | Supabase, Google OAuth, Firebase Cloud Messaging, Railway/Vercel docs references, OpenStreetMap/Leaflet, Google Maps navigation links |
+| Existing related decisions | ISSUE-065 through ISSUE-068 logging policy/reviews, ISSUE-085 notification load plan, ISSUE-087/088 game load testing, ISSUE-089/090 performance and checkpoint docs |
+
+This was not a full security audit. Checklist statuses below default to `NOT VERIFIED` unless a future reviewer records evidence.
+
+## Review Method
+
+Allowed checklist statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `PASS` | The reviewer verified the check with repository evidence, tests, manual testing, or environment inspection. Evidence must be recorded. |
+| `FAIL` | The reviewer found a security gap or unsafe behavior. A follow-up issue is required. |
+| `NOT VERIFIED` | The reviewer has not verified the check yet, or evidence is insufficient. This is the default status. |
+| `NOT APPLICABLE` | The check does not apply to the current system or feature. The reason must be recorded. |
+
+Any `FAIL` on a P0 or P1 security check requires a follow-up issue before launch or before the affected feature is considered production-ready.
+
+Priority definitions:
+
+| Priority | Meaning |
+|----------|---------|
+| `P0` | Launch-blocking if failed. Must be verified for production. |
+| `P1` | High-priority security requirement. Must be resolved or explicitly risk-accepted before broad release. |
+| `P2` | Important hardening or abuse-prevention requirement. |
+| `P3` | Lower-priority review item or operational hygiene. |
+
+## Authentication Checklist
+
+Reviewers must verify:
+
+- Google OAuth ID tokens are verified server-side against the configured Google client ID.
+- Backend-created JWTs are signed with the configured secret and allowed algorithm.
+- JWT expiration is enforced by backend token decoding.
+- Invalid and expired tokens return safe structured 401 responses.
+- Anonymous users cannot access authenticated endpoints.
+- Banned and suspended users are blocked from normal authenticated workflows.
+- Logout/session cleanup removes frontend-stored auth material where applicable.
+- Frontend never treats local auth state as authorization.
+- Frontend stores no backend secrets, service-role keys, Google ID tokens, Firebase service account JSON, or JWT signing secrets.
+- Password login/register flows, if enabled, validate credentials without leaking whether sensitive internals exist.
+- Auth logs do not expose passwords, JWTs, refresh tokens, Google ID tokens, raw authorization headers, or full sensitive claims.
+
+## Authorization Checklist
+
+Reviewers must verify:
+
+- Every admin endpoint uses server-side admin authorization.
+- Admin route UI checks are convenience only and are never the sole access control.
+- Organizer-only game actions are enforced server-side.
+- Users can only modify their own game membership where relevant.
+- Users can only read/update their own notifications.
+- Notification preferences are always scoped to the authenticated user.
+- Push token registration, deletion, and test push are scoped to the authenticated user.
+- Field moderation endpoints require admin privileges.
+- Field creation/report submission use authenticated user identity from the token, not client-supplied `user_id`.
+- No endpoint accepts `role`, `user_id`, `created_by`, `reviewed_by`, `restricted_by`, or similar authority fields blindly from client input.
+- Authorization regression tests or manual verification exist for admin, user, and anonymous flows.
+
+## Database Checklist
+
+Reviewers must verify:
+
+- Row Level Security assumptions are documented for every table exposed through Supabase.
+- Tables that are accessed with service-role clients have explicit code-level user scoping.
+- `anon`, `authenticated`, and `service_role` privileges are reviewed before migration application.
+- New migrations are reviewed for privilege changes, RLS changes, functions, triggers, and grants.
+- Sensitive fields such as `password_hash`, phone numbers, emails, Google subject IDs, push tokens, and restriction reasons are not exposed to unauthorized users.
+- Security-relevant queries have indexes that prevent accidental denial-of-service through slow scans.
+- Audit trail requirements are met for admin moderation and other durable security-sensitive actions.
+- Data retention is defined and reviewed for notifications, push tokens, logs, field reports, auth records, and audit rows.
+- Direct client writes to protected tables are not allowed unless explicitly reviewed and documented.
+- Unique constraints and checks support security-relevant invariants such as duplicate game prevention and player count limits.
+- Service-role keys are never available to frontend code or committed files.
+
+## API Security Checklist
+
+Reviewers must verify:
+
+- Request payloads use Pydantic or equivalent validation.
+- Error responses do not leak stack traces, raw database errors, secrets, tokens, internal SQL, or provider credentials.
+- Rate limiting needs are reviewed for login, registration, username/email availability, game creation, field submission, reports, admin actions, notification preferences, push-token registration, and test push.
+- CORS production origins are restricted to approved frontend domains.
+- Unsafe HTTP methods are protected by authentication and authorization.
+- Idempotency and duplicate-submission behavior are documented for write endpoints.
+- Mass assignment risks are reviewed for every insert/update payload.
+- Pagination or result limits exist for list endpoints, or missing limits are documented as follow-up issues.
+- Authentication is required where expected.
+- Admin endpoints cannot be reached without backend admin checks.
+- Debug, load-test, benchmark, and operational scripts/endpoints are not exposed in production unless explicitly protected.
+- API logs redact sensitive values and follow the ISSUE-065 logging policy.
+
+## Frontend Security Checklist
+
+Reviewers must verify:
+
+- No secrets are stored in `VITE_*` environment variables. `VITE_*` values are public by design.
+- Access token storage in `localStorage` is reviewed and risk-accepted or replaced.
+- Logout clears auth-related localStorage keys.
+- XSS risks are reviewed anywhere user-generated content is rendered, including field names, notes, reports, usernames, descriptions, notification bodies, and admin tables.
+- Map, notification, and admin UIs never assume client-side authorization is sufficient.
+- Push tokens are handled as sensitive device identifiers and are not logged or exposed unnecessarily.
+- Dev-only controls, debug buttons, test-push controls, benchmark hooks, and load-test helpers are absent or disabled in production.
+- LocalStorage contains no sensitive data beyond explicitly accepted risk.
+- Unauthenticated users are handled safely and cannot trigger protected writes.
+- Frontend dependency and build output review confirms no secrets are bundled.
+
+## Infrastructure Checklist
+
+Reviewers must verify:
+
+- Production environment variables are configured from a secure secret store.
+- Railway backend environments are separated for local/staging/production.
+- Vercel frontend environments are separated for preview/staging/production.
+- Supabase projects are separated for staging and production, or shared usage is explicitly risk-accepted.
+- Firebase credentials and service accounts are stored only in backend/private infrastructure.
+- CORS allowed origins are production-specific and do not include broad wildcards.
+- Production access is HTTPS-only.
+- Logging redacts secrets, tokens, authorization headers, push tokens, passwords, phone numbers, and email addresses where policy requires.
+- Backup and restore expectations are documented for Supabase data.
+- Deployment permissions are limited to authorized maintainers.
+- Load tests are never run against production unless explicitly approved, rate-limited, monitored, and protected by synthetic data isolation.
+
+## Third Party Services Checklist
+
+Reviewers must verify:
+
+- Supabase API keys, service-role keys, RLS policies, grants, and project separation are reviewed.
+- Google OAuth client IDs are restricted to approved origins and redirect contexts.
+- Firebase Cloud Messaging service account keys are backend-only, rotated as needed, and not stored in frontend env vars.
+- Railway backend environment variables and deployment permissions are restricted.
+- Vercel frontend environment variables contain no backend secrets.
+- Map provider and Places provider usage is reviewed for API key restrictions, quota limits, and privacy implications.
+- OpenStreetMap tile usage complies with provider terms and expected traffic.
+- Dependency/package risk is reviewed through a vulnerability scan and lockfile review.
+- API key restrictions are configured where providers support them.
+- Service account key rotation expectations are documented.
+- Provider quota and rate-limit visibility exists for Supabase, Firebase, Google, Railway, Vercel, and map providers.
+
+## Security Review Table
+
+Default status is `NOT VERIFIED`. Reviewers must update statuses and evidence when executing a real review.
+
+| Area | Check | Priority | Status | Evidence required | Follow-up if failed |
+|------|-------|----------|--------|-------------------|---------------------|
+| Authentication | Google OAuth ID token is verified server-side against configured `GOOGLE_CLIENT_ID`. | P0 | NOT VERIFIED | Code review of `verify_google_token`; manual invalid-token test; Google client configuration screenshot or notes. | Fix Google OAuth verification and add regression test. |
+| Authentication | Backend JWT signature, algorithm, and expiration are enforced. | P0 | NOT VERIFIED | Code review of `create_access_token` and `decode_access_token`; expired/invalid token tests. | Fix JWT validation and add auth regression tests. |
+| Authentication | Anonymous requests cannot access authenticated endpoints. | P0 | NOT VERIFIED | Manual/API tests for games, fields creation, reports, notifications, admin endpoints. | Add missing `require_active_user` / `require_admin` guards. |
+| Authentication | Banned/suspended users are blocked from normal authenticated workflows. | P1 | NOT VERIFIED | Tests/manual checks for restricted accounts on non-admin workflows. | Add or fix `require_active_user` coverage. |
+| Authentication | Logout/session cleanup removes stored auth data. | P1 | NOT VERIFIED | Frontend review and browser test. | Fix logout cleanup and stale session handling. |
+| Authentication | Frontend contains no backend secrets or service-role keys. | P0 | NOT VERIFIED | Review frontend env vars, build output, Vercel env settings. | Remove exposed secrets, rotate affected keys. |
+| Authentication | Auth logs do not expose passwords, JWTs, Google ID tokens, or raw auth headers. | P0 | NOT VERIFIED | Logging review against ISSUE-065 policy. | Redact logs and rotate exposed credentials if needed. |
+| Authorization | Admin endpoints use server-side `require_admin`. | P0 | NOT VERIFIED | Code review of every `/admin` endpoint and negative tests. | Add server-side admin guard and regression tests. |
+| Authorization | Admin UI checks are not relied on as the only authorization layer. | P0 | NOT VERIFIED | Compare `AdminRoute` with backend admin guards. | Move enforcement to backend or add missing guards. |
+| Authorization | Organizer-only game actions are enforced server-side. | P1 | NOT VERIFIED | Tests for close/extend/cancel by organizer vs other user. | Fix ownership checks and add tests. |
+| Authorization | Users can only modify their own game memberships. | P1 | NOT VERIFIED | Join/leave tests with multiple users. | Fix membership scoping and tests. |
+| Authorization | Notifications reads and read-state updates are user-scoped. | P0 | NOT VERIFIED | Tests for cross-user notification IDs and unread counts. | Fix user filters on notification queries. |
+| Authorization | Notification preferences are user-scoped and ignore client-supplied `user_id`. | P0 | NOT VERIFIED | Code review and cross-user tests for preferences. | Fix preference scoping and tests. |
+| Authorization | Push token save/delete/test push are user-scoped. | P0 | NOT VERIFIED | Tests for deleting/sending another user's token. | Fix push token scoping and tests. |
+| Authorization | Field moderation endpoints require admin privileges. | P0 | NOT VERIFIED | Code review and non-admin tests for approve/reject/status. | Add admin guard and tests. |
+| Authorization | Client input cannot set authority fields such as `role`, `created_by`, `reviewed_by`, or `restricted_by`. | P0 | NOT VERIFIED | Mass-assignment review for every write endpoint. | Whitelist server-owned fields. |
+| Database | RLS assumptions are documented for every exposed table. | P0 | NOT VERIFIED | Migration and Supabase policy review. | Create RLS policy audit/fix issue. |
+| Database | Service-role usage always applies code-level user scoping. | P0 | NOT VERIFIED | Review every `get_supabase_service_role_client()` call. | Restrict queries/updates and add tests. |
+| Database | `anon`, `authenticated`, and `service_role` grants are reviewed before migrations. | P0 | NOT VERIFIED | Migration diff review and Supabase grants export. | Fix grants and document policy. |
+| Database | Sensitive fields are not exposed to unauthorized users. | P0 | NOT VERIFIED | API response review for users/admin/public endpoints. | Remove fields or restrict endpoint. |
+| Database | Admin moderation audit trail is durable and protected. | P1 | NOT VERIFIED | Verify `user_moderation_audit` schema, grants, and admin actions. | Fix audit persistence/protection. |
+| Database | Data retention exists for notifications, push tokens, logs, reports, and audit rows. | P2 | NOT VERIFIED | Review retention decisions and cleanup jobs. | Add retention policy or cleanup implementation issue. |
+| Database | Protected tables cannot be written directly by clients unless explicitly allowed. | P0 | NOT VERIFIED | Supabase RLS/grants inspection. | Restrict policies/grants. |
+| Database | Unique/check constraints protect security-relevant invariants. | P1 | NOT VERIFIED | Review `games`, `game_players`, notifications indexes/constraints. | Add DB constraints or transactional logic. |
+| API | All request bodies are validated. | P1 | NOT VERIFIED | Router-by-router validation review. | Add Pydantic schemas or manual validation. |
+| API | Error responses are safe and do not leak internal provider/database details. | P0 | NOT VERIFIED | Review exception handlers and auth/database error paths. | Sanitize errors and add tests. |
+| API | Rate limiting needs are reviewed for auth and write-heavy endpoints. | P1 | NOT VERIFIED | Abuse-case review for auth, game creation, reports, push, admin. | Add rate limiting strategy issue. |
+| API | Production CORS origins are restricted. | P0 | NOT VERIFIED | Inspect production `CORS_ORIGINS` and backend startup config. | Restrict CORS and document environment. |
+| API | Write endpoints have documented idempotency/duplicate behavior. | P1 | NOT VERIFIED | Review retry strategy and duplicate decisions for POST/PATCH/DELETE. | Add idempotency or duplicate prevention issue. |
+| API | Mass assignment is prevented on create/update endpoints. | P0 | NOT VERIFIED | Review payload-to-row mappings. | Whitelist fields and add tests. |
+| API | List endpoints have pagination/result limits or accepted risk. | P2 | NOT VERIFIED | Review admin/users/fields/games/notifications endpoints. | Add pagination/result-limit issue. |
+| API | Debug/load-test/benchmark paths are not exposed in production. | P1 | NOT VERIFIED | Deployment artifact and route review. | Remove/protect debug tooling. |
+| Frontend | `VITE_*` variables contain only public values. | P0 | NOT VERIFIED | Review Vercel and `.env` config; inspect built bundle if needed. | Remove secret and rotate affected key. |
+| Frontend | Token storage in `localStorage` is reviewed and risk-accepted. | P1 | NOT VERIFIED | Review `frontend/src/api/auth.js`, `App.jsx`, threat model. | Move to safer session model or document acceptance. |
+| Frontend | User-generated content rendering is reviewed for XSS. | P0 | NOT VERIFIED | Review field/report/game/notification/admin rendering paths. | Sanitize/escape content or restrict rendering. |
+| Frontend | Admin UI never exposes actions based only on client-side role assumptions. | P1 | NOT VERIFIED | Manual tests and backend authorization comparison. | Fix backend guards/UI assumptions. |
+| Frontend | Push tokens are not logged or exposed unnecessarily. | P1 | NOT VERIFIED | Review push token storage, console logs, network responses. | Remove exposure and rotate tokens if needed. |
+| Frontend | Dev-only controls are disabled in production. | P1 | NOT VERIFIED | Review `import.meta.env.DEV`, `VITE_SHOW_TEST_PUSH`, build config. | Gate or remove dev-only controls. |
+| Frontend | Unauthenticated users cannot trigger protected writes. | P0 | NOT VERIFIED | Manual browser/API tests. | Fix route/API access handling. |
+| Infrastructure | Production secrets are stored only in secure environment configuration. | P0 | NOT VERIFIED | Railway/Vercel/Supabase/Firebase environment inspection. | Rotate leaked secrets and move to secret store. |
+| Infrastructure | Railway backend envs are separated by environment. | P1 | NOT VERIFIED | Railway project/environment review. | Split environments and rotate keys. |
+| Infrastructure | Vercel frontend envs are separated by environment. | P1 | NOT VERIFIED | Vercel env review. | Split environments and restrict variables. |
+| Infrastructure | Supabase staging and production separation is verified. | P0 | NOT VERIFIED | Supabase project review and env mapping. | Create staging project or document accepted risk. |
+| Infrastructure | Firebase service account credentials are backend-only. | P0 | NOT VERIFIED | Firebase env and repository scan. | Remove exposure and rotate service account. |
+| Infrastructure | HTTPS-only production access is enforced. | P0 | NOT VERIFIED | Deployment config and live endpoint check. | Enforce HTTPS/redirects. |
+| Infrastructure | Logging redaction follows ISSUE-065. | P0 | NOT VERIFIED | Log review and sample production logs. | Redact logs and open logging fix issue. |
+| Infrastructure | Backup/restore expectations are documented and tested. | P2 | NOT VERIFIED | Supabase backup settings and restore drill notes. | Add backup/restore plan issue. |
+| Infrastructure | Load testing cannot accidentally target production. | P1 | NOT VERIFIED | Review load-test scripts, env guards, runbooks. | Add guardrails and approval process. |
+| Third Party Services | Supabase key restrictions, RLS, grants, and quotas are reviewed. | P0 | NOT VERIFIED | Supabase dashboard/config export. | Fix policies/keys/quotas. |
+| Third Party Services | Google OAuth origins/client configuration are restricted. | P0 | NOT VERIFIED | Google Cloud OAuth client settings. | Restrict origins and rotate if needed. |
+| Third Party Services | Firebase FCM credentials and quotas are reviewed. | P1 | NOT VERIFIED | Firebase project settings and service account audit. | Rotate keys or add quota monitoring. |
+| Third Party Services | Railway deployment permissions are limited. | P1 | NOT VERIFIED | Railway team/project access review. | Remove excess access. |
+| Third Party Services | Vercel deployment permissions and env access are limited. | P1 | NOT VERIFIED | Vercel team/project access review. | Remove excess access. |
+| Third Party Services | Map/Places provider key restrictions and quota risks are reviewed. | P2 | NOT VERIFIED | Provider config review; OpenStreetMap terms review. | Restrict keys or change provider/usage. |
+| Third Party Services | Dependency vulnerability review is current. | P1 | NOT VERIFIED | `npm audit`, Python dependency scan, lockfile review. | Upgrade dependencies or document exceptions. |
+| Third Party Services | Service account key rotation expectations are documented. | P2 | NOT VERIFIED | Rotation runbook or provider policy. | Add rotation plan issue. |
+
+## P0 Launch-Blocking Checks
+
+These checks block launch if they fail:
+
+| Check | Required result before launch |
+|-------|-------------------------------|
+| Auth token verification | Backend verifies JWT signature, algorithm, expiration, and rejects invalid/expired tokens. |
+| Google OAuth verification | Backend verifies Google ID tokens server-side against the approved client ID. |
+| Admin authorization | Every admin endpoint is protected server-side. |
+| User data isolation | Users cannot read/update another user's notifications, preferences, push tokens, game memberships, reports, or private data. |
+| Service-role usage safety | Every service-role query/update has explicit code-level scoping and cannot be driven by untrusted client authority fields. |
+| No secrets in frontend | Frontend env/build contains no service-role keys, JWT secrets, Firebase service account JSON, Google client secrets, or backend-only credentials. |
+| Production CORS restrictions | Production backend allows only approved frontend origins. |
+| Protected admin moderation | Ban/suspend/unban/unsuspend and field moderation require server-side admin authorization and audit trail. |
+| Protected notification preferences and push tokens | Preference and push token endpoints are authenticated and scoped to the current user. |
+| Safe error responses | Public API responses do not leak stack traces, raw database internals, provider secrets, or credential material. |
+| Logging redaction | Production logs do not expose passwords, JWTs, Google ID tokens, refresh tokens, authorization headers, push tokens, phone numbers, or full emails where policy forbids them. |
+
+## Review Execution Checklist
+
+A reviewer performing the full security review must:
+
+1. Read this ISSUE-091 checklist.
+2. Inspect the current code paths for each area.
+3. Review relevant product decisions, especially ISSUE-065 through ISSUE-068 logging/security-adjacent decisions.
+4. Review current backend and frontend environment configuration for local, staging, and production.
+5. Run existing backend tests relevant to auth, admin authorization, user scoping, notifications, fields, games, and reports.
+6. Run existing frontend tests or manual frontend flows where applicable.
+7. Manually test anonymous, normal user, restricted user, organizer, and admin flows.
+8. Verify Supabase RLS policies, grants, service-role usage, and project separation outside the repo.
+9. Verify Railway, Vercel, Firebase, Google OAuth, and map-provider settings outside the repo.
+10. Record `PASS`, `FAIL`, `NOT VERIFIED`, or `NOT APPLICABLE` for each checklist row.
+11. Record evidence for every `PASS`.
+12. Open follow-up issues for every `FAIL` and every launch-blocking `NOT VERIFIED`.
+13. Do not mark the system secure until P0 and required P1 checks are verified or explicitly risk-accepted.
+
+## Non-Goals
+
+ISSUE-091 does not:
+
+- fix vulnerabilities
+- add new auth logic
+- change RLS policies
+- rotate credentials
+- add rate limiting
+- perform penetration testing
+- certify the system as secure
+- replace a professional security review
+- change backend, frontend, database, infrastructure, or tests
+
+## Follow-Up Issue Suggestions
+
+Recommended follow-up issues:
+
+1. Execute full security review using ISSUE-091 checklist.
+2. Add rate limiting strategy for authentication and write endpoints.
+3. Review Supabase RLS policies and grants for every table.
+4. Add admin authorization regression tests for every `/admin` endpoint.
+5. Add frontend XSS review for user-generated content rendering.
+6. Add secrets and environment audit for Railway, Vercel, Supabase, Firebase, and Google OAuth.
+7. Add dependency vulnerability review for frontend and backend packages.
+8. Add API abuse and quota protection plan.
+9. Review service-role usage and add tests for user scoping on every service-role path.
+10. Review production CORS and HTTPS enforcement.
+11. Add backup/restore and data retention review for security-sensitive data.
+12. Review frontend token storage risk and propose a long-term session hardening plan.
+
+## Acceptance Criteria
+
+The checklist exists and is approved as the official application security review checklist.
+
+## Definition of Done
+
+A full security review can be performed using this checklist because it defines:
+
+- scope
+- statuses
+- priorities
+- launch-blocking checks
+- actionable area-specific review items
+- evidence requirements
+- follow-up expectations
+- execution steps
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-091 official application security review checklist. |
+
