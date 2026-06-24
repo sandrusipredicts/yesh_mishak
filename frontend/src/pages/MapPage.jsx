@@ -15,6 +15,7 @@ import { getNotifications, getUnreadNotificationCount } from '../api/notificatio
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
 const UNREAD_COUNT_POLL_MS = import.meta.env.DEV ? 1000 : 20000
+const FIELD_LOAD_DEBOUNCE_MS = 250
 const USER_LOCATION_ZOOM = 16
 const STADIUM_MARKER_SIZE = 54
 const STADIUM_MARKER_ANCHOR = [STADIUM_MARKER_SIZE / 2, STADIUM_MARKER_SIZE / 2]
@@ -118,6 +119,75 @@ function mapBoundsToParams(bounds) {
   }
 }
 
+function participantFingerprint(participant, index) {
+  const user = participant?.user ?? {}
+  return [
+    participant?.user_id ?? participant?.userId ?? user.id ?? '',
+    participant?.username ?? user.username ?? '',
+    participant?.name ?? participant?.full_name ?? participant?.display_name ??
+      user.name ?? user.full_name ?? user.display_name ?? '',
+    index,
+  ].join(':')
+}
+
+function participantsFingerprint(game) {
+  const participants = game?.participants
+  if (!Array.isArray(participants)) {
+    return ''
+  }
+
+  return participants.map(participantFingerprint).join(',')
+}
+
+function gameFingerprint(game) {
+  if (!game) {
+    return '-'
+  }
+
+  return [
+    game.id ?? '',
+    game.status ?? '',
+    game.players_present ?? game.playersPresent ?? '',
+    game.max_players ?? game.maxPlayers ?? '',
+    game.scheduled_at ?? game.scheduledAt ?? '',
+    game.started_at ?? game.startedAt ?? '',
+    game.expires_at ?? game.expiresAt ?? '',
+    game.age_note ?? game.ageNote ?? '',
+    game.created_by ?? game.createdBy ?? '',
+    participantsFingerprint(game),
+  ].join(':')
+}
+
+function fieldsFingerprint(fields) {
+  if (!fields.length) {
+    return ''
+  }
+
+  const parts = new Array(fields.length)
+  for (let i = 0; i < fields.length; i++) {
+    const f = fields[i]
+    const ag = f.active_game ?? f.activeGame
+    const ug = f.upcoming_games ?? f.upcomingGames
+    const upcomingFingerprint = Array.isArray(ug)
+      ? ug
+        .map((game) => gameFingerprint(game))
+        .join(',')
+      : ''
+    parts[i] =
+      `${f.id}|${f.name ?? ''}|${f.sport_type ?? f.sportType ?? ''}|` +
+      `${f.surface_type ?? f.surfaceType ?? ''}|${f.status ?? ''}|` +
+      `${f.approval_status ?? f.approvalStatus ?? ''}|${f.verified ?? ''}|` +
+      `${f.lat ?? f.latitude ?? ''},${f.lng ?? f.longitude ?? ''}|` +
+      `${f.players_present ?? f.playersPresent ?? ''}:${f.max_players ?? f.maxPlayers ?? ''}|` +
+      `${f.has_nets ?? f.hasNets ?? ''}|${f.has_water_cooler ?? f.has_water ?? f.hasWaterCooler ?? f.hasWater ?? ''}|` +
+      `${f.opening_hours ?? f.openingHours ?? ''}|${f.notes ?? ''}|` +
+      `${gameFingerprint(ag)}|` +
+      `${upcomingFingerprint}`
+  }
+
+  return parts.join('\n')
+}
+
 function RecenterMap({ center }) {
   const map = useMap()
 
@@ -145,6 +215,7 @@ function UserLocationFlyTo({ requestId, userLocation }) {
 function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
   const { t } = useTranslation()
   const latestRequestId = useRef(0)
+  const debounceTimerRef = useRef(null)
 
   const loadFields = useCallback(
     async (bounds) => {
@@ -177,13 +248,31 @@ function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
 
   const map = useMapEvents({
     moveend() {
-      loadFields(map.getBounds())
+      if (debounceTimerRef.current) {
+        window.clearTimeout(debounceTimerRef.current)
+      }
+
+      debounceTimerRef.current = window.setTimeout(() => {
+        debounceTimerRef.current = null
+        loadFields(map.getBounds())
+      }, FIELD_LOAD_DEBOUNCE_MS)
     },
   })
 
   useEffect(() => {
+    if (debounceTimerRef.current) {
+      window.clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+
     loadFields(map.getBounds())
   }, [loadFields, map, reloadKey])
+
+  useEffect(() => () => {
+    if (debounceTimerRef.current) {
+      window.clearTimeout(debounceTimerRef.current)
+    }
+  }, [])
 
   return null
 }
@@ -231,6 +320,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
   const cachedFieldsState = useMemo(() => readCachedFields(), [])
   const [fields, setFields] = useState(cachedFieldsState.fields)
+  const fieldsFingerprintRef = useRef(fieldsFingerprint(cachedFieldsState.fields))
   const [isFieldsLoading, setIsFieldsLoading] = useState(!cachedFieldsState.fields.length)
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
@@ -352,14 +442,15 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
   const handleFieldsLoaded = useCallback((loadedFields) => {
-    setFields((currentFields) => {
-      if (JSON.stringify(currentFields) === JSON.stringify(loadedFields)) {
-        return currentFields
-      }
+    const loadedFingerprint = fieldsFingerprint(loadedFields)
+    const shouldUpdateFields = fieldsFingerprintRef.current !== loadedFingerprint
 
-      return loadedFields
-    })
-    writeCachedFields(loadedFields)
+    if (shouldUpdateFields) {
+      fieldsFingerprintRef.current = loadedFingerprint
+      setFields(loadedFields)
+      writeCachedFields(loadedFields)
+    }
+
     setSelectedField((currentField) => {
       if (!currentField) {
         return currentField

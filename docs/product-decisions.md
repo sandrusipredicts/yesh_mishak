@@ -6342,6 +6342,86 @@ The following ISSUE-066 gaps remain intentionally out of scope for ISSUE-067:
 * Broader admin action logging outside the explicitly requested field approval/rejection and scheduled job paths.
 * Metrics, monitoring, alerting, or log retention implementation.
 
+# ISSUE-084: Optimize Frontend Rendering Bottlenecks
+
+## Status
+
+Implemented.
+
+## Source of Truth
+
+This implementation follows ISSUE-083: Frontend Rendering Performance Audit. It intentionally does not implement broad UI refactors, marker clustering, backend changes, admin pagination, notification modal refactors, new dependencies, or visual UI changes.
+
+## Bottlenecks Targeted
+
+| ISSUE-083 finding | ISSUE-084 change |
+| --- | --- |
+| `JSON.stringify(currentFields) === JSON.stringify(loadedFields)` deep comparison in `MapPage.jsx` | Replaced with a lightweight field fingerprint that compares visible map/panel-relevant scalar values instead of serializing full field objects. |
+| `writeCachedFields()` serializes and writes the full field array to `localStorage` on every load | Cache writes now happen only when the field fingerprint changes. |
+| No debounce for map `moveend` field loading | Added a 250ms debounce for map `moveend` loads only. Initial load and explicit reloads remain immediate. |
+
+## Fingerprint Coverage
+
+The field fingerprint intentionally avoids full-object serialization while covering values that affect visible map or selected-field panel state:
+
+* Field identity and marker position: `id`, `lat`/`latitude`, `lng`/`longitude`.
+* Field status: `status`, `approval_status`/`approvalStatus`, `verified`.
+* Field panel details: `name`, `sport_type`/`sportType`, `surface_type`/`surfaceType`, `has_nets`/`hasNets`, water-cooler flags, `opening_hours`/`openingHours`, `notes`.
+* Field-level player counts when present: `players_present`/`playersPresent`, `max_players`/`maxPlayers`.
+* Active game state: `id`, `status`, player counts, `scheduled_at`, `started_at`, `expires_at`, `age_note`, `created_by`, participant summary.
+* Upcoming games: same game fingerprint for each item, including ids, scheduled time, status, player counts, timing, age note, creator, and participant summary.
+
+This keeps selected-field behavior correct after reload without using full `JSON.stringify`.
+
+## What Did Not Change
+
+* No visual UI changes.
+* No backend/API contract changes.
+* No marker clustering.
+* No new dependencies.
+* No admin table pagination.
+* No notification modal refactor.
+* No speculative FPS/performance claims.
+
+## Expected Impact
+
+Expected impact is code-level only until manual browser profiling is completed:
+
+* Avoids two full field-array serializations per successful field load.
+* Avoids synchronous `localStorage.setItem` when the loaded field fingerprint is unchanged.
+* Coalesces rapid map `moveend` events into one field load after 250ms.
+
+Actual FPS, long-frame reduction, and browser scripting-time improvement were not measured automatically.
+
+## Automatic Validation
+
+Automated validation run:
+
+```powershell
+npm run lint
+npm run build
+```
+
+Results are recorded in the ISSUE-084 completion notes from the implementation turn.
+
+## Manual Measurement Required
+
+FPS was not measured as part of automated validation. Manual measurement remains required using Chrome DevTools Performance, following `frontend/docs/performance-audit-checklist.md`.
+
+Required manual checks:
+
+1. Record rapid map pan before/after with the same field count and device/browser.
+2. Compare FPS and frames over 50ms.
+3. Confirm `JSON.stringify` no longer appears inside `handleFieldsLoaded`.
+4. Confirm `localStorage.setItem` does not run when the field fingerprint is unchanged.
+5. Compare `GET /fields` request count during rapid panning.
+
+## Files Changed
+
+* `frontend/src/pages/MapPage.jsx`
+* `frontend/docs/performance-audit-checklist.md`
+* `docs/product-decisions.md`
+
 # ISSUE-068: Sensitive Data Logging Review
 
 ## Status

@@ -119,3 +119,28 @@ For each section, note:
 - Device type (desktop/mobile)
 - Data size (field count, notification count, user count)
 - Key timings from Performance tab
+
+## ISSUE-084 before/after measurement
+
+ISSUE-084 removed the full `JSON.stringify` field-array comparison, reduced unchanged-field localStorage writes, and debounced map `moveend` field loading. Runtime FPS/frame timing still requires manual browser measurement.
+
+### Before/after steps
+
+1. Run the app against the same backend/test data before and after the ISSUE-084 change.
+2. Use the same browser, device, zoom level, viewport size, and field count for both runs.
+3. Open DevTools > Performance and record a rapid pan sequence with 3-4 map drags.
+4. Stop recording and compare:
+   - [ ] FPS / frames during pan.
+   - [ ] Long frames over 50ms.
+   - [ ] Scripting time during field reload.
+   - [ ] Whether `JSON.stringify` appears inside `handleFieldsLoaded`.
+   - [ ] Whether `localStorage.setItem` appears when the field fingerprint did not change.
+   - [ ] Number of `GET /fields` requests during rapid panning.
+5. Record results:
+   - Before FPS / long-frame count:
+   - After FPS / long-frame count:
+   - Field count:
+   - Browser/device:
+   - Notes:
+
+FPS was not automatically measured by the ISSUE-084 code/build validation. Do not claim FPS improvement until this manual browser recording is complete.
