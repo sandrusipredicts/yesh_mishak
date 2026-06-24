@@ -4882,7 +4882,7 @@ Define a clear operational maintenance schedule for reviewing the fields databas
 
 The operational review procedures, SLA targets, admin decision rules, and cadences are officially documented in:
 
-* [operational-field-review-schedule.md](file:///c:/Users/orel1/yesh_mishak/docs/operational-field-review-schedule.md)
+* [operational-field-review-schedule.md](./operational-field-review-schedule.md)
 
 ## Status
 
@@ -5227,7 +5227,7 @@ Backend Architecture Implementation.
 
 ## Dependency
 
-Depends on [global-error-handling-strategy.md](file:///c:/Users/orel1/yesh_mishak/docs/global-error-handling-strategy.md) (ISSUE-056) and [backend-error-responses-audit.md](file:///c:/Users/orel1/yesh_mishak/docs/backend-error-responses-audit.md) (ISSUE-057).
+Depends on [global-error-handling-strategy.md](./global-error-handling-strategy.md) (ISSUE-056) and [backend-error-responses-audit.md](./backend-error-responses-audit.md) (ISSUE-057).
 
 ## Background
 
@@ -5248,8 +5248,8 @@ Standardize the API error payload format to return a structured JSON response in
 ## Decision
 
 The backend error response standardization has been successfully implemented and verified:
-- Created a core [errors.py](file:///c:/Users/orel1/yesh_mishak/backend/app/errors.py) helper module with unified `raise_api_error` and `error_response` builders.
-- Configured global exception handlers in [main.py](file:///c:/Users/orel1/yesh_mishak/backend/app/main.py) for framework-level `HTTPException`, FastAPI's `RequestValidationError`, and any unhandled generic `Exception` (which logs the traceback and returns a safe `INTERNAL_SERVER_ERROR`).
+- Created a core [errors.py](../backend/app/errors.py) helper module with unified `raise_api_error` and `error_response` builders.
+- Configured global exception handlers in [main.py](../backend/app/main.py) for framework-level `HTTPException`, FastAPI's `RequestValidationError`, and any unhandled generic `Exception` (which logs the traceback and returns a safe `INTERNAL_SERVER_ERROR`).
 - Updated all API routers (`dependencies.py`, `auth.py`, `fields.py`, `field_reports.py`, `games.py`, `game_lifecycle.py`, `notifications.py`, `admin.py`) to raise standardized structured exceptions.
 - Completely scrubbed database schema leaks (such as raw Supabase errors and query insert payloads) in `fields.py` and `field_reports.py`, and third-party tracebacks (such as Firebase pushes) in `notifications.py`.
 - Updated and verified the entire backend test suite (509 tests) to assert the correct standardized JSON error properties.
@@ -5257,4 +5257,43 @@ The backend error response standardization has been successfully implemented and
 ## Status
 
 Implemented.
+
+---
+
+# ISSUE-059 — Create Frontend Error State Inventory
+
+## Type
+
+Audit / Documentation.
+
+## Background
+
+Before implementing frontend error handling improvements, a complete inventory of all error states, loading states, and failure modes across the frontend is needed. This audit documents every component's current behavior without changing any code.
+
+## Goal
+
+Map every frontend screen and component that performs API calls, async operations, or user-triggered actions, and document how each handles loading, errors, and failures.
+
+## Decision
+
+Created [frontend-error-state-inventory.md](./frontend-error-state-inventory.md) covering:
+- 44 distinct error-handling points across 19 components/pages
+- 6 areas: Auth, Map, Games, Fields, Notifications, Admin
+- 2 critical gaps identified (no Error Boundary, silent push setup failure)
+- 5 medium-priority gaps (missing retry buttons, generic error messages)
+- 12 recommended follow-up issues with priority and effort estimates
+
+Key findings:
+- Consistent pattern of `[error, setError]` + `[isLoading, setIsLoading]` + `isMounted` guards across all components.
+- No `window.alert()` usage — all errors use state-driven UI.
+- 3 instances of `console.error()` in NotificationsModal (push operations).
+- 1 instance of `window.prompt()` in AdminUsers (moderation reasons).
+- 1 instance of `window.confirm()` in GamePanel (game close).
+- No React Error Boundary exists — unhandled errors crash the app.
+
+No frontend or backend code was changed.
+
+## Status
+
+Approved.
 
