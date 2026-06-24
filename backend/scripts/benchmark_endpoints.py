@@ -162,6 +162,10 @@ class FakeBenchQuery:
         self.filters.append(("__gte", (col, val)))
         return self
 
+    def lte(self, col: str, val: Any) -> "FakeBenchQuery":
+        self.filters.append(("__lte", (col, val)))
+        return self
+
     def is_(self, col: str, val: str) -> "FakeBenchQuery":
         self.filters.append(("__is_null", (col, val)))
         return self
@@ -200,7 +204,10 @@ class FakeBenchQuery:
         for col, val in self.filters:
             if col == "__gte":
                 c, threshold = val
-                rows = [r for r in rows if (r.get(c) or "") >= threshold]
+                rows = [r for r in rows if r.get(c) is not None and r[c] >= threshold]
+            elif col == "__lte":
+                c, threshold = val
+                rows = [r for r in rows if r.get(c) is not None and r[c] <= threshold]
             elif col == "__is_null":
                 c, _ = val
                 rows = [r for r in rows if r.get(c) is None]
@@ -367,6 +374,7 @@ def main():
     benchmarks = [
         # Required by ISSUE-073
         ("GET /fields", "GET", "/fields", None, None, None),
+        ("GET /fields (bounded)", "GET", "/fields?north=32.0&south=30.5&east=35.5&west=34.0", None, None, None),
         ("GET /games/active", "GET", "/games/active", None, None, None),
         ("POST /auth/login", "POST", "/auth/login", None, {"username": "benchuser", "password": "password"}, None),
         ("POST /games/", "POST", "/games/", auth_headers, {
