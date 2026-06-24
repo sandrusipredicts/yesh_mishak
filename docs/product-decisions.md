@@ -13328,3 +13328,382 @@ Open a follow-up execution issue once staging credentials and synthetic data are
 | `backend/app/routers/notifications.py` | Wrapped `create_game_created_notifications` in robust try/except to guarantee best-effort notification delivery. |
 | `backend/tests/test_notifications.py` | Added test cases to verify background task scheduling and best-effort tolerance of notification dispatch errors. |
 
+# ISSUE-089 -- Capacity Planning Document
+
+**Date:** 2026-06-25
+**Status:** COMPLETED
+
+---
+
+## 1. Problem Statement
+
+The system does not define how many concurrent or daily users it can serve. There are no capacity targets, no load thresholds, and no documented go/no-go criteria for growth phases. Without these:
+
+- There is no way to know when the system is approaching its limits until users experience failures.
+- Infrastructure and code optimization decisions are made without a target to optimize toward.
+- There is no framework for deciding when to invest in scaling work versus feature work.
+
+This document defines capacity tiers, workload assumptions, known bottleneck mapping, a phased growth plan, and a load testing plan. It does not implement any infrastructure changes, caching, or code optimizations -- those are follow-up issues.
+
+---
+
+## 2. Definition of DAU
+
+A **Daily Active User (DAU)** is a unique user who interacts with the application within a calendar day (00:00-23:59 UTC). Interactions include:
+
+| User type | Counted as DAU? | Interactions |
+|-----------|----------------|--------------|
+| Authenticated user who opens the map | Yes | Map load, field browsing, game viewing |
+| Authenticated user who creates/joins/leaves a game | Yes | Write operations + map load |
+| Authenticated user who only checks notifications | Yes | Notification inbox/unread-count |
+| Anonymous visitor who views the map (if supported) | Yes | Map load only (read-only) |
+| Automated admin cron jobs | No | Scheduled reminders, cleanup tasks |
+
+**Concurrent users** are not the same as DAU. A 1,000-DAU app with typical usage patterns (2-3 sessions per user, concentrated in evening hours 17:00-22:00 local time) might see 50-150 concurrent users at peak.
+
+---
+
+## 3. Estimated Workload Assumptions
+
+These are planning assumptions, not measured facts. They are based on the app's current user flows and should be validated with production analytics when available.
+
+### 3.1 Per-user session behavior (assumptions)
+
+| Metric | Assumption | Basis |
+|--------|-----------|-------|
+| Sessions per DAU per day | 2-3 | Typical sports coordination app: check morning, act evening |
+| Map/field fetches per session | 3-5 | Initial load + 2-4 pans/zooms |
+| Notification unread-count polls per session | 6-15 | 20s poll interval over 2-5 minute session |
+| Notification inbox opens per session | 0.5 | Not every session checks inbox |
+| Game create actions per DAU per day | 0.1 | ~10% of users create a game on a given day |
+| Game join/leave actions per DAU per day | 0.3 | ~30% of users join or leave a game |
+| Field creation per DAU per day | 0.01 | Very rare -- fields are added once |
+| Admin page loads per admin per day | 5-10 | Small admin team |
+
+### 3.2 Estimated request volumes per tier
+
+Calculated from the per-user assumptions above. These are order-of-magnitude estimates.
+
+| Endpoint pattern | 100 DAU | 1,000 DAU | 10,000 DAU |
+|-----------------|---------|-----------|------------|
+| `GET /fields` (map load) | 750/day, ~2/min peak | 7,500/day, ~20/min peak | 75,000/day, ~200/min peak |
+| `GET /notifications/unread-count` (poll) | 2,250/day, ~6/min peak | 22,500/day, ~60/min peak | 225,000/day, ~600/min peak |
+| `GET /notifications` (inbox) | 125/day | 1,250/day | 12,500/day |
+| `POST /games` (create) | 25/day | 250/day | 2,500/day |
+| `POST /games/{id}/join` | 75/day | 750/day | 7,500/day |
+| `POST /games/{id}/leave` | 75/day | 750/day | 7,500/day |
+| `GET /games/active` | 250/day | 2,500/day | 25,000/day |
+| `GET /games/upcoming` | 250/day | 2,500/day | 25,000/day |
+| Admin endpoints | ~50/day | ~50/day | ~100/day |
+
+**Peak concurrency estimate** (assumption: 60% of DAU active in a 5-hour evening window):
+
+| Tier | DAU | Peak concurrent (est.) | Peak requests/sec (est.) |
+|------|-----|----------------------|-------------------------|
+| 100 DAU | 100 | 10-20 | 1-3 |
+| 1,000 DAU | 1,000 | 80-150 | 5-20 |
+| 10,000 DAU | 10,000 | 800-1,500 | 50-200 |
+
+---
+
+## 4. Capacity Tiers
+
+### Tier 1: 100 DAU
+
+**Expected behavior:** The app works without deliberate scaling effort. This is the pre-launch and early-adopter phase.
+
+| Dimension | Expectation |
+|-----------|------------|
+| Backend/API | ~2 requests/min peak. Single Railway instance handles this. PostgREST HTTP overhead is the primary latency source (~100-200ms per Supabase call). Total response time for `GET /fields` with 50 in-viewport fields: ~300-600ms. |
+| Database | Total fields: < 200. Total games: < 50 active. Supabase free/pro tier is sufficient. Connection count is low. Indexes from ISSUE-079 cover all query patterns. |
+| Frontend/Map | 20-50 markers in viewport. No clustering needed. JSON.stringify compare and localStorage writes are negligible at this scale. |
+| Notifications | Unread-count poll: 6/min peak across all users. Push token registration: < 100 tokens total. Firebase FCM free tier handles this. |
+| Monitoring | Minimal. Railway logs + Supabase dashboard metrics are sufficient. No dedicated monitoring needed. |
+
+**Main risks:**
+- Supabase client creates a new HTTP client per request (no connection reuse after ISSUE-088 `@lru_cache` removal). At 2 req/min this is harmless.
+- `handleNotificationTarget` fallback (MapPage.jsx:443) calls `getFields()` without bounds. At < 200 fields, this is tolerable.
+
+**Operational actions before Tier 2:**
+- Set up basic uptime monitoring (external ping on `/` or a health endpoint).
+- Validate that Supabase usage is within the plan's API request limits.
+- Confirm Railway instance memory and CPU are not near limits.
+- Review Supabase connection count dashboard.
+
+### Tier 2: 1,000 DAU
+
+**Expected behavior:** The app works with targeted optimizations. This is the single-city adoption phase.
+
+| Dimension | Expectation |
+|-----------|------------|
+| Backend/API | ~20 requests/min peak. Single Railway instance likely sufficient but should be monitored. `GET /fields` with bounds returns 50-150 fields per request. Game payload fan-out: ceil(150/100) = 2 batched game queries + participant queries = ~6-8 Supabase calls per fields request. Total response time estimate: 800ms-1.5s. |
+| Database | Total fields: 200-500. Total active games: 50-200. Supabase pro tier. Notification table grows: ~1,000 DAU x 2 notifications/day = ~2,000 rows/day. Indexes handle this. |
+| Frontend/Map | 50-150 markers in viewport at city zoom. Rapid panning generates burst requests. JSON.stringify compare on 150-field arrays: ~200-300 KB serialization per compare, twice per load. Noticeable but not blocking. |
+| Notifications | Unread-count poll: ~60/min peak across all users. Push notifications: ~200-500 FCM sends/day. Well within Firebase free tier. |
+| Monitoring | Required: API response time monitoring, Supabase query count tracking, error rate alerting. |
+
+**Main risks:**
+- `GET /fields` without bounds (unbounded fallback) at 500 fields: ~425 KB payload, 5 game-fan-out batches. This becomes slow (~2-3s).
+- Notification table without retention policy grows indefinitely. At 2,000 rows/day, reaches 60,000 rows/month.
+- Frontend unread-count polling at 60 requests/min is 1 request/second to the backend. Each creates a new Supabase client instance and HTTP connection.
+- Game duplicate check queries scan active games by field_id. At 200 active games, this is fast but should be monitored.
+
+**Operational actions before Tier 3:**
+- Implement request debouncing on map `moveend` (ISSUE-080 P1-1; partially addressed by ISSUE-084 if merged).
+- Replace `JSON.stringify` deep compare with fingerprint (ISSUE-080 P1-2; partially addressed by ISSUE-084 if merged).
+- Confirm notification retention policy is active (ISSUE-032).
+- Add API response time logging or monitoring.
+- Run load tests for `GET /fields` and `GET /notifications/unread-count` at 20 req/min sustained.
+- Validate Supabase plan API request limits against projected volume.
+
+### Tier 3: 10,000 DAU
+
+**Expected behavior:** The app requires architectural changes to specific subsystems. This is the multi-city growth phase.
+
+| Dimension | Expectation |
+|-----------|------------|
+| Backend/API | ~200 requests/min peak. May require multiple Railway instances or a load-balanced deployment. `GET /fields` with bounds still returns 50-200 fields per viewport, but total request volume is high. Unread-count poll alone: ~600/min = 10/sec. |
+| Database | Total fields: 1,000-5,000. Total active games: 500-2,000. Notification table: ~20,000 rows/day without retention. Connection pooling becomes necessary -- Supabase's PostgREST connection pool has limits. |
+| Frontend/Map | Marker clustering becomes necessary at city-wide zoom levels with 1,000+ fields. Without clustering, DOM node count causes jank. |
+| Notifications | Push notifications: ~5,000-20,000 FCM sends/day. Approaches Firebase free tier limits (depends on exact plan). Notification fan-out on game creation could send N notifications per game where N = number of users with matching preferences. At 10,000 DAU, a popular field's game creation could fan out to 100-500 users. |
+| Monitoring | Required: per-endpoint latency percentiles (p50, p95, p99), error budgets, Supabase connection pool utilization, Railway instance metrics, FCM delivery rate. |
+
+**Main risks:**
+- **Supabase connection behavior.** Each request creates a new `supabase.Client` via `create_client()`. At 200 req/min, this creates ~3.3 new HTTP client instances per second. PostgREST has its own connection pool to PostgreSQL, but the HTTP client creation overhead and Supabase's API rate limits may become a factor. The exact Supabase Pro plan rate limit should be verified.
+- **Notification fan-out storm.** A game creation in a popular area triggers `create_game_created_notifications` which queries all users with matching notification preferences and sends individual FCM pushes. At 10,000 DAU with broad preferences, this could attempt 500+ FCM sends synchronously (moved to BackgroundTasks in ISSUE-088, but still sequential within the task).
+- **Game payload fan-out.** At 200 fields in viewport, `GET /fields` triggers ceil(200/100) = 2 game queries + participant + user queries = ~8-10 Supabase calls. At 10 concurrent users panning simultaneously, that's 80-100 Supabase calls/second from fields alone.
+- **Unbounded `getFields()` fallback.** At 5,000 total fields, the unbounded path paginates through all fields: ceil(5000/1000) = 5 Supabase calls just for fields, then game fan-out of ceil(5000/100) = 50 calls. Total: ~65 Supabase calls for one request. This path must be eliminated or hard-capped before reaching this tier.
+- **Admin pages.** `GET /admin/users` loads all users into memory. At 10,000 users, this is a large payload and slow query. Admin endpoints need pagination.
+
+**Operational actions before exceeding Tier 3:**
+- Implement marker clustering (ISSUE-080 P2-1).
+- Implement server-side result limit with count hint (ISSUE-080 P2-2).
+- Reduce game payload fan-out to 1-3 queries total (ISSUE-080 P2-3).
+- Add connection reuse or pooling for Supabase client.
+- Add server-side pagination to admin list endpoints.
+- Implement notification fan-out batching or queuing.
+- Validate Supabase plan rate limits and connection pool size.
+- Run sustained load tests at 200 req/min for 10+ minutes.
+- Set up per-endpoint latency monitoring with alerting.
+
+---
+
+## 5. Current Likely Bottlenecks
+
+Identified from code inspection in this repository. Ordered by estimated impact at scale.
+
+| # | Bottleneck | Component | First problematic at | Evidence |
+|---|-----------|-----------|---------------------|----------|
+| 1 | Game payload fan-out: ceil(N/100) batched Supabase queries per `GET /fields` | `backend/app/routers/game_payloads.py` | 500+ fields in viewport | ISSUE-080 section 2.1, ISSUE-082 benchmark |
+| 2 | Supabase client instantiation per request (no reuse) | `backend/app/db/supabase.py` | 1,000+ DAU (200+ req/min) | ISSUE-088 removed `@lru_cache`; each call creates new `Client` |
+| 3 | Unbounded `getFields()` fallback loads all fields | `frontend/src/pages/MapPage.jsx:443`, `backend/app/routers/fields.py` (pagination loop) | 500+ total fields | ISSUE-080 section 6.2 |
+| 4 | Unread-count poll at 20s per active user | `frontend/src/pages/MapPage.jsx:17` | 1,000+ DAU | 60 req/min at 1,000 DAU peak |
+| 5 | No marker clustering | `frontend/src/pages/MapPage.jsx` | 500+ fields visible | ISSUE-083 section 4.1 |
+| 6 | Notification fan-out on game creation (sequential FCM sends) | `backend/app/routers/notifications.py` | Popular field, 500+ subscribers | ISSUE-088 moved to BackgroundTasks but still sequential |
+| 7 | `finish_expired_games()` sequential UPDATEs during reads | `backend/app/routers/game_lifecycle.py` | 100+ expired games | ISSUE-080 section 2.1 |
+| 8 | Admin list endpoints load all records | `backend/app/api/admin.py` (users, fields, games) | 1,000+ records | No pagination, no search at DB level |
+| 9 | `JSON.stringify` deep compare + localStorage writes | `frontend/src/pages/MapPage.jsx:356,81` | 500+ fields per load | ISSUE-083 section 4.1 (partially addressed by ISSUE-084 if merged) |
+| 10 | No HTTP caching headers on `GET /fields` | `backend/app/routers/fields.py` | 1,000+ DAU | Every pan triggers a full round-trip |
+
+---
+
+## 6. Growth Plan
+
+### Phase A: Pre-Launch / 100 DAU
+
+**Timeline assumption:** Current state through initial launch.
+
+**What to measure:**
+- Supabase API request count (daily, from Supabase dashboard)
+- Railway instance CPU and memory utilization
+- `GET /fields` response time (from Railway logs or manual measurement)
+- Error rate on all endpoints
+- Total field count and active game count in database
+
+**What must pass before continuing to Phase B:**
+- All endpoints respond in < 2s at p95 under normal usage
+- No Supabase rate limit errors observed
+- Railway instance memory usage < 70% of allocated
+- Notification delivery works reliably (FCM sends succeed)
+- No localStorage `QuotaExceededError` in frontend error tracking (if tracking exists)
+
+**Technical work needed:**
+- None mandatory. Current implementation handles 100 DAU.
+- Recommended: set up basic uptime/ping monitoring.
+
+**Operational risks to watch:**
+- Supabase free-tier limits if not on a paid plan
+- Railway instance auto-sleep if on a free plan
+- Firebase FCM quota (unlikely to be an issue at this scale)
+
+### Phase B: Early City Adoption / 1,000 DAU
+
+**Timeline assumption:** 1-6 months after launch, single-city adoption.
+
+**What to measure:**
+- All Phase A metrics, plus:
+- Per-endpoint response time percentiles (p50, p95, p99)
+- Supabase connection count
+- `GET /fields` Supabase call count per request (from backend logs)
+- Notification table row count growth
+- Frontend error rate (if error tracking exists)
+- Peak concurrent users (from Railway or Supabase connection metrics)
+
+**What must pass before continuing to Phase C:**
+- `GET /fields` with bounds responds in < 1.5s at p95
+- `GET /notifications/unread-count` responds in < 500ms at p95
+- Game creation succeeds in < 2s at p95
+- No Supabase rate limit errors under sustained 20 req/min
+- Notification table has active retention policy preventing unbounded growth
+- Load test for `GET /fields` at 20 req/min sustained for 10 minutes passes with < 5% error rate
+
+**Technical work that may be needed:**
+- Request debouncing on map `moveend` (ISSUE-080 P1-1)
+- Replace `JSON.stringify` deep compare (ISSUE-080 P1-2 / ISSUE-084)
+- Notification retention policy enforcement (ISSUE-032)
+- API response time logging
+- Fix `handleNotificationTarget` unbounded `getFields()` call
+
+**Operational risks to watch:**
+- Supabase Pro plan API request limits vs actual volume
+- Notification table growth rate
+- Railway memory under sustained load
+- Game fan-out cost when viewport contains 150+ fields
+
+### Phase C: Multi-City Growth / 10,000 DAU
+
+**Timeline assumption:** 6-18 months after launch, expansion to multiple cities.
+
+**What to measure:**
+- All Phase B metrics, plus:
+- Per-endpoint latency broken down by Supabase call count
+- FCM delivery rate and failure rate
+- Admin endpoint response times
+- Database table sizes (fields, games, game_players, notifications, users)
+- Frontend Core Web Vitals (if measurable)
+- Supabase connection pool utilization
+
+**What must pass before exceeding this tier:**
+- `GET /fields` responds in < 2s at p95 with 200 fields in viewport
+- Unread-count endpoint handles 600 req/min sustained (10/sec)
+- Game creation with notification fan-out to 100 users completes without timeout
+- Admin pages load in < 5s with 10,000 users/5,000 fields
+- Load test suite passes at 200 req/min sustained for 10 minutes with < 2% error rate
+- No Supabase connection pool exhaustion under load
+
+**Technical work that may be needed:**
+- Marker clustering (ISSUE-080 P2-1)
+- Server-side result limit on `GET /fields` (ISSUE-080 P2-2)
+- Game fan-out reduction to 1-3 queries (ISSUE-080 P2-3)
+- Supabase client connection reuse / pooling
+- Admin endpoint pagination
+- Notification fan-out batching or async queue
+- HTTP caching headers on read endpoints
+- Consider CDN for static assets if not already on Vercel's edge
+
+**Operational risks to watch:**
+- Supabase Pro plan connection pool saturation
+- Firebase FCM daily send limits
+- Railway multi-instance orchestration
+- Database vacuum and index maintenance at scale
+- Notification fan-out storms from popular fields
+
+---
+
+## 7. Load Testing Plan
+
+### 7.1 Existing load tests
+
+| Test | File | Status |
+|------|------|--------|
+| Game creation scenarios | `backend/load_tests/game_creation_load_test.js` | Implemented (ISSUE-088). k6-based. |
+| Test data preparation | `backend/scripts/prepare_load_test_data.py` | Implemented (ISSUE-088). |
+
+### 7.2 Recommended additional load test scenarios
+
+All load tests must:
+- Target staging/test environments only. Never target production unless explicitly approved and protected with rate limits.
+- Use synthetic test data (test JWTs, synthetic fields, synthetic users).
+- Tag requests with test metadata for identification.
+- Start with low load (1 VU, 1 iteration) and scale up gradually.
+
+| Scenario | Target endpoint | What to measure | Suggested tool |
+|----------|----------------|-----------------|----------------|
+| Map browsing (bounded) | `GET /fields?north=...&south=...&east=...&west=...` | Response time, Supabase call count, payload size | k6 |
+| Map browsing (unbounded fallback) | `GET /fields` (no bounds) | Response time at 500/1,000/5,000 fields | k6 |
+| Active games fetch | `GET /games/active` | Response time, payload size | k6 |
+| Upcoming games fetch | `GET /games/upcoming` | Response time, payload size | k6 |
+| Game creation under duplicate pressure | `POST /games` with same field_id | Duplicate detection accuracy, response time | k6 (exists) |
+| Join/leave flow | `POST /games/{id}/join`, `POST /games/{id}/leave` | Response time, concurrency safety | k6 |
+| Notification unread-count (sustained poll) | `GET /notifications/unread-count` | Response time at 60/min and 600/min sustained | k6 |
+| Notification inbox | `GET /notifications` | Response time with 100/500/1,000 notifications per user | k6 |
+| Admin stats | `GET /admin/stats` | Response time | k6 |
+| Admin users list | `GET /admin/users` | Response time at 1,000/10,000 users | k6 |
+
+### 7.3 Load test tiers
+
+| Tier | VUs | Duration | Target req/sec | Purpose |
+|------|-----|----------|----------------|---------|
+| Smoke | 1 | 30s | < 1 | Verify test setup works |
+| Baseline | 5 | 2m | 2-5 | Establish baseline metrics |
+| Phase B target | 20 | 10m | 15-20 | Validate 1,000 DAU readiness |
+| Phase C target | 100 | 10m | 150-200 | Validate 10,000 DAU readiness |
+| Stress | 200 | 5m | 300+ | Find breaking point |
+
+---
+
+## 8. Capacity Decision Table
+
+| Tier | DAU target | Expected system state | Required validation | Go/no-go signal | Next action |
+|------|-----------|----------------------|--------------------|-----------------|-|
+| Tier 1 | 100 | Works as-is. Single Railway instance, Supabase Pro, < 200 fields. | Manual testing. Verify endpoints respond in < 2s. | All endpoints < 2s p95, no rate limit errors | Monitor Supabase usage. Set up uptime ping. |
+| Tier 2 | 1,000 | Needs targeted fixes. Map debounce, JSON.stringify replacement, notification retention. 200-500 fields. | Load test `GET /fields` at 20 req/min for 10 min. Load test unread-count at 60 req/min. | Fields < 1.5s p95, unread < 500ms p95, < 5% error rate under load | Implement P1 items from ISSUE-080. Add monitoring. Run Phase B load tests. |
+| Tier 3 | 10,000 | Needs architectural changes. Marker clustering, game fan-out reduction, admin pagination, notification batching. 1,000-5,000 fields. | Load test all primary flows at 200 req/min for 10 min. Validate Supabase connection pool. Validate FCM delivery at volume. | All flows < 2s p95, < 2% error rate, no connection pool exhaustion | Implement P2 items. Add per-endpoint monitoring. Scale Railway if needed. |
+
+---
+
+## 9. Non-Goals
+
+This issue does not implement:
+
+- **Caching** (HTTP caching headers, in-memory caching, CDN caching) -- requires separate design and testing.
+- **Infrastructure scaling** (Railway scaling, Supabase plan upgrades, load balancer setup) -- requires cost analysis and ops decisions.
+- **Database migrations** (new indexes, schema changes, table partitioning) -- already addressed in ISSUE-078/079 for current needs.
+- **Code optimization** (frontend rendering fixes, backend query reduction) -- addressed in ISSUE-080/083/084 for current needs; further optimization is follow-up work.
+- **Paid infrastructure changes** -- no commitments to paid tiers or services.
+- **Actual load testing execution** -- this document defines the plan; execution is a follow-up issue.
+
+---
+
+## 10. Follow-Up Issues
+
+| Proposed issue | Priority | Description |
+|---------------|----------|-------------|
+| Add production/staging monitoring dashboard | P1 | Set up API response time, error rate, and Supabase usage monitoring. Required before Phase B. |
+| Add load test suite for primary user flows | P1 | Implement k6 tests for `GET /fields`, `GET /notifications/unread-count`, `GET /games/active`, `GET /games/upcoming`, join/leave. Extends existing ISSUE-088 test infrastructure. |
+| Define Supabase usage/limits monitoring | P1 | Track API request count, connection pool utilization, and database size against plan limits. Alert before limits are reached. |
+| Add API latency/error budget targets | P2 | Define SLO targets (e.g., p95 < 1.5s for reads, p95 < 2s for writes) and build alerting around them. |
+| Add caching strategy for fields and active games | P2 | Design HTTP caching headers and/or in-memory caching for `GET /fields` and `GET /games/active`. Requires cache invalidation strategy. |
+| Add notification scaling strategy | P2 | Address notification fan-out batching, FCM send queuing, and notification preference indexing for large subscriber counts. |
+| Implement Supabase client connection reuse | P2 | Evaluate safe connection reuse patterns after ISSUE-088 removed `@lru_cache`. May require request-scoped client with connection pooling. |
+| Add admin endpoint pagination | P3 | `GET /admin/users`, `GET /admin/fields`, `GET /admin/games` need server-side pagination before user/field counts reach 1,000+. |
+
+---
+
+## 11. Limitations
+
+- All request volume estimates in section 3 are planning assumptions based on typical sports app usage patterns. They have not been validated with production analytics.
+- Supabase plan rate limits and connection pool sizes are not documented in this repo. Actual limits must be checked against the current Supabase plan.
+- Peak concurrency estimates assume evening-concentrated usage in a single timezone. Multi-timezone adoption would spread load more evenly.
+- Railway instance limits (CPU, memory, request concurrency) are not documented here. Actual limits depend on the current Railway plan.
+- Firebase FCM free-tier limits were not verified as part of this issue. The exact daily send limit depends on the Firebase project's plan and usage.
+- The bottleneck severity rankings are based on code inspection and synthetic benchmarks (ISSUE-082), not production profiling.
+
+---
+
+## 12. Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | This section (ISSUE-089 capacity planning document) |
+
