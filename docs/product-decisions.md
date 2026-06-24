@@ -11107,3 +11107,396 @@ The migration uses plain `CREATE INDEX IF NOT EXISTS` / `DROP INDEX IF EXISTS` (
 2. **The unread-count code optimization** (ISSUE-076 P2) should be done separately — the partial index helps but the bigger win is changing the code to use `count="exact"` instead of fetching all rows.
 3. **Monitor index usage** via `pg_stat_user_indexes` after a week to confirm all new indexes are being used by the query planner.
 
+---
+---
+
+# ISSUE-080 — Map Loading Scalability Review
+
+**Date:** 2025-06-24
+**Type:** Theoretical audit (no load testing performed)
+**Scope:** End-to-end map loading flow: frontend → API → backend → database
+**Constraint:** No code changes. Documentation and planning only.
+
+---
+
+## 1. Current Map Loading Flow (End-to-End)
+
+### 1.1 Frontend Component Chain
+
+```
+MapPage.jsx
+  └─ <FieldLoader>                     (line 145)
+       ├─ useMapEvents({ moveend })     (line 178) — fires on every pan/zoom
+       ├─ calls loadFields(map.getBounds())
+       │    └─ getFields(mapBoundsToParams(bounds))  (api/fields.js:20)
+       │         └─ api.get('/fields/', { params: { north, south, east, west } })
+       │              └─ retrySafeRead() with 3 attempts, 500ms/1500ms delays
+       │
+       └─ onFieldsLoaded(fields)        (line 354)
+            ├─ JSON.stringify(currentFields) === JSON.stringify(loadedFields)   ← deep compare
+            ├─ writeCachedFields(fields) → localStorage.setItem(JSON.stringify) ← serialize all
+            └─ setFields(loadedFields)   → re-renders all <FieldMarker> components
+```
+
+### 1.2 Backend Processing Chain
+
+```
+GET /fields?north=X&south=Y&east=Z&west=W
+
+fields.py:get_fields()                              (line 78)
+  ├─ 1 Supabase query: fields table with bounds     ← ~100-200ms (PostgREST HTTP)
+  │     .eq("verified", True)
+  │     .eq("approval_status", "approved")
+  │     .eq("status", "open")
+  │     .gte("lat", south).lte("lat", north)
+  │     .gte("lng", west).lte("lng", east)
+  │
+  └─ get_game_payloads_for_fields(field_ids)         (game_payloads.py:212)
+       ├─ _get_active_status_games_for_fields()      ← batched, 100 field IDs per query
+       │     .in_("field_id", batch).in_("status", ["open","full"])
+       │     → ceil(N/100) Supabase queries
+       │
+       ├─ finish_expired_games()                     ← sequential UPDATE per expired game
+       │     → 0-M Supabase UPDATEs (one per expired game)
+       │
+       └─ attach_participants_to_games()
+            ├─ game_players: .in_("game_id", batch)  ← ceil(G/100) queries
+            └─ users: .in_("id", batch)              ← ceil(U/100) queries
+```
+
+### 1.3 Database / Index Usage
+
+| Query | Table | Index Used (after ISSUE-079) |
+|---|---|---|
+| Fields with bounds | fields | `idx_fields_public_listing_spatial (verified, approval_status, status, lat, lng)` |
+| Fields without bounds | fields | `idx_fields_public_listing_spatial` (first 3 cols as prefix) |
+| Games by field_id + status | games | `idx_games_field_id_status (field_id, status)` |
+| Game players by game_id | game_players | `idx_game_players_game_id (game_id)` |
+| Users by id | users | `users_pkey (id)` |
+
+**ISSUE-079 index `idx_fields_public_listing_spatial` solves:** The base fields query. PostgreSQL can use all 5 columns for the bounded path and the first 3 for the unbounded path. This eliminates the full-table scan.
+
+**What ISSUE-079 does NOT solve:**
+- Game payload fan-out: still requires ceil(N/100) batched queries per request
+- `finish_expired_games()`: still does sequential per-game UPDATEs during reads
+- Total Supabase call count: still scales linearly with field count
+- Frontend rendering cost: unaffected by database indexes
+- Payload size over the network: unaffected by database indexes
+
+---
+
+## 2. Bottleneck Analysis
+
+### 2.1 Database Bottlenecks
+
+| Bottleneck | Severity at 500 | Severity at 1,000 | Severity at 5,000 |
+|---|---|---|---|
+| Fields query (with bounds + ISSUE-079 index) | Low — single query, index-backed | Low | Low — viewport limits results |
+| Fields query (without bounds, pagination loop) | Medium — 1 query | Medium — 1-2 queries | High — 5+ paginated queries |
+| Game fan-out: ceil(N/100) batched queries | Medium — 5 queries | High — 10 queries | Critical — 50 queries |
+| `finish_expired_games()` sequential UPDATEs | Low — rare | Medium — more games | High — many expired games |
+| Participant + user enrichment | Low | Medium | High — proportional to active games |
+
+**Key insight:** The bounded query itself scales well (viewport limits the result set). The real database bottleneck is the **game payload fan-out** — it makes `ceil(N/100)` additional batched queries for every fields request, where N = number of fields returned.
+
+### 2.2 API Payload Size Bottlenecks
+
+Estimated per-field JSON payload size (field + active_game + upcoming_games + participants):
+
+| Component | Estimated Size |
+|---|---|
+| Field object (17 columns, `select("*")`) | ~400 bytes |
+| Active game object (if present, ~15 columns) | ~350 bytes |
+| Participants array (avg 3 players × ~100 bytes) | ~300 bytes |
+| Upcoming games (avg 1 × ~350 bytes + participants) | ~650 bytes |
+| **Total per field (with game)** | **~1,700 bytes** |
+| **Total per field (without game)** | **~500 bytes** |
+
+Estimated response sizes (assuming ~30% of fields have active/upcoming games):
+
+| Field Count | Estimated Response Size | Gzipped (~70% ratio) |
+|---|---|---|
+| 100 | ~85 KB | ~25 KB |
+| 500 | ~425 KB | ~130 KB |
+| 1,000 | ~850 KB | ~255 KB |
+| 5,000 | ~4.3 MB | ~1.3 MB |
+
+**Threshold:** Responses over ~1 MB gzipped become problematic on mobile networks (3G: 4+ seconds transfer alone). At 5,000 fields without viewport filtering, the payload alone is a showstopper.
+
+### 2.3 Frontend Rendering Bottlenecks
+
+| Component | Issue | Severity at 500 | Severity at 1,000 | Severity at 5,000 |
+|---|---|---|---|---|
+| `<FieldMarker>` per field | Each creates a Leaflet DivIcon with custom HTML. Leaflet adds each marker to the DOM individually. | Low | Medium — 1,000 DOM nodes | Critical — 5,000 DOM nodes |
+| `JSON.stringify` deep compare (line 356) | `handleFieldsLoaded` serializes both old and new arrays to compare. At 1,000 fields × ~1 KB each = 2 MB of string comparison per `moveend`. | Low | Medium — ~2 MB × 2 | Critical — ~10 MB × 2 |
+| `writeCachedFields` to localStorage (line 81) | Serializes entire fields array to localStorage on every load. localStorage is synchronous and blocks the main thread. | Low | Medium — ~850 KB serialization | Critical — ~4.3 MB blocks main thread |
+| `fieldMarkers` useMemo (line 376) | Creates a React element per field on every fields state change. | Low | Medium | High |
+| No marker clustering | All markers rendered at all zoom levels regardless of density. At low zoom, markers overlap completely. | Medium | High | Critical |
+
+**Key insight:** At 5,000 fields, the frontend is the primary bottleneck — not the database. 5,000 Leaflet DivIcon markers will cause visible jank. The `JSON.stringify` comparison and localStorage serialization compound the problem.
+
+### 2.4 Network Bottlenecks
+
+| Issue | Details |
+|---|---|
+| No request debouncing | `moveend` fires on every pan/zoom completion. Rapid panning fires multiple concurrent requests. The `latestRequestId` pattern discards stale responses but doesn't prevent the requests from being made. |
+| No request deduplication by bounds | `pendingFieldRequests` in `fields.js` deduplicates by exact bounds key. But consecutive pans produce different bounds, so deduplication rarely helps. |
+| No response caching (HTTP-level) | No `Cache-Control` or `ETag` headers. Every `moveend` triggers a full backend round-trip even if the viewport barely changed. |
+| Full payload on every move | The response includes all field data (including game payloads) every time. No incremental/delta loading. |
+
+### 2.5 UX Bottlenecks
+
+| Issue | Details |
+|---|---|
+| No loading indicator during pan | `isFieldsLoading` spinner only shows when `fields.length === 0`. During re-fetch on pan, the user sees stale markers with no feedback. |
+| Markers disappear/reappear | On every `moveend`, the entire `fields` state is replaced. All markers unmount and remount, causing a visual flash. |
+| No visible clustering | At city-level zoom with many fields, markers stack on top of each other and become unclickable. |
+| localStorage may fail silently | At large field counts, `localStorage.setItem` may throw `QuotaExceededError` (typical limit: 5-10 MB). The `catch` block swallows this silently, but the cache becomes stale. |
+
+---
+
+## 3. Scalability Plan
+
+### Phase P0 — Must-have for 500 Fields (Current State Assessment)
+
+**Status: The current implementation already handles 500 fields adequately.**
+
+Evidence:
+- Bounded query (ISSUE-077) returns only viewport-visible fields. A typical map viewport at zoom 14 shows ~20-50 fields even in a dense city.
+- `idx_fields_public_listing_spatial` (ISSUE-079) ensures the database query is index-backed.
+- Game fan-out at 50 fields = 1 batch query. At 100 fields = 1 batch. Manageable.
+- Leaflet handles 50-100 DivIcon markers without performance issues.
+- JSON payload at 50 fields ≈ 50 KB (gzipped ~15 KB). Fast on any connection.
+
+**Risks at 500 fields (if viewport filtering breaks or is bypassed):**
+- The `handleNotificationTarget` function (line 443) calls `getFields()` **without bounds** as a fallback → loads all 500 fields.
+- The unbounded fallback path still paginate-loads all fields.
+- localStorage cache stores all loaded fields regardless of viewport.
+
+**P0 action items:** None required immediately. Current implementation works at 500 fields. The bounded query keeps viewport results small. Monitor the following:
+- Ensure all frontend code paths pass bounds (currently: `FieldLoader` always does, but `handleNotificationTarget` does not).
+
+### Phase P1 — Must-have for 1,000 Fields
+
+At 1,000 total fields in the database, a typical viewport still shows 50-150 fields (bounded query limits results). The problems emerge when:
+- Users zoom out to country level (viewport includes all 1,000 fields)
+- The unbounded fallback is triggered
+- Game fan-out reaches 10+ batched queries
+
+**P1-1: Add request debouncing to FieldLoader**
+- Debounce `moveend` → `loadFields()` by 300ms.
+- Prevents burst of requests during rapid panning.
+- Complexity: Low. Add a `setTimeout`/`clearTimeout` in the `moveend` handler.
+- Impact: Reduces unnecessary API calls by ~60-80% during panning.
+
+**P1-2: Remove `JSON.stringify` deep comparison**
+- Replace `JSON.stringify(currentFields) === JSON.stringify(loadedFields)` with a shallow ID-based comparison (compare sorted field ID arrays).
+- Complexity: Low. ~5 lines changed.
+- Impact: Eliminates 2× full serialization on every `moveend` callback. At 150 fields, saves ~200 KB of string allocation per pan.
+
+**P1-3: Add viewport zoom guard**
+- If zoom level is below a threshold (e.g., zoom < 10), skip the fields request entirely or limit results server-side.
+- Prevents loading 1,000+ fields when zoomed to country level.
+- Complexity: Low (frontend) or Medium (backend `LIMIT` param).
+- Impact: Prevents the worst-case zoom-out scenario.
+
+**P1-4: Limit localStorage cache size**
+- Cap the localStorage cache to viewport fields only, or disable it above a threshold.
+- Complexity: Low.
+- Impact: Prevents `QuotaExceededError` and main-thread blocking.
+
+### Phase P2 — Must-have for 5,000 Fields
+
+At 5,000 fields, viewport-bounded queries still keep per-request results manageable. The critical problems are:
+1. Wide viewport / low zoom → too many markers
+2. Game payload fan-out → too many Supabase calls
+3. No marker clustering → unusable UX at city zoom
+
+**P2-1: Marker clustering (frontend)**
+- Add `react-leaflet-cluster` (wraps Leaflet.markercluster).
+- Groups nearby markers into numbered clusters at lower zoom levels.
+- Clusters expand on click/zoom.
+- Complexity: Medium. Requires replacing the flat marker list with a `MarkerClusterGroup` wrapper.
+- Impact: Critical for UX. Makes 5,000 fields visually navigable. Reduces DOM nodes from 5,000 to ~50-100 clusters at low zoom.
+
+**P2-2: Server-side result limit with count hint**
+- Add a `limit` query parameter to `GET /fields` (e.g., `limit=200`).
+- Return a `X-Total-Count` header or `total_count` field so the frontend knows results are truncated.
+- Frontend shows "zoom in to see all fields" banner when truncated.
+- Complexity: Medium.
+- Impact: Hard cap on payload size and fan-out regardless of viewport.
+
+**P2-3: Reduce game fan-out cost**
+- Option A: Return only `active_game_count` and `upcoming_game_count` per field instead of full game objects. Load full game details on field click.
+- Option B: Use a single SQL query with a JOIN or RPC instead of batched `IN` queries.
+- Complexity: High. Changes API contract.
+- Impact: Reduces Supabase calls from `ceil(N/100) × 3` to 1-3 total.
+
+**P2-4: Column pruning for list view**
+- `GET /fields` currently uses `select("*")` → returns all 17 columns including `notes`, `image_url`, `opening_hours` which the map doesn't need.
+- Add a `select` parameter or use a fixed list for the map endpoint: `id, name, lat, lng, sport_type, status`.
+- Complexity: Low-Medium.
+- Impact: Reduces per-field payload from ~400 bytes to ~150 bytes (60% reduction on field data).
+
+**P2-5: HTTP caching headers**
+- Add `Cache-Control: public, max-age=30` to `GET /fields` responses.
+- Fields data changes rarely — a 30-second cache is safe and eliminates redundant requests during normal browsing.
+- Complexity: Low.
+- Impact: Eliminates redundant API calls when user navigates back to the map.
+
+---
+
+## 4. Technical Recommendations
+
+### 4.1 Viewport / Bounds Query Strategy
+
+**Current state:** Implemented (ISSUE-077). Frontend sends `north/south/east/west` bounds on every `moveend`. Backend filters by lat/lng range. This is the correct foundation.
+
+**Gap:** The `handleNotificationTarget` fallback (MapPage.jsx line 443) calls `getFields()` without bounds. This should be changed to pass the current map bounds, or use `getFieldById()` for the target field.
+
+**Recommendation:** No architectural change needed. Fix the one callsite that bypasses bounds.
+
+### 4.2 Spatial / Index Strategy
+
+**Current state:** Implemented (ISSUE-079). `idx_fields_public_listing_spatial ON fields(verified, approval_status, status, lat, lng)` covers the bounded query.
+
+**Future consideration:** At 50,000+ fields, a PostGIS `GIST` index on a `geography` column would be more efficient for true spatial queries (radius, polygon). Not needed before 10,000+ fields with the current bounding-box approach.
+
+**Recommendation:** Current B-tree composite index is sufficient through 5,000 fields.
+
+### 4.3 Marker Clustering Strategy
+
+**Current state:** Not implemented. No clustering library installed.
+
+**Recommended approach:**
+1. Install `react-leaflet-cluster` (wrapper for Leaflet.markercluster).
+2. Wrap `{fieldMarkers}` in a `<MarkerClusterGroup>`.
+3. Configure: `maxClusterRadius=50`, `disableClusteringAtZoom=16`.
+
+**Alternative:** Supercluster (Web Worker-based). Better for 10,000+ markers. Overkill for 5,000.
+
+**Recommendation:** `react-leaflet-cluster` at P2 phase.
+
+### 4.4 Request Debouncing
+
+**Current state:** Not implemented. Every `moveend` fires immediately.
+
+**Recommended approach:** Add 300ms debounce in `FieldLoader.moveend` handler. Use `setTimeout`/`clearTimeout` pattern, not a library.
+
+**Recommendation:** Implement at P1 phase.
+
+### 4.5 Response Size Limits
+
+**Current state:** No limit. Bounded query naturally limits results by viewport, but a wide viewport or missing bounds can return all fields.
+
+**Recommended approach:**
+1. Add `FIELDS_MAX_RESULTS = 500` server-side hard cap.
+2. Return `X-Total-Count` header when results are capped.
+3. Frontend shows "zoom in" prompt when capped.
+
+**Recommendation:** Implement at P2 phase.
+
+### 4.6 Caching Strategy
+
+**Current state:**
+- Frontend: localStorage cache of entire fields array (no expiry, no size limit, full replacement on every load).
+- Backend: No HTTP caching headers.
+
+**Recommended approach:**
+1. P1: Cap localStorage to viewport-only or remove entirely (it's causing more problems than it solves — blocks main thread, stale data, quota risk).
+2. P2: Add `Cache-Control: public, max-age=30` on `GET /fields` responses.
+3. Future: ETag-based conditional requests for zero-cost revalidation.
+
+### 4.7 API Contract Changes
+
+No breaking changes needed through P2. All recommendations are additive:
+- `limit` query param (optional, defaults to no limit for backwards compatibility)
+- `X-Total-Count` response header (new, non-breaking)
+- Column pruning via `select` param (optional)
+
+### 4.8 Monitoring / Performance Metrics
+
+Currently no client-side performance metrics are collected. Recommended metrics for scale monitoring:
+- Fields API response time (p50, p95) — available via `measure_production_api.py`
+- Fields count per response (to detect viewport bypass)
+- Frontend `moveend` → render complete time (requires instrumentation)
+- localStorage usage (to detect quota pressure)
+
+---
+
+## 5. ISSUE-079 Index Reference
+
+The `idx_fields_public_listing_spatial ON fields(verified, approval_status, status, lat, lng)` index created in ISSUE-079 is the foundation of map loading scalability.
+
+**What it solves:**
+- Eliminates full-table scan on every `GET /fields` request.
+- For bounded queries: PostgreSQL uses all 5 columns — equality on verified/approval_status/status, then range scan on lat, then filter on lng.
+- For unbounded queries: PostgreSQL uses the first 3 columns as a prefix for equality filtering.
+- Estimated query-level improvement: 50-80% cost reduction on the fields query itself.
+
+**What it does NOT solve:**
+- Game payload fan-out (still `ceil(N/100)` Supabase calls per request)
+- `finish_expired_games()` sequential UPDATEs during reads
+- Frontend rendering cost (5,000 DOM nodes regardless of DB speed)
+- Payload serialization cost (`JSON.stringify` in frontend)
+- Network transfer size (full `select("*")` per field)
+- Missing debouncing on `moveend`
+- Missing marker clustering
+
+The index is necessary but not sufficient for 5,000-field scale.
+
+---
+
+## 6. Scalability Thresholds Summary
+
+| Metric | 500 Fields | 1,000 Fields | 5,000 Fields |
+|---|---|---|---|
+| **Viewport query** | OK (index-backed, <50 results typical) | OK | OK |
+| **Unbounded fallback** | OK (1 page) | Caution (1-2 pages) | Fail (5+ pages, ~4 MB) |
+| **Game fan-out** | OK (1 batch) | Caution (2-3 batches) | Fail (50 batches) |
+| **API payload** | OK (~130 KB gzip) | Caution (~255 KB gzip) | Fail (~1.3 MB gzip) |
+| **DOM markers** | OK | Caution (jank on low-end) | Fail (5K DOM nodes) |
+| **JSON.stringify compare** | OK | Caution (~2 MB alloc) | Fail (~10 MB alloc) |
+| **localStorage write** | OK | Caution (quota risk) | Fail (exceeds quota) |
+| **Marker clustering** | Nice-to-have | Should-have | Must-have |
+| **Request debouncing** | Nice-to-have | Should-have | Must-have |
+
+---
+
+## 7. Definition of Done
+
+- [x] Documented current map loading behavior end-to-end (Section 1)
+- [x] Documented all bottleneck categories: database, API, frontend, network, UX (Section 2)
+- [x] Documented scalability strategy with phases P0/P1/P2 (Section 3)
+- [x] Documented thresholds for 500 / 1,000 / 5,000 fields (Section 6)
+- [x] Referenced ISSUE-079 index explicitly with scope of what it solves and doesn't (Section 5)
+- [x] Confirmed: no uncontrolled full-table map loading at scale — bounded query (ISSUE-077) is the primary path; unbounded fallback exists but only triggers when bounds are missing
+- [x] Identified one code path that bypasses bounds: `handleNotificationTarget` (MapPage.jsx:443) calls `getFields()` without bounds as a fallback
+- [x] This is a theoretical audit — no load testing performed. All estimates are derived from code analysis and payload size calculations, not measured production data.
+
+---
+
+## 8. Files Reviewed
+
+| File | Role in Map Loading |
+|---|---|
+| `frontend/src/pages/MapPage.jsx` | Map component, FieldLoader, marker rendering, localStorage cache |
+| `frontend/src/api/fields.js` | API client, request deduplication, bounds parameter passing |
+| `frontend/src/api/client.js` | Axios instance, auth interceptor |
+| `frontend/src/api/retry.js` | Retry logic for safe reads |
+| `backend/app/routers/fields.py` | GET /fields endpoint, bounds filtering, game payload enrichment |
+| `backend/app/routers/game_payloads.py` | Batched game/player/user enrichment |
+| `backend/app/routers/game_lifecycle.py` | finish_expired_games() — writes during reads |
+| `backend/schema.sql` | Table definitions, index definitions |
+| `frontend/package.json` | Dependency check (no clustering library installed) |
+
+---
+
+## 9. Follow-up Recommendations
+
+1. **P1 items should be implemented before field count reaches 500.** They are low-complexity, low-risk, and prevent the most likely scaling failures (rapid panning burst, JSON.stringify cost).
+2. **P2 items should be implemented before field count reaches 2,000.** Marker clustering is the highest-impact single change for UX at scale.
+3. **The `handleNotificationTarget` unbounded `getFields()` call** (MapPage.jsx:443) should be addressed in P1 — it's the only frontend code path that can trigger a full-table load.
+4. **The game payload fan-out** is the backend scaling wall. At 5,000 fields, even with viewport filtering limiting results to ~200 fields, the fan-out requires 6+ Supabase calls. Restructuring this to a single query (RPC or JOIN) is the P2 backend priority.
+5. **No code changes were made in this issue.** All recommendations are documented for implementation in future issues.
+
