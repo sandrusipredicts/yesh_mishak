@@ -25,6 +25,14 @@ class Settings(BaseSettings):
         default=None,
         alias="FIREBASE_SERVICE_ACCOUNT_FILE",
     )
+    disable_game_created_notifications: bool = Field(
+        default=False,
+        alias="DISABLE_GAME_CREATED_NOTIFICATIONS",
+    )
+    auth_user_cache_ttl_seconds: int = Field(
+        default=300,
+        alias="AUTH_USER_CACHE_TTL_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

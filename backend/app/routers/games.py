@@ -1,13 +1,15 @@
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
+from app.core.config import get_settings
 from app.services.content_moderation import validate_game_text
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -29,6 +31,7 @@ from app.routers.notifications import (
 
 router = APIRouter(prefix="/games", tags=["games"])
 logger = logging.getLogger(__name__)
+timing_logger = logging.getLogger("uvicorn.error")
 
 
 class GameCreate(BaseModel):
@@ -88,8 +91,62 @@ def _normalize_scheduled_at(value: datetime | None) -> datetime | None:
     return scheduled_at
 
 
+def _create_game_created_notifications_background(
+    game: dict[str, Any],
+    field: dict[str, Any],
+    organizer_id: str,
+) -> None:
+    t_start = time.perf_counter()
+    duration_notif = 0.0
+    try:
+        supabase = get_supabase_client()
+        t_notif_start = time.perf_counter()
+        create_game_created_notifications(
+            supabase=supabase,
+            game=game,
+            field=field,
+            organizer_id=organizer_id,
+        )
+        t_notif_end = time.perf_counter()
+        duration_notif = t_notif_end - t_notif_start
+    except Exception as exc:
+        logger.warning(
+            "Failed to create game_created notifications",
+            extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "game_created",
+                "game_id": game.get("id"),
+                "field_id": field.get("id"),
+                "user_id": organizer_id,
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+    finally:
+        t_end = time.perf_counter()
+        duration_total = t_end - t_start
+        timing_logger.debug(
+            "games.create.background_timing "
+            "total=%.3f notification_fanout=%.3f "
+            "game_id=%s field_id=%s sport_type=%s",
+            duration_total,
+            duration_notif,
+            game.get("id"),
+            field.get("id"),
+            game.get("sport_type"),
+        )
+
+
 @router.post("/")
-def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require_active_user)):
+def create_game(
+    game: GameCreate,
+    background_tasks: BackgroundTasks,
+    current_user: dict[str, Any] = Depends(require_active_user),
+):
+    t_start = time.perf_counter()
+
     moderation = validate_game_text(age_note=game.age_note)
     if not moderation.allowed:
         raise_api_error(
@@ -120,7 +177,12 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
         )
 
     supabase = get_supabase_client()
-    field = _get_single("fields", game.field_id, "Field not found")
+
+    t_field_start = time.perf_counter()
+    field = _get_single_with_client(supabase, "fields", game.field_id, "Field not found")
+    t_field_end = time.perf_counter()
+    duration_field = t_field_end - t_field_start
+
     now = get_now()
     scheduled_at = _normalize_scheduled_at(game.scheduled_at)
     is_scheduled_game = scheduled_at is not None
@@ -154,6 +216,7 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
             message="Field does not support this sport",
         )
 
+    t_dup_start = time.perf_counter()
     existing_games = (
         supabase.table("games")
         .select("*")
@@ -182,6 +245,8 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
             code="CONFLICT",
             message="Active game already exists for this field",
         )
+    t_dup_end = time.perf_counter()
+    duration_dup = t_dup_end - t_dup_start
 
     started_at = scheduled_at or now
     expires_at = started_at + timedelta(hours=2)
@@ -210,12 +275,18 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
         "expires_at": expires_at.isoformat(),
     }
 
+    t_insert_game_start = time.perf_counter()
     response = supabase.table("games").insert(data).execute()
     created_game = response.data[0]
+    t_insert_game_end = time.perf_counter()
+    duration_insert_game = t_insert_game_end - t_insert_game_start
 
+    t_insert_player_start = time.perf_counter()
     supabase.table("game_players").insert(
         {"game_id": created_game["id"], "user_id": current_user["id"]}
     ).execute()
+    t_insert_player_end = time.perf_counter()
+    duration_insert_player = t_insert_player_end - t_insert_player_start
 
     logger.info(
         "game created",
@@ -231,28 +302,46 @@ def create_game(game: GameCreate, current_user: dict[str, Any] = Depends(require
         },
     )
 
-    try:
-        create_game_created_notifications(
-            supabase=supabase,
-            game=created_game,
-            field=field,
-            organizer_id=current_user["id"],
+    settings = get_settings()
+    if settings.disable_game_created_notifications:
+        t_bg_start = time.perf_counter()
+        t_bg_end = time.perf_counter()
+        duration_bg = t_bg_end - t_bg_start
+        timing_logger.debug(
+            "games.create.background_skipped reason=disabled_by_config game_id=%s field_id=%s sport_type=%s",
+            created_game.get("id"),
+            game.field_id,
+            game.sport_type,
         )
-    except Exception as exc:
-        logger.warning(
-            "Failed to create game_created notifications",
-            extra={
-                "event": "notifications.generate.failure",
-                "notification_type": "game_created",
-                "game_id": created_game.get("id"),
-                "field_id": created_game.get("field_id"),
-                "user_id": current_user.get("id"),
-                "error_code": "NOTIFICATION_GENERATION_FAILED",
-                "exception_type": exc.__class__.__name__,
-                "result": "partial_failure",
-            },
-            exc_info=True,
+    else:
+        t_bg_start = time.perf_counter()
+        background_tasks.add_task(
+            _create_game_created_notifications_background,
+            created_game,
+            field,
+            current_user["id"],
         )
+        t_bg_end = time.perf_counter()
+        duration_bg = t_bg_end - t_bg_start
+
+    t_total_end = time.perf_counter()
+    duration_total = t_total_end - t_start
+
+    timing_logger.debug(
+        "games.create.timing "
+        "total=%.3f field_lookup=%.3f duplicate_check=%.3f "
+        "game_insert=%.3f player_insert=%.3f background_task=%.3f "
+        "game_id=%s field_id=%s sport_type=%s",
+        duration_total,
+        duration_field,
+        duration_dup,
+        duration_insert_game,
+        duration_insert_player,
+        duration_bg,
+        created_game.get("id"),
+        game.field_id,
+        game.sport_type,
+    )
 
     return {"message": "Game created", "game": created_game}
 
