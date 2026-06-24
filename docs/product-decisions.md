@@ -6342,3 +6342,159 @@ The following ISSUE-066 gaps remain intentionally out of scope for ISSUE-067:
 * Broader admin action logging outside the explicitly requested field approval/rejection and scheduled job paths.
 * Metrics, monitoring, alerting, or log retention implementation.
 
+# ISSUE-068: Sensitive Data Logging Review
+
+## Status
+
+Approved — no violations found.
+
+## Scope
+
+Full sensitive-data logging review of all backend runtime code, services, scripts, and tests after ISSUE-067 implemented missing backend logs and redacted previously identified sensitive-data violations from ISSUE-066.
+
+This review verifies that the ISSUE-065 sensitive-data policy is met across all backend files that emit log output.
+
+## Files Reviewed
+
+| Area | Files |
+| --- | --- |
+| Auth API | `backend/app/api/auth.py` |
+| Google auth helper | `backend/app/auth/google.py` |
+| Auth dependencies | `backend/app/auth/dependencies.py` |
+| JWT utility | `backend/app/auth/jwt.py` |
+| Password utility | `backend/app/auth/passwords.py` |
+| Admin API | `backend/app/api/admin.py` |
+| Games router | `backend/app/routers/games.py` |
+| Game payloads | `backend/app/routers/game_payloads.py` |
+| Field reports router | `backend/app/routers/field_reports.py` |
+| Notifications router | `backend/app/routers/notifications.py` |
+| Firebase push service | `backend/app/services/firebase_push.py` |
+| Content moderation | `backend/app/services/content_moderation.py` |
+| Duplicate detection | `backend/app/services/duplicate_detection.py` |
+| Notification templates | `backend/app/services/notification_templates.py` |
+| App entrypoint | `backend/app/main.py` |
+| Config | `backend/app/core/config.py` |
+| DB client | `backend/app/db/supabase.py` |
+| Scripts | `backend/scripts/audit_game_data_integrity.py`, `backend/scripts/prepare_fields_import.py`, `backend/scripts/govmap_facility_splitter.py`, `backend/scripts/verify_notification_settings_payload.py` |
+| Tests | `backend/tests/test_manual_auth.py`, `backend/tests/test_google_auth.py`, `backend/tests/test_game_close.py`, `backend/tests/test_field_reports_api.py`, `backend/tests/test_admin_me.py`, `backend/tests/test_notifications.py`, `backend/tests/test_notification_stress.py` |
+
+## Searches Run
+
+The following searches were run across `backend/app` and `backend/scripts` (Python files):
+
+| Search term | Purpose |
+| --- | --- |
+| `logger` | Find all logger definitions and log calls |
+| `logging` | Find logging imports and configuration |
+| `print(` | Find unstructured output in scripts and tests |
+| `traceback` | Find traceback module usage |
+| `exc_info` | Find explicit stack-trace logging |
+| `Authorization` | Find authorization header references |
+| `token` | Find token references in log calls |
+| `jwt` | Find JWT references |
+| `password` | Find password references |
+| `email` | Find email references |
+| `phone` / `phone_number` | Find phone number references |
+| `id_token` | Find Google ID token references |
+| `refresh_token` | Find refresh token references |
+| `push_token` | Find push token references |
+| `credentials` | Find credential references |
+| `request.body` | Find raw request body logging |
+| `dict(payload)` | Find payload dump logging |
+| `decoded` / `claims` | Find decoded token claim logging |
+| `notification body` / `report description` | Find user-generated content logging |
+
+## Sensitive-data Checklist
+
+| Data type | Logged? | Risk level | Evidence |
+| --- | --- | --- | --- |
+| JWT access tokens | No | None | No logger call in `auth.py`, `dependencies.py`, or `jwt.py` includes token values. `credentials.credentials` is passed to `decode_access_token` but never logged. |
+| Passwords / password hashes | No | None | `passwords.py` has no logger. `auth.py` login/register paths do not log `payload.password`, `password_hash`, or `password_confirm`. Test `test_manual_auth.py` asserts `strongpass123` and `wrongpass123` are absent from `caplog.text`. |
+| Phone numbers | No | None | No logger call includes phone number values. `phone_is_null` boolean flag is used in auth success logs instead. |
+| Emails | No | None | No logger call includes email values. ISSUE-067 removed all email logging from Google auth and login success paths. Test `test_manual_auth.py` asserts `manual@example.com` is absent from `caplog.text`. |
+| Google ID token values | No | None | `verify_google_token` receives `token` parameter but never logs it. `_token_debug_claims` decodes the token to extract boolean presence flags only — no claim values are logged. |
+| Decoded Google token claims | No | None | `_token_debug_claims` returns only `has_sub`, `has_name`, `email_present`, `email_verified_present` booleans. No token claim values (sub, email, name, picture) appear in any log call. |
+| Raw authorization headers | No | None | `dependencies.py` extracts `credentials.credentials` via FastAPI's `HTTPBearer` but never logs it. No `Authorization` string appears in any logger call. |
+| Refresh tokens | No | None | The backend does not implement refresh tokens. No `refresh_token` variable or log reference exists. |
+| Push notification tokens | No | None | `_send_push_to_tokens` iterates over token values for FCM delivery but never logs them. Invalid-token cleanup logs event metadata only. Tests `test_notifications.py` assert `own-token` and `bad-token` are absent from `caplog.text`. |
+| Raw request bodies | No | None | No `request.body`, `dict(payload)`, or equivalent appears in any logger call. |
+| Field report descriptions | No | None | `create_field_report` logs `field_reports.create.success` with `user_id`, `field_id`, `report_id` only — description is not included. Test `test_field_reports_api.py` asserts `The pin is on the wrong block.` is absent from `caplog.text`. |
+| Notification titles/bodies | No | None | `_send_push_to_tokens` receives `title` and `body` for FCM delivery but does not include them in any log call. Scheduled reminder and notification creation logs use `notification_type` and IDs only. |
+| Firebase service account credentials | No | None | `firebase_push.py` has no logger. Credential loading is internal; errors raise `FirebaseConfigError` with generic messages. |
+| Supabase keys | No | None | `config.py` and `supabase.py` do not log key values. |
+| Raw third-party responses | No | None | `_format_supabase_error` in `google.py` captures `str(exc)` and `repr(exc)` but these are included in the `HTTPException.detail` returned to the caller, not in logger calls. The `logger.exception` calls for Supabase failures log only `exception_type` and `error_code` in structured `extra` fields. |
+| User-generated content (game notes, cancel reasons, moderation text) | No | None | No logger call includes game notes, cancel reasons, field names as user content, or moderation denial text. |
+| Stack traces | Server logs only | None | `logger.exception()` and `exc_info=True` emit stack traces in server error logs only. These are standard Python logging behavior and do not expose sensitive data because the logged `extra` fields are already sanitized. |
+
+## Findings Table
+
+| # | File | Function / endpoint | Data type reviewed | Logged? | Risk | Evidence | Action |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `backend/app/api/auth.py` | `google_login`, `login`, `register` | Passwords, emails, phone numbers, tokens | No | None | Log calls use `user_id`, `auth_method`, `attempt_id`, boolean flags. Existing tests assert email/password absence. | None required. |
+| 2 | `backend/app/auth/google.py` | `verify_google_token`, `find_or_create_google_user`, `_token_debug_claims`, `_log_google_user_lookup_debug` | Google ID token, decoded claims, email | No | None | `_token_debug_claims` returns boolean presence flags only. All logger calls use `user_id`, `attempt_id`, `exception_type`. No email, token value, or claim value in `extra`. | None required. |
+| 3 | `backend/app/auth/dependencies.py` | `get_current_user`, `require_active_user`, `require_admin` | JWT, authorization header | No | None | No logger defined. Token extraction passes to `decode_access_token` without logging. | None required. |
+| 4 | `backend/app/auth/jwt.py` | `create_access_token`, `decode_access_token` | JWT, email (in payload) | No | None | No logger defined. Functions return/raise without logging. | None required. |
+| 5 | `backend/app/api/admin.py` | All admin endpoints | Actor email, user email in `/me` response, report descriptions in field report enrichment | No | None | `/me` returns email in the API response (not logged). `_attach_field_report_details` returns `reporter_email` in the response (not logged). All logger calls use `actor_user_id`, `game_id`, `field_id`, `job_name`, `execution_time_ms`. | None required. |
+| 6 | `backend/app/routers/games.py` | Game create, join, close, extend | User content, notification bodies | No | None | Logger calls use `game_id`, `field_id`, `user_id`, `sport_type`, `notification_type`. No user-generated content in logs. | None required. |
+| 7 | `backend/app/routers/field_reports.py` | `create_field_report` | Report description | No | None | Logger calls use `field_id`, `user_id`, `report_id`. Test asserts description text absent from caplog. | None required. |
+| 8 | `backend/app/routers/notifications.py` | `_send_push_to_tokens`, `save_push_token`, `delete_push_token`, `send_test_push`, `generate_scheduled_game_reminders` | Push tokens, notification bodies | No | None | Logger calls use `notification_type`, `recipient_count`, `sent_count`, `invalid_token_count`. Tests assert token values absent. | None required. |
+| 9 | `backend/app/services/firebase_push.py` | `send_fcm_notification`, `_get_access_token`, `_get_credentials` | Firebase credentials, access tokens, push tokens | No | None | No logger defined. Credentials handled internally. Authorization header constructed in-memory for HTTP request only. | None required. |
+| 10 | `backend/app/routers/game_payloads.py` | `_select_with_in_batches` | Exception repr | No sensitive data | None | `logger.exception` includes `exception_repr=%r` which could contain Supabase internal details but not user PII. Supabase client errors contain connection/query metadata, not user-submitted data. | None required. |
+| 11 | `backend/app/main.py` | `generic_exception_handler` | Unhandled exception | No sensitive data | None | `logger.exception` logs the exception message and traceback server-side only. The client receives a generic 500 response. | None required. |
+| 12 | `backend/scripts/*` | All scripts | Various | No | None | Scripts use `print()` for CLI output. No sensitive user data is printed. `verify_notification_settings_payload.py` uses a hardcoded test email `user@example.com` in a mock fixture. | None required. |
+
+## Violations Found
+
+None.
+
+All logger calls across the backend use structured `extra` fields containing only:
+
+* UUIDs (`user_id`, `game_id`, `field_id`, `report_id`, `actor_user_id`).
+* Stable event names and error codes.
+* Boolean presence flags (`phone_is_null`, `email_present`, `has_sub`, `has_google_sub`).
+* Counts and timing (`recipient_count`, `sent_count`, `execution_time_ms`).
+* Exception type names (`exception_type`).
+
+No email, phone number, password, token value, decoded claim, push token, notification body, report description, or raw request body appears in any logger call.
+
+## Fixes Made
+
+None. No runtime code was changed.
+
+## Tests Run
+
+```
+backend> .venv\Scripts\python.exe -m pytest tests\test_manual_auth.py tests\test_google_auth.py tests\test_game_close.py tests\test_field_reports_api.py tests\test_admin_me.py tests\test_notifications.py -q
+```
+
+Result: 166 passed, 563 warnings (dependency deprecations only).
+
+Existing sensitive-data log assertions verified:
+
+| Test file | Assertion |
+| --- | --- |
+| `test_manual_auth.py` | `manual@example.com` not in `caplog.text`; `strongpass123` not in `caplog.text`; `wrongpass123` not in `caplog.text` |
+| `test_field_reports_api.py` | `The pin is on the wrong block.` not in `caplog.text` |
+| `test_notifications.py` | `own-token` not in `caplog.text`; `bad-token` not in `caplog.text` |
+
+## Final Security Decision
+
+The backend meets the ISSUE-065 sensitive-data policy. ISSUE-067 successfully remediated all sensitive-data violations identified in ISSUE-066. No new violations were introduced.
+
+This issue is documentation-only. No code changes are required.
+
+## Remaining Risks
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| `_format_supabase_error` in `google.py` and `field_reports.py` captures `str(exc)` and `repr(exc)` into `HTTPException.detail` responses returned to the client. While these are not logged, they could expose internal database error details to API callers. | Low | This is a separate issue from logging. The error detail is returned in 500 responses for debugging during development. Consider sanitizing these in a future hardening pass. |
+| `game_payloads.py` logs `exception_repr=%r` which could contain Supabase connection/query metadata in stack traces. | Low | No user PII is present in Supabase client exceptions. Monitor if Supabase client changes introduce sensitive data in error messages. |
+| Google auth test file `test_google_auth.py` does not include `caplog`-based sensitive-data assertions. | Low | The runtime code in `google.py` was reviewed and contains no sensitive values in logger calls. Adding caplog assertions to `test_google_auth.py` would be a defense-in-depth improvement for a future issue. |
+| Scripts use `print()` for output. If any script becomes a scheduled production job, its output would bypass structured logging. | Low | Per ISSUE-066, scripts remain manual CLI tools. Revisit if any script becomes automated. |
+
+## Files Modified
+
+* `docs/product-decisions.md`
+
+No backend runtime, frontend runtime, database, migration, endpoint, or logging behavior changes were made.
+
