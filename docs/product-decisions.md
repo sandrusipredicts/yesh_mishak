@@ -8085,3 +8085,601 @@ No backend runtime, frontend runtime, database, migration, endpoint, logging, me
 5. **External uptime monitoring** — set up a free external monitor (e.g., UptimeRobot) for `GET /` and the frontend URL (per ISSUE-069 recommendation).
 6. **Automated alerting** — when Phase 2 monitoring is implemented, add P1/P2 threshold-based alerts per ISSUE-069 Section 7.
 
+# ISSUE-072: Production Outage Communication Process
+
+## Status
+
+Approved.
+
+## Type
+
+Specification / product decision.
+
+## Goal
+
+Define a complete production outage communication process for the Yesh Mishak platform: when users should be informed about outages, who decides, what channels are used, what information is shared and what is not, and how updates and resolution are communicated.
+
+This is documentation only. No code, endpoints, notification systems, status pages, database migrations, or runtime behavior changes are implemented by this issue.
+
+## Policy References
+
+* ISSUE-029: Notification Event Inventory — defines existing notification types (all game-event-driven; no admin broadcast mechanism exists).
+* ISSUE-039: Notification Error Handling Specification — defines notification failure handling and best-effort delivery.
+* ISSUE-054: Production Support Handbook — defines day-to-day support operations, severity levels, escalation conditions.
+* ISSUE-065: Application Logging Policy — defines sensitive-data rules (what must never be exposed).
+* ISSUE-069: Production Monitoring Requirements — defines 39 metrics, thresholds, and phased monitoring rollout.
+* ISSUE-070: Implement Production Monitoring — implements `GET /admin/monitoring` endpoint with live metrics.
+* ISSUE-071: Incident Response Playbook — defines severity matrix (P0-P3), incident workflow, runbooks, escalation policy, postmortem requirements, and internal communication templates.
+
+## Architecture Context — Current Communication Capabilities
+
+| Capability | Status | Details |
+| --- | --- | --- |
+| In-app notifications | Exists — game-event only | Notifications are created as DB rows in the `notifications` table. There is no admin broadcast or system announcement notification type. |
+| Push notifications | Exists — game-event only | FCM push via `send_fcm_notification()`. Sent per-token for registered devices. No broadcast push mechanism. |
+| Status page | Does not exist | No public or internal status page. |
+| Email to users | Does not exist | No email infrastructure in the backend. |
+| SMS to users | Does not exist | No SMS infrastructure. |
+| Social channels | Not established | No official social media accounts documented in the repository. |
+| GitHub project | Available | Repository exists. Can be used for internal updates via issues or discussions. |
+| Team communication | Not documented | No Slack, Discord, or other team channel documented in the repository. |
+
+**Key limitation:** There is currently no mechanism to send system-wide announcements to end users. All existing notification types (ISSUE-029) are triggered by game events, not admin actions. Outage communication to end users requires either a new feature or manual external channels.
+
+---
+
+## 1. Communication Policy
+
+### 1.1 Communication Principles
+
+| Principle | Explanation |
+| --- | --- |
+| **Be accurate** | Only communicate facts that have been confirmed. Never guess at root causes or timelines. |
+| **Avoid speculation** | If the cause is unknown, say "We are investigating" — not "We think it might be X." |
+| **Avoid technical jargon** | Users do not need to know about Supabase, JWT secrets, or FCM. Use plain language: "login," "notifications," "the app." |
+| **Do not expose sensitive details** | Never include error messages, stack traces, server names, IP addresses, database details, or internal architecture in user-facing communications. Per ISSUE-065 sensitive-data policy. |
+| **Do not expose security vulnerabilities** | Never describe the specific vulnerability, attack vector, or exploit method in any communication — internal or external — until the vulnerability is fully remediated. |
+| **Do not blame providers** | Do not say "Supabase is down" or "Google OAuth broke." Say "We are experiencing a service disruption" or "Login is temporarily unavailable." Blaming providers is inaccurate (the issue may be configuration, not the provider) and damages trust. |
+| **Do not promise timelines without evidence** | Do not say "We will have this fixed in 30 minutes" unless the fix is already deployed and being verified. Say "We expect to have an update within [timeframe]." |
+| **Be concise** | Users want to know: is the app broken, what should they do, and when will it be fixed. One short paragraph per update is enough. |
+| **Communicate once confirmed** | Do not send a "we are investigating" message for every monitoring alert. Wait until the incident is confirmed (ISSUE-071 Step 2) before any user-facing communication. |
+
+### 1.2 When Users Should Be Informed
+
+| Condition | Notify users? | Rationale |
+| --- | --- | --- |
+| P0 incident confirmed and lasting > 15 minutes | **Yes** — mandatory | Users are experiencing a complete outage and need to know it is acknowledged. |
+| P1 incident confirmed and lasting > 30 minutes | **Yes** — mandatory | A major feature is broken and users are likely confused. |
+| P2 incident confirmed and lasting > 2 hours | **Recommended** | Prolonged degradation warrants acknowledgment even if core flows work. |
+| P3 incident | **No** | Minor issues do not warrant user communication. |
+| Planned maintenance | **Yes** — in advance | Users should be warned before any intentional downtime. |
+| Security incident with user data exposure | **Yes** — mandatory | Users have a right to know if their data was exposed. Legal obligations may apply. |
+| Security incident without user data exposure | **No** — unless asked | Internal security issues that are contained do not require user notification. |
+| Incident resolved in < 15 minutes | **No** — unless already communicated | Brief outages that self-resolve do not need communication. If a notice was already sent, send a resolution notice. |
+
+### 1.3 Who Decides Communication Is Required
+
+| Role | Decision authority |
+| --- | --- |
+| **Incident Commander** (see Section 6) | Decides whether to communicate, what to say, and when. Has final authority during an active incident. |
+| **Communication Owner** (see Section 6) | Drafts and publishes communications. Cannot publish without Incident Commander approval (except emergency exceptions — see Section 7). |
+| **Product Owner** | Must approve any communication about security incidents with data exposure. Must approve any post-incident public summary. |
+
+---
+
+## 2. Outage Categories
+
+### 2.1 Full Platform Outage
+
+**User impact:** All users unable to use the app. No games can be created, joined, or viewed. No login possible.
+
+**Communication requirement:** Mandatory. This is always P0.
+
+**Communication urgency:** First user-facing notice within 30 minutes of confirmation.
+
+**Recommended channel:** All available channels (see Section 3). Prioritize the channel most likely to reach users who are currently trying to use the app.
+
+### 2.2 Login Outage
+
+**User impact:** Users cannot log in. Existing sessions may still work. New users cannot register. Users who are logged out cannot return.
+
+**Communication requirement:** Mandatory if lasting > 30 minutes. P1 if one auth method; P0 if all auth methods.
+
+**Communication urgency:** First notice within 30 minutes of confirmation.
+
+**Recommended channel:** External channels only (social, GitHub). In-app and push cannot reach users who are logged out.
+
+### 2.3 Notification Outage
+
+**User impact:** Users do not receive game update notifications. Games still function. Users can still use the app but may miss important updates.
+
+**Communication requirement:** Recommended if lasting > 2 hours during active hours. P2 normally.
+
+**Communication urgency:** Within 2 hours if communicating.
+
+**Recommended channel:** In-app banner or announcement (if mechanism exists). Users are logged in but not receiving notifications.
+
+### 2.4 Performance Degradation
+
+**User impact:** App is slow but functional. Pages load but with noticeable delay. Some requests may time out.
+
+**Communication requirement:** Recommended only if severe (p95 > 5s) or lasting > 2 hours. P2 normally.
+
+**Communication urgency:** Within 2 hours if communicating.
+
+**Recommended channel:** In-app banner or social channels.
+
+### 2.5 Admin-Only Outage
+
+**User impact:** None. Admin endpoints are broken but user-facing features work normally.
+
+**Communication requirement:** Not required for end users. Internal communication to admin team only.
+
+**Communication urgency:** N/A for users. Internal per ISSUE-071 escalation policy.
+
+**Recommended channel:** Internal team communication only.
+
+### 2.6 Third-Party Dependency Outage
+
+**User impact:** Varies by dependency. Supabase down = full outage. Firebase down = push notifications fail. Google OAuth down = Google login fails.
+
+**Communication requirement:** Same as the user-facing impact category. Communicate the symptom, not the cause.
+
+**Communication urgency:** Per the corresponding category (full outage, login outage, notification outage).
+
+**Recommended channel:** Per the corresponding category. Do not name the third-party provider in user-facing communications.
+
+### 2.7 Security Incident
+
+**User impact:** May range from none (internal vulnerability found and fixed) to severe (user data exposed).
+
+**Communication requirement:** Mandatory if user data was exposed or accounts were compromised. Not required for internal-only incidents.
+
+**Communication urgency:** Within 24 hours of confirming user data exposure. Faster if the exposure is ongoing.
+
+**Recommended channel:** Direct communication (email when available). Not social media first — security notices should be targeted, not broadcast without context.
+
+### 2.8 Data Incident
+
+**User impact:** Users may see incorrect game data, wrong participant counts, or missing games/fields.
+
+**Communication requirement:** Mandatory if users see visibly incorrect data. Not required if data was corrected before users noticed.
+
+**Communication urgency:** Within 1 hour if users are affected. After correction if detected proactively.
+
+**Recommended channel:** In-app notification (if mechanism exists) for affected users. General announcement if widespread.
+
+---
+
+## 3. Channel Strategy
+
+### 3.1 Current Channels
+
+| Channel | Availability | Best for | Limitations |
+| --- | --- | --- | --- |
+| **GitHub Issues / Discussions** | Available now | Internal team updates. Post-incident summaries. Planned maintenance notices. | Not user-facing. Users do not monitor the GitHub repository. |
+| **In-app notification** | **Not available** for system announcements | Would be ideal for logged-in users | Current notification system (ISSUE-029) only supports game-event notifications. No admin broadcast type exists. Requires implementation. |
+| **Push notification** | **Not available** for broadcast | Would reach users even when app is closed | Current push system (ISSUE-029) is per-user, per-game-event. No broadcast push mechanism exists. Requires implementation. |
+| **Social channels** | **Not established** | Reaching users who cannot access the app | No official social accounts documented. Requires setup. |
+
+### 3.2 Future Channels (Require Implementation)
+
+| Channel | Purpose | Priority | Implementation notes |
+| --- | --- | --- | --- |
+| **Status page** | Public real-time status visibility. Users can check without contacting support. | High | Can start with a free hosted status page (e.g., Atlassian Statuspage free tier, Instatus, or a simple static page). No code changes needed for a hosted solution. |
+| **Admin broadcast notification** | In-app system announcement visible to all logged-in users | High | Requires a new notification type (e.g., `system_announcement`) and an admin endpoint to create it. |
+| **Admin broadcast push** | Push notification to all registered devices | Medium | Requires a new admin endpoint that sends FCM to all registered push tokens. |
+| **Email communication** | Direct user notification for security incidents and critical outages | Medium | Requires email service integration (SendGrid, SES, or similar). Most important for security breach notifications. |
+| **SMS communication** | Emergency notification | Low | Expensive. Only justified for critical security incidents where user action is required. |
+
+### 3.3 Channel Selection by Category
+
+| Outage category | Primary channel (current) | Primary channel (future) | Fallback channel |
+| --- | --- | --- | --- |
+| Full platform outage | GitHub issue + social (if available) | Status page | None — the app is down |
+| Login outage | GitHub issue + social (if available) | Status page | Cannot use in-app (users are logged out) |
+| Notification outage | GitHub issue | In-app broadcast notification | Status page |
+| Performance degradation | GitHub issue | In-app broadcast notification | Status page |
+| Admin-only outage | Internal team communication | Internal team communication | N/A |
+| Third-party dependency outage | Per symptom category | Per symptom category | Per symptom category |
+| Security incident (data exposure) | GitHub issue (limited detail) | Email to affected users | Status page (after remediation) |
+| Data incident | GitHub issue | In-app broadcast notification | Status page |
+
+---
+
+## 4. Severity Communication Matrix
+
+### P0 — Critical
+
+| Aspect | Requirement |
+| --- | --- |
+| **Must users be notified?** | Yes — mandatory |
+| **Maximum communication delay** | 30 minutes after incident is confirmed |
+| **Update frequency** | Every 30 minutes until resolved, or when status changes (whichever is sooner) |
+| **Resolution communication** | Mandatory. Send a resolution notice within 1 hour of resolution. |
+| **Post-incident summary** | Mandatory. Publish within 5 business days. |
+
+### P1 — High
+
+| Aspect | Requirement |
+| --- | --- |
+| **Must users be notified?** | Yes — mandatory if lasting > 30 minutes |
+| **Maximum communication delay** | 1 hour after incident is confirmed |
+| **Update frequency** | Every 1 hour until resolved, or when status changes |
+| **Resolution communication** | Mandatory. Send a resolution notice within 2 hours of resolution. |
+| **Post-incident summary** | Mandatory. Publish within 5 business days. |
+
+### P2 — Moderate
+
+| Aspect | Requirement |
+| --- | --- |
+| **Must users be notified?** | Recommended if lasting > 2 hours |
+| **Maximum communication delay** | 2 hours after decision to communicate |
+| **Update frequency** | Every 2 hours if communicating, or when status changes |
+| **Resolution communication** | Required only if an initial notice was sent. |
+| **Post-incident summary** | Not required unless root cause was non-obvious. |
+
+### P3 — Low
+
+| Aspect | Requirement |
+| --- | --- |
+| **Must users be notified?** | No |
+| **Maximum communication delay** | N/A |
+| **Update frequency** | N/A |
+| **Resolution communication** | N/A |
+| **Post-incident summary** | N/A |
+
+---
+
+## 5. Communication Templates
+
+All templates use plain language. Variables are in `[brackets]`. Templates should be adapted to the specific channel format (a push notification is shorter than a GitHub post).
+
+### 5.1 Initial Outage Notice
+
+```
+Yesh Mishak — Service Disruption
+
+We are aware of an issue affecting [description of impact in plain language].
+
+What is happening: [One sentence — e.g., "Some users are unable to log in."]
+What you can do: [One sentence — e.g., "Please try again in a few minutes." or "No action needed on your part."]
+
+We are investigating and will provide an update by [time].
+```
+
+### 5.2 Investigating Notice
+
+```
+Yesh Mishak — Update on Service Disruption
+
+We are still investigating the issue affecting [description of impact].
+
+Current status: Our team is actively working on this.
+What you can do: [Same guidance as initial notice, or updated guidance]
+
+Next update by [time].
+```
+
+### 5.3 Identified Issue Notice
+
+```
+Yesh Mishak — Issue Identified
+
+We have identified the cause of the issue affecting [description of impact].
+
+Current status: We have identified the problem and are working on a fix.
+What you can do: [Specific guidance — e.g., "You may experience intermittent issues while we apply the fix."]
+
+Next update by [time].
+```
+
+### 5.4 Recovery in Progress Notice
+
+```
+Yesh Mishak — Fix Being Applied
+
+We are applying a fix for the issue affecting [description of impact].
+
+Current status: A fix is being deployed. The service should return to normal shortly.
+What you can do: [Specific guidance — e.g., "If you were logged out, you may need to log in again."]
+
+Next update by [time].
+```
+
+### 5.5 Resolved Notice
+
+```
+Yesh Mishak — Issue Resolved
+
+The issue affecting [description of impact] has been resolved.
+
+Duration: [start time] to [end time] ([X hours Y minutes]).
+What happened: [One sentence — e.g., "A configuration issue temporarily prevented logins."]
+What you need to do: [One sentence — e.g., "Everything should be working normally. Please log in again if needed." or "No action needed."]
+
+We apologize for the disruption. If you continue to experience issues, please [contact method if available].
+```
+
+### 5.6 Security Incident Notice
+
+```
+Yesh Mishak — Security Notice
+
+We are writing to inform you of a security issue that may affect your account.
+
+What happened: [Factual description — e.g., "A limited amount of account information was briefly accessible due to a technical issue."]
+What information was involved: [Specific data types — e.g., "Email addresses associated with accounts." Never be vague if you know the specifics.]
+What we have done: [Actions taken — e.g., "The issue has been fixed. All active sessions have been invalidated as a precaution."]
+What you should do: [Clear action items — e.g., "Please log in again. If you used the same password on other services, we recommend changing it."]
+
+[If applicable: "We are continuing to investigate and will provide additional information if warranted."]
+```
+
+**Important:** This template requires Product Owner approval before publishing. See Section 7.
+
+### 5.7 Planned Maintenance Notice
+
+```
+Yesh Mishak — Planned Maintenance
+
+We will be performing maintenance on [date] from [start time] to [end time] (UTC).
+
+What to expect: [Description — e.g., "The app may be briefly unavailable during this time." or "You may experience slower performance."]
+What you need to do: [Guidance — e.g., "No action needed. Games scheduled during this window will not be affected." or "Please save any in-progress actions before the maintenance window."]
+
+We apologize for any inconvenience.
+```
+
+**Important:** Planned maintenance notices must be published at least 24 hours in advance. For major maintenance (expected downtime > 1 hour), publish at least 48 hours in advance.
+
+---
+
+## 6. Ownership Model
+
+### 6.1 Incident Roles
+
+| Role | Responsibilities | Who fills it |
+| --- | --- | --- |
+| **Incident Commander (IC)** | Owns the incident end to end. Makes decisions about containment, communication, and escalation. Declares the incident resolved. | The person who confirmed the incident, until explicitly handed off. For P0/P1: must be L2 or above (per ISSUE-071 escalation policy). |
+| **Communication Owner (CO)** | Drafts user-facing communications using the templates in Section 5. Publishes after IC approval. Tracks communication schedule (update frequency per Section 4). | Assigned by the IC. May be the IC themselves for small teams. |
+| **Technical Lead (TL)** | Leads the technical investigation and fix. Provides status updates to the IC. Implements the recovery steps from ISSUE-071 runbooks. | The engineer most familiar with the affected subsystem. |
+
+### 6.2 Role Assignment for Small Teams
+
+For a team of 1-2 people, one person may fill all three roles. In this case:
+
+1. Follow the ISSUE-071 incident workflow (detect → confirm → contain → investigate → recover → verify).
+2. After confirming the incident (Step 2), immediately draft and publish the initial outage notice (Section 5.1) if user communication is required per Section 1.2.
+3. Set a timer for the next update per the severity communication matrix (Section 4).
+4. Prioritize fixing the incident over writing updates. If you must choose between investigating and communicating, investigate first — a late update is better than a late fix.
+
+---
+
+## 7. Approval Workflow
+
+### 7.1 Standard Approval
+
+| Communication type | Required approval | Rationale |
+| --- | --- | --- |
+| Initial outage notice (5.1) | Incident Commander | Standard operational communication. |
+| Investigating notice (5.2) | Incident Commander | Standard update. |
+| Identified issue notice (5.3) | Incident Commander | Standard update. |
+| Recovery in progress notice (5.4) | Incident Commander | Standard update. |
+| Resolved notice (5.5) | Incident Commander | Confirms the incident is over. |
+| Security incident notice (5.6) | Incident Commander + Product Owner | Security notices have legal and reputational implications. |
+| Planned maintenance notice (5.7) | Product Owner | Planned downtime is a business decision. |
+| Post-incident public summary | Incident Commander + Product Owner | Permanent public record. |
+
+### 7.2 Emergency Exceptions
+
+If the Incident Commander is unreachable during a P0 incident:
+
+1. Any L2+ team member may act as IC and approve communications.
+2. Document the exception in the incident record.
+3. The regular IC should review all communications retroactively.
+
+If both the IC and Product Owner are unreachable for a security incident requiring notification:
+
+1. Any L2+ team member may publish the security notice.
+2. Use the template exactly as written in Section 5.6 — do not improvise.
+3. Do not include more detail than the template requires.
+4. Document the exception.
+
+### 7.3 What Does NOT Require Approval
+
+* Internal team communications (ISSUE-071 Section 5.1 internal announcement template).
+* Updates to internal incident tracking (incident log, GitHub issue comments for the team).
+* Escalation messages to external support (Supabase, Firebase, hosting provider).
+
+---
+
+## 8. Information Boundaries
+
+### 8.1 What IS Shared in User-Facing Communications
+
+| Information | Example |
+| --- | --- |
+| That an issue exists | "We are experiencing a service disruption." |
+| Which user-facing feature is affected | "Login is temporarily unavailable." |
+| What users should do | "Please try again in a few minutes." |
+| When the next update will be | "We will provide an update by 15:00 UTC." |
+| That the issue is resolved | "The issue has been resolved." |
+| Duration of the outage | "The outage lasted approximately 45 minutes." |
+| That a fix was applied | "We identified and fixed the issue." |
+| Affected data types (security only) | "Email addresses associated with accounts." |
+
+### 8.2 What Is NOT Shared in User-Facing Communications
+
+| Information | Reason |
+| --- | --- |
+| Internal error messages or stack traces | Technical detail that exposes architecture. Per ISSUE-065. |
+| Server names, IP addresses, or infrastructure details | Security risk. |
+| Third-party provider names | Do not blame providers. "A service disruption" not "Supabase is down." |
+| Specific vulnerability descriptions | Security risk until fully remediated. |
+| Database schema, table names, or query details | Technical detail that exposes architecture. |
+| Environment variable names or values | Security risk. |
+| Number of affected records (unless required for security notice) | Unnecessary detail that may cause alarm. |
+| Internal team names or individual names | Privacy. Use "our team" not "John on the backend team." |
+| Root cause technical details | Use plain language. "A configuration issue" not "The JWT_SECRET was rotated without updating the deployment." |
+| Speculation about causes not yet confirmed | "We are investigating" not "We think the database might be corrupted." |
+| Deployment identifiers, commit hashes, or version numbers | Internal operational detail. |
+
+---
+
+## 9. Post-Incident Communication
+
+### 9.1 When a Public Summary Is Required
+
+| Condition | Public summary required? |
+| --- | --- |
+| P0 incident | Yes — mandatory |
+| P1 incident lasting > 1 hour | Yes — mandatory |
+| P1 incident lasting < 1 hour | Recommended |
+| P2 incident where users were notified | Yes — to close the loop |
+| P2 incident where users were not notified | No |
+| Security incident with data exposure | Yes — mandatory |
+| Any incident where a user-facing notice was published | Yes — to close the loop |
+
+### 9.2 Post-Incident Public Summary Template
+
+```
+Yesh Mishak — Post-Incident Summary
+
+Incident: [Title — e.g., "Login Service Disruption"]
+Date: [YYYY-MM-DD]
+Duration: [start time] to [end time] ([X hours Y minutes])
+
+What happened:
+[2-3 sentences in plain language describing what users experienced.
+Example: "On June 25, users were unable to log in via Google for approximately 45 minutes.
+Password login was not affected."]
+
+What we did:
+[2-3 sentences describing what was done to fix it.
+Example: "Our team identified a configuration issue that prevented Google login verification.
+The issue was fixed and login was restored."]
+
+What we are doing to prevent this:
+[1-2 sentences describing preventive measures.
+Example: "We are adding automated checks to detect this type of configuration issue before it affects users."]
+
+We apologize for the disruption.
+```
+
+### 9.3 What Is Included in the Public Summary
+
+* Plain-language description of what users experienced.
+* Duration and time window.
+* General category of the cause (e.g., "configuration issue," "service disruption," "technical issue").
+* What was done to fix it (general terms).
+* What preventive measures are being taken (general terms).
+
+### 9.4 What Is Excluded from the Public Summary
+
+* Detailed root cause analysis (this goes in the internal postmortem per ISSUE-071 Section 6).
+* Technical details (server names, error codes, database tables, provider names).
+* Vulnerability details (even after remediation — external attackers read post-incident reports).
+* Internal team information.
+* Blame or attribution.
+
+### 9.5 Timing
+
+* Post-incident public summaries should be published within 5 business days of incident resolution.
+* The summary should be published after the internal postmortem (ISSUE-071) is complete, so preventive measures are accurate.
+* If the postmortem is delayed, publish the summary anyway with "We are reviewing our processes to prevent recurrence" as the preventive measures section.
+
+---
+
+## 10. Relationship to ISSUE-071 Incident Response Playbook
+
+ISSUE-071 defines the **technical incident workflow** — detection, investigation, containment, recovery, and internal postmortem.
+
+ISSUE-072 defines the **user-facing communication process** — when to communicate, what to say, who approves, and what channels to use.
+
+The two processes run in parallel during an incident:
+
+```
+ISSUE-071 Workflow          ISSUE-072 Communication
+─────────────────           ────────────────────────
+1. Detect                   (no communication yet)
+2. Confirm                  → Decision: communicate? (Section 1.2)
+3. Contain                  → Publish initial notice (Template 5.1)
+4. Investigate              → Publish updates per schedule (Templates 5.2, 5.3)
+5. Recover                  → Publish recovery notice (Template 5.4)
+6. Verify                   → Publish resolved notice (Template 5.5)
+7. Postmortem               → Publish post-incident summary (Section 9.2)
+8. Follow-up issues         → (no communication)
+```
+
+The ISSUE-071 internal communication templates (Section 5.1-5.3) are for the **team**. The ISSUE-072 communication templates (Section 5.1-5.7) are for **users**. They are different documents with different audiences, detail levels, and approval requirements.
+
+---
+
+## 11. Final Recommendation
+
+1. **Establish a status page immediately.** This is the single highest-impact communication improvement. A free hosted status page (Atlassian Statuspage free tier, Instatus, or similar) requires no code changes and provides a channel that works even when the app is completely down. Update the status page URL in the app's error screens and any user documentation.
+
+2. **Implement admin broadcast notifications.** Add a `system_announcement` notification type and an admin endpoint to create broadcast notifications. This enables in-app communication for logged-in users during partial outages (notification failure, performance degradation, data issues).
+
+3. **Establish a social channel.** Even a simple Twitter/X account or Telegram channel provides a public communication point that works when the app is down.
+
+4. **Plan for email.** Email is the most reliable channel for security incident notifications. When email infrastructure is added (for any purpose — password reset, verification, etc.), include a broadcast capability for incident communication.
+
+5. **Practice the communication workflow.** During the ISSUE-071 incident response drill, include the communication step: draft a mock outage notice using Template 5.1, have the IC approve it, and publish it to the status page. This tests the full workflow end to end.
+
+6. **Keep communication ownership simple.** For a small team, the Incident Commander is also the Communication Owner. Split the roles only when the team is large enough that writing updates distracts from investigation.
+
+---
+
+## 12. Documentation Review Summary
+
+### What was reviewed
+
+| Document | Relevance to this process |
+| --- | --- |
+| ISSUE-029: Notification Event Inventory | Current notification types — confirmed no admin broadcast mechanism exists. All notifications are game-event-driven. |
+| ISSUE-039: Notification Error Handling | Notification delivery is best-effort. Users cannot be guaranteed to receive in-app or push notifications during an outage. |
+| ISSUE-054: Production Support Handbook | Existing severity levels, escalation conditions, documentation templates. ISSUE-072 extends this for user-facing outage communication. |
+| ISSUE-065: Application Logging Policy | Sensitive-data rules used to define information boundaries (Section 8). |
+| ISSUE-069: Production Monitoring Requirements | Metrics and thresholds that trigger incident detection — the upstream of the communication decision. |
+| ISSUE-070: Implement Production Monitoring | Live monitoring endpoint — provides data for confirming incidents before communicating. |
+| ISSUE-071: Incident Response Playbook | Severity matrix, incident workflow, escalation policy, internal templates. ISSUE-072 communication runs in parallel with the ISSUE-071 workflow. |
+| `docs/production-support-handbook.md` | Full handbook confirming no existing outage communication process or user-facing communication channels. |
+| `backend/app/services/firebase_push.py` | Push notification infrastructure — confirmed FCM is per-token, per-event. No broadcast capability. |
+| `backend/app/services/notification_templates.py` | Notification templates — confirmed all templates are game-event types. No system announcement template. |
+
+### What was added
+
+| Section | Content |
+| --- | --- |
+| Communication policy | Principles, notification criteria, decision authority |
+| Outage categories (8) | Full platform, login, notification, performance, admin-only, third-party, security, data — each with impact, communication requirement, urgency, channel |
+| Channel strategy | Current channels (all limited), future channels (5 with priority), selection matrix by category |
+| Severity communication matrix | P0-P3 with notification requirement, delay, update frequency, resolution notice, post-incident summary |
+| Communication templates (7) | Initial notice, investigating, identified, recovery, resolved, security incident, planned maintenance |
+| Ownership model | Incident Commander, Communication Owner, Technical Lead — with small-team guidance |
+| Approval workflow | Standard approval matrix, emergency exceptions, what does not require approval |
+| Information boundaries | What is shared vs what is not shared in user-facing communications |
+| Post-incident communication | When required, template, included/excluded information, timing |
+| Relationship to ISSUE-071 | Parallel workflow diagram showing when communication steps occur |
+
+---
+
+## Files Changed
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-072 outage communication process.
+
+No backend runtime, frontend runtime, database, migration, endpoint, notification system, status page, or application behavior changes were made.
+
+## Follow-up Issues Recommended
+
+1. **Set up a hosted status page** — highest-priority communication improvement. No code changes required. Free tier options available.
+2. **Implement admin broadcast notification type** — add `system_announcement` notification type and `POST /admin/notifications/broadcast` endpoint.
+3. **Implement admin broadcast push** — add endpoint to send FCM push to all registered devices.
+4. **Establish social media channel** — create an official account for public communication during outages.
+5. **Email infrastructure** — when email is added for any purpose, include broadcast capability for security and outage notifications.
+6. **Communication drill** — include communication steps in the ISSUE-071 incident response drill.
+
