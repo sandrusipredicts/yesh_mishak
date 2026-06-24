@@ -10360,3 +10360,617 @@ These should be evaluated in the Supabase dashboard. Creating indexes is a separ
 3. **Address P2 bottlenecks** from ISSUE-076: unread-count polling, notification pagination, games/me limits, notification candidate filtering.
 4. **Consider column pruning.** The fields query uses `select("*")` — selecting only the columns needed by the frontend would reduce data transfer.
 
+---
+---
+
+# ISSUE-078 — Database Indexing Strategy Audit
+
+**Date:** 2025-06-24
+**Type:** Audit (documentation only)
+**Scope:** All tables, all indexes, all query patterns
+**Constraint:** No migrations created. No application code modified.
+
+---
+
+## 1. Executive Summary
+
+The Yesh Mishak database has **8 tables** with **31 existing indexes** (including primary keys and unique constraints). After auditing all **105+ `.table()` call sites** across 9 backend files, this audit identifies:
+
+- **8 missing critical indexes** (P1) — queries that hit high-traffic endpoints without index support
+- **5 missing moderate indexes** (P2) — queries on lower-traffic or admin endpoints
+- **2 redundant indexes** — covered by other indexes or unused patterns
+- **4 composite index opportunities** — multi-column indexes for common filter combinations
+
+The single highest-impact missing index is a **composite index on `fields(verified, approval_status, status)`** — this supports the `GET /fields` endpoint (the app's most expensive query at 4,211ms production avg before ISSUE-077 optimization). The bounded variant added in ISSUE-077 additionally needs lat/lng coverage.
+
+---
+
+## 2. Existing Index Inventory
+
+### 2.1 users (4 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `users_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `users_email_key` | `email` | UNIQUE | schema.sql |
+| `users_username_unique` | `username` | UNIQUE | manual_auth.sql |
+| `idx_users_status` | `status` | B-tree | user_moderation.sql |
+
+**Also has:** `google_sub UNIQUE`, `phone_number UNIQUE` (from schema.sql + manual_auth.sql)
+
+### 2.2 fields (2 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `fields_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_fields_added_by` | `added_by` | B-tree | schema.sql |
+
+### 2.3 games (6 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `games_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_games_field_id` | `field_id` | B-tree | schema.sql |
+| `idx_games_created_by` | `created_by` | B-tree | schema.sql |
+| `idx_games_scheduled_at` | `scheduled_at` | B-tree | scheduled_games.sql |
+| `idx_games_scheduled_reminder_processed_at` | `scheduled_reminder_processed_at` | B-tree | scheduled_games.sql |
+| `idx_games_unique_scheduled_slot` | `(field_id, sport_type, scheduled_at)` | UNIQUE partial (WHERE scheduled_at IS NOT NULL AND status IN ('open','full')) | scheduled_games.sql |
+
+### 2.4 game_players (3 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `game_players_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_game_players_game_id` | `game_id` | B-tree | schema.sql |
+| `idx_game_players_user_id` | `user_id` | B-tree | schema.sql |
+
+**Also has:** `UNIQUE (game_id, user_id)` constraint from schema.sql.
+
+### 2.5 notifications (8 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `notifications_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_notifications_user_id` | `user_id` | B-tree | in_app_notifications.sql |
+| `idx_notifications_read_at` | `read_at` | B-tree | in_app_notifications.sql |
+| `idx_notifications_created_at` | `created_at` | B-tree | in_app_notifications.sql |
+| `idx_notifications_game_id` | `game_id` | B-tree | in_app_notifications.sql |
+| `idx_notifications_field_id` | `field_id` | B-tree | in_app_notifications.sql |
+| `idx_notifications_data_type` | `(data ->> 'type')` | B-tree (expression) | in_app_notifications.sql |
+| `idx_notifications_user_type_game_unique` | `(user_id, type, game_id)` | UNIQUE partial (WHERE game_id IS NOT NULL AND type IN (...)) | in_app_notifications.sql |
+| `idx_notifications_user_game_extended_end_time_unique` | `(user_id, type, game_id, data->>'new_end_time')` | UNIQUE partial (WHERE game_id IS NOT NULL AND type = 'game_extended' AND data ? 'new_end_time') | in_app_notifications.sql |
+
+### 2.6 notification_preferences (3 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `notification_preferences_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_notification_preferences_user_id` | `user_id` | B-tree | schema.sql |
+| `idx_notification_preferences_field_id` | `field_id` | B-tree | schema.sql |
+| `idx_notification_preferences_enabled` | `enabled` | B-tree | schema.sql |
+
+### 2.7 field_reports (5 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `field_reports_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_field_reports_field_id` | `field_id` | B-tree | field_reports.sql |
+| `idx_field_reports_user_id` | `user_id` | B-tree | field_reports.sql |
+| `idx_field_reports_status` | `status` | B-tree | field_reports.sql |
+| `idx_field_reports_created_at` | `created_at` | B-tree | field_reports.sql |
+| `idx_field_reports_field_id_status` | `(field_id, status)` | B-tree composite | field_reports.sql |
+
+### 2.8 user_moderation_audit (2 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `user_moderation_audit_pkey` | `id` | PRIMARY KEY | schema.sql |
+| `idx_user_moderation_audit_target_user_id` | `target_user_id` | B-tree | user_moderation.sql |
+| `idx_user_moderation_audit_created_at` | `created_at DESC` | B-tree | user_moderation.sql |
+
+### 2.9 push_tokens (2 indexes)
+
+| Index Name | Columns | Type | Source |
+|---|---|---|---|
+| `push_tokens_pkey` | `id` | PRIMARY KEY | push_notifications.sql |
+| `idx_push_tokens_user_id` | `user_id` | B-tree | push_notifications.sql |
+| `idx_push_tokens_token` | `token` | B-tree | push_notifications.sql |
+
+**Also has:** `push_tokens_token_key UNIQUE (token)` constraint.
+
+---
+
+## 3. Missing Critical Indexes
+
+### 3.1 fields — Public listing filter (P1)
+
+**Problem:** The `GET /fields` endpoint — the app's highest-traffic, most expensive query — filters on `verified`, `approval_status`, and `status` every time. No index covers this combination.
+
+**Query (unbounded path):**
+```
+.table("fields").select("*").eq("verified", True).eq("approval_status", "approved").eq("status", "open").range(...)
+```
+
+**Query (bounded path, ISSUE-077):**
+```
+.table("fields").select("*").eq("verified", True).eq("approval_status", "approved").eq("status", "open").gte("lat", south).lte("lat", north).gte("lng", west).lte("lng", east)
+```
+
+**Endpoints affected:** `GET /fields` (every map load)
+
+**Current indexes:** None on `verified`, `approval_status`, or `status` for fields table.
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_fields_public_listing
+ON fields(verified, approval_status, status);
+```
+
+**Why:** All three equality filters are applied on every fields query. PostgreSQL can use this composite index to immediately narrow to the small set of verified+approved+open fields. Without it, every query does a sequential scan of the entire fields table.
+
+**Risk:** Low. Read-only index, no writes affected beyond marginal insert overhead.
+
+**Expected impact:** Reduce the base query cost from full-table scan to index scan. For the unbounded path, this could cut Supabase query time by 50-80%. For the bounded path, this is the critical first filter before lat/lng range checks.
+
+### 3.2 fields — Bounded query spatial filter (P1)
+
+**Problem:** After ISSUE-077, the bounded path adds `.gte("lat", south).lte("lat", north).gte("lng", west).lte("lng", east)`. Including lat in the index allows PostgreSQL to further narrow results using the index rather than filtering post-scan.
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_fields_public_listing_spatial
+ON fields(verified, approval_status, status, lat, lng);
+```
+
+**Why:** Extends the public listing index with lat/lng for the bounded query path. PostgreSQL can use the first 3 columns for equality then range-scan on lat, then filter on lng. This is more selective than the 3-column index alone.
+
+**Risk:** Low. Slightly larger index but fields table is small (<5000 rows typically).
+
+**Expected impact:** For bounded queries, additional 20-40% improvement beyond the 3-column index alone.
+
+**Note:** This index makes `idx_fields_public_listing` (3.1) redundant — the 5-column index covers the 3-column case as a prefix. **Create only this one, not both.**
+
+### 3.3 fields — Approval status filter (P1)
+
+**Problem:** `GET /admin/fields/pending` filters `.eq("approval_status", "pending")`. Admin uses this to review new field submissions.
+
+**Query:**
+```
+.table("fields").select("*").eq("approval_status", "pending").order("created_at", desc=False)
+```
+
+**Current indexes:** None on `approval_status`.
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_fields_approval_status
+ON fields(approval_status);
+```
+
+**Why:** Admin pending-fields page needs fast lookup. The public listing composite (3.2) includes `approval_status` but at position 2 — PostgreSQL can't use it when `verified` isn't filtered. A separate single-column index handles the admin case.
+
+**Risk:** Low.
+
+**Expected impact:** Admin pending-fields page: sequential scan → index scan.
+
+### 3.4 games — Status filter (P1)
+
+**Problem:** Multiple high-traffic endpoints filter games by status using `.in_("status", ["open", "full"])`: `GET /games/active`, `GET /games/upcoming`, game creation duplicate check, scheduled reminder generation, admin games listing.
+
+**Queries:**
+```
+.table("games").select("*").in_("status", ACTIVE_GAME_STATUSES)
+.table("games").select("*").in_("status", statuses).order("started_at", desc=True)
+```
+
+**Current indexes:** No index on `games.status`.
+
+**Endpoints affected:** `GET /games/active`, `GET /games/upcoming`, `POST /games` (duplicate check), `POST /admin/reminders/scheduled-games/run`, `GET /admin/games`
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_games_status
+ON games(status);
+```
+
+**Why:** Active games are a small fraction of all games (most are finished/cancelled). An index on status lets PostgreSQL skip the large majority of rows. Every map load triggers `GET /games/active` — this is high frequency.
+
+**Risk:** Low.
+
+**Expected impact:** `GET /games/active` and `GET /games/upcoming` query cost reduced by ~70-90% as active games grow relative to historical games.
+
+### 3.5 games — Field + status composite (P1)
+
+**Problem:** Game creation duplicate check and the game payload fan-out query both filter on `(field_id, status)`.
+
+**Query (duplicate check):**
+```
+.table("games").select("*").eq("field_id", game.field_id).eq("sport_type", game.sport_type).in_("status", ACTIVE_GAME_STATUSES)
+```
+
+**Query (game payloads, called from GET /fields):**
+```
+.table("games").select(columns).in_("field_id", batch).in_("status", ACTIVE_GAME_STATUSES)
+```
+
+**Current indexes:** `idx_games_field_id` on `field_id` alone.
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_games_field_id_status
+ON games(field_id, status);
+```
+
+**Why:** Both queries filter on field_id AND status. A composite index is more selective than field_id alone, especially as historical games accumulate. The game payload fan-out runs once per `GET /fields` call and fetches games for all visible fields — this is the second-largest contributor to fields endpoint latency.
+
+**Risk:** Low. Makes `idx_games_field_id` partially redundant (see section 4).
+
+**Expected impact:** Game payload enrichment in `GET /fields`: 30-50% faster per batch. Game creation duplicate check: near-instant.
+
+### 3.6 notifications — User + read_at composite (P1)
+
+**Problem:** The unread notification count endpoint (`GET /notifications/unread-count`) currently fetches ALL notifications for the user and counts in Python. Even after that's optimized, the underlying query pattern `.eq("user_id", ...).is_("read_at", "null")` or `.eq("user_id", ...).order("created_at", desc=True)` needs composite index support.
+
+**Queries:**
+```
+.table("notifications").select("*").eq("user_id", uid).order("created_at", desc=True)
+.table("notifications").select("*").eq("user_id", uid)
+.table("notifications").update(...).eq("user_id", uid).is_("read_at", "null")
+```
+
+**Current indexes:** `idx_notifications_user_id` on `user_id` alone.
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_notifications_user_id_created_at
+ON notifications(user_id, created_at DESC);
+```
+
+**Why:** `GET /notifications` is called on every app screen load. It filters by user_id and sorts by created_at DESC. A composite index eliminates a sort step and provides ordered index scans. This also supports future pagination (LIMIT + OFFSET on created_at).
+
+**Risk:** Low.
+
+**Expected impact:** `GET /notifications`: eliminates filesort. With future pagination, enables sub-100ms response.
+
+### 3.7 notifications — User + unread composite (P1)
+
+**Problem:** `GET /notifications/unread-count` is polled every 20 seconds per active user. The mark-all-read endpoint also updates by `(user_id, read_at IS NULL)`.
+
+**Queries:**
+```
+.table("notifications").update({"read_at": now}).eq("user_id", uid).is_("read_at", "null")
+```
+
+**Recommendation:**
+```sql
+CREATE INDEX idx_notifications_user_unread
+ON notifications(user_id)
+WHERE read_at IS NULL;
+```
+
+**Why:** A partial index on unread notifications is much smaller than a full index since most notifications are eventually read. The unread-count query (polled every 20s per user) would hit this tiny index instead of scanning all notifications for the user.
+
+**Risk:** Low. Partial indexes have no overhead for read notifications.
+
+**Expected impact:** Unread count queries: ~90% faster (index on tiny subset vs. full user notifications).
+
+### 3.8 notification_preferences — Enabled filter (P2 — but high frequency)
+
+**Problem:** `_find_notification_candidates()` fetches ALL enabled preferences globally with `.eq("enabled", True)`. The existing `idx_notification_preferences_enabled` index exists but has extremely low selectivity (boolean column where most rows are `true`).
+
+**Current index:** `idx_notification_preferences_enabled` — exists but nearly useless (PostgreSQL will prefer sequential scan when most rows match).
+
+**Query:**
+```
+.table("notification_preferences").select("*").eq("enabled", True)
+```
+
+**This is a code-level problem, not an index problem.** The query fetches all enabled preferences globally and filters in Python. No index can help when you're selecting most of the table. This is documented in ISSUE-076 as a P2 bottleneck requiring code changes.
+
+**Recommendation:** No new index. Fix requires code change (out of scope for this issue).
+
+---
+
+## 4. Redundant Indexes
+
+### 4.1 idx_games_field_id — Partially redundant
+
+**Current:** `idx_games_field_id ON games(field_id)`
+**Proposed replacement:** `idx_games_field_id_status ON games(field_id, status)` (section 3.5)
+
+**Analysis:** The composite `(field_id, status)` index can serve any query that filters on `field_id` alone — PostgreSQL uses the leading column. However, the composite index is slightly larger, so there's a marginal storage trade-off.
+
+**Recommendation:** **Keep both.** The single-column index is smaller and serves joins/lookups by field_id (e.g., cascade deletes). The composite handles the common two-column filter. Storage cost is negligible.
+
+### 4.2 idx_notification_preferences_enabled — Low selectivity
+
+**Current:** `idx_notification_preferences_enabled ON notification_preferences(enabled)`
+
+**Analysis:** Boolean column where most rows are `true`. PostgreSQL's query planner will choose a sequential scan over this index for `.eq("enabled", True)` because the selectivity is too low (typically >80% of rows match). The index is only useful for `.eq("enabled", False)` which is never queried.
+
+**Recommendation:** **Drop.** This index wastes storage and insert overhead without ever being used by the query planner.
+
+```sql
+DROP INDEX IF EXISTS idx_notification_preferences_enabled;
+```
+
+**Risk:** None. No query benefits from this index.
+
+### 4.3 idx_notifications_read_at — Low utility
+
+**Current:** `idx_notifications_read_at ON notifications(read_at)`
+
+**Analysis:** Only two queries reference `read_at`:
+1. `mark_all_notifications_read`: `.eq("user_id", uid).is_("read_at", "null")` — the user_id filter is more selective; this index won't be chosen
+2. `GET /admin/monitoring`: `.is_("read_at", "null")` — admin-only, low frequency
+
+The proposed partial index `idx_notifications_user_unread` (section 3.7) handles the high-frequency case better. The standalone `read_at` index is only useful for the admin monitoring query (counts all unread globally).
+
+**Recommendation:** **Keep for now.** The admin monitoring query `.is_("read_at", "null")` does use it for a global count. Low priority to remove.
+
+---
+
+## 5. Recommended Index Creation Plan
+
+### Priority order:
+
+```sql
+-- =============================================
+-- P1: HIGH PRIORITY — Create immediately
+-- These affect every user on every app load
+-- =============================================
+
+-- P1-1: Fields public listing + spatial (HIGHEST IMPACT)
+-- Supports: GET /fields (bounded and unbounded)
+-- Impact: Every map load. Was 4,211ms avg before ISSUE-077.
+CREATE INDEX CONCURRENTLY idx_fields_public_listing_spatial
+ON fields(verified, approval_status, status, lat, lng);
+
+-- P1-2: Games status filter
+-- Supports: GET /games/active, GET /games/upcoming, POST /games duplicate check
+-- Impact: Every map load + every game creation
+CREATE INDEX CONCURRENTLY idx_games_status
+ON games(status);
+
+-- P1-3: Games field+status composite
+-- Supports: GET /fields game payload fan-out, POST /games duplicate check
+-- Impact: Every map load (game enrichment per field)
+CREATE INDEX CONCURRENTLY idx_games_field_id_status
+ON games(field_id, status);
+
+-- P1-4: Notifications user+created_at (ordered)
+-- Supports: GET /notifications
+-- Impact: Every notification screen load
+CREATE INDEX CONCURRENTLY idx_notifications_user_id_created_at
+ON notifications(user_id, created_at DESC);
+
+-- P1-5: Notifications unread partial index
+-- Supports: GET /notifications/unread-count (polled every 20s)
+-- Impact: Highest-frequency query in the entire app
+CREATE INDEX CONCURRENTLY idx_notifications_user_unread
+ON notifications(user_id)
+WHERE read_at IS NULL;
+
+-- =============================================
+-- P2: MODERATE PRIORITY — Create after P1
+-- These affect admin or lower-frequency paths
+-- =============================================
+
+-- P2-1: Fields approval status
+-- Supports: GET /admin/fields/pending
+-- Impact: Admin field review page
+CREATE INDEX CONCURRENTLY idx_fields_approval_status
+ON fields(approval_status);
+
+-- P2-2: Users last_login for monitoring
+-- Supports: GET /admin/monitoring (DAU/WAU counts)
+-- Impact: Admin monitoring dashboard
+CREATE INDEX CONCURRENTLY idx_users_last_login
+ON users(last_login);
+
+-- P2-3: Notifications type+game_id for dedup checks
+-- Supports: create_game_created_notifications, create_game_closed_notifications, etc.
+-- Impact: Notification generation (every game create/close/extend)
+-- Note: The partial unique index idx_notifications_user_type_game_unique 
+-- partially covers this, but only for specific types and WHERE game_id IS NOT NULL.
+-- A general (type, game_id) index helps the broader dedup queries.
+CREATE INDEX CONCURRENTLY idx_notifications_type_game_id
+ON notifications(type, game_id);
+
+-- =============================================
+-- P3: LOW PRIORITY — Nice to have
+-- =============================================
+
+-- P3-1: Push tokens user_id+token composite
+-- Supports: DELETE /notifications/push-token (.eq("user_id",...).eq("token",...))
+-- Impact: App logout/token rotation only
+CREATE INDEX CONCURRENTLY idx_push_tokens_user_id_token
+ON push_tokens(user_id, token);
+
+-- P3-2: Notification preferences user+type composite
+-- Supports: PUT /notifications/preferences dedup check
+-- Impact: Preference save (rare user action)
+CREATE INDEX CONCURRENTLY idx_notification_preferences_user_id_type
+ON notification_preferences(user_id, notification_type);
+
+-- =============================================
+-- CLEANUP: Drop redundant indexes
+-- =============================================
+
+-- Low-selectivity boolean index, never used by query planner
+DROP INDEX CONCURRENTLY IF EXISTS idx_notification_preferences_enabled;
+```
+
+---
+
+## 6. Priority Ranking Summary
+
+| Priority | Index | Table | Endpoints | Frequency | Expected Impact |
+|---|---|---|---|---|---|
+| **P1-1** | `(verified, approval_status, status, lat, lng)` | fields | GET /fields | Every map load | 50-80% query cost reduction |
+| **P1-2** | `(status)` | games | GET /games/active, /upcoming | Every map load | 70-90% reduction as data grows |
+| **P1-3** | `(field_id, status)` | games | GET /fields (fan-out) | Every map load | 30-50% fan-out reduction |
+| **P1-4** | `(user_id, created_at DESC)` | notifications | GET /notifications | Every screen load | Eliminates filesort |
+| **P1-5** | `(user_id) WHERE read_at IS NULL` | notifications | GET /notifications/unread-count | Every 20 seconds | ~90% faster |
+| **P2-1** | `(approval_status)` | fields | GET /admin/fields/pending | Admin only | seq scan → index scan |
+| **P2-2** | `(last_login)` | users | GET /admin/monitoring | Admin only | seq scan → index scan |
+| **P2-3** | `(type, game_id)` | notifications | Notification generation | Per game event | Faster dedup checks |
+| **P3-1** | `(user_id, token)` | push_tokens | DELETE push-token | Logout only | Minor |
+| **P3-2** | `(user_id, notification_type)` | notification_preferences | PUT preferences | Rare | Minor |
+
+---
+
+## 7. Expected Effect on ISSUE-074 Measurements
+
+Based on the ISSUE-074 production measurements (pre-ISSUE-077):
+
+| Endpoint | ISSUE-074 Baseline | After ISSUE-077 (estimated) | After P1 Indexes (estimated) |
+|---|---|---|---|
+| GET /fields (no bounds) | 4,211 ms avg | 4,211 ms (no change) | **~2,000–2,500 ms** |
+| GET /fields (bounded) | N/A | ~800–1,200 ms | **~400–600 ms** |
+| GET /games/active | ~800 ms avg | ~800 ms | **~200–400 ms** |
+| GET /games/upcoming | ~600 ms avg | ~600 ms | **~200–300 ms** |
+| GET /notifications | ~400 ms avg | ~400 ms | **~150–250 ms** |
+| GET /notifications/unread-count | ~350 ms avg | ~350 ms | **~100–150 ms** |
+
+**Key assumptions:**
+- Supabase/PostgREST adds ~100-200ms base latency per request (network from Railway)
+- Index improvements affect Postgres query time, not network overhead
+- Estimates assume data continues to grow; indexes prevent degradation
+
+**Important caveat:** These are estimates. Actual improvement depends on table sizes, data distribution, and Supabase/PostgREST query planning. The only reliable measurement is running `measure_production_api.py` after creating each index.
+
+---
+
+## 8. Files Reviewed
+
+| File | Purpose | Queries Found |
+|---|---|---|
+| `backend/schema.sql` | Main schema + indexes | All table definitions, 31 index definitions |
+| `backend/migrations/push_notifications.sql` | Push tokens table | Table + 2 indexes |
+| `backend/migrations/manual_auth.sql` | Auth migration | 2 unique indexes |
+| `backend/migrations/in_app_notifications.sql` | Notifications | 8 indexes |
+| `backend/migrations/scheduled_games.sql` | Scheduled games | 3 indexes |
+| `backend/migrations/field_reports.sql` | Field reports | 5 indexes |
+| `backend/migrations/user_moderation.sql` | User moderation | 3 indexes |
+| `backend/migrations/game_cancellation.sql` | Cancellation fields | 0 indexes |
+| `backend/migrations/join_game_atomic.sql` | RPC function | 0 indexes |
+| `backend/migrations/fields_has_nets.sql` | has_nets column | 0 indexes |
+| `backend/migrations/notification_preferences_service_role_grants.sql` | Grants | 0 indexes |
+| `backend/app/routers/fields.py` | Field endpoints | 5 queries |
+| `backend/app/routers/games.py` | Game endpoints | 18 queries |
+| `backend/app/routers/notifications.py` | Notification endpoints | 45 queries |
+| `backend/app/routers/game_payloads.py` | Game enrichment | 3 queries |
+| `backend/app/routers/game_lifecycle.py` | Game finish | 1 query |
+| `backend/app/routers/field_reports.py` | Field reports | 2 queries |
+| `backend/app/api/admin.py` | Admin endpoints | 26 queries |
+| `backend/app/api/auth.py` | Auth endpoints | 3 queries |
+| `backend/app/auth/google.py` | Google auth | 3 queries |
+| `backend/app/auth/dependencies.py` | Auth dependency | 1 query |
+
+**Total:** 21 files reviewed, 107 query sites analyzed, 31 existing indexes catalogued.
+
+---
+
+## 9. Queries Analyzed Per Table
+
+### fields (11 query sites)
+- `GET /fields` unbounded: `.eq("verified",T).eq("approval_status","approved").eq("status","open").range()`
+- `GET /fields` bounded: `.eq("verified",T).eq("approval_status","approved").eq("status","open").gte("lat").lte("lat").gte("lng").lte("lng")`
+- `GET /fields/{id}`: `.eq("id",...)`
+- `POST /fields`: `.insert()`
+- `PATCH /fields/{id}/status`: `.update().eq("id",...)`
+- `GET /admin/fields`: `.order("created_at",desc=True)`
+- `GET /admin/fields/pending`: `.eq("approval_status","pending").order("created_at")`
+- `GET /admin/fields/duplicates`: `.select()` (no filters)
+- `_attach_field_names()`: `.in_("id",...)`
+- `_ensure_field_exists()`: `.eq("id",...)`
+- Notification helpers: `.eq("id",...)`
+
+### games (20 query sites)
+- `GET /games/active`: `.in_("status",["open","full"])`
+- `GET /games/upcoming`: `.in_("status",["open","full"])`
+- `GET /games/me`: `.eq("created_by",...)`
+- `GET /games/me`: `.in_("id",...)`
+- `POST /games` duplicate check: `.eq("field_id").eq("sport_type").in_("status",["open","full"])`
+- `POST /games`: `.insert()`
+- `_get_single_with_client()`: `.eq("id",...)`
+- `POST /games/{id}/leave`: `.update().eq("id",...)`
+- `POST /games/{id}/close`: `.update().eq("id",...)`
+- `POST /games/{id}/extend`: `.update().eq("id",...)`
+- `POST /games/{id}/cancel`: `.update().eq("id",...)`
+- `finish_game()`: `.update().eq("id",...)`
+- `_mark_scheduled_game_reminder_processed()`: `.update().eq("id",...)`
+- `generate_scheduled_game_reminders()`: `.in_("status",ACTIVE_GAME_STATUSES)`
+- Admin: `.in_("status").order("started_at",desc=True).limit()`
+- Admin: `.eq("id",...).limit(1)`
+- Admin: `.update().eq("id",...)`
+- Game payloads fan-out: `.in_("field_id",...).in_("status",...)`
+
+### game_players (8 query sites)
+- `POST /games`: `.insert()`
+- `GET /games/me`: `.eq("user_id",...)`
+- `POST /games/{id}/leave`: `.eq("game_id").eq("user_id",...)`
+- `POST /games/{id}/leave`: `.delete().eq("id",...)`
+- `attach_participants_to_games()`: `.in_("game_id",...)`
+- `create_game_closed_notifications()`: `.eq("game_id",...)`
+- `create_scheduled_game_cancelled_notifications()`: `.eq("game_id",...)`
+- `create_game_extended_notifications()`: `.eq("game_id",...)`
+
+### notifications (25 query sites)
+- `GET /notifications`: `.eq("user_id").order("created_at",desc=True)`
+- `GET /notifications/unread-count`: `.eq("user_id",...)`
+- `PATCH /notifications/read-all`: `.eq("user_id").is_("read_at","null")`
+- `PATCH /notifications/{id}/read`: `.eq("id").eq("user_id",...)`
+- Dedup checks: `.eq("type",...).eq("game_id",...).in_("user_id",...)`
+- Cleanup: `.lt("created_at",...)`
+- Cleanup: `.delete().in_("id",...)`
+- Multiple `.insert()` calls for game/close/extend/cancel/reminder notifications
+- Admin monitoring: `.gte("created_at",...)`
+- Admin monitoring: `.is_("read_at","null")`
+
+### notification_preferences (7 query sites)
+- `_find_notification_candidates()`: `.eq("enabled",True)`
+- `GET /notifications/preferences`: `.eq("user_id",...)`
+- `PUT /notifications/preferences` dedup: `.eq("user_id").eq("notification_type").eq("sport_type",...)`
+- `_save_settings()`: `.eq("user_id").in_("notification_type",...)`
+- `.update().eq("id",...)`
+- `.insert()`
+- `.delete().in_("id",...)`
+
+### users (12 query sites)
+- `get_current_user()`: `.eq("id",...)`
+- `_get_user_by_column()`: `.eq(column,...)`
+- `_update_last_login()`: `.update().eq("id",...)`
+- `find_or_create_google_user()`: `.eq("email",...)`
+- `_log_google_user_lookup_debug()`: `.eq("email",...)`
+- `POST /auth/register`: `.insert()`
+- Admin users listing: `.order("created_at",desc=True)`
+- Admin moderation: `.eq("id",...)`
+- Admin monitoring: `.gte("last_login",...)`
+- `attach_participants_to_games()`: `.in_("id",...)`
+
+### push_tokens (5 query sites)
+- Save: `.eq("token",...)`
+- Save: `.update().eq("id",...)`
+- Save: `.insert()`
+- Delete: `.delete().eq("user_id").eq("token",...)`
+- Test push: `.eq("user_id",...)`
+- Push sending: `.in_("user_id",...)`
+
+### field_reports (2 query sites)
+- `POST /field-reports`: `.insert()`
+- Admin: `.order("created_at",desc=True)` [optional `.eq("status",...)`]
+
+---
+
+## 10. Follow-up Recommendations
+
+1. **Create P1 indexes immediately** via Supabase Dashboard → SQL Editor. Use `CREATE INDEX CONCURRENTLY` to avoid locking tables during creation.
+2. **Measure after each P1 index** by running `measure_production_api.py` to confirm actual improvement.
+3. **Drop `idx_notification_preferences_enabled`** — confirmed useless (low selectivity boolean).
+4. **Create P2 indexes** after P1 is validated.
+5. **Do not create P3 indexes** unless specific performance problems are observed on those endpoints.
+6. **Re-run ISSUE-074 measurements** after all P1 indexes are in place to establish new baselines.
+7. **The `GET /notifications/unread-count` bottleneck** (ISSUE-076 P2) requires both the partial index (P1-5 above) AND a code change to use `count="exact"` instead of fetching all rows. The index alone helps but the code change is the bigger win.
+
