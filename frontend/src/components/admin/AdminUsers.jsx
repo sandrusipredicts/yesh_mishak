@@ -193,7 +193,12 @@ function AdminUsers() {
       </label>
 
       {isLoading ? <p className="admin-loading">{t('admin.loadingUsers')}</p> : null}
-      {error ? <p className="admin-error">{error}</p> : null}
+      {error ? (
+        <div className="admin-error">
+          <p>{error}</p>
+          <button type="button" onClick={loadUsers}>{t('admin.retry')}</button>
+        </div>
+      ) : null}
       {actionError ? <p className="admin-error">{actionError}</p> : null}
 
       {!isLoading && !error && users.length === 0 ? (

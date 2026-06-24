@@ -5297,3 +5297,53 @@ No frontend or backend code was changed.
 
 Approved.
 
+---
+
+# ISSUE-060 — Implement Consistent Frontend Error Handling
+
+## Type
+
+Frontend Implementation.
+
+## Background
+
+ISSUE-059 identified P0 and P1 gaps in frontend error handling: no React Error Boundary, generic error messages hiding backend details, missing retry buttons on data load failures, and `console.error` leaking to production.
+
+## Goal
+
+Implement a consistent error handling pattern across core frontend screens based on the ISSUE-059 inventory findings.
+
+## Decision
+
+Implemented the following changes:
+
+1. **Shared error helper** (`src/api/errors.js`): `getApiErrorMessage(error, fallback)` extracts meaningful messages from backend responses — checks `detail` (string, array, or object with `.message`), then `data.message`, falls back to provided default.
+
+2. **React Error Boundary** (`src/components/ErrorBoundary.jsx`): Class-based boundary wraps the entire app in `main.jsx`. Shows a safe fallback UI with a reload button if any component throws during rendering.
+
+3. **Backend error extraction** applied to:
+   - GamePanel (join, leave, extend, close) — was hiding backend messages behind generic translated strings
+   - AddFieldModal — was returning generic "submit failed" for content moderation rejections
+
+4. **Retry buttons** added to initial data load failures in:
+   - MyGamesPage
+   - AdminStats
+   - AdminFields (pending + all tabs)
+   - AdminGames
+   - AdminUsers
+   - AdminFieldReports
+
+5. **Foreground push setup** (App.jsx): Replaced empty `.catch(() => {})` with a documented comment explaining the intentional non-blocking behavior.
+
+6. **console.error removed** from NotificationsModal push operations (3 instances) — errors are already shown to the user via state.
+
+Deferred to future issues:
+- Replace `window.prompt` with modal for admin moderation reasons (P2, UI redesign)
+- Replace `window.confirm` with custom modal for game close (P2, UI redesign)
+- Geolocation failure message on map (P3, cosmetic)
+- Notification polling failure indicator (P3, silent failure acceptable for background)
+
+## Status
+
+Implemented.
+

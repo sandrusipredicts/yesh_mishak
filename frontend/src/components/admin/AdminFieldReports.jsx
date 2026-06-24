@@ -22,6 +22,7 @@ function AdminFieldReports() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   useEffect(() => {
@@ -49,7 +50,7 @@ function AdminFieldReports() {
     return () => {
       isMounted = false
     }
-  }, [t])
+  }, [retryKey, t])
 
   const visibleReports = useMemo(() => {
     return reports
@@ -115,7 +116,12 @@ function AdminFieldReports() {
       </div>
 
       {isLoading ? <p className="admin-loading">{t('admin.loadingFieldReports')}</p> : null}
-      {error ? <p className="admin-error">{error}</p> : null}
+      {error ? (
+        <div className="admin-error">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRetryKey((k) => k + 1)}>{t('admin.retry')}</button>
+        </div>
+      ) : null}
 
       {!isLoading && !error && reports.length === 0 ? (
         <p className="admin-empty-state">{t('admin.noFieldReports')}</p>

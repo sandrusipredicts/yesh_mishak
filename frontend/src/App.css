@@ -2269,3 +2269,47 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+.error-boundary-fallback {
+  display: grid;
+  place-content: center;
+  gap: 16px;
+  min-height: 100dvh;
+  padding: 24px;
+  text-align: center;
+}
+
+.error-boundary-fallback h1 {
+  margin: 0;
+  font-size: 22px;
+  color: #1e293b;
+}
+
+.error-boundary-fallback p {
+  margin: 0;
+  color: #64748b;
+}
+
+.error-boundary-fallback button {
+  justify-self: center;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.admin-error button,
+.admin-stats-error button,
+.my-games-error button {
+  margin-top: 8px;
+  border: 1px solid #b42318;
+  border-radius: 6px;
+  padding: 6px 16px;
+  background: #ffffff;
+  color: #b42318;
+  font-size: 13px;
+  cursor: pointer;
+}

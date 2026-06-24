@@ -4,6 +4,7 @@ import L from 'leaflet'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
 import { createField } from '../api/fields'
+import { getApiErrorMessage } from '../api/errors'
 
 const DEFAULT_POSITION = [30.9872, 34.9314]
 const locationPinIcon = L.divIcon({
@@ -55,7 +56,7 @@ function getErrorMessage(error, t) {
     return t('addField.authRequired')
   }
 
-  return t('addField.submitFailed')
+  return getApiErrorMessage(error, t('addField.submitFailed'))
 }
 
 function AddFieldModal({ onClose, onCreated }) {

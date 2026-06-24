@@ -15,6 +15,7 @@ function AdminStats() {
   const [stats, setStats] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let isMounted = true
@@ -45,14 +46,19 @@ function AdminStats() {
     return () => {
       isMounted = false
     }
-  }, [t])
+  }, [retryKey, t])
 
   if (isLoading) {
     return <p className="admin-stats-status">{t('admin.loadingStats')}</p>
   }
 
   if (error) {
-    return <p className="admin-stats-error">{error}</p>
+    return (
+      <div className="admin-stats-error">
+        <p>{error}</p>
+        <button type="button" onClick={() => setRetryKey((k) => k + 1)}>{t('admin.retry')}</button>
+      </div>
+    )
   }
 
   return (

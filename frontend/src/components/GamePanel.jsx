@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
+import { getApiErrorMessage } from '../api/errors'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -171,8 +172,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     try {
       await joinGame(gameId, normalizedCurrentUserId)
       await onUpdate?.()
-    } catch {
-      setError(t('game.joinFailed'))
+    } catch (joinError) {
+      setError(getApiErrorMessage(joinError, t('game.joinFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -185,8 +186,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     try {
       await leaveGame(gameId, normalizedCurrentUserId)
       await onUpdate?.()
-    } catch {
-      setError(t('game.leaveFailed'))
+    } catch (leaveError) {
+      setError(getApiErrorMessage(leaveError, t('game.leaveFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -199,8 +200,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
     try {
       await extendGame(gameId)
       await onUpdate?.()
-    } catch {
-      setError(t('game.extendFailed'))
+    } catch (extendError) {
+      setError(getApiErrorMessage(extendError, t('game.extendFailed')))
     } finally {
       setIsLoading(false)
     }
@@ -218,8 +219,8 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       await closeGame(gameId)
       setSuccessMessage(t('game.closeSuccess'))
       await onUpdate?.()
-    } catch {
-      setError(t('game.closeFailed'))
+    } catch (closeError) {
+      setError(getApiErrorMessage(closeError, t('game.closeFailed')))
     } finally {
       setIsLoading(false)
     }

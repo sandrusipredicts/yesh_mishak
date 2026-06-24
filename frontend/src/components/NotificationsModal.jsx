@@ -309,7 +309,6 @@ function NotificationsModal({
       setPushToken(token)
       setPushMessage(t('notifications.pushEnabled'))
     } catch (pushError) {
-      console.error('Could not enable push notifications.', pushError)
       setError(pushError.message || t('notifications.pushEnableFailed'))
     } finally {
       isPushSavingRef.current = false
@@ -333,7 +332,6 @@ function NotificationsModal({
       setPushToken('')
       setPushMessage(t('notifications.pushDisabled'))
     } catch (pushError) {
-      console.error('Could not disable push notifications.', pushError)
       setError(pushError.message || t('notifications.pushDisableFailed'))
     } finally {
       isPushSavingRef.current = false
@@ -357,7 +355,6 @@ function NotificationsModal({
       setPushMessage(t('notifications.testPushSent'))
     } catch (pushError) {
       const detail = pushError?.response?.data?.detail
-      console.error('Could not send test push.', pushError)
       setError(detail || pushError.message || t('notifications.testPushFailed'))
     } finally {
       isPushSavingRef.current = false
