@@ -916,3 +916,110 @@ def _update_field_approval(
         },
     )
     return field
+
+
+@router.get("/monitoring")
+def get_monitoring(current_user: dict[str, Any] = Depends(require_admin)):
+    now = get_now()
+    generated_at = now.isoformat()
+    supabase = get_supabase_client()
+
+    # --- Active games (reuses existing logic) ---
+    active_games_count = _count_rows_in("games", "status", ACTIVE_GAME_STATUSES)
+
+    # --- Active users (last 24h and 7d via last_login) ---
+    day_ago = (now - timedelta(days=1)).isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+
+    users_24h_rows = (
+        supabase.table("users")
+        .select("id")
+        .gte("last_login", day_ago)
+        .execute()
+        .data or []
+    )
+    users_7d_rows = (
+        supabase.table("users")
+        .select("id")
+        .gte("last_login", week_ago)
+        .execute()
+        .data or []
+    )
+
+    # --- Total users ---
+    total_users = _count_rows("users")
+
+    # --- Pending moderation ---
+    pending_fields = _count_rows("fields", [("approval_status", "pending")])
+
+    # --- Notification counts ---
+    day_ago_iso = day_ago
+    recent_notifications_rows = (
+        supabase.table("notifications")
+        .select("id")
+        .gte("created_at", day_ago_iso)
+        .execute()
+        .data or []
+    )
+    unread_notifications_rows = (
+        supabase.table("notifications")
+        .select("id")
+        .is_("read_at", "null")
+        .execute()
+        .data or []
+    )
+
+    # --- Database health (simple connectivity check) ---
+    db_healthy = True
+    db_error = None
+    try:
+        supabase.table("users").select("id").limit(1).execute()
+    except Exception as exc:
+        db_healthy = False
+        db_error = exc.__class__.__name__
+
+    return {
+        "status": "ok" if db_healthy else "degraded",
+        "generated_at": generated_at,
+        "runtime": {},
+        "active_games": {
+            "count": active_games_count,
+            "source": "database",
+        },
+        "active_users": {
+            "last_24h": len(users_24h_rows),
+            "last_7d": len(users_7d_rows),
+            "total_registered": total_users,
+            "source": "database",
+            "note": "Based on last_login timestamp. Users without last_login are excluded from active counts.",
+        },
+        "notifications": {
+            "created_last_24h": len(recent_notifications_rows),
+            "unread_total": len(unread_notifications_rows),
+            "source": "database",
+        },
+        "moderation": {
+            "pending_fields": pending_fields,
+            "source": "database",
+        },
+        "database": {
+            "healthy": db_healthy,
+            "error_type": db_error,
+        },
+        "api_errors": {
+            "source_available": False,
+            "reason": "No persistent metrics store yet. Requires Phase 2 metrics middleware per ISSUE-069.",
+        },
+        "response_time": {
+            "source_available": False,
+            "reason": "Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069.",
+        },
+        "scheduled_jobs": {
+            "source_available": False,
+            "reason": "Job execution history is not persisted. Review backend logs for job.*.start/finish/failure events. Requires Phase 2 per ISSUE-069.",
+        },
+        "push_notifications": {
+            "source_available": False,
+            "reason": "Push delivery metrics are in backend logs only. Requires Phase 2 log aggregation per ISSUE-069.",
+        },
+    }

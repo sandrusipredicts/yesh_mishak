@@ -43,6 +43,14 @@ class FakeUsersQuery:
         self.in_filters.append((column, values))
         return self
 
+    def gte(self, column: str, value: Any) -> "FakeUsersQuery":
+        self.filters.append(("__gte", (column, value)))
+        return self
+
+    def is_(self, column: str, value: str) -> "FakeUsersQuery":
+        self.filters.append(("__is_null", (column, value)))
+        return self
+
     def limit(self, _: int) -> "FakeUsersQuery":
         return self
 
@@ -83,7 +91,14 @@ class FakeUsersQuery:
     def _filtered_rows(self) -> list[dict[str, Any]]:
         rows = self.rows
         for column, value in self.filters:
-            rows = [row for row in rows if row.get(column) == value]
+            if column == "__gte":
+                col, threshold = value
+                rows = [row for row in rows if (row.get(col) or "") >= threshold]
+            elif column == "__is_null":
+                col, _ = value
+                rows = [row for row in rows if row.get(col) is None]
+            else:
+                rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
         return rows
@@ -132,6 +147,7 @@ ADMIN_ENDPOINTS = [
     "/admin/games",
     "/admin/users",
     "/admin/stats",
+    "/admin/monitoring",
 ]
 
 
@@ -185,6 +201,7 @@ def make_admin_matrix_client(
                     "reviewed_by": None,
                 },
             ],
+            "notifications": [],
         },
     )
 
@@ -897,3 +914,248 @@ def test_admin_field_moderation_logs_decision(
     assert moderation_records[-1].actor_user_id == admin_user["id"]
     assert moderation_records[-1].field_id == "field-1"
     assert moderation_records[-1].approval_status == expected_status
+
+
+# ---------------------------------------------------------------------------
+# /admin/monitoring
+# ---------------------------------------------------------------------------
+
+SENSITIVE_STRINGS = [
+    "example.com",
+    "test-key",
+    "test-secret",
+    "test-google-client",
+    "Bearer",
+    "password",
+    "push-token",
+]
+
+
+def _make_monitoring_client(monkeypatch, *, admin_user=None, regular_user=None):
+    configure_test_settings(monkeypatch)
+
+    if admin_user is None:
+        admin_user = {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "email": "admin@example.com",
+            "name": "Admin User",
+            "role": "admin",
+            "status": "active",
+            "last_login": "2026-06-24T10:00:00+00:00",
+        }
+    if regular_user is None:
+        regular_user = {
+            "id": "00000000-0000-0000-0000-000000000002",
+            "email": "user@example.com",
+            "name": "Regular User",
+            "role": "user",
+            "status": "active",
+            "last_login": "2026-06-24T08:00:00+00:00",
+        }
+
+    stale_user = {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "email": "stale@example.com",
+        "name": "Stale User",
+        "role": "user",
+        "status": "active",
+        "last_login": "2026-01-01T00:00:00+00:00",
+    }
+
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user, regular_user, stale_user],
+            "fields": [
+                {"id": "field-1", "verified": True, "approval_status": "approved"},
+                {"id": "field-2", "verified": False, "approval_status": "pending"},
+                {"id": "field-3", "verified": False, "approval_status": "pending"},
+            ],
+            "games": [
+                {"id": "game-1", "status": "open"},
+                {"id": "game-2", "status": "full"},
+                {"id": "game-3", "status": "finished"},
+            ],
+            "notifications": [
+                {
+                    "id": "notif-1",
+                    "user_id": regular_user["id"],
+                    "created_at": "2026-06-24T09:00:00+00:00",
+                    "read_at": None,
+                },
+                {
+                    "id": "notif-2",
+                    "user_id": regular_user["id"],
+                    "created_at": "2026-06-24T07:00:00+00:00",
+                    "read_at": "2026-06-24T08:00:00+00:00",
+                },
+                {
+                    "id": "notif-3",
+                    "user_id": regular_user["id"],
+                    "created_at": "2026-06-01T00:00:00+00:00",
+                    "read_at": None,
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    return admin_user, regular_user, fake_client
+
+
+def test_monitoring_rejects_unauthenticated(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    response = TestClient(app).get("/admin/monitoring")
+    assert response.status_code in (401, 403)
+
+
+def test_monitoring_rejects_regular_user(monkeypatch) -> None:
+    regular_user = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "email": "user@example.com",
+        "name": "Regular User",
+        "role": "user",
+        "status": "active",
+    }
+    configure_test_settings(monkeypatch)
+    monkeypatch.setattr(
+        "app.auth.dependencies.get_supabase_client",
+        lambda: FakeSupabaseClient({regular_user["id"]: regular_user}),
+    )
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(regular_user)}"},
+    )
+    assert response.status_code == 403
+
+
+def test_monitoring_admin_succeeds(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    expected_keys = {
+        "status",
+        "generated_at",
+        "runtime",
+        "active_games",
+        "active_users",
+        "notifications",
+        "moderation",
+        "database",
+        "api_errors",
+        "response_time",
+        "scheduled_jobs",
+        "push_notifications",
+    }
+    assert set(data.keys()) == expected_keys
+
+
+def test_monitoring_active_games_count(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert data["active_games"]["count"] == 2
+    assert data["active_games"]["source"] == "database"
+
+
+def test_monitoring_active_users_count(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert data["active_users"]["total_registered"] == 3
+    assert data["active_users"]["source"] == "database"
+    assert isinstance(data["active_users"]["last_24h"], int)
+    assert isinstance(data["active_users"]["last_7d"], int)
+    assert data["active_users"]["last_7d"] >= data["active_users"]["last_24h"]
+
+
+def test_monitoring_notifications(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert isinstance(data["notifications"]["created_last_24h"], int)
+    assert isinstance(data["notifications"]["unread_total"], int)
+    assert data["notifications"]["unread_total"] == 2
+    assert data["notifications"]["source"] == "database"
+
+
+def test_monitoring_pending_moderation(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert data["moderation"]["pending_fields"] == 2
+
+
+def test_monitoring_database_health(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert data["database"]["healthy"] is True
+    assert data["database"]["error_type"] is None
+
+
+def test_monitoring_unavailable_metrics_marked(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+
+    for key in ("api_errors", "response_time", "scheduled_jobs", "push_notifications"):
+        assert data[key]["source_available"] is False
+        assert "reason" in data[key]
+        assert isinstance(data[key]["reason"], str)
+        assert len(data[key]["reason"]) > 10
+
+
+def test_monitoring_no_sensitive_data(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    raw = response.text
+
+    for sensitive in SENSITIVE_STRINGS:
+        assert sensitive.lower() not in raw.lower(), (
+            f"Sensitive string '{sensitive}' found in monitoring response"
+        )
+
+    assert "admin@" not in raw
+    assert "user@" not in raw
+    assert "stale@" not in raw
+    assert "phone" not in raw.lower() or "phone_is_null" in raw.lower() or "phone_number" not in raw
+    assert "token" not in raw.lower() or "push_token" not in raw.lower()
+
+
+def test_monitoring_status_and_generated_at(monkeypatch) -> None:
+    admin_user, _, _ = _make_monitoring_client(monkeypatch)
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+    data = response.json()
+    assert data["status"] in ("ok", "degraded")
+    assert "generated_at" in data
+    assert "T" in data["generated_at"]

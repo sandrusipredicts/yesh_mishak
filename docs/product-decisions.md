@@ -6953,3 +6953,171 @@ Recommended follow-up issues:
 
 No backend runtime, frontend runtime, database, migration, endpoint, metrics, alerting, middleware, or dashboard changes were made.
 
+# ISSUE-070: Implement Production Monitoring
+
+## Status
+
+Implemented.
+
+## Type
+
+Backend implementation.
+
+## Policy Reference
+
+Implements the Phase 1 monitoring MVP defined in ISSUE-069 (Production Monitoring Requirements).
+
+## What Was Implemented
+
+### Endpoint
+
+`GET /admin/monitoring` — admin-only monitoring endpoint returning live production metrics as JSON.
+
+Authentication: requires existing `require_admin` dependency (JWT + admin role check). Unauthenticated and non-admin requests return 401/403.
+
+### Metrics Implemented
+
+| Section | Metric | Source | Implementation |
+| --- | --- | --- | --- |
+| `status` | Overall status (`ok` or `degraded`) | Database connectivity check | Returns `degraded` if DB health check fails |
+| `generated_at` | ISO 8601 timestamp of response generation | Server clock | `get_now().isoformat()` |
+| `runtime` | Runtime metadata | N/A | Empty object — no `debug` flag or version available in config |
+| `active_games.count` | Number of active games | Database: `games` table with status in `ACTIVE_GAME_STATUSES` | Reuses existing `_count_rows_in` with expired-game filtering |
+| `active_users.last_24h` | Users with `last_login` in last 24 hours | Database: `users` table | `gte("last_login", ...)` filter |
+| `active_users.last_7d` | Users with `last_login` in last 7 days | Database: `users` table | `gte("last_login", ...)` filter |
+| `active_users.total_registered` | Total user count | Database: `users` table | Reuses existing `_count_rows` |
+| `notifications.created_last_24h` | Notifications created in last 24 hours | Database: `notifications` table | `gte("created_at", ...)` filter |
+| `notifications.unread_total` | Total unread notifications | Database: `notifications` table | `is_("read_at", "null")` filter |
+| `moderation.pending_fields` | Fields awaiting moderation | Database: `fields` table | Reuses existing `_count_rows` with `approval_status=pending` |
+| `database.healthy` | Database connectivity | Supabase query | Simple `select("id").limit(1)` on users table |
+
+### Metrics Explicitly Unavailable
+
+| Section | `source_available` | Reason |
+| --- | --- | --- |
+| `api_errors` | `false` | No persistent metrics store yet. Requires Phase 2 metrics middleware per ISSUE-069. |
+| `response_time` | `false` | Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069. |
+| `scheduled_jobs` | `false` | Job execution history is not persisted. Review backend logs for `jobs.*.start/finish/failure` events. Requires Phase 2 per ISSUE-069. |
+| `push_notifications` | `false` | Push delivery metrics are in backend logs only. Requires Phase 2 log aggregation per ISSUE-069. |
+
+### Security Model
+
+* Endpoint is admin-only via `require_admin` (same pattern as all `/admin/*` endpoints).
+* Response contains no emails, phone numbers, passwords, JWTs, push tokens, notification bodies, report descriptions, or raw error messages.
+* All values are counts, booleans, timestamps, or explicit unavailability markers.
+* Tests verify no sensitive strings appear in response text.
+
+## Example Response Shape
+
+```json
+{
+  "status": "ok",
+  "generated_at": "2026-06-24T12:00:00+00:00",
+  "runtime": {},
+  "active_games": {
+    "count": 5,
+    "source": "database"
+  },
+  "active_users": {
+    "last_24h": 12,
+    "last_7d": 34,
+    "total_registered": 50,
+    "source": "database",
+    "note": "Based on last_login timestamp. Users without last_login are excluded from active counts."
+  },
+  "notifications": {
+    "created_last_24h": 23,
+    "unread_total": 45,
+    "source": "database"
+  },
+  "moderation": {
+    "pending_fields": 3,
+    "source": "database"
+  },
+  "database": {
+    "healthy": true,
+    "error_type": null
+  },
+  "api_errors": {
+    "source_available": false,
+    "reason": "No persistent metrics store yet. Requires Phase 2 metrics middleware per ISSUE-069."
+  },
+  "response_time": {
+    "source_available": false,
+    "reason": "Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069."
+  },
+  "scheduled_jobs": {
+    "source_available": false,
+    "reason": "Job execution history is not persisted. Review backend logs for job.*.start/finish/failure events. Requires Phase 2 per ISSUE-069."
+  },
+  "push_notifications": {
+    "source_available": false,
+    "reason": "Push delivery metrics are in backend logs only. Requires Phase 2 log aggregation per ISSUE-069."
+  }
+}
+```
+
+## Tests Added
+
+| Test | What it verifies |
+| --- | --- |
+| `test_monitoring_rejects_unauthenticated` | Unauthenticated request returns 401/403 |
+| `test_monitoring_rejects_regular_user` | Non-admin user returns 403 |
+| `test_monitoring_admin_succeeds` | Admin gets 200 with all expected top-level keys |
+| `test_monitoring_active_games_count` | Active games count matches test data (2 open/full out of 3) |
+| `test_monitoring_active_users_count` | Total registered count correct; last_24h/last_7d are integers; 7d >= 24h |
+| `test_monitoring_notifications` | Unread count matches test data (2 unread); created_last_24h is integer |
+| `test_monitoring_pending_moderation` | Pending fields count matches test data (2 pending) |
+| `test_monitoring_database_health` | Database healthy is true; error_type is null |
+| `test_monitoring_unavailable_metrics_marked` | All 4 unavailable sections have `source_available: false` with reason strings |
+| `test_monitoring_no_sensitive_data` | Response text contains no emails, passwords, tokens, keys, or other sensitive strings |
+| `test_monitoring_status_and_generated_at` | Status is ok/degraded; generated_at contains ISO timestamp |
+| (parametrized) `test_admin_endpoints_allow_admin_user[/admin/monitoring]` | Endpoint included in admin access matrix |
+| (parametrized) `test_admin_endpoints_reject_regular_user[/admin/monitoring]` | Endpoint included in non-admin rejection matrix |
+| (parametrized) `test_admin_endpoints_reject_unauthenticated[/admin/monitoring]` | Endpoint included in unauthenticated rejection matrix |
+
+## Tests Run
+
+```
+backend> .venv\Scripts\python.exe -m pytest tests\test_admin_me.py tests\test_manual_auth.py tests\test_google_auth.py tests\test_game_close.py tests\test_field_reports_api.py tests\test_notifications.py -q
+```
+
+Result: 180 passed (52 admin + 128 related).
+
+## Live Validation Steps
+
+To verify the endpoint locally:
+
+1. Start the backend: `cd backend && uvicorn app.main:app --reload`
+2. Obtain an admin JWT (login as an admin user via `POST /auth/login` or `POST /auth/google`).
+3. Call the endpoint:
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_JWT>" http://localhost:8000/admin/monitoring
+```
+
+4. Verify the response contains all expected sections.
+5. Verify no sensitive data appears in the response.
+
+## Files Changed
+
+Runtime:
+
+* `backend/app/api/admin.py` — added `GET /admin/monitoring` endpoint.
+
+Tests:
+
+* `backend/tests/test_admin_me.py` — added `gte`/`is_` support to `FakeUsersQuery`, added `notifications` table to matrix client, added `/admin/monitoring` to `ADMIN_ENDPOINTS`, added 11 monitoring-specific tests.
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-070 implementation summary.
+
+## Follow-up Issues Required
+
+1. **Phase 2 metrics middleware** — add request-level timing and status-code recording to populate `api_errors` and `response_time` sections. Per ISSUE-069.
+2. **Phase 2 `request_id` support** — add `X-Request-ID` header generation per ISSUE-065.
+3. **Phase 2 scheduled job persistence** — persist job run results to a table or structured log aggregator to populate `scheduled_jobs` section.
+4. **Phase 2 push delivery metrics** — aggregate push success/failure counts from logs or a counters table to populate `push_notifications` section.
+5. **Runtime metadata** — add app version and environment detection once deployment infrastructure is confirmed.
+
