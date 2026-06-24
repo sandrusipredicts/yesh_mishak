@@ -11615,3 +11615,229 @@ cd backend
 | `backend/scripts/benchmark_bounds_filtering.py` | New benchmark script |
 | `docs/product-decisions.md` | This section |
 
+# ISSUE-083 -- Frontend Rendering Performance Audit
+
+**Date:** 2026-06-24
+**Status:** COMPLETED
+
+## 1. Methodology
+
+**Type:** Static code audit with manual measurement checklist.
+
+No automated React Profiler measurements, Lighthouse runs, or Playwright performance tests were executed as part of this issue. All findings below are **inferred from code inspection** unless explicitly labeled as "measured." A manual checklist for running browser-based measurements is provided at `frontend/docs/performance-audit-checklist.md`.
+
+**What this audit covers:**
+- Rendering flow analysis from code structure
+- Identification of patterns known to cause performance problems at scale
+- Risk-level assessment per area (inferred, not measured)
+
+**What this audit does NOT cover:**
+- Actual frame timings, paint durations, or scripting costs
+- Real-device mobile performance
+- Network waterfall analysis
+- Bundle size impact
+
+## 2. Files Inspected
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/pages/MapPage.jsx` | Main map page, marker rendering, field loading, polling |
+| `frontend/src/components/FieldDetailsPanel.jsx` | Field details slide-out panel |
+| `frontend/src/components/GamePanel.jsx` | Active/upcoming game display and actions |
+| `frontend/src/components/NotificationInboxModal.jsx` | Notification inbox list |
+| `frontend/src/components/NotificationsModal.jsx` | Notification preferences modal |
+| `frontend/src/pages/AdminPage.jsx` | Admin shell with tab routing |
+| `frontend/src/components/admin/AdminFields.jsx` | Admin fields table (pending + all) |
+| `frontend/src/components/admin/AdminGames.jsx` | Admin games table (active + finished) |
+| `frontend/src/components/admin/AdminUsers.jsx` | Admin users table with search |
+| `frontend/src/components/admin/AdminStats.jsx` | Admin dashboard stats cards |
+| `frontend/src/components/admin/AdminFieldReports.jsx` | Admin field reports table |
+| `frontend/src/api/fields.js` | Fields API client with dedup |
+| `frontend/src/api/retry.js` | Retry helper for safe reads |
+| `frontend/package.json` | Dependency list |
+
+## 3. Current Rendering Flow
+
+### 3.1 Map Page load sequence
+
+```
+1. MapPage mounts
+2. readCachedFields() reads localStorage (JSON.parse of all cached fields)
+3. fields state initialized from cache
+4. MapContainer renders with cached field markers
+5. FieldLoader registers moveend listener
+6. Initial moveend fires -> getFields(bounds) via API
+7. handleFieldsLoaded runs:
+   a. JSON.stringify(currentFields) === JSON.stringify(loadedFields) deep compare
+   b. If different: setFields(loadedFields) -> re-renders all markers
+   c. writeCachedFields(loadedFields) -> JSON.stringify + localStorage.setItem
+8. Geolocation requested -> setCenter -> RecenterMap -> map.setView -> moveend -> step 6 again
+9. Notification initial load: getNotifications() + getUnreadNotificationCount() in parallel
+10. Unread count poll starts: refreshUnreadCount() every 20s (1s in dev)
+```
+
+### 3.2 Map pan/zoom cycle
+
+```
+1. User pans or zooms map
+2. moveend event fires
+3. FieldLoader.loadFields(map.getBounds()) called
+4. getFields(bounds) -> API call (deduplicated by bounds key)
+5. handleFieldsLoaded:
+   a. JSON.stringify deep compare (O(N) serialization, twice)
+   b. writeCachedFields -> JSON.stringify + localStorage.setItem (third serialization)
+   c. setSelectedField updater scans loadedFields array
+6. If fields changed: fieldMarkers useMemo recomputes
+7. Each FieldMarker is memo'd, but all receive new `fields` array reference
+   -> memo comparison passes because individual field objects are new references
+   -> all FieldMarkers re-render unless field object identity is preserved
+```
+
+### 3.3 Notification modal open
+
+```
+1. User clicks bell icon
+2. setIsNotificationsOpen(true) + refreshNotifications()
+3. refreshNotifications: getNotifications() + getUnreadNotificationCount()
+4. NotificationInboxModal renders with full notification array
+5. All notifications rendered as flat list (no virtualization, no pagination)
+6. unreadCount computed via .filter(isNotificationUnread) on every render
+```
+
+### 3.4 Admin page tab switch
+
+```
+1. setActiveSectionId(tabId)
+2. Previous tab component unmounts
+3. New tab component mounts and fires its own data load useEffect
+4. AdminFields "All Fields" tab: loads ALL fields, renders ALL rows in one table
+5. AdminUsers: loads ALL users, renders ALL rows, filters on every keystroke
+6. AdminGames: loads all active + finished games, renders both tables
+```
+
+## 4. Identified Rendering Risks
+
+### 4.1 Marker Rendering
+
+| Risk | Severity (inferred) | Code location | Description |
+|------|---------------------|---------------|-------------|
+| JSON.stringify deep compare | Medium | MapPage.jsx:356 | `JSON.stringify(currentFields) === JSON.stringify(loadedFields)` runs on every field load. At N fields, this serializes two arrays of full field objects. Cost is O(N * field_size). At 500 fields with game payloads, each stringify could process 200+ KB of data. |
+| Triple serialization per load | Medium | MapPage.jsx:354-362 | Each field load triggers: (1) JSON.stringify for compare, (2) JSON.stringify for compare, (3) JSON.stringify + localStorage.setItem in writeCachedFields. Three full serializations of the fields array per pan. |
+| localStorage cache write | Low-Medium | MapPage.jsx:81 | writeCachedFields serializes and writes the full fields array to localStorage on every successful load. At 5,000 fields, this is ~2 MB written to localStorage on every pan. localStorage.setItem is synchronous and blocks the main thread. |
+| No marker clustering | Medium | MapPage.jsx:376-387 | All field markers are rendered as individual Leaflet Marker components. At 500+ fields, this means 500+ DOM nodes for markers alone. No marker clustering library is installed (confirmed in package.json). react-leaflet markers are heavyweight -- each creates a Leaflet layer. |
+| FieldMarker memo effectiveness | Low-Medium | MapPage.jsx:191 | FieldMarker is memo'd but receives the full `field` object as a prop. Each API response creates new object references, so React.memo's shallow compare sees every field as changed on every load, even if the data is identical. The memo only helps when the `fields` array reference itself is unchanged (caught by the JSON.stringify check). |
+| No request debouncing | Low | MapPage.jsx:178-182 | Every moveend fires a new API request. Rapid panning fires multiple moveend events. The API client deduplicates pending requests by bounds key, but each unique bounds value triggers a real request. |
+| createMarkerIcon on language change | Low | MapPage.jsx:345-351 | markerIcons useMemo depends on `[t]`. Language changes recreate all marker icons, which forces all FieldMarkers to re-render. This is rare in practice. |
+
+### 4.2 Notification Modal
+
+| Risk | Severity (inferred) | Code location | Description |
+|------|---------------------|---------------|-------------|
+| Flat list rendering | Low | NotificationInboxModal.jsx:139 | All notifications render in a flat `.map()` with no virtualization or pagination. At typical notification counts (< 100), this is unlikely to be a problem. Could become an issue if notification retention grows to 500+. |
+| Inline arrow functions in list | Low | NotificationInboxModal.jsx:151,161 | Each notification item creates two new arrow functions per render (`onClick` handlers). At < 100 items, this is negligible. |
+| Mark-all-read triple update | Low | NotificationInboxModal.jsx:92-101 | handleMarkAllRead does: (1) map to create nextNotifications, (2) onNotificationsChange, (3) onRefreshNotifications (another API call + state update), (4) onRefreshUnreadCount (another API call + state update). This triggers 3+ state updates in sequence. React 19 batches these, so the render cost is likely one re-render. |
+| unreadCount recompute | Negligible | NotificationInboxModal.jsx:50-53 | `useMemo(() => notifications.filter(...))` recomputes on every notifications change. Linear scan, but notification arrays are small. |
+
+### 4.3 Game Panel
+
+| Risk | Severity (inferred) | Code location | Description |
+|------|---------------------|---------------|-------------|
+| Per-game timers | Low-Medium | GamePanel.jsx:146-166 | Each GamePanel instance creates a setTimeout + setInterval (30s tick). If a field has 1 active + N upcoming games, that's N+1 concurrent timer pairs. With 5 upcoming games, that's 5 setInterval timers ticking every 30s, each calling setNow(Date.now()). |
+| Timer-driven re-renders | Low | GamePanel.jsx:159 | The 30s tick interval calls `setNow(Date.now())`, which triggers a re-render of the entire GamePanel even if no visible time label has changed. |
+| No memoization | Low | GamePanel.jsx:101 | GamePanel is not wrapped in React.memo. It re-renders whenever FieldDetailsPanel re-renders, even if the game prop hasn't changed. Since only one FieldDetailsPanel is open at a time, this is unlikely to cascade. |
+
+### 4.4 Admin Pages
+
+| Risk | Severity (inferred) | Code location | Description |
+|------|---------------------|---------------|-------------|
+| All-rows rendering (Fields) | Medium | AdminFields.jsx:288 | The "All Fields" tab renders every field as a table row. No pagination, no virtualization. At 500+ fields, this creates 500+ `<tr>` elements with 8+ `<td>` each (4,000+ DOM nodes). Each row contains a `<select>` dropdown. |
+| All-rows rendering (Users) | Medium | AdminUsers.jsx:227 | Same pattern: every user rendered as a table row. At 500+ users, 3,500+ DOM nodes. Each row has action buttons. |
+| All-rows rendering (Games) | Low-Medium | AdminGames.jsx:57 | Both active and finished games render all rows. Finished games could grow large over time. |
+| Keystroke-driven filter (Users) | Low | AdminUsers.jsx:171-174 | `filteredUsers` is a useMemo that runs on every `searchText` change. The filter is a linear scan with string.includes() on 6 fields per user. At 500 users, this is 3,000 string comparisons per keystroke. The useMemo prevents re-filtering when only other state changes, which is correct. |
+| Field reports sort on every filter change | Low | AdminFieldReports.jsx:55-63 | visibleReports is filter + sort on every statusFilter change. Sort creates Date objects from strings. At < 200 reports, this is negligible. |
+| loadGames full reload on action | Low | AdminGames.jsx:155,169 | Extend and Close actions call `loadGames()` which reloads ALL games. Could instead patch the affected game locally. Functional, but wasteful at large game counts. |
+| No lazy loading of tab content | Low | AdminPage.jsx:80-84 | All 5 admin section components are conditionally rendered but their modules are eagerly imported at the top of AdminPage.jsx. The components only mount when their tab is active, so render cost is deferred, but JS bundle cost is not. |
+
+### 4.5 Notification Preferences Modal
+
+| Risk | Severity (inferred) | Code location | Description |
+|------|---------------------|---------------|-------------|
+| Field selection list | Low-Medium | NotificationsModal.jsx:472-483 | Renders a checkbox for every available field. At 500+ fields, this is 500+ checkbox labels in a flat list. No virtualization. Uses `selectedFieldIds.includes(field.id)` per field -- O(N*M) where N is fields and M is selected IDs. |
+| getFields fallback | Low | NotificationsModal.jsx:132 | If `fields` prop is empty, calls `getFields()` without bounds (unbounded full-table load). This is the same risk flagged in ISSUE-080 section 6.2. |
+
+## 5. Risk Summary
+
+| Area | Overall Risk (inferred) | Primary Concern | Scale Threshold |
+|------|------------------------|-----------------|-----------------|
+| Marker Rendering | **Medium** | JSON.stringify deep compare + localStorage write + no clustering | 500+ fields |
+| Notification Inbox Modal | **Low** | Flat list rendering, but typical counts are small | 500+ notifications |
+| Game Panel | **Low** | Per-game timers, but only visible for one field at a time | 5+ upcoming games on one field |
+| Admin Fields | **Medium** | All-rows table rendering without pagination | 500+ fields |
+| Admin Users | **Medium** | All-rows table rendering without pagination | 500+ users |
+| Admin Games | **Low-Medium** | All-rows table, finished games grow over time | 500+ finished games |
+| Admin Field Reports | **Low** | Filter + sort, but report counts are small | 200+ reports |
+| Notification Preferences | **Low-Medium** | Full field list as checkboxes | 500+ fields |
+
+All risk levels are **inferred from code patterns**, not measured. Actual impact depends on device, browser, and data size.
+
+## 6. What Was Measured vs. What Was Inferred
+
+### Measured
+- Nothing was measured with browser profiling tools in this issue.
+- File inspection confirmed: no marker clustering library in package.json dependencies.
+- File inspection confirmed: no virtualization library (react-window, react-virtualized, tanstack-virtual) in dependencies.
+- File inspection confirmed: no pagination in any admin table component.
+- File inspection confirmed: JSON.stringify deep compare exists at MapPage.jsx:356.
+- File inspection confirmed: localStorage write on every field load at MapPage.jsx:81.
+
+### Inferred (not measured)
+- All "Medium" and "Low" severity ratings are based on known performance characteristics of the identified patterns, not on profiler data.
+- JSON.stringify cost at 500+ fields is estimated from payload sizes measured in ISSUE-082 (~200 KB at 500 fields), but the actual CPU time was not measured.
+- localStorage.setItem blocking time was not measured.
+- Marker rendering cost per marker was not measured.
+- Admin table DOM node count was not measured.
+- GamePanel timer accumulation was not measured.
+
+## 7. Recommended Follow-Up Issues
+
+Listed in suggested priority order. Each can be an independent issue.
+
+1. **Replace JSON.stringify deep compare with field ID set comparison.** Compare only `fields.map(f => f.id).join(',')` or a similar lightweight fingerprint instead of serializing the entire payload. Affects MapPage.jsx:356.
+
+2. **Debounce or throttle field loads on map pan.** Add a 200-300ms debounce to the moveend handler to coalesce rapid pan events. Affects MapPage.jsx:178-182.
+
+3. **Add marker clustering.** Install `react-leaflet-markercluster` or equivalent. This is the highest-impact change for map rendering at 500+ fields (as identified in ISSUE-080).
+
+4. **Add pagination to admin tables.** AdminFields (all), AdminUsers, and AdminGames (finished) should paginate or virtualize at 100+ rows. Server-side pagination preferred to avoid loading all records.
+
+5. **Lazy-load admin tab modules.** Use `React.lazy()` + `Suspense` for AdminFields, AdminGames, AdminUsers, AdminFieldReports so their JS is code-split and loaded on demand.
+
+6. **Reduce localStorage write frequency.** Debounce writeCachedFields or write on a timer instead of on every field load. Affects MapPage.jsx:362.
+
+7. **Virtualize notification preferences field list.** At 500+ fields, the checkbox list in NotificationsModal should use a virtual list or at minimum a searchable select.
+
+## 8. Limitations
+
+- This audit is a static code review. No runtime measurements were taken.
+- Risk severity is inferred from code patterns and data size estimates from ISSUE-082. Actual performance depends on browser, device, and production data shape.
+- The audit does not cover bundle size, network waterfall, or Largest Contentful Paint.
+- Mobile performance was not assessed. Mobile devices have less CPU and memory than the desktop environment used for code inspection.
+- React 19 concurrent features may mitigate some re-render costs through automatic batching, but this was not verified.
+
+## 9. Manual Steps for the User
+
+To validate the inferred risks with actual measurements:
+
+1. Run the app locally with 500+ fields of test data.
+2. Follow the checklist at `frontend/docs/performance-audit-checklist.md`.
+3. Record key timings from Chrome DevTools Performance tab.
+4. Compare against the inferred risk levels in section 5.
+5. Prioritize follow-up issues based on measured impact, not inferred severity.
+
+## 10. Files Changed
+
+| File | Change |
+|------|--------|
+| `frontend/docs/performance-audit-checklist.md` | New manual performance audit checklist |
+| `docs/product-decisions.md` | This section |
+
