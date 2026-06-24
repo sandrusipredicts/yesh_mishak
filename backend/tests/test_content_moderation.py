@@ -243,3 +243,40 @@ def test_cancel_reason_spam_rejected():
 def test_none_game_text_passes():
     r = validate_game_text()
     assert r.allowed is True
+
+
+def test_moderation_regression_profanity():
+    # normal forbidden/profanity match still detected
+    r = validate_text("go fuck you dude", field_name="note")
+    assert r.allowed is False
+    assert "denied_term" in r.violations
+
+
+def test_moderation_regression_benign():
+    # benign normal text still allowed
+    r = validate_text("This is a clean and benign description of the field.", field_name="note")
+    assert r.allowed is True
+    assert r.violations == []
+
+
+def test_moderation_regression_pathological_input():
+    # pathological repeated-character input does not hang and returns quickly
+    import time
+    start_time = time.perf_counter()
+    r = validate_text("%" * 10000, field_name="note", max_length=1000)
+    duration = time.perf_counter() - start_time
+    assert r.allowed is False
+    assert "too_long" in r.violations
+    assert duration < 0.1  # should be extremely fast, virtually instantaneous (less than 100ms)
+
+
+def test_moderation_regression_pathological_email():
+    # pathological email backtracking does not hang and returns quickly
+    import time
+    pathological_email = "a" * 1000 + "@" + "a." * 50 + "1"
+    start_time = time.perf_counter()
+    r = validate_text(pathological_email, field_name="note", check_personal_data=True, max_length=2000)
+    duration = time.perf_counter() - start_time
+    assert r.allowed is False
+    assert duration < 0.1
+

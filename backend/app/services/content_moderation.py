@@ -34,7 +34,9 @@ PHONE_PATTERN = re.compile(
     r"(?<!\d)0\d[\d\-]{6,11}(?!\d)"
     r"|(?<!\d)\+972[\d\-]{7,12}(?!\d)"
 )
-EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+EMAIL_PATTERN = re.compile(
+    r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}"
+)
 
 MAX_LENGTH_DEFAULT = 1000
 MAX_LENGTH_SHORT = 200
@@ -98,6 +100,7 @@ def validate_text(
         result.allowed = False
         result.severity = "low"
         result.message = f"{field_name} exceeds maximum length"
+        return result
 
     if REPEATED_CHAR_PATTERN.search(stripped):
         result.violations.append("repeated_characters")
