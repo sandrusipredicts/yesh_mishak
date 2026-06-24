@@ -14245,3 +14245,312 @@ A full security review can be performed using this checklist because it defines:
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-091 official application security review checklist. |
 
+# ISSUE-092: Authentication Security Audit
+
+## Status
+
+Audit completed as a documentation-only P0 review. This issue does not implement fixes. It records verified controls, gaps, risks, and follow-up work for authentication.
+
+## Dependency
+
+ISSUE-092 uses ISSUE-091 as the source checklist for authentication review method, statuses, and launch-blocking expectations.
+
+## Scope
+
+This audit reviewed:
+
+- Google Login
+- Password Login
+- JWT creation and verification
+- Logout and client-side session cleanup
+- Registration and availability checks
+
+Out of scope for this issue:
+
+- implementing fixes
+- changing backend or frontend behavior
+- changing Supabase RLS policies
+- rotating secrets
+- adding rate limiting
+- performing penetration testing
+- certifying the system as secure
+
+## Review Method
+
+Checklist statuses follow ISSUE-091:
+
+| Status | Meaning |
+|--------|---------|
+| `PASS` | Verified directly from repository evidence or targeted tests. |
+| `FAIL` | Repository evidence shows the control is missing, incomplete, or unsafe. |
+| `NOT VERIFIED` | Requires production/staging configuration, manual testing, external provider review, or a broader security review. |
+| `NOT APPLICABLE` | The check does not apply to the current implementation. |
+
+Any `FAIL` on P0/P1 authentication checks should become a follow-up issue before launch or before the affected feature is considered production-ready.
+
+## Files Reviewed
+
+| Area | Files |
+|------|-------|
+| Auth API | `backend/app/api/auth.py` |
+| JWT | `backend/app/auth/jwt.py`, `backend/app/auth/dependencies.py`, `backend/app/core/config.py` |
+| Google auth | `backend/app/auth/google.py` |
+| Password hashing | `backend/app/auth/passwords.py` |
+| Auth schemas | `backend/app/schemas/auth.py` |
+| Frontend auth/session | `frontend/src/api/auth.js`, `frontend/src/api/client.js`, `frontend/src/App.jsx`, `frontend/src/components/LoginPage.jsx`, `frontend/src/components/AdminRoute.jsx` |
+| Database schema | `backend/schema.sql`, `backend/migrations/manual_auth.sql` |
+| Tests | `backend/tests/test_google_auth.py`, `backend/tests/test_manual_auth.py` |
+| Security checklist | `docs/product-decisions.md` ISSUE-091 |
+
+## Commands and Searches Run
+
+| Command | Result |
+|---------|--------|
+| `git status --short` | Clean before documentation edit. |
+| `rg -n "removeItem\|setItem\|getItem\|authToken\|access_token\|currentUser\|currentUsername\|logout\|signOut" frontend/src` | Found token/session storage and logout cleanup paths. |
+| `rg -n "jwt_expire_minutes\|jwt_secret\|auth_user_cache\|CORS\|allow_origins\|GOOGLE_CLIENT_ID\|SUPABASE\|FIREBASE\|VITE_" -S backend frontend docs -g "!*node_modules*"` | Found auth config, token lifetime, frontend env usage, and prior security checklist entries. |
+| `rg -n "ISSUE-091\|Security Review\|Authentication checklist\|P0 launch" docs/product-decisions.md` | Confirmed ISSUE-091 exists and is the current security checklist. |
+| `rg -n "@router\.|def .*login|def .*register|def .*google|create_access_token|decode_access_token|get_current_user|require_admin|verify_google_token|hash_password|verify_password" ...` | Located auth endpoints and helper functions. |
+| `rg -n "create table.*users\|table public\\.users\|users \\(|alter table.*users\|policy.*users\|create policy.*users\|unique.*users\|google_sub\|password_hash\|phone_number\|email" backend/schema.sql backend/migrations` | Confirmed user columns and uniqueness constraints/indexes in repo schema/migrations. |
+| `python -m pytest backend\tests\test_google_auth.py backend\tests\test_manual_auth.py -q` | Not executed successfully from repo root: system Python lacks `pytest`. |
+| `.\.venv\Scripts\python.exe -m pytest backend\tests\test_google_auth.py backend\tests\test_manual_auth.py -q` | Collection failed from repo root because `app` package was not on import path. |
+| `..\.venv\Scripts\python.exe -m pytest tests\test_google_auth.py tests\test_manual_auth.py -q` from `backend/` | Passed: `10 passed`, with dependency deprecation warnings. |
+
+## Executive Summary
+
+The repository has several important authentication controls in place:
+
+- Google ID token verification is performed server-side against `GOOGLE_CLIENT_ID`.
+- Passwords are hashed with bcrypt before storage.
+- Password-login failures return a generic message and existing tests verify that passwords and full emails are not emitted in auth logs.
+- JWTs are signed server-side and verified by backend dependencies before protected routes can resolve the current user.
+- User identity fields have database uniqueness protections for `email`, `google_sub`, `username`, and `phone_number`.
+
+The audit also found P0/P1 gaps that should be fixed before treating authentication as production-ready:
+
+- Google login links an existing account by email without verifying `email_verified` and without requiring an existing `google_sub` match or explicit account-link policy.
+- Logout is client-only, long-lived JWTs remain valid until expiration, and the frontend API client still honors legacy token keys that logout does not clear.
+- Authentication endpoints and availability checks do not show rate limiting or abuse protection in the repository.
+- Some auth/database failure responses can expose internal Supabase error details to clients.
+- Active user restrictions and admin authorization are not consistently composed for admin users.
+- Production/staging environment controls such as `JWT_SECRET` strength, CORS origin restrictions, and Google OAuth client configuration remain `NOT VERIFIED` from repository-only review.
+
+## Security Findings
+
+| ID | Area | Severity | Status | Evidence | Risk | Recommendation | Follow-up |
+|----|------|----------|--------|----------|------|----------------|-----------|
+| AUTH-001 | Google Login | Critical | `FAIL` | `backend/app/auth/google.py` verifies the Google token but does not enforce `email_verified`; `find_or_create_google_user()` looks up existing users by `email`; `backend/tests/test_google_auth.py` explicitly accepts an existing user with matching email and no `google_sub`. | A Google identity with the same email can be accepted for an existing account without an explicit linking policy. This is an account-takeover class risk if unverified or mismatched provider email states are possible. | Require `email_verified is True`; prefer lookup by `google_sub`; only link by email through an explicit, tested account-linking policy. | Yes - P0 |
+| AUTH-002 | Google Login | High | `FAIL` | Google user lookup/insert failures raise `HTTPException` details containing `supabase_error`, `repr(exc)`, and hints in `backend/app/auth/google.py`. | Public API clients can receive internal database/provider implementation details, contrary to ISSUE-091 safe error response requirements. | Return a generic client error body and keep detailed provider/database diagnostics in redacted server logs only. | Yes - P1 |
+| AUTH-003 | Password Login | High | `FAIL` | No rate limiting or lockout logic was found on `POST /auth/login`. | Credential stuffing and brute-force attempts can be attempted without repository-level throttling. | Add rate limiting or abuse controls for login attempts, with safe logging and no username/password leakage. | Yes - P1 |
+| AUTH-004 | Registration | High | `FAIL` | No rate limiting was found on `POST /auth/register`, `/auth/check-username`, or `/auth/check-email`. | Automated signup abuse and account enumeration can be performed at high volume. | Add rate limits and abuse monitoring for registration and availability checks; consider making enumeration responses less useful where product allows. | Yes - P1 |
+| AUTH-005 | JWT | High | `FAIL` | `JWT_EXPIRE_MINUTES` defaults to `10080` in `backend/app/core/config.py`; there is no token revocation list or backend logout endpoint. | Stolen tokens can remain usable for up to seven days by default. Logout cannot invalidate an already issued JWT. | Define session lifetime policy, shorten access token lifetime or add revocation/refresh-token design, and document logout semantics. | Yes - P1 |
+| AUTH-006 | Logout | High | `FAIL` | `frontend/src/api/client.js` sends `access_token || authToken || token`; `frontend/src/App.jsx` logout removes `access_token` and current user fields but does not remove legacy `authToken` or `token`. | A stale legacy token can continue to be sent after logout if present in localStorage. | Centralize auth storage cleanup and remove every token key accepted by the API client. | Yes - P1 |
+| AUTH-007 | JWT/User Status | High | `FAIL` | `backend/app/auth/dependencies.py` caches user records including `role` and `status` for `AUTH_USER_CACHE_TTL_SECONDS`, default `300`. | Ban, suspension, or role changes may not take effect immediately in a running backend process. | Reduce TTL for security-sensitive fields, bypass cache for admin/restricted checks, or add explicit invalidation. | Yes - P1 |
+| AUTH-008 | Authorization Composition | High | `FAIL` | `require_admin()` depends on `get_current_user()` and checks only `role == "admin"`; it does not call `require_active_user()`. | A banned or suspended admin account can still satisfy admin-only authorization if its role remains `admin`. | Compose admin checks with active-user checks or explicitly document and test the intended restricted-admin behavior. | Yes - P1 |
+| AUTH-009 | Frontend Token Storage | Medium | `NOT VERIFIED` | `saveAuthSession()` stores JWT and user identity fields in `localStorage`. | Any XSS issue can expose the bearer token and persisted user PII. | Review long-term session storage design and frontend XSS controls; avoid storing more user data than needed. | Yes - P2 |
+| AUTH-010 | JWT Claims | Medium | `FAIL` | `create_access_token()` includes `email` in the JWT payload. | JWT payloads are client-readable and may be logged or copied accidentally; email is unnecessary if backend uses `sub` for lookup. | Minimize JWT claims to required identifiers and expiry metadata unless there is a documented need. | Yes - P2 |
+| AUTH-011 | Registration Race Handling | Medium | `FAIL` | App checks username/email/phone uniqueness before insert; DB schema also has uniqueness constraints. No explicit duplicate insert race handling was found. | Concurrent registrations can race between pre-check and insert, likely surfacing a generic database error instead of a clean conflict response. | Preserve DB constraints and add tested conflict handling for insert-time unique violations. | Yes - P2 |
+| AUTH-012 | Password Policy | Medium | `NOT VERIFIED` | `RegisterRequest` enforces password length 8 to 128. No approved password-strength policy, breached-password check, or manual risk acceptance was found. | Weak but length-valid passwords may be allowed depending on the intended policy. | Decide MVP password policy, then add strength/abuse checks if required. | Yes - P2 |
+| AUTH-013 | Registration PII | Medium | `NOT VERIFIED` | Registration requires `phone_number`; schema stores it in `users.phone_number`; user response includes phone number. | Phone numbers are sensitive and increase privacy impact. | Confirm product need, retention policy, exposure scope, and redaction rules. | Yes - P2 |
+| AUTH-014 | Availability Endpoints | Medium | `FAIL` | `/auth/check-username` and `/auth/check-email` are unauthenticated and return availability booleans. | These endpoints enable account enumeration unless intentionally accepted and protected by rate limits. | Rate limit and monitor availability checks; review whether email availability should be exposed before registration submit. | Yes - P2 |
+| AUTH-015 | Password Hashing | Low | `PASS` | `backend/app/auth/passwords.py` uses bcrypt `hashpw` with generated salt; `test_register_creates_manual_user_and_returns_token` verifies stored hash differs from plaintext. | Residual risk depends on password policy and secret handling, not hashing implementation. | Keep bcrypt or equivalent adaptive hashing; document work factor review as part of future security review. | No immediate fix |
+| AUTH-016 | Password Login Error Safety | Low | `PASS` | `login()` returns generic `Invalid username or password`; `test_login_rejects_wrong_password` verifies username/password are absent from captured logs. | Residual brute-force risk remains due missing rate limiting. | Keep generic responses; add rate limiting separately. | No immediate fix |
+| AUTH-017 | JWT Verification | Low | `PASS` | `decode_access_token()` verifies signature and expiration using configured `JWT_SECRET` and algorithm. | Production `JWT_SECRET` strength and rotation are external configuration items and remain not verified. | Keep server-side verification; audit production secret strength and rotation procedure. | Yes - P2 for env audit |
+| AUTH-018 | Google OAuth Configuration | Medium | `NOT VERIFIED` | Code uses configured `GOOGLE_CLIENT_ID`, but production Google Cloud Console settings and frontend `VITE_GOOGLE_CLIENT_ID` were not externally verified. | Wrong OAuth client configuration can break login or admit unintended clients. | Verify OAuth client IDs, allowed origins, redirect/source configuration, and environment separation outside the repo. | Yes - P1/P2 |
+| AUTH-019 | Logout UX/API Semantics | Medium | `FAIL` | No backend logout endpoint or token invalidation mechanism was found; logout is localStorage cleanup only. | Users may assume logout invalidates sessions everywhere, but existing tokens remain valid until expiry. | Document current behavior in product copy or implement server-side invalidation/short-lived tokens in a follow-up. | Yes - P2 |
+| AUTH-020 | Auth Tests Coverage | Medium | `FAIL` | Existing focused tests cover Google login creation/reuse and manual registration/login basics. No tests were found for expired/invalid JWT route behavior, logout cleanup of all accepted token keys, restricted admin auth composition, or rate limiting. | Future auth regressions may not be caught. | Add regression tests for missing high-risk auth controls after fixes are implemented. | Yes - P1/P2 |
+
+## Area Review
+
+### Google Login
+
+Current behavior:
+
+- Frontend sends a Google ID token to `POST /auth/google`.
+- Backend verifies the token with `google.oauth2.id_token.verify_oauth2_token(..., settings.google_client_id)`.
+- Backend requires `email` and `sub`.
+- Existing users are looked up by `email`; if found, that account is returned.
+- New Google users are inserted with `google_sub`, `email`, and `name`.
+- Existing tests confirm Google login can succeed for an existing user with matching email and no `google_sub`.
+
+Assessment:
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Google token verification happens server-side | `PASS` | `verify_google_token()` uses Google's verification library and configured audience. |
+| Google token `email_verified` is required | `FAIL` | No `email_verified` check was found. |
+| Existing Google account lookup is bound to provider subject | `FAIL` | Existing users are looked up by email only. |
+| OAuth client configuration is production-correct | `NOT VERIFIED` | Requires Google Cloud/Railway/Vercel environment review. |
+| Google login errors are safe for clients | `FAIL` | Some database errors include Supabase internals in response details. |
+
+Required follow-up:
+
+1. Add explicit `email_verified` enforcement.
+2. Define and test account-linking behavior for existing password users.
+3. Replace internal Google/Supabase error details in client responses with generic errors.
+
+### Password Login
+
+Current behavior:
+
+- `POST /auth/login` accepts username and password.
+- Username is normalized to lowercase.
+- Password verification uses bcrypt.
+- Invalid username/password returns a generic `AUTH_INVALID` response.
+- Existing tests confirm successful login and wrong-password rejection.
+- Existing tests assert login logs do not contain the username or plaintext password.
+
+Assessment:
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Passwords are not stored in plaintext | `PASS` | `hash_password()` uses bcrypt; tests verify stored hash differs from password. |
+| Invalid login response avoids account enumeration | `PASS` | Generic invalid username/password response. |
+| Login credentials are excluded from auth logs | `PASS` | Existing `caplog` tests verify password and email are absent. |
+| Rate limiting or lockout exists | `FAIL` | No rate limiting or lockout found in auth endpoint code. |
+| Production brute-force monitoring exists | `NOT VERIFIED` | Requires logging/monitoring configuration review. |
+
+Required follow-up:
+
+1. Add authentication rate limiting or abuse controls.
+2. Add tests for brute-force/rate-limit behavior after implementation.
+
+### JWT and Session Verification
+
+Current behavior:
+
+- Login/register/Google login return a bearer JWT.
+- JWT payload includes `sub`, `email`, `iat`, and `exp`.
+- JWT default lifetime is `10080` minutes.
+- Backend protected dependencies verify token signature and expiration before loading user by `sub`.
+- User records are cached in process for `AUTH_USER_CACHE_TTL_SECONDS`, default `300`.
+
+Assessment:
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Backend verifies JWT signature and expiration | `PASS` | `decode_access_token()` uses configured secret and algorithm. |
+| Missing/invalid token handling exists | `PASS` | `get_current_user()` returns structured auth errors for missing/invalid tokens. |
+| JWT lifetime is least-privilege | `FAIL` | Default lifetime is seven days and no revocation exists. |
+| JWT claim minimization | `FAIL` | Email is included in token payload. |
+| User status/role changes take effect immediately | `FAIL` | Current user cache can keep status/role for up to default 300 seconds. |
+| JWT secret strength and rotation | `NOT VERIFIED` | Requires environment/secrets review outside the repo. |
+
+Required follow-up:
+
+1. Define approved token lifetime and refresh/revocation strategy.
+2. Remove unnecessary JWT PII claims if not needed.
+3. Ensure restricted users and role changes are enforced without unacceptable cache delay.
+
+### Logout
+
+Current behavior:
+
+- Logout removes selected localStorage keys and clears React state.
+- There is no backend logout endpoint.
+- API client still falls back to legacy `authToken` and `token` keys.
+- `AdminRoute` unauthorized cleanup removes fewer keys than `App` logout and does not remove `currentUsername`.
+
+Assessment:
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Logout clears current primary token | `PASS` | `App.jsx` removes `access_token`. |
+| Logout clears every token key accepted by API client | `FAIL` | `authToken` and `token` are accepted by `client.js` but not cleared by logout. |
+| Logout invalidates issued JWT server-side | `FAIL` | No backend invalidation/revocation mechanism exists. |
+| Logout/session cleanup behavior is documented to users | `NOT VERIFIED` | No user-facing or product behavior note was found in this audit. |
+
+Required follow-up:
+
+1. Centralize session cleanup.
+2. Remove all accepted token keys on logout and unauthorized cleanup.
+3. Decide whether stateless logout is acceptable or whether server-side revocation is required.
+
+### Registration
+
+Current behavior:
+
+- `POST /auth/register` requires full name, username, email, phone number, password, and password confirmation.
+- Username and email are normalized.
+- Password minimum length is 8.
+- Password mismatch returns a validation error.
+- Duplicate username/email/phone are pre-checked and return conflict errors.
+- Database schema also has uniqueness protections for email, username, google_sub, and phone number.
+
+Assessment:
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Basic validation exists | `PASS` | Pydantic schema enforces required fields, lengths, username format, and simple email shape. |
+| Password confirmation is enforced | `PASS` | `register()` rejects mismatched passwords; test coverage exists. |
+| Password is hashed before storage | `PASS` | `hash_password()` is used before insert. |
+| Uniqueness is protected at database level | `PASS` | Schema/migration contains unique constraints/indexes. |
+| Registration abuse protection exists | `FAIL` | No rate limiting or signup abuse controls found. |
+| Concurrent duplicate insert is handled cleanly | `FAIL` | DB uniqueness exists; app-level insert race conflict handling was not found. |
+| Email/phone verification exists | `NOT VERIFIED` | No verification flow was found in reviewed auth code. |
+
+Required follow-up:
+
+1. Add rate limiting and abuse protection for registration and availability checks.
+2. Handle insert-time unique violations cleanly.
+3. Decide whether email and/or phone verification is required before trusted account use.
+
+## P0/P1 Follow-Up Backlog
+
+| Priority | Follow-up Issue | Reason |
+|----------|-----------------|--------|
+| P0 | Harden Google account linking and require verified Google email | AUTH-001 is an account-takeover class risk. |
+| P1 | Add auth endpoint rate limiting and abuse controls | Login/register/check endpoints are exposed without repo-level throttling. |
+| P1 | Fix logout/session cleanup for every accepted token key | API client accepts keys that logout does not clear. |
+| P1 | Define JWT lifetime, revocation, and logout policy | Default seven-day stateless tokens increase stolen-token impact. |
+| P1 | Sanitize Google auth database error responses | Internal Supabase diagnostics are returned to clients. |
+| P1 | Compose admin authorization with active-user restrictions | Restricted admin accounts can still pass `require_admin()` if role remains admin. |
+| P1 | Review auth cache behavior for bans, suspensions, and role changes | Default 300-second cache can delay security-sensitive changes. |
+| P1 | Verify production auth environment configuration | `JWT_SECRET`, `GOOGLE_CLIENT_ID`, CORS, and OAuth provider settings are not verifiable from repo alone. |
+
+## Tests Executed
+
+| Command | Result |
+|---------|--------|
+| `python -m pytest backend\tests\test_google_auth.py backend\tests\test_manual_auth.py -q` | Failed before test execution because system Python did not have `pytest`. |
+| `.\.venv\Scripts\python.exe -m pytest backend\tests\test_google_auth.py backend\tests\test_manual_auth.py -q` | Failed during collection from repo root because `app` was not on the import path. |
+| `..\.venv\Scripts\python.exe -m pytest tests\test_google_auth.py tests\test_manual_auth.py -q` from `backend/` | Passed: `10 passed`, with dependency deprecation warnings. |
+
+## Manual Verification Still Required
+
+The following cannot be proven from repository inspection alone:
+
+1. Production `JWT_SECRET` strength and rotation history.
+2. Production/staging `GOOGLE_CLIENT_ID` correctness and Google OAuth allowed origins.
+3. Production CORS restrictions.
+4. Railway/Vercel/Supabase environment separation.
+5. Whether logs in production contain any raw tokens, credentials, or PII beyond test coverage.
+6. Whether browser logout is tested against legacy localStorage keys from older deployments.
+7. Whether account takeover is possible with a real unverified provider email in the deployed Google OAuth configuration.
+
+## Final Recommendation
+
+Authentication should not be considered fully production-ready until the P0/P1 follow-up backlog is resolved or explicitly risk-accepted. The most urgent work is to harden Google account linking, add abuse controls to auth endpoints, fix logout cleanup for all accepted token keys, and define a stricter session lifetime/revocation policy.
+
+## Acceptance Criteria
+
+The authentication security audit report exists in `docs/product-decisions.md`.
+
+## Definition of Done
+
+Every finding from this repository-based audit is documented with:
+
+- area
+- severity
+- status
+- evidence
+- risk
+- recommendation
+- follow-up decision
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-092 authentication security audit report. |
+
