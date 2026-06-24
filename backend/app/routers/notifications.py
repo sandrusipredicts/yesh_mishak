@@ -937,15 +937,29 @@ def get_notifications(current_user: dict[str, Any] = Depends(require_active_user
 @router.get("/unread-count")
 def get_unread_notification_count(current_user: dict[str, Any] = Depends(require_active_user)):
     authenticated_user_id = str(current_user["id"])
-    response = (
-        get_supabase_service_role_client()
-        .table("notifications")
-        .select("*")
-        .eq("user_id", authenticated_user_id)
-        .execute()
-    )
-    unread = [row for row in (response.data or []) if _is_notification_unread(row)]
-    return {"unread_count": len(unread)}
+    client = get_supabase_service_role_client()
+
+    try:
+        response = (
+            client.table("notifications")
+            .select("*", count="exact", head=True)
+            .eq("user_id", authenticated_user_id)
+            .is_("read_at", "null")
+            .execute()
+        )
+    except APIError as error:
+        if not _is_missing_column_error(error, "notifications.read_at"):
+            raise
+
+        response = (
+            client.table("notifications")
+            .select("*", count="exact", head=True)
+            .eq("user_id", authenticated_user_id)
+            .eq("is_read", False)
+            .execute()
+        )
+
+    return {"unread_count": response.count or 0}
 
 
 @router.post("/push-token")

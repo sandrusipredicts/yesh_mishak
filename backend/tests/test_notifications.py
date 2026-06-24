@@ -41,9 +41,18 @@ class FakeQuery:
         self.insert_payload: dict[str, Any] | list[dict[str, Any]] | None = None
         self.update_payload: dict[str, Any] | None = None
         self.delete_requested = False
+        self.exact_count = False
+        self.head_requested = False
 
-    def select(self, columns: str = "*", count: str | None = None) -> "FakeQuery":
+    def select(
+        self,
+        columns: str = "*",
+        count: str | None = None,
+        head: bool | None = None,
+    ) -> "FakeQuery":
         self.selected_columns = [column.strip() for column in columns.split(",")]
+        self.exact_count = count == "exact"
+        self.head_requested = bool(head)
         return self
 
     def eq(self, column: str, value: Any) -> "FakeQuery":
@@ -52,6 +61,7 @@ class FakeQuery:
         return self
 
     def is_(self, column: str, value: Any) -> "FakeQuery":
+        self.database.raise_if_missing_column(self.table_name, column)
         if value == "null":
             self.filters.append((column, None))
         else:
@@ -117,7 +127,21 @@ class FakeQuery:
             ]
             return FakeResponse([])
 
-        return FakeResponse([self._select(row) for row in rows])
+        self.database.queries.append(
+            {
+                "table": self.table_name,
+                "selected_columns": self.selected_columns,
+                "exact_count": self.exact_count,
+                "head": self.head_requested,
+                "filters": list(self.filters),
+                "in_filters": list(self.in_filters),
+            }
+        )
+        count = len(rows) if self.exact_count else None
+        if self.head_requested:
+            return FakeResponse([], count=count)
+
+        return FakeResponse([self._select(row) for row in rows], count=count)
 
     def _filtered_rows(self) -> list[dict[str, Any]]:
         rows = self.database.tables.setdefault(self.table_name, [])
@@ -150,6 +174,7 @@ class FakeSupabase:
         self.tables = tables
         self.counters: dict[str, int] = {}
         self.missing_columns = missing_columns or {}
+        self.queries: list[dict[str, Any]] = []
 
     def table(self, table_name: str) -> FakeQuery:
         self.tables.setdefault(table_name, [])
@@ -505,13 +530,24 @@ def test_unread_count_uses_service_role_client_for_existing_notifications(
 
 def test_unread_count_supports_legacy_is_read_schema(
     fake_supabase: FakeSupabase,
+    monkeypatch,
     users: dict[str, dict[str, Any]],
 ) -> None:
-    fake_supabase.tables["notifications"] = [
-        {"id": "own-unread", "user_id": users["candidate"]["id"], "is_read": False},
-        {"id": "own-read", "user_id": users["candidate"]["id"], "is_read": True},
-        {"id": "other-unread", "user_id": users["other"]["id"], "is_read": False},
-    ]
+    service_supabase = FakeSupabase(
+        {
+            "notifications": [
+                {"id": "own-unread", "user_id": users["candidate"]["id"], "is_read": False},
+                {"id": "own-read", "user_id": users["candidate"]["id"], "is_read": True},
+                {"id": "other-unread", "user_id": users["other"]["id"], "is_read": False},
+            ]
+        },
+        missing_columns={"notifications": {"read_at"}},
+    )
+    fake_supabase.tables["notifications"] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: service_supabase,
+    )
 
     response = TestClient(app).get(
         "/notifications/unread-count",
@@ -2483,6 +2519,86 @@ def test_failed_join_does_not_create_player_joined_notification(
         assert err["code"] == "GAME_NOT_FOUND"
     assert err["message"] == expected_detail
     assert player_joined_notifications(fake_supabase) == []
+
+
+def test_unread_notification_count_uses_database_count_and_filters_unread_for_current_user(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-1",
+            "user_id": users["organizer"]["id"],
+            "type": "player_joined_game",
+            "title": "Unread",
+            "body": "Unread",
+            "read_at": None,
+        },
+        {
+            "id": "notification-2",
+            "user_id": users["organizer"]["id"],
+            "type": "game_closed",
+            "title": "Read",
+            "body": "Read",
+            "read_at": "2026-01-01T00:00:00+00:00",
+        },
+        {
+            "id": "notification-3",
+            "user_id": users["organizer"]["id"],
+            "type": "game_extended",
+            "title": "Unread 2",
+            "body": "Unread 2",
+            "read_at": None,
+        },
+        {
+            "id": "notification-4",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Someone else's unread",
+            "body": "Someone else's unread",
+            "read_at": None,
+        },
+    ]
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 2}
+    count_query = fake_supabase.queries[-1]
+    assert count_query["table"] == "notifications"
+    assert count_query["exact_count"] is True
+    assert count_query["head"] is True
+    assert count_query["filters"] == [
+        ("user_id", users["organizer"]["id"]),
+        ("read_at", None),
+    ]
+
+
+def test_unread_notification_count_returns_zero_for_empty_result(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    fake_supabase.tables["notifications"] = [
+        {
+            "id": "notification-1",
+            "user_id": users["candidate"]["id"],
+            "type": "game_created",
+            "title": "Other user",
+            "body": "Other user",
+            "read_at": None,
+        }
+    ]
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 0}
 
 
 def test_join_game_increases_organizer_unread_notification_count(
