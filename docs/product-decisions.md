@@ -6422,6 +6422,503 @@ Required manual checks:
 * `frontend/docs/performance-audit-checklist.md`
 * `docs/product-decisions.md`
 
+# ISSUE-085: Notification System Load Test Plan
+
+## Status
+
+Approved.
+
+## Type
+
+Documentation / load-test planning. No application behavior, backend code, frontend code, migrations, or dependencies were changed.
+
+## Repository Review Scope
+
+This plan is grounded in the current repository implementation:
+
+| Area reviewed | Repository evidence |
+| --- | --- |
+| Notification endpoints | `backend/app/routers/notifications.py`: inbox, unread count, read/read-all, preferences, push-token, test-push, candidates, cleanup helper |
+| Notification creation flows | `create_game_created_notifications`, `create_player_joined_game_notification`, `create_game_closed_notifications`, `create_game_extended_notifications`, `create_scheduled_game_cancelled_notifications`, `generate_scheduled_game_reminders` |
+| Game/admin trigger paths | `backend/app/routers/games.py`, `backend/app/api/admin.py` |
+| Notification preferences | `notification_preferences` schema and `PUT /notifications/preferences`; types: `radius`, `city`, `specific_field` |
+| Push notification logic | `backend/app/services/firebase_push.py`, `_send_push_to_tokens`, `_send_push_for_notifications`, `push_tokens` migration |
+| Database schema/indexes | `backend/schema.sql`, `backend/migrations/in_app_notifications.sql`, `backend/migrations/push_notifications.sql`, `backend/migrations/issue_079_missing_indexes.sql` |
+| Existing tests | `backend/tests/test_notifications.py`, `backend/tests/test_notification_stress.py`, `backend/tests/test_notification_cleanup.py`, `backend/tests/test_notification_templates.py` |
+| Prior plans/results | ISSUE-037 stress test plan, ISSUE-038 stress execution, `docs/notification-stress-test-results.md` |
+
+## Current System Limits
+
+Be honest about the current MVP architecture before running load:
+
+* `GET /notifications` returns all notifications for a user. There is no pagination yet.
+* `GET /notifications/unread-count` currently fetches notification rows and counts unread in application code.
+* `create_game_created_notifications()` loads all enabled notification preferences and filters in Python, including Haversine distance calculations for radius preferences.
+* Push fanout is synchronous inside notification helper execution and loops token-by-token.
+* Existing stress tests use FakeSupabase and mocked push delivery. They validate logic, not real database latency, connection pool behavior, FCM latency, or true concurrency.
+* Protected duplicate prevention exists for `game_created`, `game_closed`, `game_extended` with same end time, and `scheduled_game_reminder`. `scheduled_game_cancelled` has a known dedup gap from ISSUE-030/038.
+* Existing indexes support common read/dedup paths, including `idx_notifications_user_id_created_at`, `idx_notifications_user_unread`, `idx_notifications_type_game_id`, and push-token indexes.
+
+## Load Tiers
+
+Use three separate load tiers. Do not jump directly to breakpoint load.
+
+| Tier | Purpose | Users | Preferences | Notifications | Push tokens | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Current MVP load | Safe starting baseline | 50 active users | 50-150 preference rows | 100-1,000 existing notifications total | 0-100 tokens | Should run first on every staging test. |
+| Near-term growth load | Plausible early growth | 250-500 active users | 500-1,500 preference rows | 5,000-25,000 notifications total | 250-1,500 tokens | Main acceptance tier for MVP readiness. |
+| Stress / breakpoint load | Find limits, not an SLA | 1,000-2,000 active users | 2,000-6,000 preference rows | 50,000-200,000 notifications total | 2,000-10,000 tokens | Stop when p95/error/DB limits are exceeded. |
+
+Do not present breakpoint results as production capacity. Use them only to identify bottlenecks and follow-up work.
+
+## Systems To Load Test
+
+| System path | Why it matters | Endpoints/functions |
+| --- | --- | --- |
+| Preference matching | Determines game-created recipient fanout and runs Python filtering over enabled preferences. | `POST /games`, `_find_notification_candidates`, `POST /notifications/candidates` |
+| Notification row fanout | Core write path for in-app notifications. | `create_game_created_notifications`, player joined, close, extend, cancel, scheduled reminder helpers |
+| Inbox reads | User-visible notification list; currently unpaginated. | `GET /notifications` |
+| Unread count polling | Runs frequently while users are active. | `GET /notifications/unread-count` |
+| Read state updates | Common user actions and badge correctness. | `PATCH /notifications/{notification_id}/read`, `PATCH /notifications/read-all` |
+| Push token management | Multi-device registration/deletion and push fanout inputs. | `POST /notifications/push-token`, `DELETE /notifications/push-token` |
+| Push delivery fanout | External-service path with invalid token cleanup and failure handling. | `_send_push_for_notifications`, `_send_push_to_tokens`, FCM |
+| Scheduled reminders | Admin/cron-style batch path that can create many notifications. | `POST /admin/reminders/scheduled-games/run`, `generate_scheduled_game_reminders` |
+| Cleanup | Retention job over growing notification table. | `POST /admin/notifications/cleanup`, `cleanup_old_notifications` |
+| Duplicate prevention | Correctness under retries/concurrency. | Dedup queries and unique indexes on `notifications` |
+
+## Recommended Tooling
+
+| Tool | Use |
+| --- | --- |
+| k6 | Preferred HTTP load generator for repeatable staged load, thresholds, and reports. |
+| Locust | Good alternative when scenario logic needs Python and dynamic user flows. |
+| pytest stress suite | Keep using `backend/tests/test_notification_stress.py` for fast application-logic regression before real load. |
+| Supabase dashboard / query logs | Required for database latency, index usage, connection pool, and slow query review. |
+| Backend logs | Required for job execution time, push failures, API errors, and duplicate/failure context. |
+| Test Firebase project or push mock | Required for push-token fanout. Never target real user devices. |
+
+No new tool is added by this issue. Future engineers should choose k6 or Locust when executing the plan.
+
+## Metrics and Targets
+
+Targets are MVP guardrails, not proven production scale.
+
+| Metric | Current MVP target | Near-term target | Stress/breakpoint rule |
+| --- | --- | --- | --- |
+| API p95 latency for `GET /notifications/unread-count` | < 500ms | < 750ms | Stop if sustained p95 > 2s. |
+| API p95 latency for `GET /notifications` with <= 500 rows | < 1s | < 1.5s | Stop if sustained p95 > 5s or payload causes client instability. |
+| API p95 latency for `POST /games` with notification fanout <= 100 recipients | < 3s | < 5s | Stop if sustained p95 > 30s. |
+| Scheduled reminder job | 100 games x 10 players in < 60s | 500 games x 10 players in < 120s | Stop if job exceeds 5 minutes or repeatedly fails. |
+| Notification cleanup | 10k old + 10k recent in < 60s | 100k old + 100k recent in < 120s | Stop if lock/CPU/connection pressure appears. |
+| Max acceptable HTTP 5xx rate | 0% for MVP | < 0.5% | Stop if > 1% sustained. |
+| Max acceptable overall error rate | < 1%, excluding expected 4xx validation/auth checks | < 1% | Stop if > 5% sustained. |
+| Duplicate notification rate for protected types | 0 duplicates | 0 duplicates | Any duplicate is a failure. |
+| Known `scheduled_game_cancelled` duplicate rate | Record actual | Record actual | Expected gap; do not fail the run solely for this, but open/confirm follow-up. |
+| Database query timing expectation | p95 query < 250ms on indexed notification reads | p95 query < 500ms | Investigate any repeated query > 1s. |
+| Push failure behavior | In-app rows still created | In-app rows still created | Any push failure blocking row creation is a failure. |
+
+## Stepped Load Increase Plan
+
+Run each tier in order. Proceed only if success criteria pass and database health is stable.
+
+| Step | Duration | Load |
+| --- | --- | --- |
+| 0. Logic smoke | One pytest run | `cd backend && python -m pytest tests/test_notification_stress.py -v -s` |
+| 1. MVP warm-up | 5 minutes | 10 active users, 1 game creation/min, unread polling every 20s/user |
+| 2. MVP baseline | 15 minutes | 50 active users, 5 game creations/min, 20 inbox reads/min, 150 unread polls/min |
+| 3. Near-term read load | 15 minutes | 250 active users, unread polling every 20s/user, 50 inbox reads/min |
+| 4. Near-term write load | 15 minutes | 20 game creations/min, 50-100 recipients/game, 10 join notifications/min |
+| 5. Reminder batch | Single run | 100 games x 10 participants, then 500 games x 10 participants if stable |
+| 6. Stress ramp | 5-minute increments | Increase active users and fanout by 25% per step until a stop condition appears |
+
+Stop conditions:
+
+* p95 exceeds stress rule for 2 consecutive intervals.
+* 5xx rate exceeds 1% for 2 consecutive intervals.
+* Database connection pool exceeds 70% for more than 5 minutes.
+* Duplicate notifications appear for protected types.
+* Push delivery failures block in-app notification creation.
+
+## Test Scenarios
+
+### Scenario 1: Many Users With City-Based Preferences
+
+Goal: test exact city matching and fanout from `game_created`.
+
+Setup:
+
+* Seed 50, then 500, then 2,000 users.
+* Give each user an enabled `city` preference for the same city as the test field.
+* Vary `sport_type`: 50% `both`, 25% `football`, 25% `basketball`.
+
+Execution:
+
+1. Create a game at the matching field through `POST /games`.
+2. Record `POST /games` p95, notification rows created, duplicate count, and DB query timing.
+3. Query recipients' unread counts.
+
+Pass criteria:
+
+* Expected recipients get exactly one `game_created` notification.
+* Organizer is excluded.
+* Protected duplicate rate is 0.
+* MVP p95 target passes at MVP load.
+
+### Scenario 2: Many Users With Distance-Based Preferences
+
+Goal: test Python-side Haversine filtering and preference scan cost.
+
+Setup:
+
+* Seed users with `radius` preferences around the field.
+* Use three buckets: inside radius, outside radius, missing/invalid coordinates.
+* Use 50, 500, and 2,000 preference rows.
+
+Execution:
+
+1. Create a game at the target field.
+2. Measure candidate matching time indirectly through `POST /games` p95 and database query logs.
+3. Confirm only inside-radius users receive notifications.
+
+Pass criteria:
+
+* No outside-radius user receives a notification.
+* Invalid coordinate rows do not crash notification generation.
+* p95 stays within tier target.
+
+### Scenario 3: Many Users With Specific-Field Preferences
+
+Goal: test specific-field matching and fanout for exact field subscriptions.
+
+Setup:
+
+* Seed users with `specific_field` preferences across 1 target field and 10 non-target fields.
+* Use 50, 500, and 2,000 total preference rows.
+
+Execution:
+
+1. Create a game at the target field.
+2. Verify only target-field preference users receive notifications.
+3. Repeat creation for non-target fields to confirm no accidental fanout.
+
+Pass criteria:
+
+* One row per matching user.
+* Zero rows for nonmatching specific-field users.
+* Duplicate rate is 0.
+
+### Scenario 4: Game Creation Triggering Candidate Matching
+
+Goal: test mixed preference types under realistic load.
+
+Setup:
+
+* Mix preferences: 40% city, 40% radius, 20% specific field.
+* Use 100 recipients/game at MVP, 500 recipients/game near-term, and 1,000+ recipients/game for breakpoint.
+
+Execution:
+
+1. Run `POST /games` at 1/min, 5/min, 20/min, then stress ramp.
+2. Record p95, p99, errors, row counts, and duplicate rows.
+
+Pass criteria:
+
+* `POST /games` succeeds and creates correct rows.
+* p95 is within target for the tier.
+* No protected duplicate rows.
+
+### Scenario 5: Organizer Receiving Player-Joined Notifications
+
+Goal: test high join activity and organizer notification correctness.
+
+Setup:
+
+* Create games with organizers.
+* Seed candidate users.
+
+Execution:
+
+1. Send concurrent `POST /games/{game_id}/join` requests.
+2. Vary join rate: 10/min, 50/min, 100/min.
+3. Read organizer inbox and unread count.
+
+Pass criteria:
+
+* Organizer receives one `player_joined_game` notification per successful join.
+* Failed joins do not create notifications.
+* Organizer unread count matches successful joins.
+
+### Scenario 6: Scheduled Game Reminders
+
+Goal: test batch reminder generation and idempotency.
+
+Setup:
+
+* Seed games in the one-hour reminder window.
+* Add 10 participants per game.
+* Use 100 games, then 500 games, then breakpoint.
+
+Execution:
+
+1. Run `POST /admin/reminders/scheduled-games/run`.
+2. Record execution time, processed/skipped/failed IDs, notifications created.
+3. Run it a second time immediately.
+
+Pass criteria:
+
+* First run creates expected rows.
+* Second run creates 0 new reminders.
+* `scheduled_reminder_processed_at` is set.
+* Job finish log includes `execution_time_ms`.
+
+### Scenario 7: Notification Inbox Reads
+
+Goal: test unpaginated inbox behavior and payload growth.
+
+Setup:
+
+* Seed one user and then many users with 100, 500, 1,000 notifications each.
+
+Execution:
+
+1. Run `GET /notifications` concurrently at 20/min, 100/min, and 500/min.
+2. Track payload size, p95, p99, and client/network errors.
+
+Pass criteria:
+
+* User sees only their own rows.
+* p95 stays within tier target.
+* Payload size is recorded for each row count.
+
+### Scenario 8: Unread-Count Polling
+
+Goal: test active-session polling load.
+
+Setup:
+
+* Seed 50, 250, 500 active users.
+* Give each user 10-1,000 notifications with mixed read states.
+
+Execution:
+
+1. Simulate frontend polling: `GET /notifications/unread-count` every 20 seconds per active user.
+2. Run for 15 minutes per tier.
+
+Pass criteria:
+
+* Counts are correct for sampled users.
+* p95 stays within target.
+* Database query timings stay below expectations.
+
+### Scenario 9: Push Token Fanout
+
+Goal: test token lookup, FCM behavior, invalid-token cleanup, and nonblocking push failure.
+
+Setup:
+
+* Use a test Firebase project or mock push provider.
+* Seed 1, 3, and 5 tokens per user.
+* Use invalid-token ratios of 0%, 20%, and 50%.
+
+Execution:
+
+1. Trigger `game_created` and `scheduled_game_reminder` notifications.
+2. Record push attempts, successful sends, invalid-token removals, and in-app rows.
+
+Pass criteria:
+
+* In-app notification rows are created even when push fails.
+* Invalid tokens are removed.
+* Push tokens are never logged or included in reports.
+* Valid token sends are not duplicated for the same notification.
+
+### Scenario 10: Duplicate Prevention Under Retry/Concurrency
+
+Goal: verify correctness under retry storms and simultaneous actions.
+
+Setup:
+
+* Seed games with 10-100 participants.
+* Use concurrent requests and repeated function/API calls.
+
+Execution:
+
+1. Fire repeated `POST /games` attempts for the same field/time where allowed by business rules.
+2. Fire repeated close/extend/admin-close/admin-extend requests.
+3. Fire scheduled reminder job twice concurrently if the test tool supports synchronized starts.
+4. Record duplicate rows grouped by `(user_id, type, game_id)` and, for game extended, `(user_id, type, game_id, data->>'new_end_time')`.
+
+Pass criteria:
+
+* Protected notification types produce 0 duplicates.
+* Any `scheduled_game_cancelled` duplicates are recorded as the known gap and attached to the follow-up issue.
+
+## Database Load Assumptions
+
+Expected query/load hotspots:
+
+* `notification_preferences`: full enabled preference scan for candidate matching. There is no selective index on `enabled` because most rows are expected enabled.
+* `notifications`: insert fanout in batches/list inserts, dedup queries by `type` + `game_id`, inbox reads by `user_id` + `created_at`, unread reads by `user_id` where `read_at is null`.
+* `push_tokens`: lookup by recipient `user_id`, delete by `user_id` + `token`, unique token registration.
+* `games` / `game_players`: scheduled reminders scan active games and then query participants per game.
+
+Database metrics to collect:
+
+* Slow query log entries for notification preference scans.
+* p95 query duration for notification reads and dedup checks.
+* Connection pool usage.
+* Row locks/deadlocks.
+* Insert/update/delete counts on `notifications`, `notification_preferences`, and `push_tokens`.
+* Table/index size before and after each scenario.
+
+## API Endpoints Involved
+
+| Endpoint | Scenario coverage |
+| --- | --- |
+| `POST /games/` | Game creation fanout, city/radius/specific-field matching |
+| `POST /games/{game_id}/join` | Player-joined organizer notification |
+| `POST /games/{game_id}/close` | Close notification and duplicate prevention |
+| `POST /games/{game_id}/extend` | Extend notification and duplicate prevention |
+| `POST /admin/games/{game_id}/close` | Admin close duplicate/concurrency path |
+| `POST /admin/games/{game_id}/extend` | Admin extend duplicate/concurrency path |
+| `GET /notifications` | Inbox reads |
+| `GET /notifications/unread-count` | Polling and badge correctness |
+| `PATCH /notifications/{notification_id}/read` | Single read update |
+| `PATCH /notifications/read-all` | Bulk read update |
+| `GET /notifications/preferences` | Preference read baseline |
+| `PUT /notifications/preferences` | Preference write/update load |
+| `POST /notifications/push-token` | Push token registration/update |
+| `DELETE /notifications/push-token` | Push token removal |
+| `POST /notifications/test-push` | Test push error behavior only; do not include in high-volume push fanout |
+| `POST /admin/reminders/scheduled-games/run` | Scheduled reminders |
+| `POST /admin/notifications/cleanup` | Retention cleanup |
+
+## Push Notification Considerations
+
+* Do not send load-test pushes to real user devices.
+* Use a test Firebase project, mocked FCM endpoint, or disable real push delivery for most scenarios.
+* If using real FCM test tokens, keep volume low enough to avoid provider throttling and accidental abuse.
+* Record FCM status categories, not raw provider responses or tokens.
+* Verify invalid token cleanup with synthetic invalid tokens.
+* Treat FCM latency separately from in-app notification row creation. A slow FCM provider should not hide database fanout problems.
+
+## What Should Not Be Tested Yet
+
+Do not include these in ISSUE-085 execution:
+
+* Production load tests.
+* Real user accounts or real device push tokens.
+* Real production Firebase push delivery.
+* Frontend rendering performance of large inboxes; use ISSUE-083/084 frontend performance workflow for that.
+* Schema/index changes during the run.
+* RLS policy changes during the run.
+* Alerting/monitoring implementation.
+* Notification analytics dashboard implementation.
+* Admin table pagination.
+* Offline queue/retry behavior beyond duplicate-prevention retry scenarios.
+
+## Step-by-Step Execution Plan
+
+1. Run the existing logic stress suite locally:
+
+   ```powershell
+   cd backend
+   python -m pytest tests/test_notification_stress.py -v -s
+   ```
+
+2. Provision a staging database with production-equivalent schema and indexes.
+3. Confirm migrations include notification indexes and push-token indexes.
+4. Configure backend staging environment and disable production push delivery.
+5. Choose k6 or Locust and commit load scripts in a future implementation issue.
+6. Seed synthetic users, fields, games, preferences, notifications, and push tokens using a manifest file.
+7. Run Step 1 MVP warm-up.
+8. Run each scenario independently, resetting or recording state between scenarios.
+9. After each scenario, collect API p50/p95/p99, HTTP error rate, DB query timing, duplicate counts, row counts, and push-token cleanup counts.
+10. Stop immediately if a stop condition appears.
+11. Run duplicate detection queries for protected event types.
+12. Verify sampled unread counts and inbox isolation.
+13. Run cleanup for synthetic data in dependency order: notifications, game_players, push_tokens, notification_preferences, games, fields, users.
+14. Verify no synthetic IDs remain.
+15. Write a load-test report with actual measured values and follow-up recommendations.
+
+## Required Verification Queries
+
+Protected duplicate check:
+
+```sql
+select user_id, type, game_id, count(*) as duplicate_count
+from notifications
+where type in ('game_created', 'game_closed', 'scheduled_game_reminder')
+  and game_id is not null
+group by user_id, type, game_id
+having count(*) > 1;
+```
+
+Game-extended duplicate check:
+
+```sql
+select user_id, type, game_id, data ->> 'new_end_time' as new_end_time, count(*) as duplicate_count
+from notifications
+where type = 'game_extended'
+  and game_id is not null
+group by user_id, type, game_id, data ->> 'new_end_time'
+having count(*) > 1;
+```
+
+Unread sample check:
+
+```sql
+select user_id, count(*) as unread_count
+from notifications
+where read_at is null
+  and user_id = any(:sample_user_ids)
+group by user_id;
+```
+
+Synthetic cleanup verification:
+
+```sql
+select 'notifications' as table_name, count(*) from notifications where user_id = any(:synthetic_user_ids)
+union all
+select 'notification_preferences', count(*) from notification_preferences where user_id = any(:synthetic_user_ids)
+union all
+select 'push_tokens', count(*) from push_tokens where user_id = any(:synthetic_user_ids)
+union all
+select 'games', count(*) from games where id = any(:synthetic_game_ids)
+union all
+select 'fields', count(*) from fields where id = any(:synthetic_field_ids)
+union all
+select 'users', count(*) from users where id = any(:synthetic_user_ids);
+```
+
+## Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Load test accidentally sends real pushes | Use synthetic users only and a test Firebase project or mocked FCM. |
+| Test data remains in staging | Use manifest-based cleanup and verification queries. |
+| Full preference scan becomes the bottleneck | Record query timing and Python processing time; follow up with indexed/geospatial matching design if needed. |
+| Unpaginated inbox becomes slow | Record payload size and p95; follow up with server-side pagination if > 500-row users are common. |
+| FCM latency dominates write paths | Separate in-app row timing from push timing; consider async push worker in a future issue. |
+| Duplicate race not reproduced | Use synchronized concurrent starts and repeat the race scenario multiple times. |
+| FakeSupabase results are mistaken for real capacity | Treat ISSUE-038 as logic validation only; real capacity requires staging DB load. |
+
+## Future Improvements
+
+Open follow-up implementation issues for:
+
+1. k6 or Locust load-test script with seed/cleanup helpers.
+2. Staging seed script that creates synthetic users/preferences/games/push tokens from a manifest.
+3. Server-side pagination for `GET /notifications` if real load shows large inbox latency or payload size.
+4. Optimized unread-count query that uses count semantics instead of fetching all rows, if staging p95 exceeds target.
+5. Async/background push delivery if synchronous FCM fanout slows game creation.
+6. Dedup protection for `scheduled_game_cancelled`.
+7. Candidate matching optimization if preference scans become slow at near-term load.
+
+## Files Changed
+
+* `docs/product-decisions.md`
+
 # ISSUE-068: Sensitive Data Logging Review
 
 ## Status
@@ -11920,4 +12417,90 @@ To validate the inferred risks with actual measurements:
 |------|--------|
 | `frontend/docs/performance-audit-checklist.md` | New manual performance audit checklist |
 | `docs/product-decisions.md` | This section |
+
+# ISSUE-086: Optimize Unread Notification Count Query
+
+## Status
+
+Implemented.
+
+## Scope
+
+This issue reviewed `GET /notifications/unread-count` and optimized only the unread-count calculation. It did not change notification creation, push delivery, notification preferences, authorization behavior, API response format, caching, or database schema.
+
+## Findings
+
+The endpoint previously queried all notification rows for the authenticated user with:
+
+- `select("*")`
+- `eq("user_id", authenticated_user_id)`
+
+It then filtered the returned rows in Python with `_is_notification_unread()` and returned `len(unread)`. That preserved behavior, but it loaded every notification row for the user even though the endpoint only needs a count. This was especially inefficient because unread-count polling is called frequently.
+
+The schema already supports the optimized path:
+
+- `notifications.read_at` is the canonical read marker.
+- `idx_notifications_user_unread` exists on `notifications(user_id) where read_at is null`.
+
+## Decision
+
+Use PostgREST/Supabase database-side count semantics for unread-count:
+
+- Query `notifications` for the authenticated user only.
+- Filter unread rows in the database with `read_at is null`.
+- Request an exact count with `head=True` so notification rows are not returned to Python.
+- Return the same response shape: `{ "unread_count": number }`.
+
+The endpoint keeps the existing legacy fallback for environments that still lack the canonical `read_at` column:
+
+- If the database reports that `notifications.read_at` is missing, fallback to counting rows where `is_read = false`.
+- No fallback is used for current schema rows where `read_at` exists.
+
+## Before / After Query Behavior
+
+| Behavior | Before ISSUE-086 | After ISSUE-086 |
+|----------|------------------|-----------------|
+| Rows returned to backend | All notifications for the user | No notification rows |
+| Count location | Python application code | Database/PostgREST exact count |
+| Unread filter | Python `_is_notification_unread()` | SQL/PostgREST `read_at is null` |
+| User authorization filter | `user_id = authenticated_user_id` | Unchanged |
+| API response | `{ "unread_count": n }` | Unchanged |
+| Index support | Could not fully benefit from unread partial index because all user rows were fetched | Uses `idx_notifications_user_unread` shape directly |
+
+## Tests Added / Updated
+
+Notification tests now prove:
+
+- unread count is correct for the current user
+- read notifications are excluded
+- other users' notifications are excluded
+- empty results return zero
+- the endpoint uses exact count + head semantics in the Supabase query test double
+- legacy `is_read` fallback still works when `read_at` is missing
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/app/routers/notifications.py` | Replaced row fetch + Python filtering in `get_unread_notification_count` with database-side exact count. |
+| `backend/tests/test_notifications.py` | Added count-query support to the fake Supabase client and expanded unread-count test coverage. |
+| `docs/product-decisions.md` | Documented ISSUE-086 implementation and conceptual impact. |
+
+## Validation
+
+Command run:
+
+```bash
+cd backend
+../.venv/Scripts/python.exe -m pytest tests/test_notifications.py -q
+```
+
+Result:
+
+- `89 passed`
+- Warnings were deprecation warnings from existing dependencies/test stack.
+
+## Manual Validation
+
+No manual validation is required for the repository change. A staging smoke check can call `GET /notifications/unread-count` before and after marking notifications read to confirm the response shape remains unchanged.
 
