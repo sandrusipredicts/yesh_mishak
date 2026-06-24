@@ -8775,4 +8775,233 @@ Create an official performance baseline report for future comparison.
 - [benchmark_endpoints.py](file:///c:/Users/orel1/yesh_mishak/backend/scripts/benchmark_endpoints.py) — Updated to include all requested endpoints with repeatable stats and database reset capability.
 - [baseline.spec.js](file:///c:/Users/orel1/yesh_mishak/frontend/tests/performance/baseline.spec.js) [NEW] — Playwright test script to automate repeatable frontend measurements.
 
+# ISSUE-074: Production API Response Times
+
+## Status
+
+Approved.
+
+## Type
+
+Production measurement / documentation.
+
+## Goal
+
+Measure real production API response times for central endpoints and document the results. Unlike ISSUE-073 (which used FakeSupabase and TestClient with zero network latency), this issue measures the deployed backend over the public internet with a real Supabase database.
+
+## Policy References
+
+* ISSUE-069: Production Monitoring Requirements — defines response time metrics M-04/M-05/M-06 and thresholds.
+* ISSUE-070: Implement Production Monitoring — implements `GET /admin/monitoring` endpoint.
+* ISSUE-073: Performance Baseline Report — local baseline measurements using FakeSupabase/TestClient.
+
+## Environment Description
+
+| Parameter | Value |
+| --- | --- |
+| Backend URL | `https://yeshmishak-production.up.railway.app` |
+| Backend hosting | Railway |
+| Database | Supabase (managed PostgreSQL) |
+| Measurement client location | Local machine (Windows 11, residential internet) |
+| HTTP library | httpx 0.27.2 |
+| Measurement script | `backend/scripts/measure_production_api.py` |
+| Measurement timestamp | 2026-06-24T15:00 UTC |
+| Runs per endpoint | 20 |
+| Connection | HTTPS, persistent connection (httpx session) |
+| Auth tokens provided | No (public endpoints only in this run) |
+
+## Measurement Methodology
+
+### Script
+
+`backend/scripts/measure_production_api.py` — a standalone Python script that:
+
+1. Accepts `PROD_API_BASE_URL` (required), `PROD_USER_JWT`, and `PROD_ADMIN_JWT` from environment variables.
+2. Makes real HTTPS requests to each endpoint using httpx (or requests as fallback).
+3. Runs each endpoint the specified number of times (default 20).
+4. Collects min, max, average, median, p95, standard deviation, and HTTP status distribution.
+5. Skips authenticated endpoints when the corresponding JWT is not provided.
+6. Never prints or logs token values.
+
+### How to run
+
+```powershell
+cd backend
+$env:PROD_API_BASE_URL = "https://yeshmishak-production.up.railway.app"
+# Optional — provide JWTs for authenticated endpoints:
+# $env:PROD_USER_JWT = "..."
+# $env:PROD_ADMIN_JWT = "..."
+.venv\Scripts\python.exe -m scripts.measure_production_api
+.venv\Scripts\python.exe -m scripts.measure_production_api --runs 30
+.venv\Scripts\python.exe -m scripts.measure_production_api --json
+```
+
+### Endpoints not measured automatically
+
+| Endpoint | Reason |
+| --- | --- |
+| `POST /auth/login` | Requires real user credentials. Risk of unintended side effects (last_login update, potential rate limiting). |
+| `POST /auth/google` | Requires a valid Google ID token that cannot be generated without Google OAuth flow. |
+| `POST /games/` | Creates real game data in the production database. Unsafe for automated repeated runs. |
+
+These endpoints can be measured manually using curl (see Manual Measurement Methods below).
+
+---
+
+## Production API Response Time Results
+
+### Public Endpoints (No Authentication)
+
+| Endpoint | Runs | Min (ms) | Avg (ms) | Median (ms) | P95 (ms) | Max (ms) | Errors | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `GET /` | 20 | 222 | 263 | 247 | 361 | 419 | 0 | 200 (20/20) |
+| `GET /fields` | 20 | 3,976 | 4,211 | 4,107 | 4,181 | 6,370 | 0 | 200 (20/20) |
+| `GET /games/active` | 20 | 390 | 416 | 415 | 440 | 450 | 0 | 200 (20/20) |
+| `GET /games/upcoming` | 20 | 386 | 408 | 398 | 444 | 461 | 0 | 200 (20/20) |
+
+### Authenticated Endpoints
+
+Not measured in this run. Requires `PROD_USER_JWT` and `PROD_ADMIN_JWT` environment variables. The script will measure these endpoints when tokens are provided:
+
+| Endpoint | Auth level | Expected behavior |
+| --- | --- | --- |
+| `GET /notifications/` | user | Returns user's notifications |
+| `GET /notifications/unread-count` | user | Returns unread count integer |
+| `GET /notifications/preferences` | user | Returns notification preferences |
+| `GET /admin/stats` | admin | Returns admin statistics |
+| `GET /admin/monitoring` | admin | Returns monitoring metrics (ISSUE-070) |
+
+---
+
+## Comparison with ISSUE-073 Local Baseline
+
+| Endpoint | ISSUE-073 Local (FakeSupabase) | ISSUE-074 Production | Ratio | Notes |
+| --- | --- | --- | --- | --- |
+| `GET /` | N/A (not measured) | 263 ms avg | — | Health check; includes TLS handshake overhead on first request. |
+| `GET /fields` | 14.8 ms avg | 4,211 ms avg | **284x** | Local used 50 in-memory fields. Production queries real Supabase with pagination. This is the most significant finding. |
+| `GET /games/active` | 7.8 ms avg | 416 ms avg | **53x** | Expected: real DB query + network latency + expired-game filtering. |
+| `POST /auth/login` | 273 ms avg (bcrypt) | Not measured | — | Bcrypt CPU cost dominates local; production adds network + DB lookup on top. |
+| `POST /games/` | 9.2 ms avg | Not measured | — | Unsafe for automated production runs. |
+
+---
+
+## Analysis
+
+### GET /fields — Critical Performance Issue
+
+**Average: 4,211 ms. This exceeds the ISSUE-073 recommended threshold of 250 ms by 16x and the ISSUE-069 warning threshold of 500 ms by 8x.**
+
+Root cause analysis based on code review (`backend/app/routers/fields.py:78-110`):
+
+1. **Pagination loop**: `GET /fields` fetches ALL approved, verified, open fields from Supabase using a pagination loop (`while True` with `FIELDS_PAGE_SIZE` batches). Each batch is a separate PostgREST HTTP request.
+2. **Game payload fan-out**: After fetching all fields, `get_game_payloads_for_fields()` is called for all field IDs, which makes additional Supabase queries.
+3. **No spatial filtering**: The endpoint returns every open field regardless of the client's viewport. The frontend calls this on every map load.
+4. **Supabase PostgREST overhead**: Each Supabase query is an HTTP request from Railway to Supabase, adding ~100-200ms round-trip per query.
+
+This is the single most impactful performance issue for user experience — every time a user opens the app, they wait 4+ seconds for the map to populate.
+
+### GET /games/active and GET /games/upcoming — Acceptable
+
+**Average: ~410 ms.** These are within the ISSUE-069 warning threshold of 500ms for p50. The latency is dominated by network round-trip to Supabase (~200ms) plus the expired-game filtering logic. Acceptable for current traffic.
+
+### GET / — Acceptable
+
+**Average: 263 ms.** Health check with no DB queries. Latency is TLS + network + Railway cold-start (if applicable). Within normal range for a managed hosting provider.
+
+---
+
+## Limitations
+
+| Limitation | Impact |
+| --- | --- |
+| **Client location bias** | Measurements were taken from a single client location (residential internet). Users in different geographies will see different latencies. |
+| **No authenticated endpoints** | User and admin endpoints were not measured because production JWTs were not provided to the script. |
+| **No write endpoints** | `POST /games/`, `POST /auth/login`, and `POST /auth/google` were not measured to avoid creating real data or side effects. |
+| **Railway cold start** | Railway may sleep idle containers. The first request may be slower. The 20-run measurement amortizes this but the first-request latency is not isolated. |
+| **Time of day** | Measurements taken at a single point in time. Supabase and Railway performance may vary with load. |
+| **Single run session** | One measurement session of 20 runs. Ideally, measurements should be repeated at different times of day. |
+| **No concurrent load** | Requests were sequential. Production performance under concurrent load was not measured. |
+
+---
+
+## Manual Measurement Methods
+
+For endpoints that cannot be safely automated, use these curl commands for single-request measurements:
+
+### POST /auth/login
+
+```powershell
+# Replace with real test account credentials
+Measure-Command {
+    curl -s -o NUL -w "%{http_code} %{time_total}s" `
+        -X POST "https://yeshmishak-production.up.railway.app/auth/login" `
+        -H "Content-Type: application/json" `
+        -d '{"username":"testuser","password":"testpassword"}'
+}
+```
+
+### Authenticated endpoints with an existing JWT
+
+```powershell
+# After obtaining a JWT from login, measure authenticated endpoints:
+$token = "..."  # paste JWT here, do not commit
+curl -s -o NUL -w "%{http_code} %{time_total}s" `
+    -H "Authorization: Bearer $token" `
+    "https://yeshmishak-production.up.railway.app/notifications/"
+```
+
+### Admin endpoints
+
+```powershell
+$adminToken = "..."  # paste admin JWT here, do not commit
+curl -s -o NUL -w "%{http_code} %{time_total}s" `
+    -H "Authorization: Bearer $adminToken" `
+    "https://yeshmishak-production.up.railway.app/admin/monitoring"
+```
+
+---
+
+## Recommended Actions
+
+### Immediate (P1): GET /fields Performance
+
+The 4.2-second average for `GET /fields` is a user-facing performance problem that should be addressed before scaling:
+
+1. **Add spatial bounding-box filtering** — the frontend knows the user's viewport. Send bounds as query parameters and filter server-side. This eliminates fetching fields outside the visible area.
+2. **Reduce pagination round-trips** — increase `FIELDS_PAGE_SIZE` or switch to a single query with `LIMIT` if the field count is manageable.
+3. **Consider caching** — fields change infrequently. A short TTL cache (30-60 seconds) would eliminate repeated Supabase round-trips for the same data.
+
+### Monitor (P2): Authenticated Endpoints
+
+Re-run this measurement with `PROD_USER_JWT` and `PROD_ADMIN_JWT` to establish baselines for:
+- Notification endpoints (user experience during inbox load)
+- Admin monitoring endpoint (operational tooling performance)
+
+### Establish Regular Measurement Cadence
+
+Run `measure_production_api.py` weekly (or after each deployment) to detect performance regressions. Compare results against the thresholds in ISSUE-069:
+- Warning: p50 > 500ms
+- Critical: p50 > 2000ms
+
+---
+
+## Files Changed
+
+New:
+
+* `backend/scripts/measure_production_api.py` — production API measurement script. Accepts base URL and optional JWTs from environment variables. Never prints tokens.
+
+Documentation:
+
+* `docs/product-decisions.md` — added ISSUE-074 production API response time report.
+
+## Follow-up Issues Recommended
+
+1. **GET /fields performance optimization** — 4.2s average is unacceptable. Implement spatial filtering and reduce Supabase round-trips. This is the highest-priority performance issue.
+2. **Authenticated endpoint measurement** — re-run with user/admin JWTs to complete the baseline.
+3. **Measurement automation** — integrate `measure_production_api.py` into a post-deployment verification step.
+4. **Load testing** — measure performance under concurrent requests to identify concurrency bottlenecks.
+5. **Railway cold-start measurement** — isolate first-request latency from steady-state latency.
+
+
 
