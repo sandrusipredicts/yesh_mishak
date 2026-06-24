@@ -5485,3 +5485,48 @@ No frontend runtime behavior, backend runtime behavior, API contracts, service w
 
 Approved.
 
+---
+
+# ISSUE-064 — Implement Retry Handling
+
+## Type
+
+Frontend resilience implementation.
+
+## Dependency
+
+Implements the approved policy in [retry-strategy.md](./retry-strategy.md).
+
+## Decision
+
+Implemented a narrow shared retry helper for safe frontend read requests only:
+
+`frontend/src/api/retry.js`
+
+The helper:
+
+* Accepts an async operation.
+* Attempts safe reads up to 3 total times.
+* Uses bounded backoff of 500ms and 1500ms with small jitter.
+* Retries transient network/no-response errors, timeouts, and `5xx` responses.
+* Retries `429` only when a parseable `Retry-After` header is present.
+* Stops retrying when the browser reports offline.
+* Stops immediately for non-retryable statuses such as `400`, `401`, `403`, `404`, and `409`.
+
+Auto-retry was applied only to:
+
+* `GET /fields/`
+* `GET /fields/{id}`
+* `GET /games/active/`
+* `GET /games/upcoming/`
+
+Manual/no-retry behavior was preserved for auth, game writes, field creation, field reports, admin actions, notification writes, push operations, backend health, MyGames, admin list/stat loads, notification preferences/list loads, and unread-count polling.
+
+## Scope
+
+No backend code, database code, API contracts, service worker/PWA behavior, offline cache, offline queue, retry library, or global axios retry interceptor was added.
+
+## Status
+
+Implemented.
+

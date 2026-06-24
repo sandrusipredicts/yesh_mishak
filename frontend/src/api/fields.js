@@ -1,4 +1,5 @@
 import { api } from './client'
+import { retrySafeRead } from './retry'
 
 const pendingFieldRequests = new Map()
 
@@ -24,10 +25,11 @@ export async function getFields(bounds) {
     return pendingRequest
   }
 
-  const request = api
-    .get('/fields/', {
+  const request = retrySafeRead(() =>
+    api.get('/fields/', {
       params: bounds,
-    })
+    }),
+  )
     .then((response) => response.data)
     .finally(() => {
       pendingFieldRequests.delete(requestKey)
@@ -38,7 +40,7 @@ export async function getFields(bounds) {
 }
 
 export async function getFieldById(fieldId) {
-  const response = await api.get(`/fields/${fieldId}`)
+  const response = await retrySafeRead(() => api.get(`/fields/${fieldId}`))
   return response.data
 }
 
