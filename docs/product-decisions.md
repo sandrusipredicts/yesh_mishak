@@ -6498,3 +6498,458 @@ This issue is documentation-only. No code changes are required.
 
 No backend runtime, frontend runtime, database, migration, endpoint, or logging behavior changes were made.
 
+# ISSUE-069: Production Monitoring Requirements
+
+## Status
+
+Approved.
+
+## Type
+
+Specification / product decision.
+
+## Goal
+
+Define production monitoring requirements for the Yesh Mishak application. This document establishes what to monitor, how to measure it, when to alert, and in what order to implement monitoring capabilities.
+
+This is documentation only. No code, endpoints, metrics middleware, dashboards, alerting systems, database migrations, or runtime behavior changes are implemented by this issue.
+
+## Policy References
+
+* ISSUE-065: Application Logging Policy — defines structured log events, severity matrix, and sensitive-data rules.
+* ISSUE-066: Backend Logging Audit — inventories existing logging and gaps.
+* ISSUE-067: Implement Missing Backend Logs — adds structured log events for auth, games, field reports, notifications, scheduled jobs, and field moderation.
+* ISSUE-068: Sensitive Data Logging Review — confirms no sensitive data appears in logs after ISSUE-067.
+* ISSUE-036: Notification Analytics Requirements — defines approved notification metrics derivable from existing data.
+* ISSUE-038: Notification Stress Test Plan — defines performance baselines and infrastructure metrics.
+* ISSUE-054: Production Support Handbook — defines operational procedures and escalation paths.
+* ISSUE-063: Retry Strategy Specification — defines which failures are transient vs permanent.
+
+## Architecture Context
+
+| Component | Technology | Hosting |
+| --- | --- | --- |
+| Backend API | Python / FastAPI | Hosting provider TBD (no Dockerfile or platform config found in repo) |
+| Frontend | React / Vite | Vercel (`frontend/vercel.json` present) |
+| Database | PostgreSQL | Supabase (managed) |
+| Push notifications | Firebase Cloud Messaging (FCM) | Google Cloud (via service account) |
+| Authentication | JWT (local) + Google OAuth | Backend-issued JWTs; Google ID token verification |
+
+---
+
+## 1. Monitoring Scope
+
+### In scope
+
+* Backend API reliability, performance, and error rates.
+* Game lifecycle health (creation, join, close, cancel).
+* User activity signals (logins, active users).
+* Notification delivery health (generation, push delivery, scheduled jobs).
+* Field and field report submission health.
+* Admin and moderation activity.
+* Database availability and query health.
+* Security and abuse signals.
+* Infrastructure and deployment health.
+
+### Out of scope
+
+* Frontend performance profiling (bundle size, render times, Lighthouse scores).
+* Mobile-specific telemetry (app crash rates, ANR rates).
+* Full APM tracing (distributed traces, span-level instrumentation).
+* Cost monitoring (Supabase billing, Vercel usage, FCM quotas).
+* User behavior analytics (funnels, retention, engagement).
+
+---
+
+## 2. Metric Catalog
+
+### 2.1 API Health — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-01 | `api.error_rate.5xx` | reliability | Unhandled backend failures affect all users. | Backend logs (`logger.exception` in `main.py`), hosting provider metrics | % of requests | 5 min rolling | < 0.5% | > 1% sustained 5 min | > 5% sustained 5 min | Check backend logs for exception patterns. Verify Supabase connectivity. Check recent deployments. | Phase 2 |
+| M-02 | `api.error_rate.4xx` | reliability | Elevated 4xx may indicate broken clients, API contract drift, or abuse. | Hosting provider access logs | % of requests | 15 min rolling | < 10% | > 20% sustained 15 min | > 40% sustained 15 min | Check for deployment-related contract breakage. Filter out expected 401/404. | Phase 2 |
+| M-03 | `api.availability` | reliability | Users cannot use the app if the API is unreachable. | Hosting provider uptime check or external ping | % uptime | 1 hour rolling | > 99.5% | < 99.5% over 1 hour | < 99% over 1 hour | Verify hosting provider status. Check deployment health. Restart if needed. | Phase 2 |
+
+### 2.2 Backend Performance
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-04 | `api.response_time.p50` | performance | Baseline user experience. | Future metrics middleware or hosting provider | ms | 5 min rolling | < 200ms | > 500ms sustained 5 min | > 2000ms sustained 5 min | Check database query latency. Check hosting provider resource limits. | Phase 2 |
+| M-05 | `api.response_time.p95` | performance | Tail latency affects perceived reliability. | Future metrics middleware or hosting provider | ms | 5 min rolling | < 500ms | > 1000ms sustained 5 min | > 5000ms sustained 5 min | Same as M-04. Investigate slow endpoints. | Phase 2 |
+| M-06 | `api.response_time.p99` | performance | Worst-case user experience. | Future metrics middleware or hosting provider | ms | 5 min rolling | < 1000ms | > 3000ms sustained 5 min | > 10000ms sustained 5 min | Check for long-running queries, large fan-out notifications, or resource contention. | Phase 3 |
+
+### 2.3 Authentication — Security / Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-07 | `auth.login.success.count` | product | Tracks active usage and login health. | Backend logs: `auth.login.success` event | count | 1 hour | Proportional to active users | Sudden drop > 50% from baseline | Near zero for > 30 min during expected active hours | Verify Google OAuth config. Verify Supabase is reachable. Check JWT secret config. | Phase 1 (manual log review) |
+| M-08 | `auth.login.failure.count` | security | Elevated failures may indicate credential stuffing, broken OAuth, or misconfiguration. | Backend logs: `auth.login.failure` event | count | 15 min rolling | Low relative to success count | > 10x normal failure rate sustained 15 min | > 50x normal failure rate sustained 15 min | Check if failures are password or Google. If Google: verify `GOOGLE_CLIENT_ID`. If password: check for brute-force patterns. | Phase 1 (manual log review) |
+| M-09 | `auth.login.failure.rate` | security | Failure percentage normalizes against traffic. | Backend logs: `auth.login.failure` / (`auth.login.success` + `auth.login.failure`) | % | 15 min rolling | < 5% | > 15% sustained 15 min | > 50% sustained 15 min | Same as M-08. | Phase 2 |
+
+### 2.4 Game Activity — Product / Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-10 | `games.active.count` | product | Core product health indicator. Zero active games means the product is not being used or game creation is broken. | Database query: `SELECT COUNT(*) FROM games WHERE status IN ('open','full')` | count | 1 hour snapshot | Varies by time of day and user base | Sustained zero during expected active hours | N/A (product metric, not outage) | Check if game creation is failing (M-11). Check user login health (M-07). | Phase 1 (manual DB query) |
+| M-11 | `games.create.success.count` | product | Tracks game creation volume. A drop indicates a product or backend issue. | Backend logs: `games.create.success` event | count | 1 hour | Varies by time of day | Sudden drop > 50% from baseline | Zero for > 2 hours during active hours | Check field availability. Check backend error logs. | Phase 1 (manual log review) |
+| M-12 | `games.create.failure.count` | reliability | Game creation failures directly impact users. | Backend logs: HTTP 500 on `POST /games/` (from `main.py` generic handler) | count | 1 hour | 0 | > 3 in 1 hour | > 10 in 1 hour | Check Supabase connectivity. Review error logs. | Phase 2 |
+| M-13 | `games.close.failure.count` | reliability | Game close persistence failure is a data consistency risk. | Backend logs: `games.close.failure` event | count | 1 hour | 0 | > 1 in 1 hour | > 3 in 1 hour | Run game data integrity audit script. Check Supabase write health. | Phase 2 |
+| M-14 | `games.join.failure.count` | reliability | Join failures frustrate users trying to play. | Backend error responses on `POST /games/{id}/join` (4xx with `GAME_FULL`, `CONFLICT`, `FIELD_NOT_OPEN`) | count | 1 hour | Low (depends on game capacity) | Spike > 5x normal | N/A (mostly expected business-rule denials) | Distinguish business-rule denials from 5xx errors. Business-rule denials are expected. | Phase 2 |
+
+### 2.5 User Activity — Product
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-15 | `users.active.daily` | product | Core business metric. Indicates product health and adoption. | Database query: `SELECT COUNT(*) FROM users WHERE last_login >= NOW() - INTERVAL '24 hours'` or `last_active` column | count | 24 hour snapshot | Varies by growth stage | Sudden drop > 50% from previous week | N/A (product metric) | Check login health (M-07). Check API availability (M-03). | Phase 1 (manual DB query) |
+| M-16 | `users.registered.total` | business | Growth tracking. | Database query: `SELECT COUNT(*) FROM users` | count | Daily snapshot | Monotonically increasing | N/A | N/A | Informational only. | Phase 1 (manual DB query) |
+
+### 2.6 Field Submissions — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-17 | `fields.create.failure.count` | reliability | Field submission failures silently lose user contributions. | Backend error responses on `POST /fields` (5xx); currently no structured log for this (ISSUE-066 LOG-AUDIT-007 gap). | count | 1 hour | 0 | > 1 in 1 hour | > 5 in 1 hour | Check Supabase write health. Review field validation logic. | Phase 2 |
+| M-18 | `field_reports.create.failure.count` | reliability | Report submission failures prevent users from flagging problems. | Backend logs: `field_reports.create.failure` event | count | 1 hour | 0 | > 1 in 1 hour | > 5 in 1 hour | Check Supabase write health. | Phase 2 |
+
+### 2.7 Field Moderation Volume — Product
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-19 | `fields.moderation.pending.count` | product | Unmoderated fields degrade user trust and content quality. | Database query: `SELECT COUNT(*) FROM fields WHERE approval_status = 'pending'` | count | Daily snapshot | < 20 pending | > 50 pending for > 3 days | > 100 pending for > 7 days | Assign admin review. Check if moderation workflow is blocked. | Phase 1 (manual DB query) |
+| M-20 | `fields.moderation.decisions.count` | product | Tracks admin review throughput. | Backend logs: `fields.moderation.approve` and `fields.moderation.reject` events | count | Daily | Proportional to submission volume | N/A | N/A | Informational. Compare to pending count. | Phase 1 (manual log review) |
+
+### 2.8 Notification Health — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-21 | `notifications.generate.failure.count` | reliability | Notification generation failures mean users miss important game updates. | Backend logs: `notifications.generate.failure` event | count | 1 hour | 0 | > 3 in 1 hour | > 10 in 1 hour | Check Supabase connectivity. Review exception types in logs. | Phase 2 |
+| M-22 | `notifications.push.failure.count` | reliability | Push delivery failures mean users do not receive real-time alerts. | Backend logs: `notifications.push.failure` event | count | 1 hour | Low relative to push attempts | > 20% failure rate | > 50% failure rate | Check Firebase credentials. Check FCM service status. Review `error_code` in logs. | Phase 2 |
+| M-23 | `notifications.push.invalid_token.count` | reliability | High invalid-token rates indicate stale device registrations. | Backend logs: `notifications.push.failure` with `error_code=INVALID_PUSH_TOKEN` | count | 1 hour | Low | Spike > 5x normal | N/A (self-healing via token cleanup) | Monitor trend. High sustained rate suggests token registration bug. | Phase 3 |
+| M-24 | `notifications.created.count` | product | Volume indicator for notification system health. References ISSUE-036 metric definition. | Database query: `SELECT COUNT(*) FROM notifications WHERE created_at >= NOW() - INTERVAL '1 hour'` | count | 1 hour | Proportional to game activity | Sudden drop > 80% from baseline during active hours | Zero for > 2 hours during active hours | Check notification generation failures (M-21). Check game creation (M-11). | Phase 1 (manual DB query) |
+
+### 2.9 Scheduled Jobs — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-25 | `jobs.scheduled_game_reminders.success` | reliability | Failed reminder jobs mean users miss upcoming game notifications. | Backend logs: `jobs.scheduled_game_reminders.finish` event with `result=success` | boolean per run | Per execution | Success | `result=partial_failure` (some games failed) | `jobs.scheduled_game_reminders.failure` event (fatal) | Check `failed_count` in job finish log. Review item-level failures. Run manually if needed. | Phase 1 (manual log review after each run) |
+| M-26 | `jobs.notification_cleanup.success` | reliability | Failed cleanup lets the notifications table grow unbounded. | Backend logs: `jobs.notification_cleanup.finish` event | boolean per run | Per execution | Success with `deleted_count` > 0 when old rows exist | Fatal failure event | N/A (cleanup is not user-facing urgency) | Check Supabase connectivity. Run manually. | Phase 1 (manual log review after each run) |
+| M-27 | `jobs.scheduled_game_reminders.execution_time_ms` | performance | Reminder job performance degrades as game volume grows. | Backend logs: `execution_time_ms` field on job finish event | ms | Per execution | < 60000ms per ISSUE-038 baseline | > 120000ms | > 300000ms | Investigate slow queries. Check game volume. | Phase 2 |
+
+### 2.10 Database / Supabase — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-28 | `database.availability` | reliability | All backend operations depend on Supabase. | Supabase dashboard status page; backend error logs with `error_code=DATABASE_ERROR` | boolean / % | 5 min | Available | Intermittent errors > 3 in 5 min | Sustained unavailability > 2 min | Check Supabase status page. Check Supabase project quotas. Contact Supabase support if needed. | Phase 1 (manual Supabase dashboard check) |
+| M-29 | `database.error.count` | reliability | Tracks Supabase/PostgREST error volume. | Backend logs: events with `error_code=DATABASE_ERROR` | count | 15 min rolling | 0 | > 5 in 15 min | > 20 in 15 min | Check Supabase dashboard. Review which endpoints are failing. | Phase 2 |
+| M-30 | `database.connection_pool` | performance | Connection exhaustion causes cascading failures. | Supabase dashboard or `pg_stat_activity` query | active connections | 5 min snapshot | < 50% of pool limit | > 70% of pool limit | > 90% of pool limit | Review long-running queries. Check for connection leaks. | Phase 2 |
+
+### 2.11 Frontend / Deployment Health — Reliability
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-31 | `frontend.availability` | reliability | Users cannot access the app if the frontend is down. | Vercel dashboard or external uptime check | % uptime | 1 hour | > 99.9% | < 99.9% over 1 hour | < 99% over 1 hour | Check Vercel deployment status. Check DNS. | Phase 1 (manual Vercel dashboard check) |
+| M-32 | `deployment.backend.health` | reliability | Backend deployment failures block all API traffic. | Hosting provider dashboard; `GET /` health check endpoint returns `{"status": "ok"}` | boolean | 5 min | Healthy | Health check fails once | Health check fails > 3 consecutive times | Check hosting provider logs. Re-deploy if needed. | Phase 1 (manual health check) |
+| M-33 | `deployment.frontend.status` | reliability | Tracks Vercel deployment success. | Vercel dashboard deployment history | success/failure per deploy | Per deployment | Success | Build failure | N/A | Review Vercel build logs. Fix build errors. | Phase 1 (manual Vercel dashboard check) |
+
+### 2.12 Admin Actions — Product / Security
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-34 | `admin.moderation.actions.count` | product | Tracks admin activity volume. Absence may indicate unmaintained moderation queue. | Backend logs: `fields.moderation.approve`, `fields.moderation.reject` events; `user_moderation_audit` table | count | Daily | Proportional to content volume | Zero admin actions for > 7 days when pending queue > 0 | N/A | Check if admin users are active. Review pending queue. | Phase 1 (manual log/DB review) |
+| M-35 | `admin.user_moderation.count` | security | Ban/suspend actions indicate abuse response. | Database query: `SELECT COUNT(*) FROM user_moderation_audit WHERE created_at >= NOW() - INTERVAL '7 days'` | count | Weekly | Low | N/A | N/A | Informational. Correlate with abuse signals. | Phase 1 (manual DB query) |
+
+### 2.13 Abuse / Security Signals — Security
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-36 | `auth.login.failure.burst` | security | Sudden burst of login failures from password auth may indicate brute-force attempt. | Backend logs: `auth.login.failure` with `auth_method=password` | count per 5 min | 5 min | < 5 | > 20 in 5 min | > 100 in 5 min | Review source patterns. Consider rate limiting. Ban if confirmed abuse. | Phase 2 |
+| M-37 | `content.moderation.rejection.rate` | security | High rejection rate indicates content quality or abuse issues. | Backend logs: `fields.moderation.reject` / total moderation decisions | % | Weekly | < 30% | > 50% sustained | > 80% sustained | Review rejected content patterns. Check moderation rules. | Phase 3 |
+| M-38 | `auth.restricted_access.count` | security | Banned/suspended users attempting to access the system. | Backend error responses: `ACCOUNT_RESTRICTED` error code on 403 responses | count | 1 hour | Low | Spike > 5x normal | N/A | Informational. May indicate ban evasion. | Phase 3 |
+
+### 2.14 Dependency / Security Warnings
+
+| # | Metric name | Category | Why it matters | Source of truth | Unit | Aggregation window | Healthy baseline | Warning threshold | Critical threshold | Owner response | Alert now or later |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-39 | `dependencies.vulnerabilities` | security | Known vulnerabilities in dependencies are exploitable attack vectors. | `pip audit` / `npm audit` / GitHub Dependabot | count of high/critical CVEs | Weekly manual check | 0 high/critical | > 0 high severity | > 0 critical severity | Evaluate and update affected packages. | Phase 1 (manual periodic check) |
+
+---
+
+## 3. Dashboard Requirements
+
+### Minimum production dashboard sections
+
+#### Section 1: API Health
+
+* Current 5xx error rate (M-01).
+* Current 4xx error rate (M-02).
+* API availability status (M-03).
+* Backend health check status (M-32).
+
+#### Section 2: Backend Performance
+
+* Response time p50 / p95 / p99 (M-04, M-05, M-06).
+* Database error count (M-29).
+* Database connection pool usage (M-30).
+
+#### Section 3: Game Activity
+
+* Active games count (M-10).
+* Game creation count (M-11).
+* Game creation failure count (M-12).
+* Game close failure count (M-13).
+
+#### Section 4: User Activity
+
+* Login success count (M-07).
+* Daily active users (M-15).
+* Total registered users (M-16).
+
+#### Section 5: Notifications Health
+
+* Notification generation failure count (M-21).
+* Push notification failure count (M-22).
+* Invalid push token count (M-23).
+* Notifications created count (M-24).
+
+#### Section 6: Scheduled Jobs
+
+* Scheduled game reminders success/failure (M-25).
+* Notification cleanup success/failure (M-26).
+* Reminder job execution time (M-27).
+
+#### Section 7: Admin / Moderation Activity
+
+* Admin moderation action count (M-34).
+* User moderation count (M-35).
+* Pending field moderation count (M-19).
+* Moderation decisions count (M-20).
+
+#### Section 8: Security / Abuse Signals
+
+* Login failure count and rate (M-08, M-09).
+* Login failure burst detection (M-36).
+* Content rejection rate (M-37).
+* Restricted access attempts (M-38).
+
+#### Section 9: Infrastructure / Deployment Health
+
+* Frontend availability (M-31).
+* Backend deployment health (M-32).
+* Frontend deployment status (M-33).
+* Database availability (M-28).
+* Dependency vulnerabilities (M-39).
+
+---
+
+## 4. Source-of-truth Mapping
+
+| Source | Available now | Metrics served | Notes |
+| --- | --- | --- | --- |
+| Backend structured logs (ISSUE-067) | Yes | M-07, M-08, M-09, M-11, M-13, M-18, M-20, M-21, M-22, M-23, M-25, M-26, M-27, M-34 | Logs include structured `event`, `error_code`, `result`, and timing fields. Can be queried with `grep`/`jq` or a log aggregator. |
+| Database queries (Supabase SQL) | Yes | M-10, M-15, M-16, M-19, M-24, M-28, M-30, M-35 | Manual queries against Supabase SQL editor or `psql`. No new tables required. |
+| Supabase dashboard | Yes | M-28, M-30 | Supabase provides built-in database health, connection pool, and query performance views. |
+| Hosting provider dashboard | Yes (Vercel for frontend) | M-31, M-33 | Vercel deployment status and analytics are available. Backend hosting provider TBD. |
+| Backend health check endpoint | Yes | M-32 | `GET /` returns `{"status": "ok"}`. |
+| Manual checks | Yes | M-39 | `pip audit`, `npm audit`, or Dependabot alerts. |
+| Future metrics middleware | No — requires implementation | M-01, M-02, M-03, M-04, M-05, M-06, M-12, M-14, M-17, M-29, M-36 | Requires adding request-level metrics collection (response time, status codes) in a middleware or metrics endpoint. |
+| Future frontend telemetry | No — requires implementation | Client-side error rates, load times | Not defined in this issue. |
+
+---
+
+## 5. Threshold Recommendations
+
+Thresholds are initial recommendations based on ISSUE-038 stress test baselines and expected early-stage traffic. They should be calibrated against actual production data within the first 30 days of monitoring.
+
+| Category | Baseline source | Confidence |
+| --- | --- | --- |
+| Response time | ISSUE-038 stress test: p95 < 500ms for reads, < 5s for fan-out writes | Medium — stress tests used FakeSupabase, not production Supabase |
+| Error rates | Industry standard: < 1% 5xx is healthy | Medium |
+| Game/notification counts | No production baseline yet | Low — must be calibrated after launch |
+| Database pool | Supabase free/pro tier defaults | Medium — depends on plan |
+| Job execution time | ISSUE-038: reminder batch < 60s for 100 games | Medium |
+
+---
+
+## 6. SLO Candidates
+
+The following Service Level Objectives are recommended for future adoption. They should not be formally committed until Phase 2 monitoring provides baseline data.
+
+| SLO | Definition | Suggested target | Measurement source | Notes |
+| --- | --- | --- | --- | --- |
+| API availability | Percentage of successful (non-5xx) API responses | 99.5% over 30-day rolling window | Future metrics middleware or hosting provider | Excludes planned maintenance windows |
+| p95 response time | 95th percentile response time across all endpoints | < 1000ms over 30-day rolling window | Future metrics middleware | Fan-out notification endpoints (game create with large fields) may need endpoint-specific SLOs |
+| Game creation success rate | Percentage of `POST /games/` requests that return 2xx | > 99% over 7-day rolling window | Backend logs: `games.create.success` / total game create requests | Business-rule rejections (4xx) excluded from failure count |
+| Notification generation success rate | Percentage of notification generation attempts that succeed | > 95% over 7-day rolling window | Backend logs: absence of `notifications.generate.failure` relative to game/notification events | Best-effort by design; 100% is not expected |
+| Scheduled job success rate | Percentage of scheduled job runs that complete without fatal failure | > 99% over 30-day rolling window | Backend logs: job finish vs job failure events | Partial failures (some items fail) count as success with degradation |
+
+---
+
+## 7. Alerting Recommendations
+
+### Phase 1 — No automated alerting
+
+All monitoring is manual. Operators check logs, Supabase dashboard, and Vercel dashboard periodically and after each deployment or scheduled job run.
+
+### Phase 2 — Threshold-based alerting
+
+Introduce automated alerts for:
+
+| Priority | Alert | Condition | Channel |
+| --- | --- | --- | --- |
+| P1 | Backend health check failure | `GET /` fails > 3 consecutive checks | Operator notification (email, Slack, or equivalent) |
+| P1 | Sustained 5xx error rate | M-01 > 5% for > 5 min | Operator notification |
+| P1 | Database unavailable | M-28 unavailable > 2 min | Operator notification |
+| P2 | Elevated 5xx error rate | M-01 > 1% for > 5 min | Operator notification (lower urgency) |
+| P2 | Scheduled job fatal failure | `jobs.*.failure` event | Operator notification |
+| P2 | Push notification config failure | `FIREBASE_CONFIG_ERROR` in logs | Operator notification |
+| P3 | Login failure spike | M-36 > 20 in 5 min | Daily report or dashboard flag |
+| P3 | Pending moderation backlog | M-19 > 50 for > 3 days | Weekly report |
+
+### Phase 3 — SLO-based alerting
+
+Replace threshold alerts with burn-rate alerts based on SLO error budgets. This requires sustained baseline data from Phase 2.
+
+---
+
+## 8. Phased Rollout Plan
+
+### Phase 1: Manual monitoring with existing tools (no code changes)
+
+**Available immediately after this issue is approved.**
+
+| What to monitor | How |
+| --- | --- |
+| Login success/failure | Review backend logs for `auth.login.success` and `auth.login.failure` events |
+| Game creation | Review backend logs for `games.create.success` events |
+| Active games | Run SQL: `SELECT COUNT(*) FROM games WHERE status IN ('open','full')` |
+| Daily active users | Run SQL: `SELECT COUNT(*) FROM users WHERE last_login >= NOW() - INTERVAL '24 hours'` |
+| Registered users | Run SQL: `SELECT COUNT(*) FROM users` |
+| Pending moderation | Run SQL: `SELECT COUNT(*) FROM fields WHERE approval_status = 'pending'` |
+| Notifications created | Run SQL: `SELECT COUNT(*) FROM notifications WHERE created_at >= NOW() - INTERVAL '24 hours'` |
+| Scheduled job results | Review backend logs after each admin-triggered job run |
+| Database health | Check Supabase dashboard |
+| Frontend deployment | Check Vercel dashboard |
+| Backend health | Manually call `GET /` or check hosting provider dashboard |
+| Dependency vulnerabilities | Run `pip audit` and `npm audit` periodically |
+
+**Recommended cadence:** Daily for active metrics. After each deployment. After each scheduled job run. Weekly for moderation backlog and dependency checks.
+
+### Phase 2: Structured metrics and dashboard (requires implementation)
+
+| Deliverable | Description |
+| --- | --- |
+| Request metrics middleware | Middleware that records response time, status code, endpoint, and method per request. Emits structured log or exposes metrics endpoint. |
+| `request_id` support | Add `X-Request-ID` header generation and propagation per ISSUE-065 specification. |
+| Metrics endpoint or log aggregation | Either a `/metrics` endpoint (Prometheus format) or ship structured logs to a log aggregator (e.g., Grafana Cloud, Datadog, or similar). |
+| Dashboard | Build or configure a dashboard with the 9 sections defined in Section 3. |
+| Threshold alerts | Implement P1 and P2 alerts from Section 7. |
+
+### Phase 3: SLOs and advanced alerting (requires sustained production data)
+
+| Deliverable | Description |
+| --- | --- |
+| Baseline calibration | Calibrate all thresholds against 30+ days of production data. |
+| SLO adoption | Formally commit to SLO targets from Section 6. |
+| Burn-rate alerting | Replace threshold alerts with SLO error-budget burn-rate alerts. |
+| Capacity planning | Use performance metrics to project scaling needs. |
+
+---
+
+## 9. What Should NOT Be Monitored
+
+### Sensitive data exclusions (per ISSUE-065 / ISSUE-068)
+
+Monitoring dashboards, alerts, and metrics must not expose:
+
+* JWTs or access tokens.
+* Passwords or password hashes.
+* Email addresses.
+* Phone numbers.
+* Push notification tokens / FCM device tokens.
+* Raw request bodies.
+* Field report descriptions.
+* Notification title/body text.
+* Google ID token values or decoded claims.
+* Firebase service account credentials.
+* Supabase keys.
+* Raw third-party API responses.
+
+All metrics must use only:
+
+* UUIDs (`user_id`, `game_id`, `field_id`).
+* Counts and rates.
+* Error codes and event names.
+* Boolean flags.
+* Timing values.
+
+### Low-value noise exclusions
+
+The following should not generate metrics or alerts because they are expected behavior, not operational signals:
+
+| Signal | Why excluded |
+| --- | --- |
+| Individual 400/422 validation errors | Normal user input mistakes. High volume, no operational action. |
+| Individual 401 unauthenticated requests | Expected from expired tokens and unauthenticated probes. |
+| Individual 404 responses | Normal for deleted resources and typos. |
+| Individual game business-rule denials (`GAME_FULL`, `CONFLICT`) | Expected gameplay behavior. Only aggregate spikes are meaningful. |
+| Per-request read-path logging | Too noisy. ISSUE-066 LOG-AUDIT-014 already flagged `game_payloads.py` INFO logs as noisy. |
+| Individual notification read/unread state changes | High volume, low operational value. Use ISSUE-036 analytics metrics instead. |
+| Successful health check responses | Only failures are meaningful. |
+
+---
+
+## 10. Risks and Tradeoffs
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| No automated alerting in Phase 1. Outages may go unnoticed until users report them. | Medium | Establish a daily manual check routine. Check after every deployment. Consider a free external uptime monitor (e.g., UptimeRobot) for `GET /` and frontend URL. |
+| Backend hosting provider is not yet confirmed. Monitoring capabilities depend on the provider. | Medium | Design monitoring to work with structured logs as the primary data source. Any hosting provider that exposes stdout/stderr logs will work. |
+| No baseline production data for thresholds. Initial thresholds are estimates. | Medium | Plan to recalibrate thresholds within 30 days of production launch. |
+| Phase 2 requires code changes (metrics middleware, request_id). This blocks automated dashboards and alerts. | Low | Phase 1 manual monitoring provides interim coverage. Phase 2 implementation should be a dedicated issue. |
+| Supabase free tier may have limited observability (no pg_stat_activity access, limited dashboard history). | Low | Evaluate Supabase plan capabilities. Use backend-side database error counting as a proxy. |
+| Log volume may become expensive on paid log aggregators as traffic grows. | Low | Use structured events with stable names and low cardinality fields. Sample or drop verbose read-path logs. |
+
+---
+
+## 11. Final Recommendation
+
+Adopt the three-phase monitoring rollout:
+
+1. **Phase 1 (now):** Start manual monitoring using existing backend logs, Supabase dashboard, Vercel dashboard, and manual SQL queries. No code changes required. Establish a daily check routine. This provides basic operational awareness immediately.
+
+2. **Phase 2 (next implementation issue):** Add request-level metrics middleware, `request_id` propagation, and a monitoring dashboard. Implement P1/P2 threshold alerts. This is the minimum viable production monitoring setup.
+
+3. **Phase 3 (after 30+ days of production data):** Calibrate thresholds, adopt formal SLOs, and implement burn-rate alerting. This is the target state for mature production operations.
+
+The most critical Phase 1 action is to establish a post-deployment check routine: after every backend or frontend deployment, manually verify the health check endpoint, review backend logs for new errors, and spot-check active game count and login success events.
+
+---
+
+## 12. GitHub Issue Comment Summary
+
+ISSUE-069 production monitoring requirements completed as documentation only.
+
+Defined 39 metrics across 14 categories: API health, backend performance, authentication, game activity, user activity, field submissions, field moderation, notification health, scheduled jobs, database/Supabase, frontend/deployment, admin actions, security/abuse signals, and dependency security.
+
+Key deliverables:
+
+* Metric catalog with names, sources, thresholds, and owner responses.
+* 9-section dashboard specification.
+* Source-of-truth mapping showing what is available today vs what requires implementation.
+* 5 SLO candidates for future adoption.
+* 3-phase rollout: Phase 1 (manual, no code), Phase 2 (metrics middleware + dashboard), Phase 3 (SLOs + alerting).
+* Sensitive-data exclusion rules aligned with ISSUE-065/068.
+* Low-value noise exclusion list.
+
+Recommended follow-up issues:
+
+1. Phase 2 implementation: metrics middleware, `request_id`, and dashboard.
+2. External uptime monitoring setup for API and frontend URLs.
+3. Post-launch threshold calibration after 30 days of production data.
+
+## Files Modified
+
+* `docs/product-decisions.md`
+
+No backend runtime, frontend runtime, database, migration, endpoint, metrics, alerting, middleware, or dashboard changes were made.
+
