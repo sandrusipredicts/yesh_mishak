@@ -5,6 +5,7 @@ import './App.css'
 import AdminRoute from './components/AdminRoute'
 import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
+import OfflineBanner from './components/OfflineBanner'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
@@ -92,28 +93,35 @@ function App() {
     setPathname('/')
   }, [])
 
+  const renderWithOfflineBanner = (content) => (
+    <>
+      <OfflineBanner />
+      {content}
+    </>
+  )
+
   if (!isLanguageSelected) {
     return <LanguageSelectionScreen onSelected={() => setIsLanguageSelected(true)} />
   }
 
   if (pathname === '/admin') {
-    return (
+    return renderWithOfflineBanner(
       <AdminRoute
         onForbidden={handleAdminForbidden}
         onLogin={setCurrentUser}
         onUnauthorized={handleLogout}
       >
         <AdminPage />
-      </AdminRoute>
+      </AdminRoute>,
     )
   }
 
   if (!currentUser) {
-    return <LoginPage onLogin={setCurrentUser} />
+    return renderWithOfflineBanner(<LoginPage onLogin={setCurrentUser} />)
   }
 
   if (!isOnboardingDone) {
-    return <OnboardingPage onComplete={handleOnboardingComplete} />
+    return renderWithOfflineBanner(<OnboardingPage onComplete={handleOnboardingComplete} />)
   }
 
   const navigateTo = (path) => {
@@ -122,10 +130,10 @@ function App() {
   }
 
   if (pathname === '/my-games') {
-    return <MyGamesPage onBack={() => navigateTo('/')} />
+    return renderWithOfflineBanner(<MyGamesPage onBack={() => navigateTo('/')} />)
   }
 
-  return (
+  return renderWithOfflineBanner(
     <>
       <MapPage currentUserId={currentUser.id} />
       <div className="auth-toolbar">
@@ -137,7 +145,7 @@ function App() {
           {t('app.logout')}
         </button>
       </div>
-    </>
+    </>,
   )
 }
 

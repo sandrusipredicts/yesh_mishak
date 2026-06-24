@@ -3,6 +3,7 @@ const en = {
     name: 'yesh_mishak',
     tagline: 'Sign in to open and join games.',
     logout: 'Logout',
+    offlineMessage: 'No internet connection. Please check your network and try again.',
   },
   language: {
     label: 'Language',
