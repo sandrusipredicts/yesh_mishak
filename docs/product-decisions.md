@@ -5440,3 +5440,48 @@ Excluded:
 
 Implemented.
 
+---
+
+# ISSUE-063 — Create Retry Strategy Specification
+
+## Type
+
+Specification / frontend-backend resilience policy.
+
+## Background
+
+Not every failed request should require user action, but not every failed request is safe to retry automatically. The app includes safe read endpoints, background polling, authentication flows, non-idempotent user actions, field/report creation, admin moderation actions, and push-token operations with different duplication and safety risks.
+
+## Decision
+
+The approved retry strategy is documented in:
+
+* [retry-strategy.md](./retry-strategy.md)
+
+The specification classifies each API/action category as one of:
+
+* Auto retry.
+* Manual retry button.
+* No retry.
+* Background retry / polling retry.
+* Retry only after user confirmation.
+
+Key decisions:
+
+* Idempotent GET requests may auto-retry transient network, timeout, `5xx`, and unavailable-service failures with bounded backoff.
+* Background notification polling should wait for the next poll rather than burst retrying.
+* Non-idempotent user actions, create flows, game actions, admin moderation actions, and test push must not auto-retry.
+* State-changing retries require user confirmation and a fresh resource/list state check when the first attempt may have succeeded.
+* `400`/`422`, `401`, `403`, `404`, and business-rule conflicts are not automatically retried.
+* Retry logging must avoid exposing tokens, credentials, raw database errors, stack traces, or internal request bodies to users.
+
+## Scope
+
+Documentation only.
+
+No frontend runtime behavior, backend runtime behavior, API contracts, service worker/PWA behavior, or database migrations were changed.
+
+## Status
+
+Approved.
+
