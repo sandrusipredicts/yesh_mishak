@@ -5394,3 +5394,49 @@ has_nets boolean not null default false
 
 Implemented.
 
+---
+
+# ISSUE-062 — Implement Offline Detection
+
+## Type
+
+Frontend resilience / user-facing network state.
+
+## Dependency Note
+
+The repository's ISSUE-061 entry documents the `fields.has_nets` schema drift migration, not an offline behavior policy. The offline behavior implemented here follows the network failure guidance in [global-error-handling-strategy.md](./global-error-handling-strategy.md): show a clear offline banner when the browser is offline.
+
+## Decision
+
+The frontend detects browser connectivity using:
+
+* `navigator.onLine`
+* `window` `online` and `offline` events
+
+When the browser reports offline, the app shows a translated, non-blocking offline banner:
+
+> No internet connection. Please check your network and try again.
+
+When the browser reports online again, the banner is removed automatically.
+
+## Scope
+
+Included:
+
+* Reusable frontend online/offline status hook.
+* Global offline banner visible across authenticated core screens, including the map/main app area.
+* Localized English and Hebrew banner text.
+
+Excluded:
+
+* No full offline mode.
+* No offline action queue.
+* No cache persistence.
+* No service worker or PWA behavior.
+* No backend or database changes.
+* No API contract changes.
+
+## Status
+
+Implemented.
+

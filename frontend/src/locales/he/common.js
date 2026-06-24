@@ -3,6 +3,7 @@ const he = {
     name: 'yesh_mishak',
     tagline: 'התחברו כדי לפתוח משחקים ולהצטרף אליהם.',
     logout: 'התנתקות',
+    offlineMessage: 'אין חיבור לאינטרנט. בדקו את הרשת ונסו שוב.',
   },
   language: {
     label: 'שפה',
