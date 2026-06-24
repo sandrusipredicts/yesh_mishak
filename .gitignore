@@ -12,3 +12,10 @@ htmlcov/
 dist/
 build/
 backend/scratch/
+backend/load_tests/*.txt
+
+# Local ISSUE-088 load-test artifacts / secrets
+issue-088*.log
+backend/issue-088*.log
+backend/load_tests/.local/
+backend/load_tests/*.txt

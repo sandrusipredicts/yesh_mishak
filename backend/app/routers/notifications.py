@@ -383,69 +383,86 @@ def create_game_created_notifications(
     field: dict[str, Any],
     organizer_id: str,
 ) -> list[dict[str, Any]]:
-    candidates = _find_notification_candidates(supabase, field, str(game["sport_type"]))
-    recipient_ids = [
-        candidate["user_id"]
-        for candidate in candidates
-        if candidate.get("user_id") and candidate["user_id"] != organizer_id
-    ]
-
-    if not recipient_ids:
-        return []
-
-    service_supabase = get_supabase_service_role_client()
-    game_id_column = "game_id"
-    field_id_column = "field_id"
-
     try:
-        existing_response = (
-            service_supabase.table("notifications")
-            .select("user_id")
-            .eq("type", "game_created")
-            .eq(game_id_column, game["id"])
-            .in_("user_id", recipient_ids)
-            .execute()
+        candidates = _find_notification_candidates(supabase, field, str(game["sport_type"]))
+        recipient_ids = [
+            candidate["user_id"]
+            for candidate in candidates
+            if candidate.get("user_id") and candidate["user_id"] != organizer_id
+        ]
+
+        if not recipient_ids:
+            return []
+
+        service_supabase = get_supabase_service_role_client()
+        game_id_column = "game_id"
+        field_id_column = "field_id"
+
+        try:
+            existing_response = (
+                service_supabase.table("notifications")
+                .select("user_id")
+                .eq("type", "game_created")
+                .eq(game_id_column, game["id"])
+                .in_("user_id", recipient_ids)
+                .execute()
+            )
+        except APIError as error:
+            if not _is_missing_column_error(error, "notifications.game_id"):
+                raise
+
+            game_id_column = "related_game_id"
+            field_id_column = "related_field_id"
+            existing_response = (
+                service_supabase.table("notifications")
+                .select("user_id")
+                .eq("type", "game_created")
+                .eq(game_id_column, game["id"])
+                .in_("user_id", recipient_ids)
+                .execute()
+            )
+
+        existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
+        field_name = field.get("name") or "Unknown field"
+        rendered = render_notification_template(
+            "game_created", "he",
+            {"sport_type": game["sport_type"], "field_name": field_name},
         )
-    except APIError as error:
-        if not _is_missing_column_error(error, "notifications.game_id"):
-            raise
+        rows = [
+            {
+                "user_id": user_id,
+                "type": "game_created",
+                "title": rendered["title"],
+                "body": rendered["body"],
+                game_id_column: game["id"],
+                field_id_column: field.get("id"),
+            }
+            for user_id in recipient_ids
+            if user_id not in existing_user_ids
+        ]
 
-        game_id_column = "related_game_id"
-        field_id_column = "related_field_id"
-        existing_response = (
-            service_supabase.table("notifications")
-            .select("user_id")
-            .eq("type", "game_created")
-            .eq(game_id_column, game["id"])
-            .in_("user_id", recipient_ids)
-            .execute()
+        if not rows:
+            return []
+
+        notifications = service_supabase.table("notifications").insert(rows).execute().data or []
+        _send_push_for_notifications(service_supabase, notifications)
+        return notifications
+    except Exception as exc:
+        logger.warning(
+            "Failed to create game_created notifications",
+            extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "game_created",
+                "game_id": game.get("id"),
+                "field_id": field.get("id"),
+                "user_id": organizer_id,
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
         )
-
-    existing_user_ids = {row["user_id"] for row in existing_response.data or [] if row.get("user_id")}
-    field_name = field.get("name") or "Unknown field"
-    rendered = render_notification_template(
-        "game_created", "he",
-        {"sport_type": game["sport_type"], "field_name": field_name},
-    )
-    rows = [
-        {
-            "user_id": user_id,
-            "type": "game_created",
-            "title": rendered["title"],
-            "body": rendered["body"],
-            game_id_column: game["id"],
-            field_id_column: field.get("id"),
-        }
-        for user_id in recipient_ids
-        if user_id not in existing_user_ids
-    ]
-
-    if not rows:
         return []
-
-    notifications = service_supabase.table("notifications").insert(rows).execute().data or []
-    _send_push_for_notifications(service_supabase, notifications)
-    return notifications
 
 
 def create_player_joined_game_notification(

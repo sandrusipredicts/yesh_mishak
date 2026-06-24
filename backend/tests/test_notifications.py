@@ -2857,6 +2857,73 @@ def test_game_creation_notification_failure_is_logged(
     assert failure_records[-1].error_code == "NOTIFICATION_GENERATION_FAILED"
 
 
+def test_game_creation_succeeds_when_create_game_created_notifications_fails_internally(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+    caplog,
+) -> None:
+    # Force _find_notification_candidates to raise an exception simulating a socket read error or database failure
+    def mock_find_candidates(*args, **kwargs):
+        raise RuntimeError("Socket read error")
+
+    monkeypatch.setattr(
+        "app.routers.notifications._find_notification_candidates",
+        mock_find_candidates,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.routers.notifications"):
+        response = TestClient(app).post(
+            "/games/",
+            json={
+                "field_id": "00000000-0000-0000-0000-000000000101",
+                "sport_type": "football",
+                "players_present": 1,
+                "max_players": 10,
+            },
+            headers=auth_headers(users["organizer"]),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Game created"
+    assert any(
+        "Failed to create game_created notifications" in record.message
+        for record in caplog.records
+    )
+
+
+def test_game_creation_schedules_background_notification(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    called_args = []
+    def mock_bg_task(*args, **kwargs):
+        called_args.append(args)
+
+    monkeypatch.setattr(
+        "app.routers.games._create_game_created_notifications_background",
+        mock_bg_task,
+    )
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert len(called_args) == 1
+    game_arg, field_arg, organizer_id_arg = called_args[0]
+    assert game_arg["field_id"] == "00000000-0000-0000-0000-000000000101"
+    assert organizer_id_arg == users["organizer"]["id"]
+
+
 def test_scheduled_reminder_batch_continues_after_one_game_fails(
     fake_supabase: FakeSupabase,
     monkeypatch,
@@ -3023,3 +3090,114 @@ def test_scheduled_reminder_result_shape_includes_failure_fields(
     assert "notifications" in result
     assert result["failed_game_ids"] == []
     assert result["errors"] == []
+
+
+def test_get_current_user_caching(fake_supabase, monkeypatch, users):
+    import app.auth.dependencies as deps
+    from app.auth.jwt import create_access_token
+    from fastapi.security import HTTPAuthorizationCredentials
+    from fastapi import HTTPException
+    from app.core.config import get_settings
+    import time
+
+    # Clear cache and enable it for this test
+    deps._user_cache.clear()
+    deps._enable_cache_in_tests = True
+    
+    # Configure custom TTL via settings
+    monkeypatch.setenv("AUTH_USER_CACHE_TTL_SECONDS", "600")
+    get_settings.cache_clear()
+    
+    try:
+        user_id = users["organizer"]["id"]
+        user_email = users["organizer"]["email"]
+        
+        # 1. First lookup (Cache Miss)
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=create_access_token(user_id, user_email)
+        )
+        
+        t_before = time.monotonic()
+        user1 = deps.get_current_user(credentials)
+        t_after = time.monotonic()
+        
+        assert user1["id"] == user_id
+        assert user_id in deps._user_cache
+        
+        # Verify TTL uses the configurable value
+        expires_at, cached_val = deps._user_cache[user_id]
+        expected_expiry_min = t_before + 600.0
+        expected_expiry_max = t_after + 600.0
+        assert expected_expiry_min <= expires_at <= expected_expiry_max
+        
+        # 2. Second lookup (Cache Hit)
+        # Empty DB to prove it gets from cache
+        original_users = list(fake_supabase.tables["users"])
+        fake_supabase.tables["users"] = []
+        
+        user2 = deps.get_current_user(credentials)
+        assert user2["id"] == user_id
+        
+        # Restore DB
+        fake_supabase.tables["users"] = original_users
+        
+        # 3. Simulate TTL Expiration
+        expires_at, cached_val = deps._user_cache[user_id]
+        deps._user_cache[user_id] = (time.monotonic() - 10, cached_val)
+        
+        # Since cache expired, it will look up in DB. Let's make DB query fail (raise user not found)
+        fake_supabase.tables["users"] = []
+        with pytest.raises(HTTPException) as exc_info:
+            deps.get_current_user(credentials)
+        assert exc_info.value.status_code == 401
+        
+        # Restore DB
+        fake_supabase.tables["users"] = original_users
+    finally:
+        deps._enable_cache_in_tests = False
+        get_settings.cache_clear()
+
+
+def test_game_creation_background_skipped_when_disabled_by_config(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+    caplog,
+) -> None:
+    from app.core.config import get_settings
+    
+    # Mock settings by setting the environment variable and clearing the cache
+    monkeypatch.setenv("DISABLE_GAME_CREATED_NOTIFICATIONS", "true")
+    get_settings.cache_clear()
+
+    called_args = []
+    def mock_bg_task(*args, **kwargs):
+        called_args.append(args)
+
+    monkeypatch.setattr(
+        "app.routers.games._create_game_created_notifications_background",
+        mock_bg_task,
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="uvicorn.error"):
+        response = TestClient(app).post(
+            "/games/",
+            json={
+                "field_id": "00000000-0000-0000-0000-000000000101",
+                "sport_type": "football",
+                "players_present": 1,
+                "max_players": 10,
+            },
+            headers=auth_headers(users["organizer"]),
+        )
+
+    # Reset configuration cache
+    get_settings.cache_clear()
+
+    assert response.status_code == 200
+    assert len(called_args) == 0  # Background task was NOT scheduled
+    assert any(
+        "games.create.background_skipped" in record.message
+        for record in caplog.records
+    )
