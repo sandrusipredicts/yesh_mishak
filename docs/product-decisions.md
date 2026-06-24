@@ -5530,3 +5530,495 @@ No backend code, database code, API contracts, service worker/PWA behavior, offl
 
 Implemented.
 
+---
+
+# ISSUE-065 — Create Application Logging Policy
+
+## Type
+
+Specification / product decision.
+
+## Scope
+
+This issue defines the approved application logging policy for the Yesh Mishak system.
+
+This is documentation only. No code, endpoints, database migrations, runtime behavior, logging middleware, audit table changes, or service integrations were implemented by this issue.
+
+## Architecture Reviewed
+
+The policy was created after reviewing the current repository architecture:
+
+| Area | Repository evidence reviewed |
+| --- | --- |
+| Authentication | `backend/app/api/auth.py`, `backend/app/auth/dependencies.py`, `backend/app/auth/jwt.py`, `backend/app/auth/google.py`, `backend/app/auth/passwords.py`, `backend/app/schemas/auth.py` |
+| Fields | `backend/app/routers/fields.py`, `backend/schema.sql`, field moderation policies in this document |
+| Games | `backend/app/routers/games.py`, `backend/app/routers/game_lifecycle.py`, `backend/app/routers/game_payloads.py`, game lifecycle and visibility sections in this document |
+| Notifications | `backend/app/routers/notifications.py`, `backend/app/services/firebase_push.py`, `backend/app/services/notification_templates.py`, ISSUE-029, ISSUE-039, ISSUE-040 |
+| Admin APIs | `backend/app/api/admin.py`, `backend/schema.sql`, `backend/migrations/user_moderation.sql`, production support handbook |
+| Scheduled jobs / operational jobs | `generate_scheduled_game_reminders()`, `cleanup_old_notifications()`, `backend/scripts/audit_game_data_integrity.py`, GovMap import scripts |
+| Future integrations | Firebase/FCM push, Google OAuth, GovMap import tooling, future mobile/offline/retry guidance |
+| Existing observability guidance | `docs/global-error-handling-strategy.md`, `docs/retry-strategy.md`, `docs/production-support-handbook.md`, backend error response audit |
+
+## Findings
+
+1. The backend already uses Python `logging` in several places, especially Google login, game notification side effects, admin game actions, scheduled reminders, and global unhandled exception handling.
+2. The current logging style is mixed: some logs use plain message interpolation, some use `extra={...}`, and there is no enforced structured log schema yet.
+3. `docs/global-error-handling-strategy.md` already requires server logs to include request path, method, user ID, request ID, sanitized error category, and traceback for `5xx` failures, but the codebase still lacks request ID middleware.
+4. Current Google login debug logs include email values and token claim metadata. This policy supersedes that pattern: emails and token-derived claim dumps must not be logged in application logs except as explicitly approved, redacted, or hashed security telemetry.
+5. The system already has one durable audit table, `user_moderation_audit`, for ban/unban/suspend/unsuspend actions. That table is the correct place for durable moderation history; ordinary logs are not a substitute for audit tables.
+6. Notification delivery is best-effort. Notification creation or push failures should be logged with enough context to investigate, but they should not expose push tokens, notification bodies containing user content, or Firebase authorization data.
+7. Scheduled reminder and cleanup functions exist as admin-triggered operational jobs. They need job start, finish, partial failure, and fatal failure logging separate from per-request logs.
+8. GovMap and import scripts are operational tooling. They should log counts, file paths, classification summaries, and failure reasons, but not raw external payloads wholesale.
+9. There is no central retention implementation in the repo for application logs, error logs, or audit logs. This policy defines retention recommendations only.
+
+## Recommended Logging Policy
+
+Yesh Mishak logs must be structured, minimal, and safe. Logs exist to support operations, debugging, security review, and incident response. Logs must not become an alternate database of sensitive user data.
+
+Every log entry should be written as a structured event with a stable event name and typed context fields. Free-text messages are allowed, but important context must be included as fields so logs can be searched and aggregated.
+
+Recommended event naming pattern:
+
+`area.action.result`
+
+Examples:
+
+* `auth.login.success`
+* `auth.login.failure`
+* `games.create.success`
+* `games.join.failure`
+* `notifications.push.failure`
+* `admin.user_moderation.success`
+* `jobs.scheduled_game_reminders.finish`
+
+## Structured Severity Matrix
+
+| Level | Purpose | When to use | Project examples | Do not use for |
+| --- | --- | --- | --- | --- |
+| `INFO` | Record normal, expected system activity that is useful for support and operations. | Successful major actions, job start/finish, expected lifecycle transitions, non-sensitive operational counts. | Password login success by `user_id`; Google login success by `user_id`; game created with `game_id`, `field_id`, `user_id`; field submitted with `field_id`, `user_id`; scheduled reminder job started/finished with counts; notification cleanup deleted N rows. | Raw request bodies; every read request at high volume; passwords/tokens/emails/phone numbers; validation failures caused by normal user input; stack traces. |
+| `WARNING` | Record handled abnormal conditions that did not crash the primary user operation but may require monitoring. | Business-rule denials worth tracking, restricted account access attempts, notification side-effect failures, transient external failures, recoverable scheduled-job item failures. | Banned/suspended user attempts an authenticated action; notification generation fails after a game was already created; FCM send fails for one token; scheduled reminder fails for one game and continues; admin attempts invalid moderation transition. | Successful actions; unhandled exceptions; system-wide outages; expected form validation like missing field name; raw third-party responses containing sensitive data. |
+| `ERROR` | Record failed operations that affect the requested operation, data consistency, or a critical side effect. | Unhandled request exception converted to `500`; database write failure; failed field/report/game creation; scheduled job fatal failure; repeated external service failure affecting user-visible behavior. | `POST /fields` database insert fails; `POST /field-reports` insert fails; game close update does not persist; Firebase test-push endpoint cannot send; scheduled reminder batch cannot query games; unexpected Supabase failure. | Expected `400`/`401`/`403`/`404`/`409` responses; successful but slow requests; user typos; notification side-effect failure when the parent action succeeded and is already logged as `WARNING`. |
+| `CRITICAL` | Record system-wide, security, data-loss, or availability incidents that need immediate attention. | The API cannot reach Supabase broadly; auth signing/verification configuration is broken for all users; widespread data corruption risk; migration/schema drift blocks core flows; suspected credential leakage; repeated failing jobs with broad user impact. | Supabase unreachable for all requests; JWT secret misconfiguration prevents all auth; public fields table missing a required production column and core field creation fails system-wide; Firebase credentials leaked; scheduled job corrupts or skips a large class of reminders. | Single user failures; one game failing validation; one push token failing; expected admin rejection; ordinary `500` isolated to one request unless correlated with wider outage. |
+
+## Mandatory Log Fields
+
+All backend application logs should include the following fields when available.
+
+| Field | Requirement | Notes |
+| --- | --- | --- |
+| `timestamp` | Mandatory | UTC ISO 8601 timestamp. If supplied by the log platform, application code does not need to duplicate it. |
+| `level` | Mandatory | One of `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
+| `event` | Mandatory | Stable event name such as `games.join.success`. |
+| `message` | Mandatory | Short human-readable summary. |
+| `endpoint` | Required for HTTP request logs | Route pattern, not raw URL with query secrets. Example: `/games/{game_id}/join`. |
+| `method` | Required for HTTP request logs | `GET`, `POST`, `PATCH`, `DELETE`, etc. |
+| `user_id` | Required when authenticated user is known | Store UUID only. Do not include email, phone, username, token, or display name. |
+| `actor_user_id` | Required for admin/moderation actions | Admin or service actor performing the action. |
+| `target_user_id` | Required for user moderation actions | User being moderated. |
+| `game_id` | Required when action targets a game | UUID only. |
+| `field_id` | Required when action targets a field | UUID only. |
+| `notification_id` | Recommended when action targets a notification | UUID only. |
+| `notification_type` | Required for notification generation failures | Example: `game_created`, `game_closed`, `scheduled_game_reminder`. |
+| `job_name` | Required for scheduled/operational jobs | Example: `scheduled_game_reminders`, `notification_cleanup`, `game_data_integrity_audit`. |
+| `request_id` | Required once request ID middleware exists | Must be included in server logs and returned as `X-Request-ID` when implemented. |
+| `error_code` | Required for handled API errors | Stable API code such as `AUTH_INVALID`, `DATABASE_ERROR`, `GAME_FULL`. |
+| `status_code` | Required for HTTP failures | Numeric HTTP status. |
+| `execution_time_ms` | Required for request/job completion logs | Milliseconds from start to finish. |
+| `result` | Recommended | `success`, `failure`, `partial_failure`, `skipped`, `denied`. |
+| `count` fields | Recommended for batch jobs | `processed_count`, `skipped_count`, `failed_count`, `deleted_count`, `notifications_created`. |
+
+The following fields are optional and must be used carefully:
+
+* `client_platform` - `web`, `mobile`, `admin`, or `script`.
+* `ip_hash` - hashed IP only, if abuse detection needs it.
+* `user_agent_family` - browser family only, not full user-agent string unless needed for a short-lived incident.
+* `external_service` - `google_oauth`, `firebase_fcm`, `supabase`, `govmap`.
+
+## Sensitive-data Policy
+
+The following MUST NEVER be logged in application logs, error logs, job logs, or client logs:
+
+| Data | Policy |
+| --- | --- |
+| Passwords | Never log plaintext passwords, password confirmation fields, or password hashes. |
+| JWT access tokens | Never log token values, decoded full payloads, raw bearer credentials, or token signatures. |
+| Refresh tokens | Never log. |
+| Google ID tokens | Never log token values or full decoded claim payloads. |
+| Raw authorization headers | Never log. |
+| Push notification tokens / FCM device tokens | Never log token values. Use token count or a short non-reversible hash only if absolutely required. |
+| Firebase service account credentials | Never log JSON, private keys, access tokens, credential file contents, or ADC token values. |
+| Supabase keys | Never log anon key, service role key, URLs containing keys, or PostgREST auth headers. |
+| Emails | Do not log in application logs. Prefer `user_id`. If email is required for a support artifact, store it in the support system or audit evidence, not general logs. |
+| Phone numbers | Do not log. Use `user_id`. |
+| Raw request bodies | Do not log by default. They may contain user text, tokens, phone numbers, emails, or moderation content. |
+| User-generated content | Do not log raw field names, notes, report descriptions, game notes, cancel reasons, or moderation denied text unless a dedicated evidence/audit process explicitly requires it. |
+| Raw third-party responses | Do not log full Firebase, Google, GovMap, Supabase, or PostgREST responses. Log status/category and sanitized error code only. |
+| Stack traces in client responses | Never return to users. Stack traces may appear only in server error logs for `ERROR`/`CRITICAL`, with sensitive fields redacted. |
+
+Allowed identifiers:
+
+* `user_id`, `actor_user_id`, `target_user_id`.
+* `game_id`, `field_id`, `report_id`, `notification_id`.
+* Stable error codes.
+* Counts and statuses.
+* Boolean presence flags such as `has_google_sub=true`, `phone_is_null=true`, or `email_present=true`.
+
+Disallowed identifier substitutes:
+
+* Full email address.
+* Full phone number.
+* Full token or token prefix.
+* Full IP address unless a separate security logging policy approves short-lived use.
+
+## Authentication Logging Requirements
+
+### Login Success
+
+Log level: `INFO`.
+
+Required fields:
+
+* `event`: `auth.login.success`
+* `method`: `password` or `google`
+* `user_id`
+* `request_id` when available
+* `execution_time_ms`
+
+Do not log:
+
+* Passwords.
+* Google ID token.
+* JWT access token.
+* Email or phone number.
+* Raw Google claim payload.
+
+### Login Failure
+
+Log level:
+
+* `WARNING` for failed credential/token verification.
+* `ERROR` only if login fails because of system dependency failure such as Supabase or Google OAuth outage.
+
+Required fields:
+
+* `event`: `auth.login.failure`
+* `method`
+* `error_code`
+* `status_code`
+* `request_id` when available
+
+Do not log whether a username/email exists. Do not log submitted username, email, password, or Google token.
+
+### Invalid Token
+
+Log level: `WARNING` when repeated or suspicious; otherwise omit or sample at low volume.
+
+Required fields:
+
+* `event`: `auth.token.invalid`
+* `error_code`: `AUTH_INVALID` or `AUTH_REQUIRED`
+* `endpoint`
+* `method`
+* `request_id` when available
+
+Do not log the token, raw authorization header, decoded payload, or signature error details that expose token content.
+
+## Games Logging Requirements
+
+Game write operations should log success at `INFO` and operation failures at `WARNING` or `ERROR` depending on whether the failure is expected business validation or system failure.
+
+| Action | Success log | Failure log | Required context |
+| --- | --- | --- | --- |
+| Game creation | `INFO games.create.success` | `WARNING` for validation/conflict, `ERROR` for DB/system failure | `user_id`, `game_id` when created, `field_id`, `sport_type`, `request_id`, `execution_time_ms` |
+| Join | `INFO games.join.success` | `WARNING` for full/not actionable/not participant conflict, `ERROR` for system failure | `user_id`, `game_id`, `field_id` when known |
+| Leave | `INFO games.leave.success` | `WARNING` for not-in-game/not actionable, `ERROR` for system failure | `user_id`, `game_id` |
+| Close | `INFO games.close.success` | `WARNING` for forbidden/not actionable, `ERROR` if update fails | `user_id`, `game_id`, `field_id`, `closed_by_role` |
+| Extend | `INFO games.extend.success` | `WARNING` for forbidden/not actionable, `ERROR` if update fails | `user_id`, `game_id`, `field_id`, `new_expires_at` |
+| Cancel scheduled game | `INFO games.cancel.success` | `WARNING` for forbidden/not scheduled/not actionable, `ERROR` if update fails | `user_id`, `game_id`, `field_id`, `cancelled_by_role` |
+
+Do not log:
+
+* Raw `age_note`.
+* Raw `cancel_reason`.
+* Full participant lists unless a dedicated audit report requires it.
+* Raw Supabase query payloads.
+
+Notification side-effect failures from game actions should be logged as `WARNING` when the game action succeeded.
+
+## Fields Logging Requirements
+
+### Field Submission
+
+Log level:
+
+* `INFO` when a field is submitted successfully.
+* `WARNING` when content moderation rejects the submission.
+* `ERROR` when database insertion fails.
+
+Required fields:
+
+* `event`: `fields.submit.success`, `fields.submit.rejected`, or `fields.submit.failure`
+* `user_id`
+* `field_id` when available
+* `error_code` for failures
+* `request_id` when available
+
+Do not log raw field name, notes, opening hours, city, coordinates at high precision, or raw moderation text. If location debugging is required, log `field_id` after insert or coarse location metadata only.
+
+### Moderation Decisions
+
+Field approval/rejection/status changes by admins should log at `INFO` and should eventually be stored in an audit table if durable history is required.
+
+Required fields:
+
+* `event`: `fields.moderation.approve`, `fields.moderation.reject`, or `fields.status.update`
+* `actor_user_id`
+* `field_id`
+* `new_status` or `approval_status`
+* `request_id` when available
+
+Do not log internal admin notes or raw user-generated field content.
+
+## Notifications Logging Requirements
+
+### Notification Generation Failures
+
+Log level: `WARNING` when the parent operation succeeds and notification generation fails.
+
+Required fields:
+
+* `event`: `notifications.generate.failure`
+* `notification_type`
+* `game_id` when available
+* `field_id` when available
+* `user_id` or `recipient_count` when available
+* `request_id` or `job_name`
+* `error_code` or sanitized exception type
+
+Do not log notification title/body if it may contain user-generated or location-sensitive text.
+
+### Push Failures
+
+Log level:
+
+* `WARNING` for per-token or transient FCM failures.
+* `ERROR` for test-push failures surfaced to the user or systemic Firebase configuration failure.
+* `CRITICAL` only for confirmed credential leakage or broad push outage affecting all delivery and requiring immediate response.
+
+Required fields:
+
+* `event`: `notifications.push.failure`
+* `notification_type`
+* `external_service`: `firebase_fcm`
+* `status_code` or sanitized FCM error category when available
+* `invalid_token_count`, `sent_count`, or `recipient_count`
+
+Do not log push tokens, Firebase access tokens, authorization headers, service account JSON, notification body, or full Firebase response.
+
+## Admin Logging Requirements
+
+Admin actions should be logged because they can affect user accounts, fields, games, and operational jobs. Logs support operational triage; audit tables preserve durable accountability.
+
+### Admin Actions
+
+Log level:
+
+* `INFO` for successful admin list-independent actions.
+* `WARNING` for denied admin access or invalid admin action.
+* `ERROR` for admin action system failure.
+
+Required fields:
+
+* `actor_user_id`
+* `endpoint`
+* `method`
+* `target_user_id`, `field_id`, `game_id`, or `report_id` when applicable
+* `event`
+* `request_id` when available
+
+Do not log:
+
+* Admin-entered moderation reason in general application logs.
+* Reporter email/phone.
+* Raw field report descriptions.
+
+### Moderation Actions
+
+User moderation actions already write to `user_moderation_audit`. Logs should record that the action happened, but the durable reason and status transition belong in the audit table.
+
+Log event examples:
+
+* `admin.user.ban.success`
+* `admin.user.unban.success`
+* `admin.user.suspend.success`
+* `admin.user.unsuspend.success`
+
+Required fields:
+
+* `actor_user_id`
+* `target_user_id`
+* `action_type`
+* `previous_status`
+* `new_status`
+* `request_id` when available
+
+Do not log raw moderation reason in application logs. Store moderation reason only in the audit table and support evidence process.
+
+## Scheduled Jobs Logging Requirements
+
+This applies to admin-triggered jobs and future cron/worker execution.
+
+### Job Start
+
+Log level: `INFO`.
+
+Required fields:
+
+* `event`: `jobs.<job_name>.start`
+* `job_name`
+* `trigger`: `admin`, `cron`, `manual_script`, or `system`
+* `actor_user_id` when admin-triggered
+* `request_id` when HTTP-triggered
+
+### Job Finish
+
+Log level: `INFO`.
+
+Required fields:
+
+* `event`: `jobs.<job_name>.finish`
+* `job_name`
+* `result`
+* `execution_time_ms`
+* `processed_count`
+* `skipped_count`
+* `failed_count`
+* other relevant counts such as `notifications_created` or `deleted_count`
+
+### Job Partial Failure
+
+Log level: `WARNING`.
+
+Use when one item fails but the job continues, such as one scheduled game reminder failing while other reminders continue.
+
+Required fields:
+
+* `event`: `jobs.<job_name>.item_failure`
+* `job_name`
+* relevant `game_id`, `field_id`, or row identifier
+* sanitized failure reason
+
+### Job Fatal Failure
+
+Log level: `ERROR`, or `CRITICAL` if system-wide data integrity or availability is at risk.
+
+Use when the job cannot complete, cannot query required data, or produces unsafe output.
+
+Do not log raw imported GovMap payloads, full generated SQL, raw CSV rows, or sensitive environment configuration.
+
+## Future Integration Logging Requirements
+
+### Google OAuth
+
+Log only verification success/failure category and `user_id` after a user is known. Do not log Google ID tokens, full decoded claims, email, name, or picture URL. Existing Google auth debug logging should be reduced or redacted in a future implementation issue.
+
+### Firebase / FCM
+
+Log only sanitized status, counts, invalid-token counts, and notification type. Do not log FCM tokens, Firebase bearer tokens, service account details, full FCM response bodies, or notification message bodies.
+
+### GovMap / Import Tooling
+
+Log import/fetch start, finish, counts, classification summaries, output file names, and fatal errors. Do not log full external payloads, raw rows containing names/locations in bulk, or generated SQL contents into general logs.
+
+### Future Mobile / Offline / Retry Integrations
+
+Client retry/offline logs should follow ISSUE-063/064: request category, endpoint family, retry attempt, final status category, and elapsed time. They must not include tokens, raw request bodies, or user-generated content.
+
+## Retention Policy
+
+These are recommendations until infrastructure-specific retention is implemented.
+
+| Log type | Recommended retention | Rationale |
+| --- | --- | --- |
+| Application INFO logs | 14 to 30 days | Useful for short-term support and operational debugging; high volume. |
+| WARNING logs | 30 to 60 days | Useful for trend detection, abuse attempts, transient external failures, and non-blocking side-effect failures. |
+| ERROR logs | 90 days | Supports incident investigation and regression analysis. |
+| CRITICAL incident logs | 180 days or longer if legally/operationally required | Needed for postmortems and security/data-loss incidents. |
+| Scheduled job logs | 90 days | Supports operational review of reminders, cleanup, imports, and audits. |
+| Security/auth failure aggregates | 90 days | Useful for abuse detection; must remain redacted and should avoid raw identifiers beyond `user_id` or hashed IP. |
+| Audit logs | 1 to 7 years depending on business/legal requirements | Durable accountability for moderation/admin decisions. Current `user_moderation_audit` should be retained longer than application logs. |
+
+Logs older than the retention window should be deleted or archived according to infrastructure capability. If archived, sensitive-data redaction requirements still apply.
+
+## Audit-vs-log Separation Policy
+
+Logs and audit tables serve different purposes.
+
+### Belongs in Logs
+
+Use logs for:
+
+* Request success/failure diagnostics.
+* Stack traces for server exceptions.
+* External service failures.
+* Operational job counts and failures.
+* Transient warning/error context.
+* Performance timing.
+* Correlation through `request_id`.
+
+Logs are optimized for debugging and operations. They are not the official record of a moderation decision.
+
+### Belongs in Audit Tables
+
+Use audit tables for durable accountability:
+
+* Who performed an admin/moderation action.
+* Who was affected.
+* What changed.
+* Previous and new values.
+* When it happened.
+* Why it happened, when a reason is required.
+
+Current example:
+
+* `user_moderation_audit` stores ban/unban/suspend/unsuspend actions with `target_user_id`, `actor_user_id`, `action_type`, `reason`, `previous_status`, `new_status`, and `created_at`.
+
+Recommended future audit tables:
+
+* Field moderation audit: approve/reject/status changes.
+* Game admin action audit: admin close/extend/cancel.
+* Field report review audit if report status history beyond `reviewed_at`/`reviewed_by` becomes necessary.
+* Admin role-change audit before adding promote/demote admin UI.
+
+### Rule
+
+If the business needs a durable answer to "who changed what, when, and why", use an audit table. If engineering needs to understand "what happened while the system ran", use logs.
+
+## Risks and Tradeoffs
+
+| Risk / tradeoff | Decision |
+| --- | --- |
+| More logs improve debugging but increase privacy risk. | Prefer IDs, counts, and error codes over raw data. Never log secrets or user-generated content. |
+| Email and phone can help support but are sensitive. | Use `user_id` in logs. Support tools may resolve identity under access controls. |
+| Full third-party errors help debugging but may expose credentials or payloads. | Log sanitized category/status only; keep raw errors out of general logs. |
+| Stack traces help engineers but can contain sensitive values. | Allow stack traces only on server-side `ERROR`/`CRITICAL` logs with redaction rules; never return them to clients. |
+| Audit tables require schema work. | Do not use logs as a substitute. Add audit tables only through future explicit issues. |
+| Request IDs are not yet implemented. | This policy requires them when available and keeps request ID middleware as a future implementation need. |
+| Current Google auth debug logging is more verbose than this policy allows. | Treat it as a gap for future remediation; do not expand that pattern. |
+
+## Final Recommendation
+
+Approve this logging policy as the source of truth for application logging.
+
+Future implementation should:
+
+1. Add structured JSON logging and request ID middleware.
+2. Redact or remove existing logs that include emails, phone numbers, Google token claims, raw Supabase details, or raw third-party responses.
+3. Standardize event names and mandatory fields across backend routers, services, scripts, and future frontend/mobile telemetry.
+4. Keep application logs short-lived and sanitized.
+5. Use durable audit tables for admin/moderation accountability rather than relying on logs.
+
+## Status
+
+Approved.
+
