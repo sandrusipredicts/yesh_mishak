@@ -267,3 +267,11 @@ They must not be automatically retried. The UI should lock the relevant row whil
 * Observability/logging expectations are defined.
 * Product decisions document references this specification.
 * No runtime behavior is changed by this specification.
+
+## Implementation Status
+
+ISSUE-064 implements the first narrow frontend retry pass:
+
+* Shared helper: `frontend/src/api/retry.js`.
+* Auto-retry applied only to field/map loads and active/upcoming games reads.
+* Non-idempotent actions, auth flows, admin actions, notification writes, push operations, backend health, MyGames, admin list loads, notification preferences/list loads, and unread-count polling remain manual/no-retry per this strategy.

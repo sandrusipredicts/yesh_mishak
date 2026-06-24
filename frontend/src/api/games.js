@@ -1,12 +1,13 @@
 import { api } from './client'
+import { retrySafeRead } from './retry'
 
 export async function getActiveGames() {
-  const response = await api.get('/games/active/')
+  const response = await retrySafeRead(() => api.get('/games/active/'))
   return response.data
 }
 
 export async function getUpcomingGames() {
-  const response = await api.get('/games/upcoming/')
+  const response = await retrySafeRead(() => api.get('/games/upcoming/'))
   return response.data
 }
 
