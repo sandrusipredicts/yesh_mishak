@@ -13707,3 +13707,209 @@ This issue does not implement:
 |------|--------|
 | `docs/product-decisions.md` | This section (ISSUE-089 capacity planning document) |
 
+# ISSUE-090 -- Performance Review Checkpoint
+
+**Date:** 2026-06-25
+**Status:** COMPLETED
+**Type:** Review checkpoint (documentation only)
+
+---
+
+## 1. Checkpoint Purpose
+
+This is the final Section 3 performance review checkpoint. Its purpose is to evaluate whether all P0 performance and scalability work is complete, whether critical bottlenecks are resolved or tracked, and whether Section 3 can be closed.
+
+This issue does not add new optimizations, code changes, migrations, or tests. It evaluates readiness based on the existing documentation and implementation record.
+
+---
+
+## 2. Section 3 Scope Summary
+
+Section 3 covers performance measurement, database optimization, scalability analysis, frontend rendering audit, load testing, and capacity planning. The following issues were identified in `docs/product-decisions.md` as part of this track:
+
+| Issue | Title / Area | Type | Status | Priority |
+|-------|-------------|------|--------|----------|
+| ISSUE-073 | Performance Baseline Report | Measurement / documentation | Approved | P0 (baseline) |
+| ISSUE-074 | Production API Response Times | Production measurement | Approved | P0 (measurement) |
+| ISSUE-075 | API Performance Thresholds | Specification | Approved | P0 (thresholds) |
+| ISSUE-076 | Database Query Performance Audit | Audit / documentation | Approved | P0 (audit) |
+| ISSUE-077 | Optimize Slow Database Queries | Performance optimization | Approved | P0 (optimization) |
+| ISSUE-078 | Database Indexing Strategy Audit | Audit / documentation | Completed | P0 (audit) |
+| ISSUE-079 | Implement Missing Database Indexes | Implementation (migration) | Completed | P0 (P1-P3 indexes) |
+| ISSUE-080 | Map Loading Scalability Review | Theoretical audit | Completed | P0 (review) |
+| ISSUE-081 | Backend Field Bounds Filtering | Implementation / verification | COMPLETED | P0 (verification) |
+| ISSUE-082 | Measure Field Loading Improvement | Benchmark | COMPLETED | P0 (measurement) |
+| ISSUE-083 | Frontend Rendering Performance Audit | Code audit | COMPLETED | P0 (audit) |
+| ISSUE-084 | Optimize Frontend Rendering Bottlenecks | Implementation | Implemented | P1 (optimization) |
+| ISSUE-085 | Notification System Load Test Plan | Documentation / planning | Approved | P1 (plan) |
+| ISSUE-086 | Optimize Unread Notification Count Query | Implementation | Implemented | P0 (optimization) |
+| ISSUE-087 | Game Creation Load Test Plan | Documentation / planning | Approved | P1 (plan) |
+| ISSUE-088 | Execute Game Creation Load Testing | Implementation + load testing | RESOLVED | P0 (execution) |
+| ISSUE-089 | Capacity Planning Document | Documentation | COMPLETED | P0 (planning) |
+
+**Priority classification note:** Priority assignments above are inferred from the issue descriptions, dependency chains, and the P0/P1/P2 framework defined in ISSUE-080. Issues that establish baselines, define thresholds, audit queries, implement indexes, verify existing implementations, or create the capacity plan are classified as P0 because they are prerequisites for informed scaling decisions. Issues that implement specific optimizations beyond the minimum (ISSUE-084 frontend rendering, ISSUE-085 notification load test plan, ISSUE-087 game creation load test plan) are classified as P1 because they address 1,000-field scale risks rather than current-state requirements.
+
+---
+
+## 3. P0 Completion Review
+
+### P0 items and their completion status
+
+| P0 Item | Issue | Complete? | Evidence |
+|---------|-------|-----------|----------|
+| Performance baseline established | ISSUE-073 | Yes | Baseline report approved with FakeSupabase + TestClient measurements. Documented in product-decisions.md. |
+| Production API response times measured | ISSUE-074 | Yes | Real production measurements documented. `measure_production_api.py` script created. |
+| API performance thresholds defined | ISSUE-075 | Yes | Per-endpoint p95 thresholds approved and documented. |
+| Database query performance audited | ISSUE-076 | Yes | All query paths audited. N+1 patterns, unbounded queries, fan-out risks documented. |
+| Slowest database queries optimized | ISSUE-077 | Yes | `GET /fields` bounded query implemented. Eliminated full-table pagination for the primary path. |
+| Database indexing strategy audited | ISSUE-078 | Yes | All 8 tables, 31 indexes, 105+ call sites audited. 8 missing critical indexes identified. |
+| Missing database indexes implemented | ISSUE-079 | Yes | 10 indexes added, 1 redundant index dropped. Migration file created. All query patterns now have index coverage. |
+| Map loading scalability reviewed | ISSUE-080 | Yes | End-to-end flow documented. Bottlenecks categorized (database, API, frontend, network, UX). P0/P1/P2 phases defined with thresholds for 500/1,000/5,000 fields. |
+| Backend field bounds filtering verified | ISSUE-081 | Yes | Confirmed ISSUE-077 implementation works. Edge-case tests added. |
+| Field loading improvement measured | ISSUE-082 | Yes | Synthetic benchmark created and executed. Bounded vs unbounded compared at 500/1,000/5,000 fields. Results documented with explicit synthetic-only caveats. |
+| Frontend rendering audited | ISSUE-083 | Yes | 14 frontend files inspected. Rendering risks identified per area. Manual measurement checklist created. All findings labeled as inferred (not measured). |
+| Unread notification count optimized | ISSUE-086 | Yes | Replaced Python-side row fetch + filter with database-side exact count. Uses `idx_notifications_user_unread` partial index. Tests added. |
+| Game creation load testing executed | ISSUE-088 | Yes | Load test script created and executed. Concurrency issues identified and fixed: notification fanout decoupled to BackgroundTasks, `@lru_cache` removed from Supabase clients, auth user caching added. p95 < 3s with 0% error rate achieved. |
+| Capacity planning document created | ISSUE-089 | Yes | DAU definition, capacity tiers (100/1K/10K), workload assumptions, bottleneck mapping, growth plan (Phase A/B/C), load testing plan, decision table, and follow-up issues all documented. |
+
+### P0 completion verdict
+
+**All P0 items are complete.** No open P0 blockers remain.
+
+Every P0 issue has either:
+- Produced approved documentation (073, 074, 075, 076, 078, 080, 089)
+- Implemented and verified a code/schema change (077, 079, 081, 086, 088)
+- Created and run a benchmark or measurement (082, 083)
+
+---
+
+## 4. Critical Bottleneck Review
+
+| # | Bottleneck | Source Issue | Current Status | Risk Level | Resolution / Follow-Up |
+|---|-----------|-------------|----------------|------------|----------------------|
+| 1 | Database indexes missing for primary query paths | ISSUE-078, ISSUE-079 | **Resolved.** 10 indexes added. All query patterns have index coverage. | None | Monitor index usage via `pg_stat_user_indexes` after production deployment. |
+| 2 | `GET /fields` full-table scan (unbounded) | ISSUE-077, ISSUE-080 | **Resolved for primary path.** Bounded query implemented. Frontend `FieldLoader` always passes bounds. | Low (residual) | One code path (`handleNotificationTarget`) still calls `getFields()` without bounds. Documented as follow-up in ISSUE-080 section 4.1 / ISSUE-083 section 4.5. Non-blocking at current scale (< 500 fields). |
+| 3 | Game payload fan-out: `ceil(N/100)` batched Supabase queries | ISSUE-080 section 2.1, ISSUE-082 | **Documented, not resolved.** Fan-out is the dominant backend cost at scale. | Medium (at 1,000+ fields) | Classified as P2 in ISSUE-080. Follow-up: reduce to 1-3 queries via JOIN or RPC. Not blocking at current scale because viewport bounds limit per-request field count to ~50-150. |
+| 4 | Active/upcoming games performance | ISSUE-076, ISSUE-079 | **Resolved.** `idx_games_status` and `idx_games_field_id_status` indexes added. Status-based queries are now index-backed. | None | No further action needed at current scale. |
+| 5 | Notification unread-count polling inefficiency | ISSUE-086 | **Resolved.** Endpoint now uses database-side exact count with `idx_notifications_user_unread` partial index. No rows fetched to Python. | None | Polling interval (20s) is appropriate. At 1,000+ DAU, monitor Supabase request volume. |
+| 6 | Notification inbox (flat list, no pagination) | ISSUE-083 section 4.2, ISSUE-085 | **Documented, not resolved.** All notifications render without virtualization or pagination. | Low | Typical notification counts are small (< 100). Notification retention policy (ISSUE-032) prevents unbounded growth. Follow-up if counts exceed 500. |
+| 7 | Notification fan-out on game creation (sequential FCM sends) | ISSUE-088 | **Mitigated.** Notification fanout moved to FastAPI `BackgroundTasks`. Game creation no longer fails if notification dispatch fails. FCM sends are still sequential within the background task. | Low (at current scale) | Follow-up: batch FCM sends or use async queue at 10,000+ DAU. Documented in ISSUE-089 section 10. |
+| 8 | Supabase client instantiation (no connection reuse) | ISSUE-088 | **Documented, intentional trade-off.** `@lru_cache` removed because shared clients caused socket leaks under concurrency. Each request creates a new client. | Low (at current scale) | At 200+ req/min (1,000+ DAU), monitor connection overhead. Follow-up: request-scoped client with connection pooling. Documented in ISSUE-089 section 5 bottleneck #2. |
+| 9 | Frontend: `JSON.stringify` deep compare + localStorage writes | ISSUE-083, ISSUE-084 | **Resolved.** ISSUE-084 replaced `JSON.stringify` deep compare with lightweight field fingerprint. localStorage writes now only happen when fingerprint changes. 250ms debounce added to `moveend`. | None | Manual browser profiling not yet performed (documented in ISSUE-084 section "Manual Measurement Required"). Code-level fix is complete. |
+| 10 | Frontend: no marker clustering | ISSUE-080, ISSUE-083 | **Documented, not resolved.** No clustering library installed. All markers render at all zoom levels. | Medium (at 500+ visible markers) | Classified as P2 in ISSUE-080. Follow-up: install `react-leaflet-cluster`. Not blocking at current scale because viewport bounds limit visible markers to ~50-150 at typical zoom. |
+| 11 | Admin endpoints: no pagination | ISSUE-083 section 4.4, ISSUE-089 section 4 | **Documented, not resolved.** `GET /admin/users`, `GET /admin/fields`, `GET /admin/games` load all records. | Low (at current scale) | Admin pages are low-traffic. Follow-up before 1,000+ records. Classified as P3 in ISSUE-089 section 10. |
+| 12 | Load testing coverage | ISSUE-087, ISSUE-088, ISSUE-085 | **Partially resolved.** Game creation load test implemented and executed (ISSUE-088). Notification load test plan documented (ISSUE-085) but not executed. `GET /fields` and `GET /notifications/unread-count` load tests planned (ISSUE-089) but not implemented. | Low | Execution of remaining load tests is follow-up work. The game creation load test validated the critical write path. Read-path load tests are planned in ISSUE-089 section 7.2. |
+| 13 | Capacity planning | ISSUE-089 | **Resolved.** Full capacity planning document created with DAU definition, 3 capacity tiers, workload assumptions, bottleneck mapping, growth plan, load testing plan, and decision table. | None | Capacity plan provides framework for growth decisions. Assumptions need validation with production analytics. |
+
+---
+
+## 5. Readiness Decision
+
+### Assessment
+
+**All P0 items are complete.** The Section 3 performance and scalability track has achieved its goals:
+
+1. **Performance baselines exist** (ISSUE-073, ISSUE-074) -- both synthetic and production measurements are documented.
+2. **Performance thresholds are defined** (ISSUE-075) -- per-endpoint p95 targets exist.
+3. **Database performance is audited and optimized** (ISSUE-076, ISSUE-077, ISSUE-078, ISSUE-079) -- all query paths audited, slowest query optimized, 10 missing indexes added.
+4. **Map loading scalability is reviewed** (ISSUE-080) -- end-to-end flow documented with P0/P1/P2 phase plan.
+5. **Backend field bounds filtering is verified** (ISSUE-081, ISSUE-082) -- bounded query works, synthetic benchmark confirms improvement.
+6. **Frontend rendering is audited** (ISSUE-083) -- all 14 frontend files inspected, risks categorized, manual measurement checklist created.
+7. **Frontend rendering bottlenecks are addressed** (ISSUE-084) -- `JSON.stringify` compare replaced, localStorage writes reduced, `moveend` debounced.
+8. **Unread notification count is optimized** (ISSUE-086) -- database-side count replaces Python-side row fetch.
+9. **Game creation load testing is complete** (ISSUE-087, ISSUE-088) -- plan created, test executed, concurrency issues found and fixed, p95 < 3s achieved.
+10. **Capacity planning document exists** (ISSUE-089) -- growth tiers, bottleneck mapping, and load test plan defined.
+
+### Critical risks reviewed
+
+- No unresolved P0 blockers.
+- All critical bottlenecks are either resolved (items 1, 2, 4, 5, 9, 13) or documented as non-blocking follow-up work with clear scale thresholds (items 3, 6, 7, 8, 10, 11, 12).
+- The remaining bottlenecks (game fan-out, marker clustering, admin pagination, notification load testing) are classified as P1/P2/P3 and have documented trigger points (1,000+ fields, 500+ visible markers, 1,000+ admin records).
+
+### Decision
+
+**GO. Section 3 is complete.**
+
+The application's performance and scalability posture is understood, measured, and documented. The current implementation handles the expected initial load (100 DAU / < 500 fields). Growth-phase optimizations are planned with clear triggers and are tracked as follow-up issues.
+
+---
+
+## 6. Section 3 Completion Marker
+
+**Section 3 Performance & Scalability Status: COMPLETE**
+
+Completed: 2026-06-25
+Review issue: ISSUE-090
+Reviewer basis: All P0 items verified complete. Critical bottlenecks resolved or tracked with documented scale thresholds.
+
+---
+
+## 7. Remaining Non-Blocking Follow-Ups
+
+### P1 -- Should implement before 1,000 fields / 1,000 DAU
+
+| Follow-up | Source | Description |
+|-----------|--------|-------------|
+| Fix `handleNotificationTarget` unbounded `getFields()` call | ISSUE-080 section 4.1, ISSUE-083 section 4.5 | The one frontend code path that bypasses bounds filtering. Should pass current map bounds or use `getFieldById()`. |
+| Execute notification system load test | ISSUE-085 | Plan is documented. Needs k6 + staging environment to execute. |
+| Implement `GET /fields` and `GET /notifications/unread-count` load tests | ISSUE-089 section 7.2 | Planned but not yet implemented as k6 scripts. |
+| Add production/staging monitoring dashboard | ISSUE-089 section 10 | API response time, error rate, and Supabase usage monitoring. Required before Phase B (1,000 DAU). |
+| Define Supabase usage/limits monitoring | ISSUE-089 section 10 | Track API request count, connection pool utilization against plan limits. |
+| Manual browser profiling of ISSUE-084 changes | ISSUE-084 section "Manual Measurement Required" | Run Chrome DevTools Performance recording to validate that `JSON.stringify` removal and `moveend` debounce have measurable FPS impact. |
+
+### P2 -- Should implement before 5,000 fields / 10,000 DAU
+
+| Follow-up | Source | Description |
+|-----------|--------|-------------|
+| Marker clustering | ISSUE-080 P2-1, ISSUE-083 section 4.1 | Install `react-leaflet-cluster`. Highest-impact single change for map UX at scale. |
+| Server-side result limit on `GET /fields` | ISSUE-080 P2-2 | Add `limit` parameter + `X-Total-Count` header. Hard cap on payload size. |
+| Reduce game payload fan-out | ISSUE-080 P2-3 | Replace `ceil(N/100)` batched queries with 1-3 queries via JOIN or RPC. |
+| Supabase client connection reuse | ISSUE-088, ISSUE-089 section 10 | Evaluate safe connection reuse after `@lru_cache` removal. Request-scoped client with pooling. |
+| Add caching strategy for fields and active games | ISSUE-089 section 10 | HTTP caching headers and/or in-memory caching with cache invalidation strategy. |
+| Notification fan-out batching | ISSUE-088, ISSUE-089 section 10 | Batch FCM sends or use async queue for large subscriber counts. |
+| API latency / error budget targets (SLOs) | ISSUE-089 section 10 | Define formal SLO targets and build alerting. |
+
+### P3 -- Should implement before 10,000+ records per table
+
+| Follow-up | Source | Description |
+|-----------|--------|-------------|
+| Admin endpoint pagination | ISSUE-083 section 4.4, ISSUE-089 section 10 | Server-side pagination for `GET /admin/users`, `GET /admin/fields`, `GET /admin/games`. |
+| Notification inbox pagination / virtualization | ISSUE-083 section 4.2 | Add pagination or virtual list if notification counts exceed 500. |
+| Notification preferences field list virtualization | ISSUE-083 section 4.5 | Virtual list or searchable select for field checkbox list at 500+ fields. |
+
+---
+
+## 8. Final Decision Log
+
+**Decision:** Section 3 Performance & Scalability is COMPLETE.
+
+**Why:** All P0 requirements are satisfied:
+- Performance is baselined and measured (ISSUE-073, 074, 082).
+- Performance thresholds are defined (ISSUE-075).
+- Database queries are audited, optimized, and indexed (ISSUE-076, 077, 078, 079).
+- Map loading scalability is reviewed with a phased plan (ISSUE-080).
+- Backend field bounds filtering is verified and benchmarked (ISSUE-081, 082).
+- Frontend rendering is audited with an actionable checklist (ISSUE-083).
+- Key frontend bottlenecks are addressed (ISSUE-084, 086).
+- Load testing infrastructure exists and has been executed for the critical write path (ISSUE-087, 088).
+- Capacity planning document provides a framework for growth decisions (ISSUE-089).
+- No P0 items remain incomplete.
+- All remaining bottlenecks are documented with scale thresholds and classified as P1/P2/P3 follow-up work.
+
+**What the next section/track can safely depend on:**
+- The database has index coverage for all current query patterns.
+- `GET /fields` uses bounded queries by default; the primary map loading path scales with viewport size, not total field count.
+- `GET /notifications/unread-count` uses database-side counting with a partial index.
+- Game creation is load-tested with notification fanout decoupled to background tasks.
+- Performance thresholds exist for monitoring regressions.
+- A capacity planning framework defines when each scaling action is needed.
+- The application handles 100 DAU / < 500 fields without additional optimization work.
+
+---
+
+## 9. Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | This section (ISSUE-090 performance review checkpoint) |
+
