@@ -165,7 +165,12 @@ function MyGamesPage({ onBack }) {
       </header>
 
       {loading && <p className="my-games-loading">{t('myGames.loading')}</p>}
-      {error && <p className="my-games-error">{error}</p>}
+      {error && (
+        <div className="my-games-error">
+          <p>{error}</p>
+          <button type="button" onClick={loadGames}>{t('admin.retry')}</button>
+        </div>
+      )}
 
       {!loading && !error && !hasAnyGames && (
         <p className="my-games-empty-all">{t('myGames.emptyAll')}</p>

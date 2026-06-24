@@ -22,6 +22,7 @@ function AdminFields() {
   const [allFieldsError, setAllFieldsError] = useState('')
   const [actionError, setActionError] = useState('')
   const [workingFieldId, setWorkingFieldId] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -98,7 +99,7 @@ function AdminFields() {
     return () => {
       isMounted = false
     }
-  }, [t])
+  }, [retryKey, t])
 
   function handleTabChange(tabId) {
     setActiveTab(tabId)
@@ -197,7 +198,12 @@ function AdminFields() {
       {activeTab === 'pending' ? (
         <section className="admin-fields-panel" aria-label={t('admin.pendingFields')}>
           {isPendingLoading ? <p className="admin-loading">{t('admin.loadingPendingFields')}</p> : null}
-          {pendingError ? <p className="admin-error">{pendingError}</p> : null}
+          {pendingError ? (
+            <div className="admin-error">
+              <p>{pendingError}</p>
+              <button type="button" onClick={() => setRetryKey((k) => k + 1)}>{t('admin.retry')}</button>
+            </div>
+          ) : null}
           {!isPendingLoading && !pendingError && pendingFields.length === 0 ? (
             <p className="admin-empty-state">{t('admin.noPendingFields')}</p>
           ) : null}
@@ -254,7 +260,12 @@ function AdminFields() {
       ) : (
         <section className="admin-fields-panel" aria-label={t('admin.allFieldsLabel')}>
           {isAllFieldsLoading ? <p className="admin-loading">{t('admin.loadingFields')}</p> : null}
-          {allFieldsError ? <p className="admin-error">{allFieldsError}</p> : null}
+          {allFieldsError ? (
+            <div className="admin-error">
+              <p>{allFieldsError}</p>
+              <button type="button" onClick={loadAllFields}>{t('admin.retry')}</button>
+            </div>
+          ) : null}
           {!isAllFieldsLoading && !allFieldsError && allFields.length === 0 ? (
             <p className="admin-empty-state">{t('admin.noFieldsFound')}</p>
           ) : null}

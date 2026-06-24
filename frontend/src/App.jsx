@@ -69,7 +69,9 @@ function App() {
       return
     }
 
-    startForegroundPushNotifications().catch(() => {})
+    startForegroundPushNotifications().catch((pushError) => {
+      console.warn('Foreground push notification setup failed.', pushError)
+    })
   }, [currentUser])
 
   const handleLogout = useCallback(() => {

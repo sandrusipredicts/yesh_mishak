@@ -177,7 +177,12 @@ function AdminGames() {
   return (
     <div className="admin-games">
       {isLoading ? <p className="admin-loading">{t('admin.loadingGames')}</p> : null}
-      {loadError ? <p className="admin-error">{loadError}</p> : null}
+      {loadError ? (
+        <div className="admin-error">
+          <p>{loadError}</p>
+          <button type="button" onClick={loadGames}>{t('admin.retry')}</button>
+        </div>
+      ) : null}
       {actionError ? <p className="admin-error">{actionError}</p> : null}
 
       {!isLoading && !loadError ? (
