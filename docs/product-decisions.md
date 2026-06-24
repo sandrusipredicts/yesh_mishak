@@ -11500,3 +11500,118 @@ The index is necessary but not sufficient for 5,000-field scale.
 4. **The game payload fan-out** is the backend scaling wall. At 5,000 fields, even with viewport filtering limiting results to ~200 fields, the fan-out requires 6+ Supabase calls. Restructuring this to a single query (RPC or JOIN) is the P2 backend priority.
 5. **No code changes were made in this issue.** All recommendations are documented for implementation in future issues.
 
+# ISSUE-081 -- Backend Field Bounds Filtering
+
+**Date:** 2026-06-24
+**Status:** COMPLETED -- Already implemented
+
+## Summary
+
+The backend field bounds filtering feature was already implemented in ISSUE-077. The GET /fields endpoint accepts optional `north`, `south`, `east`, `west` query parameters. When all four are provided, the endpoint executes a single bounded query with `.gte("lat", south).lte("lat", north).gte("lng", west).lte("lng", east)` instead of the pagination loop.
+
+## What was done
+
+1. **Verified existing implementation** in `backend/app/routers/fields.py` (lines 78-131).
+2. **Added 2 edge-case tests** in `backend/tests/test_inactive_field_lifecycle.py`:
+   - `test_public_listing_bounds_edge_values`: Fields exactly on boundary edges are included (gte/lte are inclusive). Tests 4 fields on each edge + 1 just outside.
+   - `test_public_listing_bounds_mixed_results`: Bounds filter correctly partitions 5 inside + 4 outside fields.
+
+## Files changed
+
+| File | Change |
+|------|--------|
+| `backend/tests/test_inactive_field_lifecycle.py` | Added 2 new test functions |
+
+# ISSUE-082 -- Measure Field Loading Improvement
+
+**Date:** 2026-06-24
+**Status:** COMPLETED
+
+## 1. Objective
+
+Create a reproducible synthetic benchmark comparing bounded vs unbounded GET /fields at 500, 1,000, and 5,000 fields. Measure: fields returned, payload size, Supabase query count, and request duration.
+
+## 2. Methodology
+
+- **Tool:** `backend/scripts/benchmark_bounds_filtering.py`
+- **Approach:** FakeSupabase (in-memory), FastAPI TestClient, 10 runs per measurement
+- **Data distribution:** 20% of fields inside Tel Aviv viewport, 80% spread across Israel
+- **Game ratio:** 15% of fields have active games (with participants)
+- **Viewport:** north=32.15, south=31.95, east=34.85, west=34.70 (typical Tel Aviv zoom-14 view)
+- **Limitation:** Times measure Python/FastAPI processing only -- no real DB or network latency
+
+## 3. Results
+
+```
+----------------------------------------------------------------------------------------------------
+  Fields in DB | Mode         | Returned |    Payload |   Avg ms |   P95 ms | DB Queries
+----------------------------------------------------------------------------------------------------
+           500 | unbounded    |      500 |    201.4 KB |     17.3 |     17.4 |          8
+               | bounded      |      100 |     72.0 KB |      8.4 |      8.9 |          4
+               | reduction    |      80% |       64%    |      51% |          |       50%
+----------------------------------------------------------------------------------------------------
+         1,000 | unbounded    |    1,000 |    403.2 KB |     31.8 |     31.8 |         15
+               | bounded      |      200 |    144.2 KB |     14.4 |     15.1 |          6
+               | reduction    |      80% |       64%    |      55% |          |       60%
+----------------------------------------------------------------------------------------------------
+         5,000 | unbounded    |    5,000 |   2020.6 KB |    163.8 |    174.7 |         65
+               | bounded      |    1,000 |    721.8 KB |     64.1 |     67.3 |         20
+               | reduction    |      80% |       64%    |      61% |          |       69%
+----------------------------------------------------------------------------------------------------
+```
+
+## 4. Query breakdown (avg per request)
+
+| Scale | Mode | fields | games | game_players | users | Total |
+|-------|------|--------|-------|--------------|-------|-------|
+| 500 | unbounded | 1 | 5 | 1 | 1 | 8 |
+| 500 | bounded | 1 | 1 | 1 | 1 | 4 |
+| 1,000 | unbounded | 2 | 10 | 2 | 1 | 15 |
+| 1,000 | bounded | 1 | 2 | 2 | 1 | 6 |
+| 5,000 | unbounded | 6 | 50 | 8 | 1 | 65 |
+| 5,000 | bounded | 1 | 10 | 8 | 1 | 20 |
+
+## 5. Key findings
+
+1. **In this synthetic benchmark, bounded filtering eliminates 80% of returned fields** (matching the fixed 80/20 distribution used by the test data). In production, the actual reduction depends on viewport density, zoom level, and geographic distribution of fields -- it was not measured here.
+
+2. **Synthetic payload reduction is consistently 64%** across all scales (a direct consequence of the 80/20 distribution). At 5,000 synthetic fields, this is 2 MB vs 722 KB uncompressed (roughly 600 KB vs 217 KB if gzip-compressed).
+
+3. **In the synthetic benchmark, the game query fan-out is the dominant cost.** At 5,000 fields:
+   - Unbounded: 50 game queries (ceil(5000/100) batches)
+   - Bounded: 10 game queries (ceil(1000/100) batches)
+   - This 5x reduction in game queries accounts for most of the synthetic processing time savings.
+
+4. **Synthetic processing time scales super-linearly** with field count due to fan-out. 10x more fields (500 to 5000) produces ~10x more processing time for unbounded, but only ~8x for bounded (because the bounded field count grows more slowly). Whether this pattern holds in production depends on actual network latency and database load.
+
+5. **Production improvement may be larger, but was not measured here.** The synthetic benchmark excludes network latency. Each Supabase query adds an estimated ~100-200ms of network round-trip from Railway, so fewer queries could yield a proportionally larger wall-clock improvement. This remains an estimate -- actual production latency was not measured as part of this issue.
+
+## 6. Rough production latency estimate (not measured)
+
+Extrapolated latency per request assuming ~150ms per Supabase call from Railway. These are back-of-envelope projections, not measurements. Actual latency depends on network conditions, connection pooling, query complexity, and database load.
+
+| Scale | Mode | Estimated latency |
+|-------|------|------------------|
+| 500 | unbounded | ~1.2s (8 queries x 150ms) |
+| 500 | bounded | ~0.6s (4 queries x 150ms) |
+| 1,000 | unbounded | ~2.3s (15 queries x 150ms) |
+| 1,000 | bounded | ~0.9s (6 queries x 150ms) |
+| 5,000 | unbounded | ~9.8s (65 queries x 150ms) |
+| 5,000 | bounded | ~3.0s (20 queries x 150ms) |
+
+## 7. Script usage
+
+```bash
+cd backend
+.venv\Scripts\python.exe -m scripts.benchmark_bounds_filtering          # table output
+.venv\Scripts\python.exe -m scripts.benchmark_bounds_filtering --json   # JSON output
+.venv\Scripts\python.exe -m scripts.benchmark_bounds_filtering --runs 20  # more runs
+```
+
+## 8. Files changed
+
+| File | Change |
+|------|--------|
+| `backend/scripts/benchmark_bounds_filtering.py` | New benchmark script |
+| `docs/product-decisions.md` | This section |
+
