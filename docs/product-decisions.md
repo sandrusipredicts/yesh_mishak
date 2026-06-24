@@ -12504,3 +12504,462 @@ Result:
 
 No manual validation is required for the repository change. A staging smoke check can call `GET /notifications/unread-count` before and after marking notifications read to confirm the response shape remains unchanged.
 
+# ISSUE-087: Game Creation Load Test Plan
+
+## Status
+
+Approved plan. Documentation only.
+
+## Objective
+
+Define a safe, runnable load test plan for `POST /games/` so future engineers can measure game creation throughput, latency, duplicate prevention, database pressure, and notification side effects without guessing or polluting production data.
+
+This issue does not implement production code changes, optimizations, migrations, or load-test scripts.
+
+## Repository Review
+
+Files reviewed before writing this plan:
+
+| Area | Files / evidence |
+|------|------------------|
+| Game creation endpoint | `backend/app/routers/games.py`, especially `create_game()` |
+| Game payload/read helpers | `backend/app/routers/game_payloads.py` |
+| Authentication requirements | `backend/app/auth/dependencies.py`, `backend/app/auth/jwt.py` |
+| Game schema and constraints | `backend/schema.sql` |
+| Scheduled-game migration | `backend/migrations/scheduled_games.sql` |
+| Join/capacity constraint context | `backend/migrations/join_game_atomic.sql` |
+| Existing game creation tests | `backend/tests/test_game_close.py`, `backend/tests/test_inactive_field_lifecycle.py`, `backend/tests/test_notifications.py` |
+| Notification side effects | `backend/app/routers/notifications.py`, ISSUE-085 load plan |
+
+## Current Game Creation Behavior
+
+`POST /games/` requires an active authenticated user. The request body is:
+
+```json
+{
+  "field_id": "uuid",
+  "sport_type": "football",
+  "players_present": 1,
+  "max_players": 10,
+  "age_note": "optional",
+  "min_age": null,
+  "max_age": null,
+  "scheduled_at": null
+}
+```
+
+Important behavior to preserve during load tests:
+
+- `sport_type` must be `football` or `basketball`.
+- `players_present` must be at least `1`.
+- `max_players` must be greater than `0`.
+- `players_present <= max_players`.
+- `min_age <= max_age` when both are present.
+- `scheduled_at`, when provided, must be in the future.
+- The field must exist, be `verified = true`, have `approval_status = approved`, have `status = open`, and support the requested sport.
+- For instant games, the endpoint rejects creation when another non-expired active game already exists for the same field and sport.
+- For scheduled games, the endpoint rejects creation when an active scheduled game already exists for the same field, sport, and exact `scheduled_at`.
+- On success, the endpoint inserts one `games` row and one `game_players` row for the creator.
+- `status` is `full` when `players_present >= max_players`; otherwise `open`.
+- `started_at` is `now` for instant games and `scheduled_at` for scheduled games.
+- `expires_at` is `started_at + 2 hours`.
+- `game_created` notifications are generated best-effort after the game and creator membership are inserted.
+
+## Constraints and Bottlenecks To Watch
+
+| Component | Current behavior / risk |
+|-----------|--------------------------|
+| Active-game conflict scan | `create_game()` queries active games by `field_id`, `sport_type`, and `status in ('open','full')`, then calls `finish_expired_games()` and checks conflicts in application code. This can become expensive if many active/upcoming games exist for the same field. |
+| Instant-game duplicate prevention | Application-level conflict check rejects a second started active game for the same field and sport. There is no DB unique index for "one instant active game per field/sport". Concurrent requests can expose race conditions and must be tested. |
+| Scheduled-game duplicate prevention | Application-level check plus DB partial unique index `idx_games_unique_scheduled_slot` on `(field_id, sport_type, scheduled_at)` where `scheduled_at is not null and status in ('open','full')`. Concurrent duplicate scheduled requests should result in at most one created row. |
+| Game insert | Writes to `games`; watch Postgres insert latency, constraint failures, and Supabase connection pressure. |
+| Creator membership insert | Writes to `game_players`; should create exactly one membership row for each successful game. |
+| Player limits | Creation accepts `players_present == max_players` and marks the game `full`; invalid `players_present > max_players` should fail with validation and must not insert rows. |
+| Notification fanout | `create_game_created_notifications()` may scan notification preferences and insert notification rows after game creation. It is best-effort, but it contributes to end-to-end latency. |
+| Content moderation | `validate_game_text()` runs before DB work. Keep load-test `age_note` values simple and allowed, or omit them, unless explicitly testing moderation latency. |
+
+## Environments
+
+| Environment | Allowed use |
+|-------------|-------------|
+| Local | Safe for script development, smoke tests, and very small load. Use local/dev Supabase or fake data only. Results are not production-capacity signals. |
+| Staging | Required for meaningful API/database load results. Use synthetic users, synthetic fields, and test-only tokens. |
+| Production | Do not run load tests against production. Do not seed synthetic production users, fields, games, notifications, or push tokens. |
+
+## Authentication Requirements
+
+Every `POST /games/` request must include:
+
+```http
+Authorization: Bearer <jwt>
+```
+
+The JWT subject must match an existing active user row. `require_active_user` rejects:
+
+- missing bearer token
+- invalid JWT
+- unknown user
+- `status = banned`
+- `status = suspended`
+
+For load tests, create synthetic active users with clearly identifiable IDs or email/username prefixes, for example:
+
+- `loadtest-game-user-001`
+- `loadtest-game-user-002`
+- `loadtest-game-field-001`
+
+Do not use real user accounts or real user tokens.
+
+## Test Data Requirements
+
+Minimum staging dataset:
+
+| Data | Minimum | Near-term | Notes |
+|------|---------|-----------|-------|
+| Active synthetic users | 10 | 100-500 | Each needs an auth token. |
+| Approved open fields | 10 | 100-500 | `verified = true`, `approval_status = approved`, `status = open`. |
+| Sports | football and basketball | football and basketball | Include fields with `sport_type = both` and sport-specific fields. |
+| Existing active games | 0, 1, and many per field cases | 100-5,000 total | Used to measure conflict-scan behavior. |
+| Notification preferences | optional for pure game creation | 100-5,000 for fanout scenarios | Use ISSUE-085 plan for deeper notification load. |
+
+Use synthetic IDs or a tracking column/prefix in names where possible. If direct SQL seeding is used, keep a manifest of inserted user IDs, field IDs, game IDs, and notification IDs for cleanup.
+
+## Recommended Tooling
+
+Use one of:
+
+- **k6** for the first implementation. It is simple for HTTP ramping, thresholds, and CI-friendly output.
+- **Locust** if test-user behavior needs richer Python logic or dynamic per-user setup.
+
+No tool is added by this issue.
+
+Example k6 command shape:
+
+```bash
+k6 run \
+  -e BASE_URL=https://staging-api.example.com \
+  -e AUTH_TOKEN_FILE=./loadtest-tokens.txt \
+  -e FIELD_ID_FILE=./loadtest-fields.txt \
+  scripts/load_tests/game_creation.js
+```
+
+Example Locust command shape:
+
+```bash
+locust \
+  -f scripts/load_tests/game_creation.py \
+  --host https://staging-api.example.com \
+  --users 25 \
+  --spawn-rate 5 \
+  --run-time 10m
+```
+
+These files do not exist yet. A future implementation issue may add one non-destructive script under `scripts/load_tests/` or `backend/load_tests/`.
+
+## Test Scenarios
+
+### Scenario 1: Baseline Successful Instant Game Creation
+
+Objective: measure normal `POST /games/` latency with no conflict.
+
+Setup:
+
+- Seed many approved open fields.
+- Ensure each request uses a field/sport pair without an active current game.
+- Use `scheduled_at = null`.
+- Use `players_present = 1`, `max_players = 10`.
+
+Execution:
+
+1. Start with 1 virtual user for 2 minutes.
+2. Ramp to 5 users for 5 minutes.
+3. Ramp to 25 users for 10 minutes.
+4. Use a unique field or previously cleaned field for each request.
+
+Success criteria:
+
+- HTTP 200 rate matches expected successful request count.
+- Each successful response includes `message = "Game created"` and a `game.id`.
+- Each successful game has exactly one creator row in `game_players`.
+- No duplicate instant active games are created for the same field/sport when the scenario intends unique fields.
+
+### Scenario 2: Scheduled Game Creation With Unique Slots
+
+Objective: measure scheduled-game creation where each request uses a unique `(field_id, sport_type, scheduled_at)` slot.
+
+Setup:
+
+- Use future `scheduled_at` values, at least 24 hours ahead.
+- Spread scheduled times across fields and sports.
+
+Execution:
+
+1. Ramp to 25 users for 10 minutes.
+2. Use deterministic scheduled times such as 5-minute increments.
+3. Record success rate and p95 latency.
+
+Success criteria:
+
+- HTTP 200 for valid unique slots.
+- `started_at == scheduled_at`.
+- `expires_at == scheduled_at + 2 hours`.
+- No unique constraint violations for unique test slots.
+
+### Scenario 3: Duplicate Scheduled Slot Under Concurrency
+
+Objective: verify duplicate prevention for concurrent requests targeting the same scheduled slot.
+
+Setup:
+
+- Choose one approved open field.
+- Choose one sport supported by that field.
+- Choose one future `scheduled_at`.
+- Use 10-100 users all attempting the same payload.
+
+Execution:
+
+1. Fire a synchronized burst of requests for the exact same `(field_id, sport_type, scheduled_at)`.
+2. Repeat for 10 rounds with fresh future timestamps.
+
+Success criteria:
+
+- At most one game row exists per `(field_id, sport_type, scheduled_at)` where status is `open` or `full`.
+- Successful request count should be `1` per slot.
+- Other requests should return a controlled conflict or database unique-constraint-derived failure, not a 500 storm.
+- Backend logs should not show unhandled exceptions.
+
+Verification query:
+
+```sql
+select field_id, sport_type, scheduled_at, count(*) as game_count
+from games
+where field_id = any(:loadtest_field_ids)
+  and scheduled_at is not null
+  and status in ('open', 'full')
+group by field_id, sport_type, scheduled_at
+having count(*) > 1;
+```
+
+### Scenario 4: Duplicate Instant Game Under Concurrency
+
+Objective: test the application-level instant-game conflict path under concurrent requests.
+
+Setup:
+
+- Choose one approved open field.
+- Use `scheduled_at = null`.
+- Send concurrent creation requests for the same `field_id` and `sport_type`.
+
+Execution:
+
+1. Fire 10 concurrent requests.
+2. Repeat with 25 and 50 concurrent requests.
+3. Clean up the created game between rounds, or use a new field per round.
+
+Success criteria:
+
+- Intended behavior: at most one non-expired active instant game exists per field/sport after each burst.
+- Any duplicate active instant games are a failure signal and should become a follow-up implementation issue because instant-game duplicate prevention is currently application-level.
+
+Verification query:
+
+```sql
+select field_id, sport_type, count(*) as active_instant_games
+from games
+where field_id = any(:loadtest_field_ids)
+  and scheduled_at is null
+  and status in ('open', 'full')
+group by field_id, sport_type
+having count(*) > 1;
+```
+
+### Scenario 5: Validation and Business Rule Rejections
+
+Objective: ensure invalid load does not create rows and returns controlled 4xx responses.
+
+Cases:
+
+- `players_present > max_players`
+- unsupported `sport_type`
+- `scheduled_at` in the past
+- unapproved field
+- closed/renovation field
+- sport mismatch between field and request
+- inactive/banned/suspended user token
+
+Success criteria:
+
+- Expected 4xx responses.
+- No `games` or `game_players` rows are inserted for rejected requests.
+- Error response remains structured with `error`, `code`, and `message`.
+
+### Scenario 6: Game Creation With Notification Fanout
+
+Objective: measure end-to-end creation latency when `game_created` notification fanout is present.
+
+Setup:
+
+- Seed notification preferences matching the target fields.
+- Test small fanout first: 10 matching recipients.
+- Then test 100 and 500 matching recipients if staging can handle it.
+
+Execution:
+
+1. Run baseline without preferences.
+2. Run same request rate with matching preferences.
+3. Compare p95 latency, notification rows, and warning logs.
+
+Success criteria:
+
+- Game creation succeeds even if notification generation has partial failures.
+- Expected notification rows are created for matching users.
+- No duplicate `game_created` notifications for the same `(user_id, type, game_id)`.
+- Warning logs for notification failures remain bounded and actionable.
+
+Use ISSUE-085 for deeper notification-system load testing.
+
+## Load Levels
+
+Start low and increase only when the previous level passes.
+
+| Level | Duration | Load |
+|-------|----------|------|
+| Smoke | 2 minutes | 1 virtual user, 1 request/second max |
+| MVP baseline | 10 minutes | 5-10 virtual users, 5-20 game creates/minute |
+| Near-term | 15 minutes | 25-50 virtual users, 50-150 game creates/minute |
+| Stress / breakpoint | 5-minute steps | Increase by 25% per step until p95, errors, DB limits, or duplicate failures appear |
+
+Do not present stress/breakpoint results as production capacity.
+
+## Metrics To Observe
+
+Collect these for every run:
+
+| Metric | Target / note |
+|--------|---------------|
+| Response time p50/p95/p99 | MVP p95 target: < 1s for no-notification baseline, < 3s with moderate notification fanout. |
+| Error rate | Expected 4xx are allowed only in rejection scenarios. Unexpected 5xx target: 0%; stop if sustained > 1%. |
+| Duplicate game creation | 0 duplicates for scheduled slots; 0 desired for instant active games. Any duplicate must be investigated. |
+| Database errors | Watch unique constraint violations, check constraint failures, deadlocks, and timeout errors. |
+| Supabase rate/connection issues | Watch API rate limits, connection pool saturation, slow query logs, and PostgREST errors. |
+| Backend logs | Watch `games.create.success`, validation errors, unhandled exceptions, and `notifications.generate.failure`. |
+| Created rows | `games`, `game_players`, and notification row counts should match expected success counts. |
+| Cleanup completeness | Synthetic data count should return to zero after cleanup. |
+
+## Success Criteria
+
+A run passes when:
+
+- All intended valid requests return HTTP 200 within the target latency for that load tier.
+- Intended invalid requests return controlled 4xx responses.
+- No unexpected 5xx errors occur.
+- No duplicate scheduled games exist for the same `(field_id, sport_type, scheduled_at)` active slot.
+- No duplicate active instant games exist for the same `(field_id, sport_type)` after concurrency bursts.
+- Every successful game has exactly one creator `game_players` row.
+- `players_present` never exceeds `max_players`.
+- Backend logs show no unhandled exceptions.
+- Supabase shows no sustained rate, connection, or timeout pressure.
+
+## Failure Signals
+
+Stop or pause the run if any of these occur:
+
+- Sustained 5xx rate above 1%.
+- p95 latency exceeds 5 seconds for more than two intervals.
+- Supabase/Postgres connection pool exceeds safe limits or queries begin timing out.
+- Duplicate active games are found.
+- Game rows are created without matching creator `game_players` rows.
+- `players_present > max_players` appears.
+- Notification fanout failures block game creation.
+- Cleanup queries cannot remove synthetic data.
+
+## Cleanup Strategy
+
+Never run load tests without a cleanup manifest.
+
+Recommended cleanup order:
+
+1. Delete synthetic notifications for synthetic game IDs and synthetic user IDs.
+2. Delete synthetic `game_players` rows for synthetic game IDs or synthetic user IDs.
+3. Delete synthetic `games`.
+4. Delete synthetic `notification_preferences`.
+5. Delete synthetic `push_tokens`, if any were created.
+6. Delete synthetic `fields`.
+7. Delete synthetic `users`.
+
+Example verification query:
+
+```sql
+select 'games' as table_name, count(*) from games where id = any(:loadtest_game_ids)
+union all
+select 'game_players', count(*) from game_players where game_id = any(:loadtest_game_ids)
+union all
+select 'notifications', count(*) from notifications where game_id = any(:loadtest_game_ids)
+union all
+select 'fields', count(*) from fields where id = any(:loadtest_field_ids)
+union all
+select 'users', count(*) from users where id = any(:loadtest_user_ids);
+```
+
+The run is not complete until every count is zero.
+
+## Example Request
+
+```bash
+curl -X POST "$BASE_URL/games/" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "field_id": "'"$FIELD_ID"'",
+    "sport_type": "football",
+    "players_present": 1,
+    "max_players": 10,
+    "scheduled_at": null
+  }'
+```
+
+Scheduled-game example:
+
+```bash
+curl -X POST "$BASE_URL/games/" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "field_id": "'"$FIELD_ID"'",
+    "sport_type": "football",
+    "players_present": 1,
+    "max_players": 10,
+    "scheduled_at": "2026-07-01T18:30:00Z"
+  }'
+```
+
+Use future timestamps when running after 2026-07-01.
+
+## Risks and Limitations
+
+| Risk / limitation | Mitigation |
+|-------------------|------------|
+| Production pollution | Never run against production; require staging-only base URLs and synthetic data prefixes. |
+| False confidence from local tests | Treat local tests as script smoke only. Use staging for DB/PostgREST behavior. |
+| Instant-game concurrency race | Explicitly test it and open a follow-up if duplicates appear. |
+| Scheduled duplicate handling may surface raw DB errors | Record exact response and logs. A follow-up can normalize constraint errors if needed. |
+| Notification fanout can dominate latency | Run with and without preferences and compare. Use ISSUE-085 for dedicated notification fanout testing. |
+| Auth token setup can distort results | Pre-generate tokens before the run; do not include login/register traffic in game creation load metrics. |
+| Cleanup may miss rows | Use manifest IDs and verification queries before declaring the run complete. |
+
+## Future Implementation Recommendations
+
+Recommended follow-up issues:
+
+1. Add a non-destructive k6 or Locust script under `scripts/load_tests/` with environment-variable guardrails that refuse production URLs by default.
+2. Add a staging seed/cleanup helper that writes a manifest of synthetic IDs.
+3. Add a dedicated concurrency test for instant-game duplicate creation if none exists at the DB/integration level.
+4. If load testing finds instant-game duplicates, design DB-level protection or transactional creation for instant active games.
+5. If notification fanout dominates `POST /games/` latency, consider async notification generation in a separate implementation issue.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-087 game creation load test plan. |
+
