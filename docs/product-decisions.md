@@ -10157,4 +10157,206 @@ No backend runtime, frontend runtime, database, migration, endpoint, caching, in
 6. **P3: Batch expired game updates** — Replace per-game sequential UPDATEs with single batched UPDATE.
 7. **P3: Database index review** — Evaluate and add composite indexes for high-frequency query patterns in Supabase dashboard.
 
+# ISSUE-077: Optimize Slow Database Queries
+
+## Status
+
+Approved.
+
+## Type
+
+Performance optimization.
+
+## Goal
+
+Optimize the single highest-impact database query bottleneck identified by ISSUE-074 production measurements and ISSUE-076 audit.
+
+## Target
+
+**GET /fields** — measured at 4,211ms average in production (ISSUE-074). The only ISSUE-075 Class A SLA violation. Affects every user on every app open.
+
+---
+
+## 1. Root Cause
+
+The `GET /fields` endpoint (`backend/app/routers/fields.py:78`) fetches **ALL** approved, verified, open fields from Supabase regardless of the client's map viewport, then enriches every field with game and participant data.
+
+### Why it is slow
+
+1. **No spatial filtering.** The endpoint returns every approved field in the database. The query filters on `verified=True`, `approval_status=approved`, `status=open` but has no lat/lng bounds.
+
+2. **Pagination loop.** Fields are fetched in a `while True` loop with `FIELDS_PAGE_SIZE=1000`. Each iteration is a separate Supabase PostgREST HTTP request (~100-200ms network latency from Railway to Supabase).
+
+3. **Game payload fan-out.** After fetching all fields, `get_game_payloads_for_fields(field_ids)` runs additional batched queries:
+   - `games.select("*").in_("field_id", batch).in_("status", ["open","full"])` — 1 call per 100 field IDs
+   - `game_players.select("game_id,user_id").in_("game_id", batch)` — 1 call per 100 game IDs
+   - `users.select("id,username,name").in_("id", batch)` — 1 call per 100 user IDs
+
+4. **Sequential execution.** All Supabase calls are synchronous and sequential. With 50 fields and 20 games, the minimum path is 4 sequential HTTP round-trips (~800ms). With more data, this grows linearly.
+
+### Key discovery
+
+The **frontend already sends viewport bounds** (`north`, `south`, `east`, `west`) as query parameters (see `frontend/src/api/fields.js:29` and `frontend/src/pages/MapPage.jsx:112-118`). The backend simply ignored them.
+
+---
+
+## 2. Optimization Performed
+
+### Change: Accept viewport bounds in GET /fields
+
+Added optional `north`, `south`, `east`, `west` query parameters to the `GET /fields` endpoint.
+
+When all four bounds are provided:
+- The endpoint uses `.gte("lat", south).lte("lat", north).gte("lng", west).lte("lng", east)` to filter fields in the Supabase query itself.
+- The pagination loop is bypassed — a single Supabase query returns only the fields within the viewport.
+- Game payload fan-out only runs for the visible fields, not all fields.
+
+When bounds are not provided (backwards compatibility):
+- The existing pagination loop behavior is preserved unchanged.
+- No API contract is broken.
+
+### Files changed
+
+| File | Change |
+| --- | --- |
+| `backend/app/routers/fields.py` | Added `north`, `south`, `east`, `west` optional Query parameters. Added bounds-filtered query path. |
+| `backend/tests/test_game_close.py` | Added `gte()` and `lte()` methods to `FakeTableQuery`. Updated `_filtered_rows()` to support `__gte` and `__lte` filter operators. |
+| `backend/tests/test_inactive_field_lifecycle.py` | Added 3 new tests: bounds filtering, no-bounds fallback, partial-bounds fallback. |
+| `backend/scripts/benchmark_endpoints.py` | Added `lte()` to `FakeBenchQuery`. Updated filter logic for `__lte`. Added "GET /fields (bounded)" benchmark. |
+| `backend/scripts/measure_production_api.py` | Added "GET /fields (bounded)" endpoint for post-deployment production measurement. |
+| `docs/product-decisions.md` | This section. |
+
+---
+
+## 3. Query Behavior Before
+
+```
+GET /fields/
+```
+
+1. `fields.select("*").eq("verified", True).eq("approval_status", "approved").eq("status", "open").range(0, 999).execute()` — page 1
+2. Repeat until page < 1000 (accumulates ALL approved fields)
+3. `games.select("*").in_("field_id", [all field IDs in batches of 100]).in_("status", ["open","full"])` — 1+ calls
+4. `game_players.select("game_id,user_id").in_("game_id", [all game IDs in batches of 100])` — 1+ calls
+5. `users.select("id,username,name").in_("id", [all user IDs in batches of 100])` — 1+ calls
+
+**Total Supabase calls:** Minimum 4, grows with field/game/player count.
+
+**Data transferred:** ALL approved fields + ALL active games + ALL participants.
+
+---
+
+## 4. Query Behavior After
+
+```
+GET /fields/?north=33.0&south=31.0&east=35.5&west=34.0
+```
+
+1. `fields.select("*").eq("verified", True).eq("approval_status", "approved").eq("status", "open").gte("lat", 31.0).lte("lat", 33.0).gte("lng", 34.0).lte("lng", 35.5).execute()` — **single call**, no pagination loop
+2. `games.select("*").in_("field_id", [visible field IDs]).in_("status", ["open","full"])` — 1 call (fewer IDs)
+3. `game_players.select(...)` — 1 call (fewer games)
+4. `users.select(...)` — 1 call (fewer players)
+
+**Total Supabase calls:** 4 (fixed, regardless of total field count).
+
+**Data transferred:** Only fields within the viewport + their active games + participants.
+
+---
+
+## 5. Measured Results
+
+### Local Benchmark (FakeSupabase, no network)
+
+| Endpoint | ISSUE-073 Baseline | ISSUE-077 After | Change |
+| --- | --- | --- | --- |
+| GET /fields (no bounds) | 14.8 ms | 9.9 ms | -33% (variance, not optimization — FakeSupabase has no network cost) |
+| GET /fields (bounded) | N/A | 9.1 ms | New measurement |
+| GET /games/active | 7.8 ms | 3.9 ms | Normal variance |
+
+Local benchmarks show no regression. The bounded and unbounded paths have comparable local performance because FakeSupabase has zero network latency.
+
+### Production Impact Estimate
+
+The optimization eliminates the following production costs:
+
+| Factor | Before | After (with bounds) | Savings |
+| --- | --- | --- | --- |
+| Field pagination calls | ceil(N/1000) sequential | 1 single call | Eliminates pagination loop |
+| Game lookup scope | ALL approved field IDs | Only visible field IDs | Proportional to viewport/total ratio |
+| Supabase HTTP round-trips | 4–12+ (scales with data) | 4 (fixed) | Fixed call count |
+| Data transferred | ALL fields + all games + all players | Visible subset only | Proportional reduction |
+
+**Conservative estimate:** With bounds filtering reducing the field count from N (total) to V (visible in viewport), and assuming V/N ≈ 0.3 (30% of fields visible at typical zoom):
+- Field query: 1 call instead of ceil(N/1000) calls
+- Game lookup batches: ~30% of current
+- Player/user lookups: ~30% of current
+- **Expected production latency: ~800ms–1,200ms** (down from 4,211ms)
+
+### Post-Deployment Verification Required
+
+The production backend has not been updated yet. After deployment:
+
+1. Run `measure_production_api.py` — it now includes "GET /fields (bounded)" endpoint.
+2. Compare "GET /fields" (unbounded, baseline) vs "GET /fields (bounded)" (optimized).
+3. The bounded measurement uses `north=33.0&south=31.0&east=35.5&west=34.0` (covers central Israel).
+
+---
+
+## 6. Tests
+
+### New Tests Added (3)
+
+| Test | File | Validates |
+| --- | --- | --- |
+| `test_public_listing_filters_by_bounds` | test_inactive_field_lifecycle.py | Fields outside bounds are excluded; fields inside bounds are returned |
+| `test_public_listing_without_bounds_returns_all` | test_inactive_field_lifecycle.py | Backwards compatibility: no bounds = all fields |
+| `test_public_listing_partial_bounds_returns_all` | test_inactive_field_lifecycle.py | Partial bounds (e.g., only north+south) falls back to all fields |
+
+### Existing Tests (unchanged, all pass)
+
+All 530 backend tests pass. No existing tests were modified or broken.
+
+### Test Helper Changes
+
+Added `gte()` and `lte()` methods with `__gte`/`__lte` filter support to:
+- `FakeTableQuery` in `test_game_close.py` (shared test helper)
+- `FakeBenchQuery` in `benchmark_endpoints.py` (benchmark helper)
+
+---
+
+## 7. Remaining Bottlenecks
+
+Per ISSUE-076 audit, the following high-risk issues remain:
+
+| Priority | Issue | Endpoint |
+| --- | --- | --- |
+| P2 | Full notification fetch for count | GET /notifications/unread-count (polled every 20s) |
+| P2 | Unbounded notification list | GET /notifications |
+| P2 | Unbounded historical games | GET /games/me |
+| P2 | Global preference scan | _find_notification_candidates() |
+| P3 | Sequential expired game writes | finish_expired_games() |
+| P3 | Duplicate active game queries | GET /active + GET /upcoming |
+
+---
+
+## 8. Database Indexes That Should Be Added Separately
+
+The following indexes would further improve the optimized query:
+
+| Table | Columns | Reason | Priority |
+| --- | --- | --- | --- |
+| fields | (verified, approval_status, status, lat, lng) | Composite index for the bounded fields query. Covers all WHERE conditions in a single index scan. | **High** |
+| fields | (verified, approval_status, status) | Minimum index if spatial columns aren't indexed. Covers the three equality filters. | High |
+| games | (field_id, status) | Supports the game payload fan-out `in_("field_id", ...).in_("status", ...)` query. | Medium |
+
+These should be evaluated in the Supabase dashboard. Creating indexes is a separate task and was not done in this issue.
+
+---
+
+## 9. Follow-up Recommendations
+
+1. **Deploy and measure.** Run `measure_production_api.py` after deployment to confirm the production latency improvement.
+2. **Add composite index on fields(verified, approval_status, status, lat, lng)** in Supabase dashboard for optimal query performance.
+3. **Address P2 bottlenecks** from ISSUE-076: unread-count polling, notification pagination, games/me limits, notification candidate filtering.
+4. **Consider column pruning.** The fields query uses `select("*")` — selecting only the columns needed by the frontend would reduce data transfer.
 

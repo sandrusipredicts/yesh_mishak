@@ -37,6 +37,14 @@ class FakeTableQuery:
         self.in_filters.append((column, values))
         return self
 
+    def gte(self, column: str, value: Any) -> "FakeTableQuery":
+        self.filters.append(("__gte", (column, value)))
+        return self
+
+    def lte(self, column: str, value: Any) -> "FakeTableQuery":
+        self.filters.append(("__lte", (column, value)))
+        return self
+
     def limit(self, _: int) -> "FakeTableQuery":
         return self
 
@@ -90,7 +98,14 @@ class FakeTableQuery:
     def _filtered_rows(self) -> list[dict[str, Any]]:
         rows = self.rows
         for column, value in self.filters:
-            rows = [row for row in rows if row.get(column) == value]
+            if column == "__gte":
+                col, threshold = value
+                rows = [row for row in rows if row.get(col) is not None and row[col] >= threshold]
+            elif column == "__lte":
+                col, threshold = value
+                rows = [row for row in rows if row.get(col) is not None and row[col] <= threshold]
+            else:
+                rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
         return rows

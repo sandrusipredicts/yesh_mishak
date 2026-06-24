@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.auth.dependencies import require_active_user, require_admin
@@ -76,28 +76,49 @@ def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[s
 
 
 @router.get("/")
-def get_fields():
+def get_fields(
+    north: Optional[float] = Query(default=None),
+    south: Optional[float] = Query(default=None),
+    east: Optional[float] = Query(default=None),
+    west: Optional[float] = Query(default=None),
+):
     supabase = get_supabase_client()
-    fields: list[dict[str, Any]] = []
-    offset = 0
 
-    while True:
-        response = (
+    has_bounds = all(v is not None for v in (north, south, east, west))
+    if has_bounds:
+        query = (
             supabase.table("fields")
             .select("*")
             .eq("verified", True)
             .eq("approval_status", "approved")
             .eq("status", "open")
-            .range(offset, offset + FIELDS_PAGE_SIZE - 1)
+            .gte("lat", south)
+            .lte("lat", north)
+            .gte("lng", west)
+            .lte("lng", east)
             .execute()
         )
-        page = response.data or []
-        fields.extend(page)
+        fields = query.data or []
+    else:
+        fields = []
+        offset = 0
+        while True:
+            response = (
+                supabase.table("fields")
+                .select("*")
+                .eq("verified", True)
+                .eq("approval_status", "approved")
+                .eq("status", "open")
+                .range(offset, offset + FIELDS_PAGE_SIZE - 1)
+                .execute()
+            )
+            page = response.data or []
+            fields.extend(page)
 
-        if len(page) < FIELDS_PAGE_SIZE:
-            break
+            if len(page) < FIELDS_PAGE_SIZE:
+                break
 
-        offset += FIELDS_PAGE_SIZE
+            offset += FIELDS_PAGE_SIZE
 
     field_ids = [str(field["id"]) for field in fields if field.get("id")]
     active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields(field_ids)

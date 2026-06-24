@@ -172,6 +172,15 @@ def main():
             "safe": True,
         },
         {
+            "name": "GET /fields (bounded)",
+            "method": "GET",
+            "path": "/fields?north=33.0&south=31.0&east=35.5&west=34.0",
+            "headers": None,
+            "body": None,
+            "auth": "none",
+            "safe": True,
+        },
+        {
             "name": "GET /games/active",
             "method": "GET",
             "path": "/games/active",

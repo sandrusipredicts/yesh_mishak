@@ -293,6 +293,96 @@ def test_public_listing_excludes_renovation_fields(monkeypatch) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Bounds filtering (ISSUE-077)
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_public_listing_filters_by_bounds(monkeypatch) -> None:
+    _configure(monkeypatch)
+    tables = {
+        "users": [],
+        "fields": [
+            _field(field_id="tel-aviv", status="open", approval_status="approved"),
+            {
+                **_field(field_id="haifa", status="open", approval_status="approved"),
+                "lat": 32.7940,
+                "lng": 34.9896,
+            },
+            {
+                **_field(field_id="eilat", status="open", approval_status="approved"),
+                "lat": 29.5577,
+                "lng": 34.9519,
+            },
+        ],
+        "games": [],
+        "game_players": [],
+    }
+    client = _make_client(monkeypatch, tables)
+
+    response = client.get(
+        "/fields/",
+        params={"north": 33.0, "south": 32.0, "east": 35.0, "west": 34.5},
+    )
+
+    assert response.status_code == 200
+    field_ids = [f["id"] for f in response.json()]
+    assert "tel-aviv" in field_ids
+    assert "haifa" in field_ids
+    assert "eilat" not in field_ids
+
+
+def test_public_listing_without_bounds_returns_all(monkeypatch) -> None:
+    _configure(monkeypatch)
+    tables = {
+        "users": [],
+        "fields": [
+            _field(field_id="f1", status="open", approval_status="approved"),
+            {
+                **_field(field_id="f2", status="open", approval_status="approved"),
+                "lat": 29.5,
+                "lng": 34.9,
+            },
+        ],
+        "games": [],
+        "game_players": [],
+    }
+    client = _make_client(monkeypatch, tables)
+
+    response = client.get("/fields/")
+
+    assert response.status_code == 200
+    field_ids = [f["id"] for f in response.json()]
+    assert "f1" in field_ids
+    assert "f2" in field_ids
+
+
+def test_public_listing_partial_bounds_returns_all(monkeypatch) -> None:
+    """If only some bounds params are provided, fall back to returning all fields."""
+    _configure(monkeypatch)
+    tables = {
+        "users": [],
+        "fields": [
+            _field(field_id="f1", status="open", approval_status="approved"),
+            {
+                **_field(field_id="f2", status="open", approval_status="approved"),
+                "lat": 29.5,
+                "lng": 34.9,
+            },
+        ],
+        "games": [],
+        "game_players": [],
+    }
+    client = _make_client(monkeypatch, tables)
+
+    response = client.get("/fields/", params={"north": 33.0, "south": 32.0})
+
+    assert response.status_code == 200
+    field_ids = [f["id"] for f in response.json()]
+    assert "f1" in field_ids
+    assert "f2" in field_ids
+
+
+# ═══════════════════════════════════════════════════════════════
 # Direct field lookup: no status filter (known MVP gap)
 # ═══════════════════════════════════════════════════════════════
 
