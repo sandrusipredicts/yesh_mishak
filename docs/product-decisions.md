@@ -20264,3 +20264,53 @@ The following findings are intentionally left open for future mobile remediation
 
 ## Definition of Done Confirmation
 All safe-area overlaps on Map controls, floating buttons, bottom sheets, modals, and admin shells have been resolved and verified across multiple iPhone profiles.
+
+---
+
+# ISSUE-138: Keyboard Interaction Specification
+
+## Summary
+This decision record registers the project-wide keyboard interaction specification for mobile viewports. The specification defines how all forms, modals, bottom sheets, and panels must behave when the virtual keyboard opens. It establishes consistent rules for focus visibility, submit/cancel reachability, modal scrolling, autocomplete behavior, error visibility, and platform-specific handling for iOS Safari, Android Chrome, and Hebrew RTL layouts.
+
+## Source Documents Reviewed
+- `docs/mobile-audit-consolidated-report.md` (ISSUE-135)
+- `docs/mobile-design-guide.md` (ISSUE-136)
+- `docs/mobile-safe-area-support.md` (ISSUE-137)
+- `docs/mobile-login-screen-audit.md` (ISSUE-127)
+- `docs/mobile-registration-screen-audit.md` (ISSUE-128)
+- `docs/mobile-create-game-screen-audit.md` (ISSUE-131)
+- `docs/product-decisions.md` sections for ISSUE-135 through ISSUE-137
+- `frontend/src/components/LoginPage.jsx`
+- `frontend/src/App.css`
+
+## Core Keyboard Behavior Decision
+- Forms must remain scrollable when the keyboard opens.
+- The page or container must scroll to keep the focused input visible.
+- Submit/cancel actions must remain reachable by scrolling.
+- Modals and bottom sheets must use bounded max-height with `overflow-y: auto`.
+- Prefer `100dvh` over `100vh` for viewport-relative sizing.
+- Use safe-area bottom padding together with keyboard-safe scrolling.
+- Prefer container scrolling over JavaScript transform hacks.
+
+## Scenario Matrix Summary
+Seven keyboard interaction scenarios are defined: full-page forms (Login/Register), modal forms (Create Game/Add Field), bottom sheet forms (Field Details), search/autocomplete (CityAutocomplete), admin filters, long forms, and error-after-submit. Each scenario specifies the expected scroll container and submit/cancel reachability behavior.
+
+## Required Future Implementation Rules
+- Reference this spec and the relevant finding ID in every keyboard fix PR.
+- Preserve desktop behavior via scoped media queries.
+- Avoid unrelated refactors; one fix per finding.
+- Prefer `overflow-y: auto` with bounded height over JS hacks.
+- Include viewport validation notes in PR descriptions.
+- Pass build and lint checks.
+
+## Known Findings Supported
+- `CGMOB-001` (Critical): Create Game modal keyboard trap
+- `CGMOB-002`, `CGMOB-004`, `CGMOB-005`: Create Game input and validation issues
+- `NTMOB-005`: Autocomplete suggestions clipped by keyboard
+- `ADMOB-001`: Native `window.prompt` keyboard issues
+- `ADMOB-003`: Admin input iOS auto-zoom
+- `ML-LOGIN-001`: Login submit below viewport on focus
+- `ML-REGISTER-001`: Registration submit unreachable on short screens
+
+## Definition of Done Confirmation
+All keyboard interaction scenarios are defined. The specification covers 7 scenario types, 9 behavior rule categories, 6 screen-specific requirement sections, a manual validation checklist, and a known-findings mapping. Future keyboard fixes can now proceed using this specification as the authoritative standard.
