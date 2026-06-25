@@ -185,6 +185,8 @@ function OpenGameModal({ field, onClose, onCreated }) {
             {t('openGame.playersPresent')}
             <input
               type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
               min="1"
               value={playersPresent}
               onChange={(event) => setPlayersPresent(event.target.value)}
@@ -196,6 +198,8 @@ function OpenGameModal({ field, onClose, onCreated }) {
             {t('openGame.maxPlayers')}
             <input
               type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
               min="2"
               value={maxPlayers}
               onChange={(event) => setMaxPlayers(event.target.value)}
