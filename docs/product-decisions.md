@@ -19798,3 +19798,111 @@ Create a focused mobile remediation issue for the Field Details screen findings:
 
 ## Final Verdict
 The Create Game mobile experience is **NOT READY** due to the critical virtual keyboard clipping blocker (**CGMOB-001**).
+
+---
+
+# ISSUE-132: Game Details Mobile Audit
+
+## Summary
+- **Overall mobile readiness verdict**: **PARTIAL**
+- The Game Details flow is implemented as the `GamePanel.jsx` component inside the Field Details panel. It handles localization, active/upcoming game layouts, and creator actions correctly. Roster list vertical expansion is safely limited via custom CSS `max-height` and `overflow` rules. However, toggling the roster open increases the parent sheet height dynamically, which can push the parent panel close button off-screen, trapping the user. Additional small touch targets and browser-native prompt bugs were identified.
+
+## Dependency Verification
+- This audit standard depends on `docs/mobile-audit-plan.md` created in ISSUE-126. It verifies the form and interaction rules established in sections 11 and 14 of the plan.
+
+## Files Reviewed
+- `frontend/src/components/GamePanel.jsx`
+- `frontend/src/components/FieldDetailsPanel.jsx`
+- `frontend/src/api/games.js`
+- `frontend/src/App.css`
+
+## Mobile Audit Matrix
+
+| Area | Status | Findings | Severity | Evidence | Recommendation |
+| --- | --- | --- | --- | --- | --- |
+| Participant List | PARTIAL | Toggle button height (~24px) is below the 44px touch target. Dynamic expansion increases parent sheet trap risk. | P1/P2 | `App.css` line 814 (`.participants-toggle-button`) | Increase toggle height. Resolve parent height constraints. |
+| Close Game Button | PARTIAL | Tapping triggers browser-native confirmation popup which degrades custom UI flow. | P2 | `GamePanel.jsx` line 211 (`window.confirm`) | Replace with custom react modal prompt. |
+| Extend Game Button | PARTIAL | Extend label lacks duration context, making action duration ambiguous. | P2 | `GamePanel.jsx` line 347 (`t('game.extend')`) | Specify extension duration on the button copy. |
+| Time Display | PARTIAL | 3-column time display grid causes text wrap and label overlap on narrow screens <= 360px. | P2 | `App.css` line 755 (`.game-time-list`) | Set responsive 1 or 2-column rules for small viewports. |
+| Notifications | PASS | User join/leave dispatches API calls correctly and updates the local state without layout breaks. | - | `GamePanel.jsx` lines 173, 187 | None. |
+
+## Detailed Findings
+
+### GDMOB-001: Inline participants list expansion pushes parent panel close actions off-screen
+- **Severity**: P1
+- **Area**: Participant List / Scrolling
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/GamePanel.jsx` (line 297)
+  - Component: `.participants-list` container inside `.field-details-panel`.
+- **Mobile Impact**: On short viewports, toggling the roster open expands the sheet height by up to 180px, pushing the parent panel's close button above the viewport edge and trapping users.
+- **User Impact**: Users cannot close the panel and get stuck on the map screen.
+- **Recommendation**: Constrain the parent panel height and keep header/close actions sticky.
+- **Suggested Follow-up Issue**: Remediate Field Details Panel height boundaries (`ML-FIELD-DETAILS-001`).
+
+### GDMOB-002: Participants list accordion toggle height is below 44px
+- **Severity**: P2
+- **Area**: Participant List
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.participants-toggle-button` (line 814) having `padding: 4px 0` and `font-size: 13px`.
+- **Mobile Impact**: Total hit height is ~24px, making touch triggers difficult on mobile screens.
+- **User Impact**: Suboptimal toggle responsiveness.
+- **Recommendation**: Increase padding on toggle button to at least `10px 0`.
+- **Suggested Follow-up Issue**: Increase touch target area of the participants toggle header.
+
+### GDMOB-003: Destructive Close Game confirmation uses native window.confirm
+- **Severity**: P2
+- **Area**: Close Game Button
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/GamePanel.jsx` (line 211)
+  - Code: `window.confirm(t('game.closeConfirm'))`.
+- **Mobile Impact**: browser-native pop-ups freeze execution and lack customized UI integration in mobile webviews.
+- **User Impact**: Poor visual consistency and risk of accidental confirmation.
+- **Recommendation**: Replace `window.confirm` with custom react confirmation dialog.
+- **Suggested Follow-up Issue**: Replace native window confirm dialog with custom modal.
+
+### GDMOB-004: Extend Game button lacks explanation of extension duration
+- **Severity**: P2
+- **Area**: Extend Game Button
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/GamePanel.jsx` (line 347)
+  - Code: `{t('game.extend')}` (renders as "עוד סיבוב" / "Extend").
+- **Mobile Impact**: Ambiguity in time addition amount.
+- **User Impact**: User uncertainty on action effects.
+- **Recommendation**: Add time info in button copy (e.g. `+30m`).
+- **Suggested Follow-up Issue**: Add extension duration info to Extend Game button.
+
+### GDMOB-005: 3-column time display grid causes text wrap and overlap on narrow screens
+- **Severity**: P2
+- **Area**: Time Display
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css` (line 755)
+  - Component: `.game-time-list` setting `grid-template-columns: repeat(3, minmax(0, 1fr))`.
+- **Mobile Impact**: High content density forces time countdowns and labels to wrap awkwardly or overlap on viewports <= 360px.
+- **User Impact**: Readability degradation.
+- **Recommendation**: Use a responsive grid (1 or 2 columns) on narrow mobile screens.
+- **Suggested Follow-up Issue**: Make game time list grid responsive on narrow devices.
+
+## Positive Findings
+- **Roster limits**: Limiting roster height to 180px and adding `overflow: auto` prevents uncontrolled panel expansion.
+- **Visual Hierarchy**: The primary, secondary, and danger button themes provide clear visual indicators for actions.
+- **Date/Time Localization**: Local datetime formatting resolves timezone offsets correctly.
+
+## Risks Not Fully Verified
+- Native browser confirmation prompt quirks on iOS Webviews.
+- Background execution limits on Ends In countdown timers.
+
+## Recommended Follow-up Issues
+1. **[P1] Integration**: Ensure parent Field Details height constraints prevent participants list expansion from clipping navigation actions (`GDMOB-001`).
+2. **[P2] Polish**: Increase participants toggle button height padding.
+3. **[P2] Polish**: Set responsive timing layout on viewports <= 360px.
+4. **[P2] Polish**: Replace native browser `window.confirm` with custom modal.
+5. **[P2] Polish**: Specify time extension details on the organizer action button (e.g. `+30m`).
+
+## Final Verdict
+The Game Details mobile component (`GamePanel`) is **CONDITIONALLY READY**. The component is responsive and limits list expansions, but its final usability depends on fixing the parent container height limits (**ML-FIELD-DETAILS-001**) to prevent viewport trapping.
