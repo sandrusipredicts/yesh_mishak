@@ -16249,3 +16249,240 @@ Implementation should use `slowapi` or an equivalent FastAPI-compatible library.
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-098 rate limiting requirements documentation. |
 
+# ISSUE-100: Brute Force Protection Strategy
+
+## Scope
+
+This is a strategy, security decision, and documentation task only. No backend, frontend, database, dependency, test, or runtime behavior was changed.
+
+This section defines the official brute force and credential stuffing protection strategy for password login. It builds on the password policy from ISSUE-096 and the API rate limiting policy/implementation from ISSUE-098 and ISSUE-099.
+
+This issue does not:
+
+- implement account lockout
+- implement progressive delay
+- implement CAPTCHA
+- add database columns or tables
+- change login behavior
+- change ISSUE-099 rate limiting behavior
+- rely on frontend controls
+
+## Current Protection Observed
+
+Current protections verified from the repository:
+
+| Protection | Current Status | Evidence |
+|------------|----------------|----------|
+| Password validation policy | Implemented for registration only: 8-128 characters, no complexity requirement. Login intentionally accepts short attempted passwords and returns auth failure instead of schema rejection. | `backend/app/auth/passwords.py`, `backend/tests/test_password_validation.py`, ISSUE-096. |
+| Password hashing | Implemented with bcrypt and generated salt. Plaintext password is not stored. | `backend/app/auth/passwords.py`, `backend/tests/test_manual_auth.py`. |
+| Generic login failure response | Implemented. Wrong username/password returns `Invalid username or password` without revealing which field failed. | `backend/app/api/auth.py`, `backend/tests/test_manual_auth.py`. |
+| Sanitized auth logs | Implemented for tested password login paths. Tests assert password and full email are not emitted in captured auth logs. | `backend/tests/test_manual_auth.py`, ISSUE-065 logging policy. |
+| JWT/session behavior | Login returns backend-issued JWT. Logout uses `tokens_valid_after` and cache invalidation in current code. | `backend/app/api/auth.py`, auth/JWT code referenced by ISSUE-092 and ISSUE-095. |
+| Login rate limiting | Implemented as P0 MVP: `POST /auth/login` is limited to 10 requests/minute and 50 requests/hour per client IP. | ISSUE-099, `backend/app/rate_limit.py`, `backend/tests/test_rate_limiting.py`. |
+| Registration and Google auth rate limiting | Implemented as P0 MVP for bulk abuse reduction. | ISSUE-099. |
+
+Current gaps:
+
+- No progressive delay after repeated failed login attempts.
+- No CAPTCHA challenge.
+- No hard account lockout.
+- No persistent/distributed brute-force state.
+- No per-username or per-identifier failed-attempt tracking.
+- No dedicated brute-force metrics or alerts beyond existing auth logs/rate-limit tests.
+- ISSUE-099 in-memory rate limiting is process-local and not sufficient for multi-instance production by itself.
+
+## Threat Model
+
+Assume attackers can:
+
+- bypass the frontend and call the backend directly
+- rotate IP addresses, proxies, VPNs, or botnet nodes
+- target one known account with low-and-slow attempts
+- run credential stuffing lists across many accounts
+- intentionally try to lock another user's account
+- compare response bodies, status codes, headers, and timing
+- create bot-driven registration/login attempts
+- stay under simple IP rate limits
+- trigger accidental or malicious retry loops
+
+Important scenarios:
+
+| Scenario | Risk |
+|----------|------|
+| Password brute force against one account | Attacker repeatedly guesses a password for a known username. |
+| Credential stuffing | Attacker tests leaked username/password pairs across many accounts. |
+| Username enumeration | Different responses or timing could reveal whether a username exists. |
+| Distributed IP attack | IP-only limits can be bypassed by rotating source addresses. |
+| Account lockout abuse | Hard lockout can let attackers deny service to real users by failing login for their username. |
+| Bot registration/login | Automated clients can create accounts or test credentials without using the frontend. |
+| Low-and-slow attack | Attempts remain under ISSUE-099 IP limits but continue over long periods. |
+| Accidental retry loop | A client bug can repeatedly retry login and consume backend resources. |
+
+## Strategy Options Reviewed
+
+| Option | Benefits | Risks | UX Impact | Abuse/DoS Risk | MVP Fit | Production Fit | Decision |
+|--------|----------|-------|-----------|----------------|---------|----------------|----------|
+| Lockout | Strongly stops repeated attempts for a tracked account or key after a threshold. Simple to explain. | Can be weaponized to lock real users out. Requires unlock policy, support process, persistence, and careful messaging. Can reveal account existence if applied only to known accounts. | High. Legitimate users can be blocked at the moment they need access. Support burden rises. | High if per-account lockout is exposed to attackers. Lower if scoped to IP+identifier and paired with support tooling. | Rejected. Too easy to turn into account denial-of-service. | Possible later only with strong safeguards, telemetry, self-service recovery, and risk-based triggering. | Do not implement for MVP. Reconsider only after abuse data exists. |
+| Progressive Delay | Slows repeated failures without fully locking users out. Reduces online guessing and low-and-slow attempts that stay under raw request rate limits. | Adds timing behavior that must be uniform for known and unknown usernames. Requires persistent state to work across instances and restarts. Attackers can distribute attempts across keys. | Moderate. Users may see a short wait after repeated failures, but are not fully blocked. | Low to medium. Attackers can impose delay for an identifier, but not a hard lockout. | Approved as the preferred next protection after ISSUE-099. | Strong fit when backed by shared storage, telemetry, and careful response design. | Select as secondary defense. |
+| CAPTCHA | Helps distinguish automated abuse from humans. Useful escalation when rate limits and delay are being hit. | Adds vendor/privacy dependency, accessibility issues, mobile friction, and possible false positives. Sophisticated attackers may solve or outsource CAPTCHA. | Medium to high, especially on mobile. Always-on CAPTCHA hurts normal login. | Medium. Can be used as friction but should not become the only control. | Not approved as always-on MVP behavior. | Approved as future escalation after suspicious behavior thresholds or high abuse volume. | Future escalation only, not first-line. |
+
+## Official Strategy Decision
+
+The approved strategy is layered:
+
+| Field | Decision |
+|-------|----------|
+| Primary defense | Keep ISSUE-099 backend rate limiting as the first-line defense for high-volume abuse. |
+| Secondary defense | Add progressive login delay in a future implementation issue. |
+| Rejected for MVP | Hard account lockout and always-on CAPTCHA. |
+| Future production hardening | CAPTCHA escalation after suspicious behavior thresholds; possible constrained lockout only after telemetry and support/recovery processes exist. |
+| Why | Rate limiting blocks high-volume abuse, while progressive delay slows repeated failures that stay under raw rate limits. Hard lockout is too easy to abuse against real users. CAPTCHA is useful only as escalation because it adds UX, accessibility, and vendor/privacy costs. |
+
+The login response must remain generic. The system must not reveal whether a username/account exists through status code, response body, headers, logging visible to users, or obvious timing differences.
+
+## Progressive Delay Policy
+
+Progressive delay is selected as the official next brute-force protection to implement after ISSUE-099.
+
+Required policy for the future implementation:
+
+| Policy Area | Decision |
+|-------------|----------|
+| Trigger threshold | Start delay after 5 failed login attempts for the same normalized identifier, IP+identifier pair, or IP within a 15-minute window. |
+| Delay schedule | Attempts 1-5: no added delay. Attempt 6: 2 seconds. Attempt 7: 5 seconds. Attempt 8: 10 seconds. Attempt 9 and later: 30 seconds. |
+| Max delay | 30 seconds for MVP/prod initial rollout. Increase only after observing abuse and user impact. |
+| Tracking keys | Track at least three keys: client IP, normalized submitted username/identifier, and IP+identifier. Identifier tracking must be applied uniformly for existing and non-existing users. |
+| Window | 15-minute rolling or fixed window for failed attempts, plus an optional 24-hour aggregate for telemetry. |
+| Reset behavior | Successful login resets counters for that user and relevant identifier keys. Expired windows reset naturally. Manual reset is not required for MVP because there is no hard lockout. |
+| Response behavior | Preserve the same generic login failure response. If the delay is enforced by waiting, return the normal auth failure after the delay. If implemented as a 429-style response, use generic wording and do not disclose whether the identifier exists. |
+| Timing safety | Apply delay decisions before revealing account existence. Known and unknown identifiers must follow the same observable policy. |
+| Storage | Use shared storage such as Redis before multi-instance production. In-memory is acceptable only for local development or a single-process MVP if explicitly documented. |
+| Logging | Log delay events with safe fields: timestamp, event, route, key type, delay bucket, request_id if available, and result. Do not log raw passwords, tokens, full emails, or submitted secrets. |
+
+Progressive delay must run in addition to ISSUE-099 rate limiting. If a request exceeds the ISSUE-099 rate limit, return HTTP 429 and do not perform password lookup or verification. If it is under the rate limit but has repeated failed attempts, apply the progressive delay policy.
+
+## Lockout Policy
+
+Hard account lockout is rejected for MVP.
+
+Reason:
+
+- It enables attacker-driven denial-of-service against known users.
+- It requires account recovery, support handling, and careful user messaging.
+- It risks revealing account existence if lockout is only applied to known usernames.
+- It can punish legitimate users after password typos or credential-manager issues.
+
+Future production use is allowed only if all of the following are true:
+
+1. There is abuse telemetry proving progressive delay and rate limiting are insufficient.
+2. Lockout is risk-based and constrained, not a simple permanent account block.
+3. Unlock behavior is defined, including self-service recovery or support process.
+4. User-facing messaging remains safe and does not reveal account existence.
+5. Tests prove an attacker cannot trivially lock another user's account.
+6. Admin/support audit logging exists for manual unlock or moderation decisions.
+
+If future lockout is used, prefer temporary lockout of an IP+identifier risk key over global account lockout. Global account lockout should be a last resort.
+
+## CAPTCHA Policy
+
+CAPTCHA is not approved as always-on MVP login behavior.
+
+CAPTCHA is approved only as future escalation when:
+
+- repeated failures continue after progressive delay
+- one IP or IP range triggers suspicious volume
+- registration/login bot traffic is observed
+- attack traffic creates operational cost or account-risk pressure
+
+Preferred future behavior:
+
+- Do not show CAPTCHA on the first login attempt.
+- Trigger CAPTCHA after repeated suspicious failures, for example after 8-10 failed attempts for an IP+identifier or after a high-volume IP pattern.
+- Apply CAPTCHA uniformly enough that it does not reveal whether the account exists.
+- Choose a provider only after privacy, accessibility, mobile UX, and regional availability review.
+- Keep a non-CAPTCHA recovery path for accessibility/support if required.
+
+## Interaction With ISSUE-099 Rate Limiting
+
+ISSUE-099 remains the first-line control:
+
+- It blocks high-volume abuse against `POST /auth/login` with 10 requests/minute and 50 requests/hour per client IP.
+- It returns HTTP 429 with `Retry-After` and `RATE_LIMITED`.
+- It prevents Supabase lookup and bcrypt verification when the request is already rate-limited.
+
+ISSUE-100 adds the strategy for the next layer:
+
+- Rate limiting blocks obvious high-volume attack bursts.
+- Progressive delay handles repeated failures that stay below the raw request-rate threshold.
+- CAPTCHA is reserved for suspicious automation escalation.
+- Hard lockout is avoided for MVP because it creates a user-denial-of-service path.
+
+The future progressive delay implementation must not weaken ISSUE-099. Rate-limited requests should still short-circuit before expensive or irreversible work.
+
+## Security / UX Rationale
+
+The selected strategy favors friction that scales with risk instead of punishment that can be weaponized.
+
+- Rate limiting is invisible to normal users unless they send excessive requests.
+- Progressive delay slows attackers while still letting legitimate users recover from mistakes.
+- Hard lockout is powerful but dangerous because an attacker can intentionally lock out someone else.
+- CAPTCHA can help during active abuse but should not be always-on because it hurts mobile UX, accessibility, and user trust.
+
+This balances security and product usability for the current MVP while leaving a clear path for stronger production defenses.
+
+## Implementation Requirements For Future Issue
+
+A future implementation issue for progressive delay must:
+
+1. Enforce backend-only delay; do not rely on frontend throttling.
+2. Track failures by IP, normalized submitted identifier, and IP+identifier.
+3. Treat known and unknown identifiers uniformly to prevent enumeration.
+4. Preserve the generic login failure response.
+5. Reset relevant counters after successful login.
+6. Avoid logging passwords, tokens, raw authorization headers, full emails, or secrets.
+7. Use shared storage before multi-instance production.
+8. Define behavior when the delay store is unavailable.
+9. Keep ISSUE-099 rate limiting active and first in the enforcement order.
+10. Add metrics/logging for delay buckets and suspicious patterns.
+11. Avoid account lockout unless a separate approved issue changes this policy.
+12. Avoid CAPTCHA unless a separate approved issue defines provider, trigger, privacy, and accessibility requirements.
+
+## Missing Tests
+
+Future implementation tests must cover:
+
+- progressive delay increases after repeated failures
+- delay does not reveal whether the account exists
+- successful login resets failure counters
+- ISSUE-099 rate limit still triggers after its threshold
+- different IP keys remain isolated
+- different identifier keys remain isolated
+- IP+identifier tracking works
+- unknown usernames and known usernames produce equivalent observable responses
+- CAPTCHA challenge triggers only after the defined threshold if CAPTCHA is implemented later
+- lockout is not used unless explicitly implemented by a separate approved issue
+- attacker cannot trivially lock another user's account
+- delay state resets after the configured window
+- delay storage failures follow the approved fail-open/fail-closed policy
+
+## Required Follow-up Issues
+
+1. Implement progressive login delay.
+2. Add brute-force telemetry and alerting.
+3. Add CAPTCHA escalation after abuse threshold if needed.
+4. Evaluate account lockout only after abuse data exists.
+5. Add shared Redis-backed brute-force state before multi-instance production.
+6. Add tests for username-enumeration resistance under delay/CAPTCHA behavior.
+
+## Final Decision
+
+The official brute force protection strategy is approved:
+
+- Keep ISSUE-099 rate limiting as the primary defense.
+- Implement progressive login delay as the next protection.
+- Reject hard account lockout for MVP.
+- Reserve CAPTCHA for future escalation after suspicious behavior or measured abuse.
+- Preserve generic login failure responses and do not reveal whether a username/account exists.
+
+No runtime behavior changed in this issue. The next implementation step is a dedicated issue to implement progressive login delay according to this policy.
+
