@@ -18392,3 +18392,90 @@ Approval rules:
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
 - **Production backup/restore performed**: NO
+
+# ISSUE-120: Database Recovery Validation
+
+## 1. Summary
+A database recovery validation exercise was performed as a tabletop/dry-run validation of the ISSUE-119 backup and restore strategy.
+
+No live staging restore was performed because repository documentation shows the dedicated staging Supabase environment is planned/prepared but not yet live. No production restore, production data export, database schema change, or runtime behavior change was performed.
+
+## 2. Files Changed
+- `docs/database-recovery-validation-report.md` — full recovery validation report (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Recovery Validation Report Location
+[docs/database-recovery-validation-report.md](docs/database-recovery-validation-report.md)
+
+## 4. Exercise Type
+- **Type**: TABLETOP / DRY-RUN RESTORE VALIDATION
+- **Actual restore performed**: NO
+- **Production touched**: NO
+- **Production data exported**: NO
+- **Database dumps committed**: NO
+- **Secrets committed**: NO
+
+## 5. Scenario Validated
+A bad migration or accidental data change corrupts game/field-related data. The dry run covered identifying the target restore point, checking backup availability, estimating the data-loss window, deciding restore vs forward-fix, validating an isolated/staging restore path if available, and verifying critical tables, RLS/policies, and application smoke flows.
+
+The original dependency typo risk was resolved: this issue depends on **ISSUE-119: Database Backup Strategy**, not ISSUE-11.
+
+## 6. Restore Timing Measured
+Measured as tabletop elapsed time / estimated operational recovery time.
+
+| Step | Tabletop elapsed time | Estimated real operational time |
+| :--- | :--- | :--- |
+| Scenario identification | 5 minutes | 5-15 minutes |
+| Target restore point selection | 6 minutes | 10-20 minutes |
+| Backup availability confirmation | 4 minutes | 10-30 minutes |
+| Approval | 5 minutes | 15-30 minutes |
+| Restore execution | 0 minutes live / simulated only | 30-90 minutes |
+| DB verification | 12 minutes | 30-60 minutes |
+| App smoke verification | 8 minutes | 20-40 minutes |
+| Communication | 5 minutes | 10-20 minutes |
+| Total | 45 minutes tabletop | 2-4 hours estimated operational recovery |
+
+## 7. Validation Result
+- **Restore validation performed**: YES
+- **Restore type**: TABLETOP / DRY-RUN
+- **Restore successful**: SIMULATED
+- **Recovery time measured**: YES
+- **Procedure usable today**: PARTIAL
+- **Main blocker**: Supabase backup/PITR settings, restore steps, dashboard access, and staging restore target are not verified/live.
+
+## 8. Key Gaps / Blockers
+- Supabase backup/PITR dashboard confirmation is missing.
+- Supabase backup retention and available restore windows are not verified.
+- Exact Supabase restore UI/CLI steps are not confirmed from a live dashboard.
+- Dedicated staging Supabase database is not live.
+- No live staging restore drill has been performed.
+- No staging seed data process is implemented.
+- Restore owner and dashboard access inventory are not confirmed.
+- Automated backup monitoring is not implemented.
+- RLS restore verification needs an executable checklist or SQL script.
+- Push token restore handling needs a staging-safe validation path.
+
+## 9. Follow-Up Issues
+- P0: Confirm Supabase backup/PITR settings for production.
+- P0: Confirm Supabase backup retention and restore windows.
+- P0: Assign database restore owner and backup owner.
+- P0: Create dashboard access inventory for Supabase, Railway, and Vercel.
+- P0: Create dedicated staging Supabase project.
+- P0: Run a live staging restore drill with synthetic data.
+- P1: Add restore verification checklist to the release checklist.
+- P1: Add executable RLS restore verification checklist or SQL script.
+- P1: Create staging seed data process.
+- P1: Add automated backup monitoring and failed-backup alerts.
+- P1: Document production restore approval chain with named roles/contacts.
+
+## 10. Final Result
+- **Database recovery validation report exists**: YES
+- **Restore process validated**: PARTIAL
+- **Exercise type**: TABLETOP / DRY-RUN
+- **Restore time measured**: YES
+- **Production touched**: NO
+- **Production data exported**: NO
+- **Database schema changed**: NO
+- **Runtime behavior changed**: NO
+- **Database dumps committed**: NO
+- **Secrets committed**: NO
