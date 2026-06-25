@@ -15740,3 +15740,384 @@ Password validation now matches the approved MVP policy from ISSUE-096. All pass
 | `backend/tests/test_password_validation.py` | 22 new tests for password validation edge cases. |
 | `docs/product-decisions.md` | Added ISSUE-097 documentation. |
 
+---
+
+# ISSUE-098: API Rate Limiting Requirements
+
+## Status
+
+Requirements documented. No implementation performed. No code, middleware, dependencies, or runtime behavior changed.
+
+## Date
+
+2026-06-25
+
+## Scope
+
+This section documents the API rate limiting requirements for yesh_mishak. It covers every backend endpoint, defines a threat model, proposes MVP and production rate limits, and specifies the error response standard. This is a requirements-only document — no rate limiting exists in the codebase today.
+
+Endpoints reviewed:
+- Auth: 6 endpoints (`backend/app/api/auth.py`)
+- Games: 9 endpoints (`backend/app/routers/games.py`)
+- Fields: 4 endpoints (`backend/app/routers/fields.py`)
+- Field Reports: 1 endpoint (`backend/app/routers/field_reports.py`)
+- Notifications: 10 endpoints (`backend/app/routers/notifications.py`)
+- Admin: 22 endpoints (`backend/app/api/admin.py`)
+- Root: 1 endpoint (`backend/app/main.py`)
+- **Total: 53 endpoints**
+
+## Current Rate Limiting Behavior Observed
+
+**None.** There is no rate limiting anywhere in the application.
+
+- No rate limiting middleware in `backend/app/main.py`.
+- No per-endpoint rate limiters on any router.
+- No Redis, no token bucket, no sliding window, no in-memory counters.
+- No `slowapi`, `fastapi-limiter`, or any rate limiting library in dependencies.
+- The only middleware is CORS (`CORSMiddleware`).
+- The only request-level protection is authentication (`get_current_user` / `require_active_user` / `require_admin`).
+- Frontend has no client-side throttling or debounce on API calls.
+- Supabase PostgREST has no server-side rate limiting configured.
+
+**Every endpoint can be called at unlimited frequency by any client.**
+
+## Threat Model
+
+### Attacker Capabilities (Assume All)
+
+1. **Bypass frontend entirely.** Attackers can call the backend API directly with `curl`, scripts, or custom clients. Frontend-only controls (button disabling, debounce) provide zero protection.
+2. **Rotate accounts.** Attackers can register multiple accounts and distribute abuse across them.
+3. **Rotate IPs.** Attackers can use proxies, VPNs, or botnets to circumvent IP-based limits.
+4. **Reuse IPs.** Multiple legitimate users may share the same IP (NAT, corporate networks, mobile carriers). IP-only blocking causes collateral damage.
+5. **Credential stuffing.** Attackers can hammer `/auth/login` with stolen credential lists at high speed.
+6. **Username/email enumeration.** Attackers can use `/auth/check-username`, `/auth/check-email`, `/auth/register`, and `/auth/login` error responses to enumerate valid accounts.
+7. **Spam content.** Attackers can flood field reports, field submissions, and game creation.
+8. **Trigger external costs.** Attackers can abuse `/notifications/test-push` to send unlimited FCM push notifications, incurring Firebase costs.
+9. **Cause notification fanout storms.** Game creation triggers background notification fanout to all matching users. Rapid game creation = mass notification spam.
+10. **Poll aggressively.** Clients (buggy or malicious) can poll `/notifications/unread-count` or `/notifications` in tight loops, generating excessive Supabase HTTP requests.
+11. **Exhaust database resources.** `GET /fields/` without bounding-box parameters paginates through ALL fields. `GET /admin/monitoring` makes 6+ Supabase queries per call. Rapid polling of these endpoints can exhaust database connections.
+12. **Create accidental infinite client loops.** A frontend bug (e.g., `useEffect` with missing dependency triggering re-fetch on every render) can generate thousands of requests per minute from a single user.
+
+### Assets at Risk
+
+| Asset | Threat | Impact |
+|-------|--------|--------|
+| User credentials | Credential stuffing via `/auth/login` | Account takeover |
+| User existence | Enumeration via check-username, check-email, register, login | Privacy violation, targeted attacks |
+| Firebase budget | Unlimited `/notifications/test-push` calls | Financial cost |
+| Supabase connection pool | Aggressive polling of any endpoint | Service degradation for all users |
+| Notification inbox | Game creation spam triggering fanout | UX degradation, push notification spam |
+| Content quality | Spam field reports, field submissions | Moderation burden, data pollution |
+| Service availability | Volumetric abuse of any endpoint | Denial of service |
+
+## Official Rate Limiting Policy
+
+### Principles
+
+1. **Defense in depth.** Rate limiting is one layer. Authentication, input validation, and content moderation are separate layers that remain in place.
+2. **Limit by user ID for authenticated endpoints.** User ID is the most reliable key for authenticated requests. IP-only limits cause collateral damage from shared IPs.
+3. **Limit by IP for unauthenticated endpoints.** Login, registration, and enumeration endpoints have no user context. IP is the only available key.
+4. **Combine IP + user ID where both are available.** For authenticated write endpoints, apply both keys. Either exceeding its limit triggers a 429.
+5. **Return standard 429 responses.** All rate limit rejections use the same error format with `Retry-After` header.
+6. **Fail closed on rate limiter errors.** If the rate limiting backend (Redis) is unavailable, allow requests through rather than blocking all traffic. Log the failure.
+7. **Do not rate-limit health checks.** `GET /` must remain unthrottled for monitoring.
+8. **Admin endpoints get higher limits.** Admins are trusted users performing operational tasks. Apply limits to prevent accidental abuse, not to restrict legitimate use.
+
+## Endpoint Requirement Matrix
+
+### Auth Endpoints (`/auth`)
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/auth/login` | POST | No | **Critical** | IP | 10 req/min, 50 req/hour | 429 + `Retry-After` | P0 | Credential stuffing target. Constant-time response already in place (bcrypt). |
+| `/auth/register` | POST | No | **Critical** | IP | 5 req/min, 20 req/hour | 429 + `Retry-After` | P0 | Account creation spam. Each registration creates a DB row + bcrypt hash. |
+| `/auth/google` | POST | No | **High** | IP | 10 req/min, 50 req/hour | 429 + `Retry-After` | P0 | Google token verification is cheap but creates/updates users. |
+| `/auth/check-username` | POST | No | **High** | IP | 20 req/min | 429 + `Retry-After` | P1 | Username enumeration. Frontend calls this on blur — legitimate use is bursty. |
+| `/auth/check-email` | POST | No | **High** | IP | 20 req/min | 429 + `Retry-After` | P1 | Email enumeration. Same pattern as check-username. |
+| `/auth/logout` | POST | Yes | Low | User ID | 10 req/min | 429 + `Retry-After` | P2 | Low risk but writes `tokens_valid_after`. |
+
+### Game Endpoints (`/games`)
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/games/` | POST | Yes | **High** | User ID | 5 req/min, 20 req/hour | 429 + `Retry-After` | P0 | Each creation triggers background notification fanout to all matching users. |
+| `/games/active` | GET | No | Medium | IP | 30 req/min | 429 + `Retry-After` | P1 | Public read. Moderate Supabase cost per call. |
+| `/games/upcoming` | GET | No | Medium | IP | 30 req/min | 429 + `Retry-After` | P1 | Public read. Same as active. |
+| `/games/me` | GET | Yes | Medium | User ID | 30 req/min | 429 + `Retry-After` | P1 | Authenticated read. Multiple Supabase queries per call. |
+| `/games/{game_id}/join` | POST | Yes | Medium | User ID | 10 req/min | 429 + `Retry-After` | P1 | Write + notification. Business logic prevents double-join but DB call still happens. |
+| `/games/{game_id}/leave` | POST | Yes | Medium | User ID | 10 req/min | 429 + `Retry-After` | P1 | Write. Join/leave cycling is possible abuse. |
+| `/games/{game_id}/close` | POST | Yes | Low | User ID | 10 req/min | 429 + `Retry-After` | P2 | Creator-only. Triggers notifications. |
+| `/games/{game_id}/extend` | POST | Yes | Low | User ID | 10 req/min | 429 + `Retry-After` | P2 | Creator-only. Triggers notifications. |
+| `/games/{game_id}/cancel` | POST | Yes | Low | User ID | 10 req/min | 429 + `Retry-After` | P2 | Creator-only. Triggers notifications. |
+
+### Field Endpoints (`/fields`)
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/fields/` | GET | No | Medium | IP | 30 req/min | 429 + `Retry-After` | P1 | Without bounding-box params, fetches ALL fields. Expensive query. |
+| `/fields/{field_id}` | GET | No | Low | IP | 60 req/min | 429 + `Retry-After` | P2 | Single-record lookup. Includes active/upcoming games subquery. |
+| `/fields/` | POST | Yes | **High** | User ID | 3 req/min, 10 req/hour | 429 + `Retry-After` | P0 | Field submission. Content-moderated but creates DB rows + moderation burden. |
+| `/fields/{field_id}/status` | PATCH | Admin | Low | User ID | 20 req/min | 429 + `Retry-After` | P3 | Admin-only. Low abuse risk. |
+
+### Field Report Endpoints (`/field-reports`)
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/field-reports` | POST | Yes | **High** | User ID | 5 req/min, 20 req/hour | 429 + `Retry-After` | P0 | No duplicate prevention. Attacker can flood reports for any field. |
+
+### Notification Endpoints (`/notifications`)
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/notifications` | GET | Yes | Medium | User ID | 30 req/min | 429 + `Retry-After` | P1 | Polling target. Each call = Supabase HTTP request. |
+| `/notifications/unread-count` | GET | Yes | **High** | User ID | 30 req/min | 429 + `Retry-After` | P0 | Most likely polling target. Buggy `useEffect` can hammer this. |
+| `/notifications/push-token` | POST | Yes | Medium | User ID | 5 req/min | 429 + `Retry-After` | P1 | Token registration. Should be called once per device. |
+| `/notifications/push-token` | DELETE | Yes | Low | User ID | 5 req/min | 429 + `Retry-After` | P2 | Token deletion. Low frequency. |
+| `/notifications/test-push` | POST | Yes | **Critical** | User ID | 3 req/min, 10 req/hour | 429 + `Retry-After` | P0 | **Sends FCM push notification.** External API cost. Each call = Firebase HTTP request. |
+| `/notifications/read-all` | PATCH | Yes | Low | User ID | 10 req/min | 429 + `Retry-After` | P2 | Bulk write. Low abuse risk. |
+| `/notifications/{id}/read` | PATCH | Yes | Low | User ID | 30 req/min | 429 + `Retry-After` | P2 | Single write. Low abuse risk. |
+| `/notifications/preferences` | GET | Yes | Low | User ID | 30 req/min | 429 + `Retry-After` | P2 | Read. Low frequency. |
+| `/notifications/preferences` | PUT | Yes | Medium | User ID | 5 req/min | 429 + `Retry-After` | P1 | Write. Preference toggling abuse unlikely but possible. |
+| `/notifications/candidates` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Admin-only. Computes matching users. |
+
+### Admin Endpoints (`/admin`)
+
+All admin endpoints require `require_admin`. Abuse risk is low because admin accounts are trusted and few. Limits are set high to prevent accidental abuse (e.g., a monitoring script polling too fast), not to restrict legitimate use.
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/admin/me` | GET | Admin | Low | User ID | 60 req/min | 429 + `Retry-After` | P3 | Simple read. |
+| `/admin/users` | GET | Admin | Low | User ID | 30 req/min | 429 + `Retry-After` | P3 | Lists all users. Moderate query cost. |
+| `/admin/users/{id}/ban` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/users/{id}/unban` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/users/{id}/suspend` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/users/{id}/unsuspend` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/field-reports` | GET | Admin | Low | User ID | 30 req/min | 429 + `Retry-After` | P3 | Lists reports + enrichment queries. |
+| `/admin/field-reports/{id}/status` | PATCH | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write. |
+| `/admin/stats` | GET | Admin | Medium | User ID | 10 req/min | 429 + `Retry-After` | P2 | 6 Supabase queries per call. |
+| `/admin/fields` | GET | Admin | Low | User ID | 30 req/min | 429 + `Retry-After` | P3 | Lists all fields. |
+| `/admin/fields/pending` | GET | Admin | Low | User ID | 30 req/min | 429 + `Retry-After` | P3 | Lists pending fields. |
+| `/admin/fields/{id}/approve` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/fields/{id}/reject` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write + audit log. |
+| `/admin/fields/{id}/status` | PATCH | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Write. |
+| `/admin/fields/duplicates` | GET | Admin | Medium | User ID | 10 req/min | 429 + `Retry-After` | P2 | Fetches all fields + runs duplicate detection. Expensive. |
+| `/admin/games` | GET | Admin | Low | User ID | 30 req/min | 429 + `Retry-After` | P3 | Lists games + enrichment. |
+| `/admin/reminders/scheduled-games/run` | POST | Admin | Medium | User ID | 2 req/min | 429 + `Retry-After` | P2 | Triggers reminder job. Notification fanout. |
+| `/admin/notifications/cleanup` | POST | Admin | Medium | User ID | 2 req/min | 429 + `Retry-After` | P2 | Triggers cleanup job. Bulk delete. |
+| `/admin/games/{id}/close` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Admin game close + notifications. |
+| `/admin/games/{id}/extend` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Admin game extend + notifications. |
+| `/admin/games/{id}/cancel` | POST | Admin | Low | User ID | 10 req/min | 429 + `Retry-After` | P3 | Admin game cancel + notifications. |
+| `/admin/monitoring` | GET | Admin | Medium | User ID | 10 req/min | 429 + `Retry-After` | P2 | 6+ Supabase queries per call. Dashboard polling target. |
+
+### Root Endpoint
+
+| Endpoint | Method | Auth | Abuse Risk | Limit Key | Suggested Limit | Failure Behavior | Priority | Notes |
+|----------|--------|------|------------|-----------|-----------------|------------------|----------|-------|
+| `/` | GET | No | None | — | No limit | — | — | Health check. Must remain unthrottled for uptime monitoring. |
+
+## Login and Registration Requirements
+
+### Login (`POST /auth/login`)
+
+- **Limit:** 10 requests per minute per IP, 50 requests per hour per IP.
+- **Key:** IP address only (no user context available before authentication).
+- **Rationale:** Credential stuffing defense. 10/min allows legitimate users who mistype their password several times. 50/hour prevents sustained brute-force across the hour boundary.
+- **Current protection:** bcrypt constant-time comparison prevents timing attacks. Login error message is generic ("Invalid username or password") and does not reveal whether the username exists.
+- **Gap:** No account lockout exists. An attacker who stays under the rate limit can try passwords indefinitely. Account lockout is a separate follow-up issue.
+- **Failure response:** 429 with `Retry-After` header. Do not reveal whether the account exists in the 429 response.
+
+### Registration (`POST /auth/register`)
+
+- **Limit:** 5 requests per minute per IP, 20 requests per hour per IP.
+- **Key:** IP address only.
+- **Rationale:** Account creation is expensive (bcrypt hash + Supabase insert + username/email uniqueness checks). 5/min is generous for legitimate use (a user might retry 2-3 times if they pick a taken username). 20/hour prevents bulk account creation.
+- **Current protection:** Password validation (8-128 chars), username/email uniqueness checks, Pydantic schema validation.
+- **Gap:** No CAPTCHA. An attacker who stays under the rate limit can still create accounts. CAPTCHA is a separate follow-up issue.
+
+### Check Username (`POST /auth/check-username`) and Check Email (`POST /auth/check-email`)
+
+- **Limit:** 20 requests per minute per IP.
+- **Key:** IP address only.
+- **Rationale:** Frontend calls these on input blur during registration. A user filling out the form might trigger 5-10 checks in rapid succession as they try different usernames. 20/min accommodates this while preventing systematic enumeration.
+- **Gap:** These endpoints inherently reveal whether a username/email is taken. Rate limiting reduces the speed of enumeration but does not eliminate it. Consider adding CAPTCHA or requiring a partial registration step before allowing enumeration checks.
+
+## Notification Endpoint Requirements
+
+### Test Push (`POST /notifications/test-push`)
+
+- **Limit:** 3 requests per minute per user, 10 requests per hour per user.
+- **Key:** User ID.
+- **Rationale:** Each call sends an FCM push notification, which is an external API call with associated cost. 3/min prevents accidental rapid-fire clicks. 10/hour prevents sustained abuse.
+- **Current protection:** Requires `require_active_user`. No other limits.
+- **Gap:** No daily or monthly cap. A determined attacker with a valid token could send 240 push notifications per day staying under the hourly limit. Consider a daily cap of 20-50 for production.
+
+### Unread Count (`GET /notifications/unread-count`)
+
+- **Limit:** 30 requests per minute per user.
+- **Key:** User ID.
+- **Rationale:** This is the most likely polling target. A well-behaved frontend should poll at most once per 30 seconds (2/min). 30/min accommodates page refreshes and reconnections while catching runaway client loops.
+- **Gap:** No server-sent events or WebSocket for real-time updates. Until push-based notification updates exist, polling is the only mechanism, making rate limiting the only protection against tight loops.
+
+### Push Token Registration (`POST /notifications/push-token`)
+
+- **Limit:** 5 requests per minute per user.
+- **Key:** User ID.
+- **Rationale:** Token registration should happen once per device per session. 5/min is generous. Prevents a buggy client from re-registering tokens in a loop.
+
+### Notification Preferences (`PUT /notifications/preferences`)
+
+- **Limit:** 5 requests per minute per user.
+- **Key:** User ID.
+- **Rationale:** Preference saves are infrequent. 5/min prevents toggle-spam which writes to the database on every call.
+
+## Field Report Requirements
+
+### Create Field Report (`POST /field-reports`)
+
+- **Limit:** 5 reports per minute per user, 20 reports per hour per user.
+- **Key:** User ID.
+- **Rationale:** No duplicate report prevention exists. An attacker can submit unlimited reports for any field, flooding the moderation queue. 5/min is generous for legitimate use (a user might report 2-3 issues at once). 20/hour prevents sustained spam.
+- **Gap:** No per-field duplicate check. A user can submit the same report for the same field 20 times per hour. A separate follow-up should add per-user-per-field deduplication (e.g., one report per user per field per category per 24 hours).
+
+### Create Field Submission (`POST /fields/`)
+
+- **Limit:** 3 submissions per minute per user, 10 submissions per hour per user.
+- **Key:** User ID.
+- **Rationale:** Field submissions create moderation work. Content moderation (`validate_field_submission()`) catches inappropriate text but not spam volume. 3/min is generous — legitimate users submit fields rarely.
+- **Gap:** No anti-spam beyond content moderation. Consider requiring admin approval before allowing a user to submit additional fields if their first submission was rejected.
+
+## Recommended MVP Limits
+
+These are the minimum limits to implement before production launch, ordered by priority.
+
+| Priority | Endpoint | Limit | Key | Rationale |
+|----------|----------|-------|-----|-----------|
+| P0 | `POST /auth/login` | 10/min, 50/hour | IP | Credential stuffing defense |
+| P0 | `POST /auth/register` | 5/min, 20/hour | IP | Bulk account creation prevention |
+| P0 | `POST /auth/google` | 10/min, 50/hour | IP | Google auth spam prevention |
+| P0 | `POST /games/` | 5/min, 20/hour | User ID | Notification fanout storm prevention |
+| P0 | `POST /notifications/test-push` | 3/min, 10/hour | User ID | Firebase cost protection |
+| P0 | `GET /notifications/unread-count` | 30/min | User ID | Runaway client loop protection |
+| P0 | `POST /field-reports` | 5/min, 20/hour | User ID | Report spam prevention |
+| P0 | `POST /fields/` (create) | 3/min, 10/hour | User ID | Submission spam prevention |
+| P1 | `POST /auth/check-username` | 20/min | IP | Enumeration throttle |
+| P1 | `POST /auth/check-email` | 20/min | IP | Enumeration throttle |
+| P1 | `GET /games/active` | 30/min | IP | Public endpoint polling protection |
+| P1 | `GET /games/upcoming` | 30/min | IP | Public endpoint polling protection |
+| P1 | `GET /fields/` | 30/min | IP | Expensive unbounded query protection |
+| P1 | `GET /notifications` | 30/min | User ID | Polling protection |
+| P1 | `PUT /notifications/preferences` | 5/min | User ID | Write spam prevention |
+| P1 | `POST /notifications/push-token` | 5/min | User ID | Token registration spam prevention |
+
+All P0 items must be implemented before production launch. P1 items should be implemented in the same release if possible.
+
+## Production Hardening (Post-MVP)
+
+These items are not required for MVP but should be implemented for production hardening:
+
+1. **Global per-IP rate limit.** Apply a blanket limit (e.g., 100 req/min per IP) across all endpoints as a last-resort DDoS backstop. This catches abuse patterns not covered by per-endpoint limits.
+
+2. **Account lockout after failed logins.** After N consecutive failed login attempts for a specific username (e.g., 10), temporarily lock the account (15-30 minute cooldown). Requires tracking failed attempts per username, separate from IP-based rate limiting.
+
+3. **CAPTCHA on registration.** Add CAPTCHA challenge after rate limit thresholds are approached (e.g., after 3rd registration attempt from an IP within a minute). Prevents automated account creation that stays under rate limits.
+
+4. **Notification fanout rate limiting.** Limit the number of background notifications generated per game creation event. Currently, game creation can fan out to all users matching the field/sport — if the user base grows, this becomes expensive. Consider capping fanout to N notifications per game.
+
+5. **Per-user daily caps for external API calls.** Add a daily cap (e.g., 20-50) for `POST /notifications/test-push` beyond the per-minute/per-hour limits. Prevents sustained low-rate abuse over a full day.
+
+6. **Redis-backed sliding window.** The MVP can use in-memory rate limiting (process-local counters), but production should use Redis-backed sliding window for consistency across multiple backend instances. This is mandatory if the backend is deployed with more than one worker/replica.
+
+7. **Graduated response.** Instead of hard-blocking at the limit, consider progressive delays (adding artificial latency before responding) for borderline cases, especially on login endpoints. This slows attackers without blocking legitimate users who are close to the limit.
+
+8. **Rate limit headers on all responses.** Include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers on every response, not just 429s. This helps frontend clients implement proactive backoff.
+
+9. **Monitoring and alerting.** Log all 429 responses with endpoint, key (IP or user ID), and timestamp. Alert on sustained rate limit hits from a single source. This is required to tune limits after launch.
+
+10. **Per-field report deduplication.** Add a unique constraint or time-based deduplication (one report per user per field per category per 24 hours) to prevent report flooding that stays under rate limits.
+
+## Error Response Standard
+
+All rate-limited responses must use this format:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+Content-Type: application/json
+
+{
+  "error": true,
+  "code": "RATE_LIMITED",
+  "message": "Too many requests. Please try again later."
+}
+```
+
+Requirements:
+- **Status code:** 429 (always).
+- **`Retry-After` header:** Required. Integer seconds until the client can retry. Must reflect the actual window reset time, not a fixed value.
+- **`code` field:** Always `"RATE_LIMITED"`. No endpoint-specific codes. A single code simplifies frontend handling.
+- **`message` field:** Generic. Must not reveal the specific limit, the key type (IP vs user), or any information about other users. Must not reveal whether the username/email exists (for auth endpoints).
+- **No `details` field.** Do not include remaining attempts, window size, or limit configuration in the response body.
+- **Consistent with existing error format.** The response body matches the `{"error": true, "code": "...", "message": "..."}` format used by all other error responses in the application (see `backend/app/main.py` exception handlers).
+
+## Gaps and Missing Tests
+
+### Current Gaps
+
+| Gap | Severity | Description |
+|-----|----------|-------------|
+| No rate limiting exists | Critical | Every endpoint is unlimited. This is the gap this issue documents. |
+| No account lockout | High | Failed login attempts are not tracked. No lockout after N failures. |
+| No CAPTCHA | Medium | Registration has no bot prevention beyond rate limits. |
+| No field report deduplication | Medium | Same user can report same field + category unlimited times. |
+| No notification fanout cap | Medium | Game creation fans out to all matching users with no ceiling. |
+| No daily cap on test-push | Medium | Hourly limits allow 240 pushes/day. |
+| Frontend has no backoff logic | Medium | Axios interceptor does not handle 429 responses or implement exponential backoff. |
+| No WebSocket/SSE for notifications | Low | Polling is the only mechanism for unread count. Rate limiting is the only defense against tight loops. |
+| `GET /fields/` unbounded query | Low | Without bounding-box params, fetches all fields. Rate limiting mitigates but does not fix the query cost. |
+
+### Required Tests (for implementation issue)
+
+When rate limiting is implemented, these tests must be written:
+
+1. **429 response format.** Verify the response matches the error standard: status 429, `Retry-After` header present, `code` is `"RATE_LIMITED"`, `message` is generic.
+2. **Login rate limit.** Verify that the 11th login attempt within 1 minute from the same IP returns 429. Verify that a login from a different IP is not affected.
+3. **Registration rate limit.** Verify that the 6th registration attempt within 1 minute from the same IP returns 429.
+4. **Authenticated endpoint rate limit.** Verify that exceeding the per-user limit on a protected endpoint returns 429. Verify that a different user on the same IP is not affected.
+5. **Test-push rate limit.** Verify that the 4th test-push within 1 minute returns 429. Verify that FCM is not called when rate-limited.
+6. **Rate limit does not leak information.** Verify that the 429 response for `/auth/login` does not reveal whether the username exists. The response must be identical regardless of username validity.
+7. **Retry-After accuracy.** Verify that the `Retry-After` value reflects the actual window reset, not a hardcoded value. After waiting `Retry-After` seconds, the next request should succeed.
+8. **Rate limit key isolation.** Verify that IP-based limits are isolated per IP and user-based limits are isolated per user. One user hitting a limit must not affect another user.
+9. **Health check exemption.** Verify that `GET /` is never rate-limited.
+
+## Required Follow-up Issues
+
+| Issue | Priority | Description |
+|-------|----------|-------------|
+| Implement MVP rate limiting | P0 | Implement the P0 limits from this document. Add `slowapi` or equivalent. Wire into FastAPI middleware. Add 429 error handler. |
+| Frontend 429 handling | P0 | Update Axios response interceptor to detect 429 status, read `Retry-After` header, show user-friendly message, implement exponential backoff for retries. |
+| Account lockout on failed logins | P1 | Track failed login attempts per username. Lock account after 10 consecutive failures. 15-minute cooldown. Requires new database column or table. |
+| CAPTCHA on registration | P1 | Add CAPTCHA challenge to registration endpoint. Consider reCAPTCHA v3 or hCaptcha. |
+| Field report deduplication | P1 | Add per-user-per-field-per-category deduplication with 24-hour window. Prevent report flooding that stays under rate limits. |
+| Redis-backed rate limiting | P2 | Replace in-memory rate limiting with Redis-backed sliding window. Required for multi-worker deployments. |
+| Notification polling replacement | P2 | Replace polling-based unread count with WebSocket or SSE. Eliminates the need for aggressive polling rate limits. |
+| Rate limit monitoring and alerting | P2 | Log all 429 responses. Alert on sustained hits from single source. Tune limits based on real traffic data. |
+
+## Final Decision
+
+**No rate limiting exists in the yesh_mishak backend.** Every endpoint — including unauthenticated login, registration, and enumeration endpoints — can be called at unlimited frequency. This is a critical security gap.
+
+The MVP must implement P0 rate limits before production launch. The most urgent items are:
+1. **Login/registration/Google auth** — credential stuffing and bulk account creation defense (IP-based, 10/min login, 5/min registration).
+2. **Test push notification** — Firebase cost protection (user-based, 3/min).
+3. **Game creation** — notification fanout storm prevention (user-based, 5/min).
+4. **Unread count polling** — runaway client loop protection (user-based, 30/min).
+5. **Field reports and field submissions** — content spam prevention (user-based, 5/min and 3/min).
+
+Implementation should use `slowapi` or an equivalent FastAPI-compatible library. In-memory storage is acceptable for MVP (single-worker deployment). Redis-backed storage is required before scaling to multiple workers.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-098 rate limiting requirements documentation. |
+
