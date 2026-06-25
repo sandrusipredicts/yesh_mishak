@@ -19579,3 +19579,113 @@ Create a focused mobile remediation issue for the Map screen findings:
 - Add geolocation denied/unavailable messaging and retry guidance.
 - Add a mobile strategy for dense marker selection.
 - Add safe-area-aware spacing for bottom floating controls and modal/bottom-sheet layouts.
+
+---
+
+# ISSUE-130: Perform Field Details Mobile Audit
+
+## Date
+
+2026-06-25
+
+## Context
+
+The Field Details screen displays information about fields and active/upcoming games, and offers options to create games, navigate, or report fields. This screen can break or trap users on mobile devices when the content height exceeds the short viewport height.
+
+This was an audit/documentation task only. No frontend, backend, database, schema, runtime, or configuration behavior was changed.
+
+## Dependency Verification
+
+- `docs/mobile-audit-plan.md` exists: YES
+- `docs/product-decisions.md` contains `ISSUE-126: Create Complete Mobile Audit Plan`: YES
+- ISSUE-126 was used as the audit standard: YES
+- `docs/mobile-map-screen-audit.md` exists: YES
+- ISSUE-129 findings were reviewed: YES
+- EPIC 02 status remains NOT COMPLETE.
+- AUTH-001 remains open and remains the production blocker.
+
+## Scope
+
+- **Screen audited**: Field Details (modal bottom sheet/panel)
+- **Device classes audited**:
+  - Small Android: 360x640
+  - Large Android: 412x915
+  - Small iPhone: 375x667
+  - Large iPhone: 428x926
+- **Validation areas audited**:
+  - Scrolling
+  - Action Buttons
+  - Navigation Buttons
+  - Report Button
+- **Out of scope**:
+  - Implementing UI fixes
+  - Modifying application code/configurations
+  - Database schema changes or migrations
+  - Production mobile release approval
+
+## Work Completed
+
+- Reviewed the mobile audit plan standard and the map screen mobile audit findings.
+- Reviewed Field Details Panel, Game Panel, Field Report Modal, and Open Game Modal code and styles.
+- Ran the frontend locally.
+- Used browser/mobile emulation to test Hebrew/RTL layout, toggled participants lists, navigation popups, and the report flow on the 4 required device classes.
+- Documented findings in `docs/mobile-field-details-screen-audit.md`.
+
+## Files Changed
+
+- `docs/mobile-field-details-screen-audit.md` — new Field Details mobile audit report
+- `docs/product-decisions.md` — ISSUE-130 decision record
+
+## Device Classes Audited
+
+| Device Class | Viewport | Result |
+| :--- | :--- | :--- |
+| Small Android | 360x640 | FAIL |
+| Large Android | 412x915 | PASS WITH FINDINGS |
+| Small iPhone | 375x667 | FAIL |
+| Large iPhone | 428x926 | PASS WITH FINDINGS |
+
+## Validation Areas Audited
+
+| Area | Result | Summary |
+| :--- | :--- | :--- |
+| Scrolling | FAIL on short screens | Lack of max-height or overflow-y constraints allows details to spill off-screen. |
+| Action Buttons | PASS WITH FINDINGS | Touch target sizes are correct (>=44px), but dynamic participant expansion increases height. |
+| Navigation Buttons | FAIL on short screens | The panel close button is pushed above the viewport, trapping the user. |
+| Report Button | PASS WITH FINDINGS | Opens modal correctly, but browser-native required tooltips display in English. |
+
+## Relationship to ISSUE-129 / ML-MAP-001
+
+- The Field Details screen is implemented as `.field-details-panel` inside the Map screen.
+- This audit confirms Map screen finding `ML-MAP-001` (where the close button goes off-screen on Small Android and Small iPhone) and documents its root cause inside `.field-details-panel` layout rules (`ML-FIELD-DETAILS-001`).
+
+## Findings Summary
+
+| Finding ID | Severity | Summary | Blocking |
+| :--- | :--- | :--- | :--- |
+| ML-FIELD-DETAILS-001 | P1 | Close button is pushed above the viewport on Small Android and Small iPhone when details are long, trapping users. | YES |
+| ML-FIELD-DETAILS-002 | P2 | Lack of height constraints or overflow-y rules causes scroll conflicts with the underlying Map page. | NO |
+| ML-FIELD-DETAILS-003 | P2 | Expanding the participants list inline in the GamePanel dynamically increases container height. | NO |
+| ML-FIELD-DETAILS-004 | P3 | Action buttons lack safe-area adaptation (`env(safe-area-inset-bottom)`) on modern screen notches. | NO |
+| ML-FIELD-DETAILS-005 | P2 | `FieldReportModal` native browser validation alerts are in English during Hebrew/RTL flows. | NO |
+
+## Final Audit Decision
+
+**FAIL**
+
+The Field Details screen has a blocking mobile usability issue on short viewports. The panel close button can be pushed off-screen, trapping the user.
+
+## Gate Status
+
+- Mobile production remains blocked by AUTH-001.
+- This audit does not mark EPIC 02 complete.
+- This audit does not authorize mobile production release.
+
+## Next Recommended Issue
+
+Create a focused mobile remediation issue for the Field Details screen findings:
+- Fix the panel close-button viewport trap on short mobile devices.
+- Constrain details sheet height, add internal scroll, and make the name/close header sticky.
+- Restrict dynamic panel growth from inline participants list toggle.
+- Add safe-area padding for bottom actions.
+- Localize validation required tooltips in Hebrew RTL.
