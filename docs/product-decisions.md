@@ -15723,7 +15723,7 @@ File: `backend/tests/test_password_validation.py` — 22 tests:
 | Breached-password API | Not implemented | Not required per ISSUE-096. |
 | Login rate limiting | Not implemented | Separate issue. Required for production (ISSUE-096). |
 | JWT invalidation after password change | Not applicable | No password change exists. Mechanism ready via ISSUE-095 `tokens_valid_after`. |
-| Pre-existing flaky test | Not fixed | `test_new_login_after_logout_works` in `test_jwt_lifecycle.py` is timing-sensitive (same-second JWT `iat` vs `tokens_valid_after` microsecond precision). Fails ~66% of runs on main. Not caused by ISSUE-097. |
+| JWT revocation timing bug | Fixed | `_check_token_revoked` now truncates both `iat` and `tokens_valid_after` to integer seconds before comparing, matching JWT `iat` precision. Tokens issued in the same second as logout are accepted; tokens from a prior second are rejected. Tests updated to be deterministic. |
 
 ## Final Result
 
