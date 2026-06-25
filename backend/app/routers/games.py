@@ -10,6 +10,7 @@ from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
 from app.core.config import get_settings
+from app.rate_limit import check_rate_limit_by_user
 from app.services.content_moderation import validate_game_text
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
@@ -145,6 +146,12 @@ def create_game(
     background_tasks: BackgroundTasks,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "games_create", [(5, 60), (20, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     t_start = time.perf_counter()
 
     moderation = validate_game_text(age_note=game.age_note)

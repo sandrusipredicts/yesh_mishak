@@ -3,9 +3,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
-
-from fastapi import Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
@@ -13,6 +11,7 @@ from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
+from app.rate_limit import check_rate_limit_by_ip
 from app.schemas.auth import (
     AvailabilityResponse,
     EmailCheckRequest,
@@ -116,7 +115,13 @@ def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
 
 
 @router.post("/google", response_model=TokenResponse)
-def google_login(payload: GoogleAuthRequest) -> TokenResponse:
+def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_google", [(10, 60), (50, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     attempt_id = uuid4().hex[:10]
     logger.info(
         "google login request started",
@@ -167,7 +172,13 @@ def google_login(payload: GoogleAuthRequest) -> TokenResponse:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest) -> TokenResponse:
+def register(request: Request, payload: RegisterRequest) -> TokenResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_register", [(5, 60), (20, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     if payload.password != payload.password_confirm:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -208,7 +219,13 @@ def register(payload: RegisterRequest) -> TokenResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest) -> TokenResponse:
+def login(request: Request, payload: LoginRequest) -> TokenResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_login", [(10, 60), (50, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     user = _get_user_by_column("username", payload.username)
     if not user or not verify_password(payload.password, user.get("password_hash")):
         logger.warning(

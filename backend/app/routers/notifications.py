@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.auth.dependencies import require_active_user, require_admin
 from app.errors import raise_api_error
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
 from app.services.notification_templates import render_notification_template
@@ -953,6 +954,12 @@ def get_notifications(current_user: dict[str, Any] = Depends(require_active_user
 
 @router.get("/unread-count")
 def get_unread_notification_count(current_user: dict[str, Any] = Depends(require_active_user)):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "notifications_unread_count", [(30, 60)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     authenticated_user_id = str(current_user["id"])
     client = get_supabase_service_role_client()
 
@@ -1046,6 +1053,12 @@ def delete_push_token(
 
 @router.post("/test-push")
 def send_test_push(current_user: dict[str, Any] = Depends(require_active_user)):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "notifications_test_push", [(3, 60), (10, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     client = get_supabase_service_role_client()
     tokens = (
         client.table("push_tokens")

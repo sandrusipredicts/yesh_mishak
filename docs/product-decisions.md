@@ -14554,6 +14554,134 @@ Every finding from this repository-based audit is documented with:
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-092 authentication security audit report. |
 
+# ISSUE-099: API Rate Limiting Implementation
+
+## Summary
+
+Implemented the P0 MVP API rate limits defined by ISSUE-098. Rate limiting is enforced in the backend, not the frontend, and returns standard HTTP 429 responses when exceeded.
+
+This implementation is intentionally narrow:
+
+- P0 endpoints only.
+- In-memory limiter only.
+- No Redis.
+- No CAPTCHA.
+- No account lockout.
+- No P1/P2/P3 endpoint coverage.
+- No authentication, authorization, JWT, password validation, or API contract redesign.
+
+## Implemented Limits
+
+| Endpoint | Key | Limit |
+|----------|-----|-------|
+| `POST /auth/login` | client IP | 10 requests/minute, 50 requests/hour |
+| `POST /auth/register` | client IP | 5 requests/minute, 20 requests/hour |
+| `POST /auth/google` | client IP | 10 requests/minute, 50 requests/hour |
+| `POST /games/` | authenticated user ID | 5 requests/minute, 20 requests/hour |
+| `POST /fields/` | authenticated user ID | 3 requests/minute, 10 requests/hour |
+| `POST /field-reports` | authenticated user ID | 5 requests/minute, 20 requests/hour |
+| `POST /notifications/test-push` | authenticated user ID | 3 requests/minute, 10 requests/hour |
+| `GET /notifications/unread-count` | authenticated user ID | 30 requests/minute |
+
+## Implementation Details
+
+The backend now has a centralized in-memory rate limiter in `backend/app/rate_limit.py`.
+
+It supports:
+
+- route-specific limiter names
+- multiple fixed windows per route
+- maximum request count per window
+- IP-based keys for public endpoints
+- user-ID-based keys for authenticated endpoints
+- deterministic reset/clock hooks for tests
+- `Retry-After` calculation based on the blocked window reset time
+
+Public endpoints use the ASGI client IP from `request.client.host`. The MVP implementation does not trust `X-Forwarded-For` or other spoofable proxy headers because the project does not yet have a trusted proxy configuration.
+
+Authenticated endpoints use the authenticated user ID after `require_active_user` resolves the current user. This means normal authentication still runs before the user-keyed limiter, but the limiter runs before endpoint-specific expensive or irreversible work.
+
+The limiter is process-local and in-memory. It is suitable for a single-process MVP deployment or local/staging validation, but it is not distributed across multiple backend instances or process restarts.
+
+## 429 Response Behavior
+
+Every rate-limited request returns:
+
+- HTTP status: `429`
+- Header: `Retry-After: <seconds>`
+- Body:
+
+```json
+{
+  "error": true,
+  "code": "RATE_LIMITED",
+  "message": "Too many requests. Please try again later."
+}
+```
+
+The 429 body is generic and does not reveal whether a username, email, user account, game, field, notification, or push token exists. Internal limiter counters and window state are not exposed.
+
+## Side-Effect Prevention
+
+Rate-limit checks are placed before the relevant expensive or irreversible endpoint work:
+
+| Endpoint | Prevented when limited |
+|----------|------------------------|
+| `POST /auth/login` | Supabase user lookup and bcrypt verification |
+| `POST /auth/register` | uniqueness checks, password validation/hash, and user insert |
+| `POST /auth/google` | Google token verification and user create/update |
+| `POST /games/` | game insert, player insert, and notification fanout scheduling |
+| `POST /fields/` | field moderation work and field insert |
+| `POST /field-reports` | report validation/field lookup and report insert |
+| `POST /notifications/test-push` | push token lookup and FCM send |
+| `GET /notifications/unread-count` | Supabase notification count query |
+
+## Tests Added
+
+Added focused backend tests in `backend/tests/test_rate_limiting.py`.
+
+The tests cover:
+
+- login 11th request returns 429
+- login 429 includes `Retry-After` and `RATE_LIMITED`
+- login 429 response does not reveal username existence
+- registration 6th request returns 429
+- Google login 11th request returns 429 before Google verification is called
+- game creation 6th request for the same user returns 429
+- field submission 4th request for the same user returns 429
+- field report 6th request for the same user returns 429
+- test push 4th request returns 429 and FCM send is not called
+- unread-count 31st request returns 429
+- different users do not share user-based limits
+- different client IPs do not share IP-based limits, without trusting `X-Forwarded-For`
+- limiter state resets between tests
+- `Retry-After` is positive and bounded by the window
+
+Side-effect prevention is specifically tested for:
+
+- Google verification not called on the blocked request
+- password hash not called and registration insert not performed on the blocked request
+- game and game-player rows not inserted on the blocked request
+- field row not inserted on the blocked request
+- field report row not inserted on the blocked request
+- FCM send not called on the blocked request
+- notification unread-count table query not performed on the blocked request
+
+## Remaining Follow-ups
+
+Recommended follow-up work:
+
+1. Replace in-memory limiter storage with Redis or another shared limiter before multi-instance production deployment.
+2. Add trusted proxy configuration before using proxy-forwarded client IP headers.
+3. Implement P1 endpoint limits from ISSUE-098, including auth availability checks, game reads, join/leave actions, notification list reads, push-token registration, and notification preferences writes.
+4. Implement P2/P3 endpoint limits from ISSUE-098 where operationally useful.
+5. Add observability for rate-limit exceedance counts without logging sensitive request data.
+6. Consider account lockout or CAPTCHA as separate abuse-prevention issues, not as part of this implementation.
+
+## Final Result
+
+P0 backend rate limiting is active for the required endpoints. Exceedance returns HTTP 429 with `Retry-After` and a stable `RATE_LIMITED` code. Tests verify exceedance behavior and side-effect prevention for high-risk endpoints.
+
 ---
 
 # ISSUE-093: Authorization Security Audit

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
+from app.rate_limit import check_rate_limit_by_user
 from app.services.content_moderation import validate_field_report
 
 router = APIRouter(prefix="/field-reports", tags=["field-reports"])
@@ -73,6 +74,12 @@ def create_field_report(
     payload: FieldReportCreate,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "field_reports_create", [(5, 60), (20, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     if payload.category not in ALLOWED_FIELD_REPORT_CATEGORIES:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
