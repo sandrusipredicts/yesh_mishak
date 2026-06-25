@@ -20202,3 +20202,31 @@ The mobile experience is **NOT READY** for production release. Remediation of Ba
 
 ## Definition of Done Confirmation
 The mobile audit has been completed and fully documented. This consolidation provides a centralized, actionable guide for all subsequent mobile fix tickets.
+
+---
+
+# ISSUE-136: Mobile Design Standards
+
+## Summary
+This decision record establishes the official mobile design and development standards for the yesh_mishak project. All future pull requests addressing mobile viewports must strictly comply with these guidelines. This standard ensures a consistent, accessible, and high-performance UI across mobile browsers (Android Chrome and iOS Safari) while safeguarding layout integrity on desktop devices.
+
+## Standards Defined
+- **Minimum Touch Targets**: All interactive elements (buttons, inputs, links, tabs) must have a touch target of at least 44x44px. Icon-only and inline action targets must expand to meet this minimum. Primary actions should prefer a height of 48px or more.
+- **Button & Form Spacing**: Minimum 8px gap between adjacent buttons. Input fields must use `font-size: 16px` on mobile viewports to prevent iOS Safari auto-zoom. Number fields must use `inputmode="numeric"` to trigger numerical keypads.
+- **Modals & Scroll Limits**: Modals and slide-in panels must be bounded by viewport rules (e.g. `max-height: calc(100vh - 40px)`) and support vertical overflow scrolling. Close actions and header lines must remain sticky at the top.
+- **Safe Area Insets**: Use CSS `env(safe-area-inset-bottom)` to prevent bottom action layouts from overlapping OS home bars or notch components.
+- **Hebrew / RTL layouts**: Visual elements must render correctly under right-to-left directionality without clipping or overlaps.
+
+## Source Documents Reviewed
+- `docs/mobile-audit-plan.md`
+- `docs/mobile-audit-consolidated-report.md` (ISSUE-135)
+- Mobile audit reports for ISSUE-127 through ISSUE-134
+
+## Required Future Mobile PR Rules
+- Every mobile fix PR must reference the target finding ID resolved (e.g., `Resolves ML-MAP-001`).
+- Desktop UI, components, and behaviors must be preserved unless changes are explicitly authorized.
+- Fixes must be granularly scoped; bundling multiple screen updates or unrelated code refactors is forbidden.
+- Local tests and ESLint linter checks must pass cleanly.
+
+## Definition of Done Confirmation
+The mobile design guide has been completed and registered. This document represents the approved baseline standard for all subsequent frontend mobile fix tickets.
