@@ -17185,3 +17185,116 @@ Local developers use `.env` files to configure their environments.
 * **Frontend Secret Exposure Found**: None.
 * **All Required Secrets Mapped**: Yes.
 * **Local/Dev/Deployment Documentation Sufficient**: Partially. Gaps identified in `.env.example` files and `.gitignore` configurations must be addressed in follow-up issues before production deployment.
+
+---
+
+# ISSUE-107: Production Secrets Management Policy
+
+## Scope
+This section documents the official Production Secrets Management Policy for the `yesh_mishak` project. This is a policy and workflow documentation task only; no application runtime logic, deployment configuration, or backend behavior was modified, and no secret keys were rotated or modified.
+
+## Policy Source
+This policy is based directly on the audit findings from **ISSUE-106** in `docs/product-decisions.md`, which identified gaps in local file tracking (committed `.env` file in the frontend), missing `.gitignore` file patterns, CORS defaults, and incomplete environment variable examples (`.env.example` files).
+
+## Secret Classification
+All project environment and configuration parameters must be classified into one of the following four categories:
+
+| Category | Examples | Sensitivity | Allowed Storage | Forbidden Storage | Rotation Required |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **1. Secret Backend-Only values** | `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `FIREBASE_SERVICE_ACCOUNT_JSON`, Private Keys (`.pem`) | Secret (High) | Railway production env, Local `.env` (development) | Vercel configuration, Frontend code, Git repository history, `.env.example` templates | Yes (on exposure, team member offboarding, or periodically) |
+| **2. Public-Safe Frontend values** | `VITE_FIREBASE_API_KEY`, `VITE_API_URL`, `VITE_GOOGLE_CLIENT_ID` | Public-Safe | Vercel production env, Local `.env`, Git `.env.example` | Backend environment (unnecessary complexity) | No (only on service migration or deprecation) |
+| **3. Internal Configuration** | `CORS_ORIGINS`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `FIREBASE_PROJECT_ID` | Internal Config | Railway env, Vercel env, Local `.env`, Git `.env.example` | None (safe for public/private env, but keep backend-only config out of Vercel) | No |
+| **4. Local-Only Development values** | `ALLOW_TEST_MOCK_IDS`, `PROD_API_BASE_URL` | Internal Config | Test conftest variables, local diagnostic script config | Production env (Railway/Vercel) | None | No |
+
+## Railway Backend Secrets Policy
+The backend environment is hosted on Railway (using automatic Nixpacks builds). The following variables must be configured in the Railway dashboard:
+
+| Variable / Secret | Sensitivity | Required In Production | Storage Location | Access Level | Rotation Rule | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `SUPABASE_URL` | Public-Safe | Yes | Railway env var | Read/Write (Owners/Admins) | No | Backend needs it to initialize DB client connection. |
+| `SUPABASE_KEY` | Public-Safe | Yes | Railway env var | Read/Write (Owners/Admins) | No | Supabase public/anon key used for standard DB actions. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Secret | Yes | Railway env var | Read/Write (Owners/Admins) | Immediately on exposure or team offboarding | Extremely sensitive; bypasses all Row-Level Security (RLS). Must never be exposed to frontend. |
+| `JWT_SECRET` | Secret | Yes | Railway env var | Read/Write (Owners/Admins) | Immediately on exposure or team offboarding | Signs and validates user access tokens. Must be a strong, randomly generated key in production. |
+| `JWT_ALGORITHM` | Internal Config | Optional | Railway env var | Read/Write (Owners/Admins) | No | Defaults to `HS256`. |
+| `JWT_EXPIRE_MINUTES` | Internal Config | Optional | Railway env var | Read/Write (Owners/Admins) | No | Defaults to `10080` (7 days). |
+| `FIREBASE_PROJECT_ID` | Internal Config | Yes | Railway env var | Read/Write (Owners/Admins) | No | Identifies the target Firebase push notifications application. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Secret | Yes (if file-less) | Railway env var | Read/Write (Owners/Admins) | Immediately on exposure or team offboarding | Contains private key for FCM auth. Must be stored as a single-line string in Railway (no raw newlines). |
+| `CORS_ORIGINS` | Internal Config | Yes | Railway env var | Read/Write (Owners/Admins) | No | Must be set to the production frontend URL (e.g., `https://yesh-mishak.vercel.app`) in production. |
+| `DISABLE_GAME_CREATED_NOTIFICATIONS` | Internal Config | Optional | Railway env var | Read/Write (Owners/Admins) | No | Disables creation alerts; defaults to `False`. |
+| `AUTH_USER_CACHE_TTL_SECONDS` | Internal Config | Optional | Railway env var | Read/Write (Owners/Admins) | No | User profile cache TTL parameter; defaults to `300`. |
+
+## Vercel Frontend Environment Policy
+The frontend application is built on Vite and hosted on Vercel. Variables prefixed with `VITE_*` are publicly readable in browser assets and must not contain backend secrets.
+
+| Variable | Public-Safe? | Allowed In Vercel? | Allowed In Browser Bundle? | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `VITE_API_URL` | Yes | Yes | Yes | Core API gateway URL. |
+| `VITE_API_BASE_URL` | Yes | Yes | Yes | Legacy/fallback API gateway URL (aligned with `VITE_API_URL`). |
+| `VITE_GOOGLE_CLIENT_ID` | Yes | Yes | Yes | Public OAuth Client ID to initialize Google Authentication. |
+| `VITE_FIREBASE_API_KEY` | Yes | Yes | Yes | Public Firebase Client SDK key. |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Yes | Yes | Yes | Public Firebase Client domain. |
+| `VITE_FIREBASE_PROJECT_ID` | Yes | Yes | Yes | Public Firebase Client project ID. |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Yes | Yes | Yes | Public Firebase Client storage bucket. |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Yes | Yes | Yes | Public Firebase FCM sender ID. |
+| `VITE_FIREBASE_APP_ID` | Yes | Yes | Yes | Public Firebase App ID. |
+| `VITE_FIREBASE_VAPID_KEY` | Yes | Yes | Yes | Public Web Push Key used to request notifications tokens. |
+| `VITE_SHOW_TEST_PUSH` | Yes | Yes (dev/preview) | Yes | Test notification trigger button visibility flag (always `false` in production). |
+| *Secrets (e.g. `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`)* | **No** | **No** | **No** | **FORBIDDEN**. Leaking these key types grants full control over database tables or token forging. |
+
+## Local Development Policy
+1. **Never Commit `.env` Files**: All local environment configurations (such as `.env`, `.env.local`, `.env.production`, `.env.development`) must remain local-only. They must be added to `.gitignore` and never committed to source control.
+2. **Template Placeholders Only**: Example templates (like `backend/.env.example` and `frontend/.env.example`) must contain empty values or mock placeholders. Real secrets must never be placed in example files.
+3. **Out-of-Band (OOB) Sharing**: Developer credentials and local database secrets must be shared securely via an encrypted credential manager (e.g., 1Password for Teams) rather than being committed to git or pasted into public developer chats.
+4. **Onboarding Setup**: Developers copy `.env.example` to `.env` in their local folders and populate them using development credentials retrieved from the shared team vault.
+5. **Local Test Flags**: Local test-only variables (e.g., `ALLOW_TEST_MOCK_IDS`) must be clearly labeled, isolated within testing configs, and disabled by default in application paths.
+
+## Git Hygiene Policy
+1. **Strict Git Ignores**: The repository must maintain strict ignore rules to block local developer configuration from entering source control.
+2. **Ignored Patterns**: Both backend and frontend gitignore lists must ignore: `.env`, `.env.local`, `.env.*.local`, service account JSON keys (`*.json` containing private credentials), private key files (`*.pem`, `*.key`), diagnostic tokens files (`tokens.txt`), and local log output files (`*.log`).
+3. **Committed Secrets**: Under no circumstances should any private credentials be committed to the repository history. If a secret is committed, immediate rotation and removal incident response is triggered.
+
+## VITE Variable Policy
+* Environment variables prefixed with `VITE_` are public by design.
+* Vite compiles and bundles these variables directly into public client-side javascript assets during compilation.
+* Treating these variables as anything other than public is a security vulnerability. **No backend-only secrets, private keys, database passwords, or auth secrets must ever use the `VITE_` prefix.**
+
+## Secret Rotation Policy
+* **Trigger Events**: Secrets must be rotated immediately in any of the following scenarios:
+  1. An active secret value is committed to git or exposed in logs/diagnostic outputs.
+  2. A developer or collaborator with access to production credentials leaves the project.
+  3. Pre-production launch audit.
+  4. Detection of any suspicious API access, token abuse, or compromised server dashboard.
+  5. As part of a scheduled security sweep (every 90 days for high-value secrets).
+* **Rotation Priority**:
+  1. `SUPABASE_SERVICE_ROLE_KEY` (Database access bypass)
+  2. `JWT_SECRET` (Authentication token forging bypass)
+  3. `FIREBASE_SERVICE_ACCOUNT_JSON` (Firebase messaging and cloud services console control)
+  4. Google OAuth Client Secrets (OAuth identity verification)
+  5. Deployment provider tokens (Railway / Vercel CLI access tokens)
+
+## Secret Exposure Incident Response
+If a secret is compromised or committed, the following checklist must be executed immediately:
+1. **Revoke and Rotate**: Regenerate the exposed key or token immediately in the provider console (Supabase, Firebase, Google Cloud API portal, etc.) to render the exposed key inactive.
+2. **Remove the Secret from Git**:
+   * If unstaged: Remove the secret value from the file and replace it with a placeholder.
+   * If committed: Purge the secret from the entire git repository commit history (all branches, tags, and reflogs) using `git-filter-repo` or BFG Repo-Cleaner before forcing updates.
+3. **No Copying of Exposed Values**: Do not copy the exposed secret into logs, bug tickets, pull request descriptions, or chat channels. Refer to the key using placeholder tags (e.g., `<REDACTED_JWT_SECRET>`).
+4. **Audit Provider Logs**: Inspect the affected service logs (Supabase API logs, Firebase console history) for unauthorized actions or spikes in requests during the exposure window.
+5. **Redeploy and Verify**: Update the environment variables in Railway/Vercel with the rotated credentials, redeploy the services, and verify that the application operates correctly.
+6. **Document Incident**: Log the incident details in a private issue or wiki containing the affected variable name, duration of exposure, rotation timestamp, audit findings, and remediation steps.
+
+## Access Control and Ownership
+* **Least Privilege**: Production dashboards (Railway, Vercel, Supabase, Firebase) must be restricted to only essential deployment administrators.
+* **Separation of Access**: Developers should only have access to staging or development environments. Production credentials must not be shared with frontend developers or non-deployers.
+* **Production Vaults**: Production credentials must be stored in secure team vaults (e.g. 1Password) with access limited to project owners.
+
+## Required Follow-up Issues
+1. **ISSUE-108: Untrack frontend/.env and update frontend/.gitignore**: Remove the committed `frontend/.env` file from git tracking and add `.env`, `.env.local`, `.env.*.local` to `frontend/.gitignore` (removes finding `ENV-106-001` and `ENV-106-002`).
+2. **ISSUE-109: Update backend/.env.example with missing variables**: Add `DISABLE_GAME_CREATED_NOTIFICATIONS` and `AUTH_USER_CACHE_TTL_SECONDS` templates (removes finding `ENV-106-003`).
+3. **ISSUE-110: Update frontend/.env.example with missing variables**: Add `VITE_GOOGLE_CLIENT_ID`, `VITE_SHOW_TEST_PUSH`, and `VITE_API_BASE_URL` templates (removes finding `ENV-106-004`).
+4. **ISSUE-111: Add deployment env checklist for Railway/Vercel**: Add a checklist file to the repository or wiki outlining all variables that must be configured in hosting dashboards before deploying staging/production.
+5. **ISSUE-112: Add CI secret scanning**: Set up `gitleaks` or a similar tool in GitHub Actions to block pull requests containing credentials.
+6. **ISSUE-113: Add secret rotation and offboarding checklist**: Create a step-by-step procedure document for onboarding new developers and rotating credentials when a developer leaves.
+
+## Final Decision
+This Production Secrets Management Policy is officially approved as of June 25, 2026. The identified follow-up issues must be created and prioritized for implementation before the next production release.
