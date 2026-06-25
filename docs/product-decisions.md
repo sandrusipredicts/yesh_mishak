@@ -17939,3 +17939,44 @@ The playbook covers:
 * **New developer can follow process**: YES (with credentials from shared vault)
 * **Runtime behavior changed**: NO
 * **DB schema changed**: NO
+
+---
+
+# ISSUE-112: Environment Inventory
+
+## 1. Summary
+This section documents the decision to establish the official environment inventory for the `yesh_mishak` project. The inventory maps out the operational characteristics, ports, hosts, configurations, and access boundaries of the Local, Production, and Future Staging environments.
+
+## 2. Files Changed
+* [environment-inventory.md](file:///c:/Users/orel1/yesh_mishak/docs/environment-inventory.md) (New Document)
+* [product-decisions.md](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md) (Modified Decision Record)
+
+## 3. Environment Inventory Document Location
+The environment inventory is stored in [docs/environment-inventory.md](file:///c:/Users/orel1/yesh_mishak/docs/environment-inventory.md).
+
+## 4. Environments Documented
+* **Local**: Active development on localhost (`http://localhost:5173` and `http://localhost:8000`), using local config files and mock or dev databases.
+* **Production**: Live application serving end-users via Vercel and Railway, connecting to production Supabase database/auth and FCM services.
+* **Future Staging**: Planned testing sandbox isolated from production services (dedicated staging Supabase and Firebase projects).
+
+## 5. External Services Mapped
+* **Supabase**: Direct DB queries, RLS policies, table metadata.
+* **Google OAuth**: Client ID settings and Javascript/Redirect origin containment.
+* **Firebase / FCM**: Notification token registrations and service worker assets.
+* **Vercel**: Static React/Vite application hosting.
+* **Railway**: Nixpacks backend container orchestration.
+* **OpenStreetMap**: Public map tile HTTP endpoint queries.
+
+## 6. Known Gaps / Needs Confirmation
+* URLs for staging frontend and backend environments.
+* Database/project names for staging Supabase and staging Firebase.
+* Complete catalog of engineers with administrative console credentials.
+
+## 7. Final Result
+* **Environment inventory exists**: YES
+* **Local documented**: YES
+* **Production documented**: YES
+* **Future staging documented**: YES
+* **Unknown details marked clearly**: YES
+* **Runtime behavior changed**: NO
+* **DB schema changed**: NO
