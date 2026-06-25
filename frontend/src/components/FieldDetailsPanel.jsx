@@ -4,6 +4,7 @@ import { MapPin } from 'lucide-react'
 import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
+import Modal from './Modal'
 
 function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
@@ -118,9 +119,15 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   }
 
   const playerCount = getPlayerCount(activeGame)
+  const isAnyModalOpen = isOpenGameModalOpen || isFieldReportModalOpen || isNavigationModalOpen
 
   return (
-    <aside className="field-details-panel" aria-label={t('field.details')}>
+    <>
+      <aside
+        className="field-details-panel"
+        aria-label={t('field.details')}
+        inert={isAnyModalOpen}
+      >
       <button className="panel-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
         x
       </button>
@@ -215,6 +222,8 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         {t('field.reportField')}
       </button>
 
+      </aside>
+
       {isOpenGameModalOpen ? (
         <OpenGameModal
           field={field}
@@ -230,54 +239,41 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         />
       ) : null}
 
-      {isNavigationModalOpen && navigationCoordinates ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="navigation-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="navigation-modal-title"
+      <Modal
+        isOpen={isNavigationModalOpen && !!navigationCoordinates}
+        onClose={() => setIsNavigationModalOpen(false)}
+        className="navigation-modal"
+        ariaLabelledBy="navigation-modal-title"
+      >
+        <h2 id="navigation-modal-title">{t('field.openNavigation')}</h2>
+
+        <div className="navigation-options">
+          <button
+            className="navigation-option-button waze"
+            type="button"
+            onClick={() => openNavigation('waze')}
           >
-            <button
-              className="modal-close-button"
-              type="button"
-              onClick={() => setIsNavigationModalOpen(false)}
-              aria-label={t('field.close')}
-            >
-              x
-            </button>
-
-            <h2 id="navigation-modal-title">{t('field.openNavigation')}</h2>
-
-            <div className="navigation-options">
-              <button
-                className="navigation-option-button waze"
-                type="button"
-                onClick={() => openNavigation('waze')}
-              >
-                <span className="navigation-provider-dot" aria-hidden="true" />
-                Waze
-              </button>
-              <button
-                className="navigation-option-button google"
-                type="button"
-                onClick={() => openNavigation('google')}
-              >
-                <span className="navigation-provider-dot" aria-hidden="true" />
-                Google Maps
-              </button>
-              <button
-                className="navigation-cancel-button"
-                type="button"
-                onClick={() => setIsNavigationModalOpen(false)}
-              >
-                {t('field.cancel')}
-              </button>
-            </div>
-          </section>
+            <span className="navigation-provider-dot" aria-hidden="true" />
+            Waze
+          </button>
+          <button
+            className="navigation-option-button google"
+            type="button"
+            onClick={() => openNavigation('google')}
+          >
+            <span className="navigation-provider-dot" aria-hidden="true" />
+            Google Maps
+          </button>
+          <button
+            className="navigation-cancel-button"
+            type="button"
+            onClick={() => setIsNavigationModalOpen(false)}
+          >
+            {t('field.cancel')}
+          </button>
         </div>
-      ) : null}
-    </aside>
+      </Modal>
+    </>
   )
 }
 

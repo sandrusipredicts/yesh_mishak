@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import Modal from './Modal'
+
 import { createFieldReport } from '../api/fieldReports'
 
 const FIELD_REPORT_CATEGORIES = [
@@ -81,24 +83,13 @@ function FieldReportModal({ field, onClose }) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="field-report-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="field-report-title"
-      >
-        <button
-          className="modal-close-button"
-          type="button"
-          onClick={onClose}
-          aria-label={t('field.close')}
-          disabled={isSubmitting}
-        >
-          x
-        </button>
-
-        <h2 id="field-report-title">{t('fieldReport.title')}</h2>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      className="field-report-modal"
+      ariaLabelledBy="field-report-title"
+    >
+      <h2 id="field-report-title">{t('fieldReport.title')}</h2>
         <p className="field-report-field-name">{field.name}</p>
 
         <form className="field-report-form" onSubmit={handleSubmit}>
@@ -143,8 +134,7 @@ function FieldReportModal({ field, onClose }) {
             </button>
           </div>
         </form>
-      </section>
-    </div>
+    </Modal>
   )
 }
 

@@ -925,7 +925,7 @@ select {
   display: grid;
   place-items: center;
   padding: calc(20px + var(--safe-area-top)) calc(20px + var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) calc(20px + var(--safe-area-left));
-  background: rgba(15, 23, 42, 0.28);
+  background: rgba(15, 23, 42, 0.4);
 }
 
 .open-game-modal {
@@ -2376,6 +2376,21 @@ select {
     width: 100%;
     border-radius: 12px 12px 0 0;
     padding-bottom: calc(20px + var(--safe-area-bottom));
+    max-height: 80dvh;
+    overflow-y: auto;
+  }
+
+  .location-picker-map {
+    height: 160px;
+  }
+
+  .notifications-list {
+    max-height: min(220px, 40dvh);
+  }
+
+  .confirm-modal {
+    max-height: min(400px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+    overflow-y: auto;
   }
 
   .form-toggle-row,

@@ -226,8 +226,8 @@ test('organizer close game request sends authorization and no body', async ({ pa
 
   await page.goto('/')
   await page.locator('.field-marker').first().click()
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Close game' }).click()
+  await page.locator('.confirm-modal').getByRole('button', { name: 'Close game' }).click()
 
   await expect.poll(() => closeRequest?.method()).toBe('POST')
   expect(closeRequest.headers().authorization).toBe(`Bearer ${user.token}`)
@@ -630,8 +630,8 @@ test('after close game selected field refreshes to no active game', async ({ pag
   await page.locator('.field-marker').first().click()
 
   await expect(page.getByRole('button', { name: 'Close game' })).toBeVisible()
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Close game' }).click()
+  await page.locator('.confirm-modal').getByRole('button', { name: 'Close game' }).click()
 
   await expect(page.getByRole('button', { name: 'Open Game' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Close game' })).toHaveCount(0)

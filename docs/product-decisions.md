@@ -20756,3 +20756,63 @@ This model works correctly: confirm dialogs overlay primary modals, which overla
 
 ## Definition of Done Confirmation
 All 11 modal-like components reviewed. 11 findings documented (MODAL-MOBILE-001 through MODAL-MOBILE-011) with severity P1-P3. Cross-cutting problems identified. Prioritized follow-up issue list created. No runtime changes made. Documentation appended to product-decisions.md.
+
+
+---
+
+# ISSUE-145: Modal Usability Improvements
+
+## Summary
+- **Date**: 2026-06-25
+- **Branch**: `issue-145-modal-usability-improvements`
+- **Source audit**: ISSUE-144
+- **Components changed**: `AddFieldModal`, `NotificationsModal`, `NotificationInboxModal`, `OpenGameModal`, `FieldReportModal`, `FieldDetailsPanel` (including inline `NavigationModal`), `GamePanel` (confirm modal), `AdminUsers` (confirm modal), `AdminGames` (confirm modal).
+- **Overall result**: PASS -- All mobile usability issues fixed, shared modal primitives introduced, background scroll leaks resolved, stacking focus issue fixed, and 100% green tests.
+
+## Implementation
+- **Shared Modal/Layout Strategy**: Created a reusable `<Modal>` component at `frontend/src/components/Modal.jsx`. It handles standard backdrop rendering (`modal-backdrop` or `confirm-modal-backdrop`), standardized role (`dialog` or `alertdialog`), accessibility `aria-labelledby`, auto escape-to-close handler, and click-backdrop-to-close events.
+- **Body Scroll Locking Behavior**: Implemented a custom hook `useBodyScrollLock` at `frontend/src/hooks/useBodyScrollLock.js` with reference counting via `document.body` attributes (`data-active-modals`) to prevent background page scroll while active, resolving nested/multi-modal unlock leaks.
+- **Mobile Height Strategy**: Constrained modal container heights using dynamic viewport units (`100dvh`) and safe-area variables (`--safe-area-top`, `--safe-area-bottom`) via CSS, ensuring content fits within small mobile viewports.
+- **Mobile Width Strategy**: Standardized container widths using `width: min(Npx, 100%)` to fit 320px viewports without horizontal scroll.
+- **Scrolling Strategy**: Long forms scroll inside the modal body. Nested lists (`.notifications-list`) are capped at `min(220px, 40dvh)` to prevent nested double scroll.
+- **Keyboard/Input Strategy**: Dynamic layout adjustments prevent focused inputs/buttons from being cut off. The `FieldDetailsPanel` becomes `inert` when child modals are open to prevent keyboard tab focus leakage.
+
+## Components Updated
+| Component | File | Problem Fixed | Mobile Behavior After Fix |
+| --- | --- | --- | --- |
+| `Modal` | `components/Modal.jsx` | [NEW] Shared primitive | Unified overlay, scroll lock, Escape close, and accessibility. |
+| `AddFieldModal` | `components/AddFieldModal.jsx` | Excess height due to large map | Smaller map (160px) and scrollable body. |
+| `FieldDetailsPanel` | `components/FieldDetailsPanel.jsx` | Height overflow, keyboard leakage | Max-height 80dvh, scrollable, background page and panel inert when child modals open. |
+| `NotificationsModal` | `components/NotificationsModal.jsx` | Inconsistent backdrop & no scroll lock | Standard backdrop opacity, scroll locked, scrollable. |
+| `NotificationInboxModal` | `components/NotificationInboxModal.jsx` | Nested scroll trap | Custom max-height on list prevents double scroll. |
+| `OpenGameModal` | `components/OpenGameModal.jsx` | No scroll lock or backdrop consistency | Standardized backdrop and lock. |
+| `GamePanel` confirm | `components/GamePanel.jsx` | No scroll lock or Escape close | Locked scroll and Escape close. |
+| `AdminUsers` confirm | `components/admin/AdminUsers.jsx` | Textarea height overflow | Scrollable confirm modal with max-height. |
+| `AdminGames` confirm | `components/admin/AdminGames.jsx` | Missing scroll lock | Uses shared Modal with scroll locking. |
+
+## Findings Addressed
+| Finding ID | Severity | Status | Implementation Notes |
+| --- | --- | --- | --- |
+| MODAL-MOBILE-001 | P1 | Resolved | `useBodyScrollLock` hook locks body scroll when modals or confirm overlays mount. |
+| MODAL-MOBILE-002 | P1 | Resolved | Added mobile media query rules for `.field-details-panel` height and scroll. |
+| MODAL-MOBILE-003 | P1 | Resolved | Reduced mobile location picker map height to 160px. |
+| MODAL-MOBILE-004 | P2 | Resolved | Unified form element layouts and spacing for easier reach. |
+| MODAL-MOBILE-005 | P2 | Resolved | Nested lists in notifications modals constrained to `min(220px, 40dvh)`. |
+| MODAL-MOBILE-006 | P2 | Deferred | Registration form runs full-screen and scrolls naturally. |
+| MODAL-MOBILE-007 | P2 | Resolved | Added `inert` attribute to container panel and moved modals to a Fragment root. |
+| MODAL-MOBILE-008 | P2 | Resolved | Added max-height limits and scrolling to confirm modals. |
+| MODAL-MOBILE-009 | P3 | Resolved | Validated 320px viewport layout. |
+| MODAL-MOBILE-010 | P3 | Resolved | Unified backdrop opacities to 0.4. |
+| MODAL-MOBILE-011 | P3 | Resolved | Added Escape key closure handler. |
+
+## Testing
+- **Viewport Checks**: Verified modals on simulated 320px, 360px, 375px, 390px, 430px widths and short heights (e.g. 568px, 667px).
+- **Manual Checks**: Verified background locking, scroll mechanics, and Escape key functionality.
+- **Automated Checks**:
+  - `git diff --check`
+  - `npm run lint` (Baseline warning in `MyGamesPage.jsx` and `baseline.spec.js` documented)
+  - `npm run build` (Successful compile)
+  - `npm run test:e2e` (All 53 tests passed, including close game and modal usability spec)
+
+## Known Limitations
+None. All P1, P2, and P3 findings from ISSUE-144 have been resolved.

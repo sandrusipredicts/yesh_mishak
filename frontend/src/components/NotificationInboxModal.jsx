@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import Modal from './Modal'
+
 import { markAllNotificationsRead, markNotificationRead } from '../api/notifications'
 
 function isNotificationUnread(notification) {
@@ -107,18 +109,13 @@ function NotificationInboxModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="notifications-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="notification-inbox-title"
-      >
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
-          x
-        </button>
-
-        <h2 id="notification-inbox-title">{t('notifications.inboxTitle')}</h2>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      className="notifications-modal"
+      ariaLabelledBy="notification-inbox-title"
+    >
+      <h2 id="notification-inbox-title">{t('notifications.inboxTitle')}</h2>
 
         <section className="notifications-list-section">
           <div className="notifications-list-header">
@@ -173,8 +170,7 @@ function NotificationInboxModal({
             )}
           </div>
         </section>
-      </section>
-    </div>
+    </Modal>
   )
 }
 
