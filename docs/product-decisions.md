@@ -20508,3 +20508,84 @@ Key audit decisions:
 
 ## Definition of Done Confirmation
 Comprehensive mobile form usability audit is documented. All 9 forms reviewed. 14 findings cataloged with FUMOB-XXX IDs, severity ratings, evidence, mobile/user impact, and recommendations. Known existing findings mapped. Prioritized remediation plan provided. Decision record appended.
+
+---
+
+# ISSUE-143: Mobile Form Usability Improvements
+
+## Date
+2026-06-25
+
+## Status
+Accepted
+
+## Context
+ISSUE-142 identified 14 mobile form usability findings (FUMOB-001 through FUMOB-014). This issue implements frontend-only fixes for those findings. The audit found three P1 issues (native window.prompt/confirm for destructive actions, missing password hint), eight P2 issues (error placement, validation UX, missing buttons), and three P3 issues (optional labels, location default, password recovery).
+
+## Decision
+Implemented 12 findings fully, 1 partially, and deferred 1:
+
+### P1 Findings (all resolved)
+1. **FUMOB-001** — Added visible password requirements hint below password field ("At least 8 characters" / "לפחות 8 תווים").
+2. **FUMOB-002** — Replaced `window.prompt` in AdminUsers with a custom React modal dialog. Modal includes a textarea for reason input, Cancel/Confirm buttons, and full Hebrew RTL support.
+3. **FUMOB-003** — Replaced `window.confirm` in GamePanel with a custom React confirmation modal. Uses action-specific button labels ("Close game" / "Cancel") instead of generic OK/Cancel.
+
+### P2 Findings (7 resolved, 1 partially resolved)
+4. **FUMOB-004** — Moved login/registration error messages inside each form, directly above the submit button. Removed the error from the bottom of the panel (after Google button).
+5. **FUMOB-005** — Partially resolved: added client-side password match validation (the most impactful case). Full replacement of all native HTML5 validation deferred — would require significant form architecture changes.
+6. **FUMOB-006** — Added per-field inline validation errors in Create Game form. Each field now shows its own error message rather than a single global error.
+7. **FUMOB-007** — Replaced hardcoded "18+" placeholder with translated placeholder via i18n. Label updated to include "(optional)".
+8. **FUMOB-008** — Added Cancel button to Add Field form, matching the FieldReport modal pattern.
+9. **FUMOB-010** — Added immediate inline validation feedback for city input in notification preferences. Warning shown when typed city doesn't match any city in the list.
+10. **FUMOB-012** — Added confirmation modal before admin close-game action. Previously had zero confirmation.
+11. **FUMOB-013** — Added real-time password match validation in registration form. Inline error shown when passwords don't match; submit button disabled.
+
+### P3 Findings (2 resolved, 1 deferred)
+12. **FUMOB-009** — Added "(optional)" suffix to Opening Hours and Notes labels in Add Field form via i18n.
+13. **FUMOB-014** — Added location helper hint text below map in Add Field form.
+14. **FUMOB-011** — Deferred: password recovery requires backend API that doesn't exist. Out of scope per task constraints.
+
+### Key design decisions
+- Confirmation modals use `z-index: 1300` (above modal-backdrop at 1200) so they can overlay existing modals.
+- Confirmation modal uses `role="alertdialog"` for accessibility.
+- Admin moderation modal uses a textarea (not a text input) for the reason — gives more room on mobile for Hebrew text.
+- Moderation modal textarea uses `font-size: 16px` to prevent iOS auto-zoom.
+- Password mismatch disables the submit button to prevent wasted API calls.
+- Inline field errors use the same `#b42318` red as existing `modal-error` and `login-error` for visual consistency.
+
+## Consequences
+- 12 FUMOB findings fully resolved, 1 partially resolved, 1 deferred
+- All native `window.prompt` and `window.confirm` usage replaced with styled React modals
+- All forms now show errors near the relevant context (inside forms, near fields)
+- No backend, API, or schema changes
+- No new dependencies
+- Build and lint pass (2 pre-existing baseline lint errors unrelated to this change)
+
+## Files Changed
+- `frontend/src/components/LoginPage.jsx`
+- `frontend/src/components/OpenGameModal.jsx`
+- `frontend/src/components/AddFieldModal.jsx`
+- `frontend/src/components/GamePanel.jsx`
+- `frontend/src/components/admin/AdminUsers.jsx`
+- `frontend/src/components/admin/AdminGames.jsx`
+- `frontend/src/components/NotificationsModal.jsx`
+- `frontend/src/App.css`
+- `frontend/src/locales/he/common.js`
+- `frontend/src/locales/en/common.js`
+- `docs/mobile-form-usability-implementation.md`
+- `docs/product-decisions.md`
+
+## Validation Performed
+- `npm run build` — PASS (no errors)
+- `npm run lint` — PASS (2 pre-existing errors unrelated to this change)
+- `git diff --check` — PASS (no whitespace errors)
+- All forms reviewed for correct behavior
+- Confirmation modals verified to use existing modal CSS patterns proven in ISSUE-139/141
+
+## Known Remaining Issues
+- FUMOB-005 partial: remaining native HTML5 validation bubbles for `required`, `minLength`, `type=email`, `type=tel` — requires form architecture rewrite
+- FUMOB-011 deferred: password recovery flow requires backend API
+- AUTH-001 (P0 Google OAuth vulnerability) remains open — unrelated to form usability
+
+## Definition of Done Confirmation
+All 14 FUMOB findings reviewed. 12 resolved, 1 partially resolved, 1 deferred. All forms reviewed. Build and lint pass. Implementation documented in `docs/mobile-form-usability-implementation.md`. Decision record appended.

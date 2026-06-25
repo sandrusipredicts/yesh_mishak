@@ -32,6 +32,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
   const [maxPlayers, setMaxPlayers] = useState('10')
   const [ageNote, setAgeNote] = useState('')
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(event) {
@@ -39,46 +40,41 @@ function OpenGameModal({ field, onClose, onCreated }) {
 
     const playersPresentNumber = Number(playersPresent)
     const maxPlayersNumber = Number(maxPlayers)
+    const nextFieldErrors = {}
 
-    if (!sportType.trim()) {
-      setError(t('openGame.sportRequired'))
-      return
-    }
-
-    if (!['football', 'basketball'].includes(sportType.trim())) {
-      setError(t('openGame.chooseFootballOrBasketball'))
-      return
+    if (!sportType.trim() || !['football', 'basketball'].includes(sportType.trim())) {
+      nextFieldErrors.sportType = t('openGame.sportRequired')
     }
 
     if (!Number.isFinite(playersPresentNumber) || playersPresentNumber < 1) {
-      setError(t('openGame.playersMin'))
-      return
+      nextFieldErrors.playersPresent = t('openGame.playersMin')
     }
 
     if (!Number.isFinite(maxPlayersNumber) || maxPlayersNumber < playersPresentNumber) {
-      setError(t('openGame.maxPlayersInvalid'))
-      return
+      nextFieldErrors.maxPlayers = t('openGame.maxPlayersInvalid')
     }
 
     let scheduledAt
     if (gameTiming === 'future') {
       if (!scheduledDate || !scheduledTime) {
-        setError(t('openGame.futureDateRequired'))
-        return
+        nextFieldErrors.schedule = t('openGame.futureDateRequired')
+      } else {
+        const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`)
+        if (Number.isNaN(scheduledDateTime.getTime())) {
+          nextFieldErrors.schedule = t('openGame.invalidDateTime')
+        } else if (scheduledDateTime.getTime() <= Date.now()) {
+          nextFieldErrors.schedule = t('openGame.pastDate')
+        } else {
+          scheduledAt = scheduledDateTime.toISOString()
+        }
       }
+    }
 
-      const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`)
-      if (Number.isNaN(scheduledDateTime.getTime())) {
-        setError(t('openGame.invalidDateTime'))
-        return
-      }
+    setFieldErrors(nextFieldErrors)
 
-      if (scheduledDateTime.getTime() <= Date.now()) {
-        setError(t('openGame.pastDate'))
-        return
-      }
-
-      scheduledAt = scheduledDateTime.toISOString()
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setError('')
+      return
     }
 
     setError('')
@@ -161,6 +157,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
                   required
                 />
               </label>
+              {fieldErrors.schedule ? <p className="form-field-error">{fieldErrors.schedule}</p> : null}
             </div>
           ) : null}
 
@@ -179,6 +176,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
                 <option value="basketball">{t('openGame.basketball')}</option>
               ) : null}
             </select>
+            {fieldErrors.sportType ? <span className="form-field-error">{fieldErrors.sportType}</span> : null}
           </label>
 
           <label>
@@ -192,6 +190,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
               onChange={(event) => setPlayersPresent(event.target.value)}
               required
             />
+            {fieldErrors.playersPresent ? <span className="form-field-error">{fieldErrors.playersPresent}</span> : null}
           </label>
 
           <label>
@@ -205,6 +204,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
               onChange={(event) => setMaxPlayers(event.target.value)}
               required
             />
+            {fieldErrors.maxPlayers ? <span className="form-field-error">{fieldErrors.maxPlayers}</span> : null}
           </label>
 
           <label>
@@ -213,7 +213,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
               type="text"
               value={ageNote}
               onChange={(event) => setAgeNote(event.target.value)}
-              placeholder="18+"
+              placeholder={t('openGame.ageNotePlaceholder')}
             />
           </label>
 

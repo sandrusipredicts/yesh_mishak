@@ -164,6 +164,11 @@ function LoginPage({ onLogin }) {
     return fallback
   }
 
+  const passwordMismatch =
+    mode === 'register' &&
+    registerForm.password_confirm.length > 0 &&
+    registerForm.password !== registerForm.password_confirm
+
   async function handlePasswordLogin(event) {
     event.preventDefault()
     setIsLoading(true)
@@ -181,6 +186,12 @@ function LoginPage({ onLogin }) {
 
   async function handleRegister(event) {
     event.preventDefault()
+
+    if (registerForm.password !== registerForm.password_confirm) {
+      setError(t('auth.passwordMismatch'))
+      return
+    }
+
     setIsLoading(true)
     setError('')
 
@@ -247,6 +258,7 @@ function LoginPage({ onLogin }) {
                 value={loginForm.password}
               />
             </label>
+            {error ? <p className="login-error">{error}</p> : null}
             <button className="auth-submit" disabled={isLoading} type="submit">
               {t('auth.signIn')}
             </button>
@@ -310,6 +322,7 @@ function LoginPage({ onLogin }) {
                 type="password"
                 value={registerForm.password}
               />
+              <span className="form-hint">{t('auth.passwordHint')}</span>
             </label>
             <label>
               <span>{t('auth.confirmPassword')}</span>
@@ -323,8 +336,12 @@ function LoginPage({ onLogin }) {
                 type="password"
                 value={registerForm.password_confirm}
               />
+              {passwordMismatch ? (
+                <span className="form-field-error">{t('auth.passwordMismatch')}</span>
+              ) : null}
             </label>
-            <button className="auth-submit" disabled={isLoading} type="submit">
+            {error ? <p className="login-error">{error}</p> : null}
+            <button className="auth-submit" disabled={isLoading || passwordMismatch} type="submit">
               {t('auth.createAccount')}
             </button>
           </form>
@@ -337,7 +354,6 @@ function LoginPage({ onLogin }) {
         </div>
         <div ref={buttonRef} className="google-login-button" />
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
-        {error ? <p className="login-error">{error}</p> : null}
       </section>
     </main>
   )

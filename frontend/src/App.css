@@ -2283,6 +2283,92 @@ select {
   font-size: 13px;
 }
 
+.form-hint {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.form-field-error {
+  display: block;
+  margin-top: 2px;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.confirm-modal-backdrop {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: calc(20px + var(--safe-area-top)) calc(20px + var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) calc(20px + var(--safe-area-left));
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.confirm-modal {
+  width: min(360px, 100%);
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
+.confirm-modal h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.confirm-modal p {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.confirm-modal-label {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.confirm-modal-label span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.confirm-modal-label textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 16px;
+  resize: vertical;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.danger-modal-button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.danger-modal-button:hover {
+  background: #b91c1c;
+}
+
 @media (max-width: 640px) {
   .field-details-panel {
     inset-inline-start: 0;
