@@ -19689,3 +19689,112 @@ Create a focused mobile remediation issue for the Field Details screen findings:
 - Restrict dynamic panel growth from inline participants list toggle.
 - Add safe-area padding for bottom actions.
 - Localize validation required tooltips in Hebrew RTL.
+
+---
+
+# ISSUE-131: Create Game Mobile Audit
+
+## Summary
+- **Overall mobile readiness verdict**: **FAIL**
+- The Create Game flow is implemented as `OpenGameModal.jsx`. While the Hebrew RTL layout is fully supportive and dynamic toggling between active ("Now") and scheduled ("Future") modes works cleanly, a critical layout issue exists. The modal container has no `max-height` or scrolling limits. When focusing inputs, the virtual keyboard covering blocks access to key parts of the modal (including the submit button and several fields) on small mobile viewports, leaving users trapped.
+
+## Dependency Verification
+- This audit standard depends on `docs/mobile-audit-plan.md` created in ISSUE-126. It verifies the form and input rules established in sections 10 and 14 of the plan.
+
+## Files Reviewed
+- `frontend/src/components/OpenGameModal.jsx`
+- `frontend/src/components/FieldDetailsPanel.jsx`
+- `frontend/src/api/games.js`
+- `frontend/src/App.css`
+
+## Mobile Audit Matrix
+
+| Area | Status | Findings | Severity | Evidence | Recommendation |
+| --- | --- | --- | --- | --- | --- |
+| Form Fields | PARTIAL | 14px input font triggers Safari auto-zoom. Touch target height (~38px) is below 44px. Global errors at the bottom. | P1/P2 | `App.css` lines 960, 1350, 1372 | Increase font size to 16px. Increase vertical padding to 12px. Add inline errors. |
+| Date Selection | PASS | Layout stacks vertically on mobile, but native widgets trigger and past validation works. | P2 | `OpenGameModal.jsx` line 147 | Add scroll support for stacked layout. |
+| Time Selection | PASS | Local concatenated DateTime parsed properly. UTC ISO API payloads. | - | `OpenGameModal.jsx` line 157 | None. |
+| Participant Count | PARTIAL | Native numeric keyboard triggers, but alpha symbols are permitted (missing inputmode). | P2 | `OpenGameModal.jsx` lines 187, 198 | Add `inputmode="numeric"` and `pattern="[0-9]*"`. |
+| Keyboard Handling | FAIL | No modal height constraints or scroll. Keyboard covers submit button, trapping users. | P0 | `App.css` line 900 (`.open-game-modal`) | Apply `max-height: min(600px, calc(100vh - 40px))` and `overflow-y: auto`. |
+
+## Detailed Findings
+
+### CGMOB-001: Modal has no height constraint or scroll, trapping users when keyboard is open
+- **Severity**: P0
+- **Area**: Keyboard Handling
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.open-game-modal` (line 900)
+  - Behavior: Lacks `max-height` and `overflow` rules. When virtual keyboard is active, viewport height shrinks, and the submit button/fields are pushed off-screen and cannot be reached.
+- **Mobile Impact**: Critical. Completely blocks game creation on small Android and iPhone devices.
+- **User Impact**: Users cannot fill out the form or submit it, resulting in a broken transactional flow.
+- **Recommendation**: Apply `max-height: min(600px, calc(100vh - 40px))` and `overflow-y: auto` to `.open-game-modal` in CSS.
+- **Suggested Follow-up Issue**: Constrain `open-game-modal` height and enable scroll on mobile.
+
+### CGMOB-002: Input font-size is 14px, triggering iOS Safari zoom on focus
+- **Severity**: P1
+- **Area**: Form Fields
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.open-game-form label` (line 1350) setting `font-size: 14px`, inherited by inputs via `font: inherit` (line 16).
+- **Mobile Impact**: Automatically zooms the page when focus shifts to an input.
+- **User Impact**: Screen zooms in automatically, disrupting readability and requiring manual user pinch-zoom out to submit the form.
+- **Recommendation**: Set `font-size: 16px` on all mobile text inputs, selects, and textareas.
+- **Suggested Follow-up Issue**: Set input font-size to 16px to prevent iOS Safari auto-zoom.
+
+### CGMOB-003: Form input height and close button hit target are below 44px
+- **Severity**: P2
+- **Area**: Form Fields / Keyboard Handling
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.open-game-form input`, `.open-game-form select` (height ~38px); `.modal-close-button` (~20x20px hit area).
+- **Mobile Impact**: High tap target density increases finger miss-taps.
+- **User Impact**: Accidental form submissions or modal dismissal.
+- **Recommendation**: Set vertical padding of inputs to `12px` and increase close button tap targets to 44x44px.
+- **Suggested Follow-up Issue**: Increase mobile touch targets for create game form inputs and close button.
+
+### CGMOB-004: Global error messages are displayed at the bottom of the form
+- **Severity**: P2
+- **Area**: Form Fields
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/OpenGameModal.jsx` (line 216)
+  - Code: `{error ? <p className="modal-error">{error}</p> : null}`
+- **Mobile Impact**: Validation error is hidden below the viewport when the keyboard is active.
+- **User Impact**: Users cannot see why their submission failed until they dismiss the keyboard and scroll down.
+- **Recommendation**: Display field-specific validation warnings inline or auto-scroll error text into view.
+- **Suggested Follow-up Issue**: Implement inline form field validation errors.
+
+### CGMOB-005: Numeric fields display alpha keyboard on mobile
+- **Severity**: P2
+- **Area**: Participant Count
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/OpenGameModal.jsx` (lines 187, 198)
+  - Code: `<input type="number">` without `inputmode` attributes.
+- **Mobile Impact**: Keyboards display alphabet characters, decimal points, and minus symbols.
+- **User Impact**: Confusing keyboard layout and potential for typing invalid characters (e.g. dot, minus).
+- **Recommendation**: Add `inputmode="numeric"` and `pattern="[0-9]*"` to players inputs.
+- **Suggested Follow-up Issue**: Optimize numeric keypads for player counts.
+
+## Positive Findings
+- **RTL Support**: Hebrew translation and layout directions are fully aligned and correct.
+- **Future vs Now Toggle**: Clean UX state changes without unnecessary rerendering or page flashes.
+- **Timestamp Parsing**: Clean local parser converts local date/time strings to ISO strings correctly.
+
+## Risks Not Fully Verified
+- Native mobile Safari calendar wheel behaviors inside fixed CSS elements.
+- Android Chrome soft keyboard behavior when `resize` settings are toggled.
+
+## Recommended Follow-up Issues
+1. **[P0] Blocker**: Constrain `open-game-modal` height and add `overflow-y: auto`.
+2. **[P1] Usability**: Set input font-size to `16px` on mobile viewports to prevent iOS Safari auto-zoom.
+3. **[P2] Polish**: Increase target heights to 44px for inputs/selects and close buttons.
+4. **[P2] Polish**: Enforce `inputmode="numeric"` on player counts.
+5. **[P2] Polish**: Support inline field-specific errors.
+
+## Final Verdict
+The Create Game mobile experience is **NOT READY** due to the critical virtual keyboard clipping blocker (**CGMOB-001**).
