@@ -20462,3 +20462,49 @@ Previous audit finding IDs also resolved: `CGMOB-003`, `ADMOB-004`, `ADMOB-005`,
 
 ## Definition of Done Confirmation
 All 18 TTMOB touch target violations are resolved. CSS changes are scoped to mobile viewports. Build and lint pass cleanly. Desktop layout is preserved. Implementation is documented in `docs/mobile-touch-target-implementation.md`.
+
+---
+
+# ISSUE-142: Mobile Form Usability Audit
+
+## Date
+2026-06-25
+
+## Status
+Accepted
+
+## Context
+Mobile form usability needed a systematic audit after touch target (ISSUE-141) and keyboard interaction (ISSUE-139) fixes were applied. Forms are the primary interaction mechanism for creating games, registering accounts, reporting fields, and performing admin actions. Poor form UX on mobile leads to abandonment, errors, and accidental destructive actions.
+
+## Decision
+Performed a comprehensive audit of all 9 forms in the application. Cataloged 14 findings (FUMOB-001 through FUMOB-014) with severity P0–P3, mapped against all known existing findings from previous issues, and created a prioritized remediation plan.
+
+Key audit decisions:
+1. **Native prompts/confirms are P1**: `window.prompt` (FUMOB-002/ADMOB-001) and `window.confirm` (FUMOB-003/GDMOB-003) used for destructive actions freeze the rendering thread, lack RTL/Hebrew support, and produce unstyled dialogs on mobile. These should be replaced with custom React modals.
+2. **Missing password hint is P1**: Registration form enforces `minLength={8}` via HTML5 validation but shows no visible hint, causing user confusion especially on mobile where native validation bubbles are ephemeral and may display in English (FUMOB-001).
+3. **Global-only error placement is P2**: Login, Registration, and Create Game forms show errors only at the bottom of the form. On mobile with keyboard open, errors may be below the viewport (FUMOB-004, FUMOB-006).
+4. **Browser native validation bubbles are P2**: Registration relies on native constraint validation that displays in the browser's language, not the app's Hebrew locale (FUMOB-005/ML-REGISTER-002).
+5. **Admin close-game lacks confirmation is P2**: Unlike the user-facing close which has `window.confirm`, admin close has zero confirmation (FUMOB-012).
+6. **Field Report form is the gold standard**: Proper error placement above buttons, Cancel + Submit buttons, loading/disabled state management. Other forms should aspire to this pattern.
+
+## Consequences
+- 14 findings documented in `docs/mobile-form-usability-audit.md`
+- 3 P1 findings require follow-up implementation issues before production readiness
+- 8 P2 findings improve mobile UX but are not blocking
+- 3 P3 findings are polish items
+- No code changes in this issue — audit only
+- Remediation plan provides clear priority ordering for follow-up issues
+
+## Alternatives Considered
+- **Fix issues during audit**: Rejected — the task spec explicitly separates audit from implementation to allow product review before code changes
+- **Lower severity of native prompt/confirm**: Rejected — these freeze the rendering thread and produce unstyled, potentially wrong-language dialogs for destructive actions, which is a significant mobile UX problem
+- **Raise error placement to P1**: Considered but rejected — errors are visible if the user scrolls, and ISSUE-139 ensured scrollability. The issue is discoverability, not blockage.
+
+## Validation Performed
+- `git diff --check` — PASS (no whitespace errors)
+- `git status --short` — documentation-only changes confirmed
+- No CSS, component, or runtime changes made
+- All 14 findings cross-referenced against known existing findings from ISSUE-127 through ISSUE-141
+
+## Definition of Done Confirmation
+Comprehensive mobile form usability audit is documented. All 9 forms reviewed. 14 findings cataloged with FUMOB-XXX IDs, severity ratings, evidence, mobile/user impact, and recommendations. Known existing findings mapped. Prioritized remediation plan provided. Decision record appended.
