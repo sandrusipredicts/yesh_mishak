@@ -58,7 +58,7 @@ def _check_token_revoked(user: dict[str, Any], token_iat: float | int | None) ->
         threshold = _parse_iso_timestamp(tokens_valid_after)
     else:
         threshold = float(tokens_valid_after)
-    if float(token_iat) < threshold:
+    if int(token_iat) < int(threshold):
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="TOKEN_REVOKED",

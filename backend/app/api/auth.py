@@ -10,7 +10,7 @@ from fastapi import Depends
 from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
-from app.auth.passwords import hash_password, verify_password
+from app.auth.passwords import hash_password, validate_password, verify_password
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
 from app.schemas.auth import (
@@ -173,6 +173,14 @@ def register(payload: RegisterRequest) -> TokenResponse:
             status_code=status.HTTP_400_BAD_REQUEST,
             code="VALIDATION_ERROR",
             message="Passwords do not match",
+        )
+
+    password_errors = validate_password(payload.password)
+    if password_errors:
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message=password_errors[0],
         )
 
     _ensure_unique("username", payload.username, "Username is already taken")

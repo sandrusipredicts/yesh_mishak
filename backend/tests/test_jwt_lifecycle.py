@@ -290,13 +290,28 @@ def test_wrong_secret_jwt_is_rejected(monkeypatch) -> None:
 # ---- Logout invalidates token ----
 
 
+def _make_token_seconds_ago(user: dict[str, Any], seconds: int = 2) -> str:
+    """Create a token with iat in the past, simulating a real session
+    where the token was issued before logout."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    past = now - timedelta(seconds=seconds)
+    payload = {
+        "sub": user["id"],
+        "email": user["email"],
+        "iat": past,
+        "exp": now + timedelta(hours=1),
+    }
+    return pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def test_logout_invalidates_token(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = dict(REGULAR_USER)
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
 
-    token = make_token(user)
+    token = _make_token_seconds_ago(user)
 
     response = TestClient(app).get(
         "/games/me",
@@ -332,7 +347,7 @@ def test_token_rejected_after_logout_has_revoked_code(monkeypatch) -> None:
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
 
-    token = make_token(user)
+    token = _make_token_seconds_ago(user)
     TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
     invalidate_cached_user(user["id"])
 
@@ -364,14 +379,11 @@ def test_new_login_after_logout_works(monkeypatch) -> None:
         },
     )
 
-    login1 = TestClient(app).post(
-        "/auth/login",
-        json={"username": "testuser", "password": "strongpass123"},
-    )
-    token1 = login1.json()["access_token"]
+    user = fake_client.users[0]
+    token1 = _make_token_seconds_ago(user)
 
     TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {token1}"})
-    invalidate_cached_user(fake_client.users[0]["id"])
+    invalidate_cached_user(user["id"])
 
     response = TestClient(app).get(
         "/games/me",
@@ -386,7 +398,7 @@ def test_new_login_after_logout_works(monkeypatch) -> None:
     assert login2.status_code == 200
     token2 = login2.json()["access_token"]
 
-    invalidate_cached_user(fake_client.users[0]["id"])
+    invalidate_cached_user(user["id"])
 
     response = TestClient(app).get(
         "/games/me",
@@ -529,3 +541,62 @@ def test_token_issued_after_revocation_is_accepted(monkeypatch) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code != 401
+
+
+# ---- Same-second logout/login: new token must be accepted ----
+
+
+def test_same_second_logout_login_token_accepted(monkeypatch) -> None:
+    """Tokens issued in the same second as tokens_valid_after must not
+    be rejected. JWT iat has second precision; tokens_valid_after may
+    have sub-second precision. The comparison truncates both to seconds."""
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    tokens_valid_after_subsecond = now.replace(microsecond=500_000).isoformat()
+    user = dict(REGULAR_USER, tokens_valid_after=tokens_valid_after_subsecond)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    payload = {
+        "sub": user["id"],
+        "email": user["email"],
+        "iat": int(now.timestamp()),
+        "exp": now + timedelta(hours=1),
+    }
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code != 401
+
+
+# ---- Token from prior second is still rejected ----
+
+
+def test_token_from_prior_second_rejected_after_revocation(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    tokens_valid_after = now.isoformat()
+    user = dict(REGULAR_USER, tokens_valid_after=tokens_valid_after)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    one_second_ago = now - timedelta(seconds=1)
+    payload = {
+        "sub": user["id"],
+        "email": user["email"],
+        "iat": int(one_second_ago.timestamp()),
+        "exp": now + timedelta(hours=1),
+    }
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+    assert response.json()["code"] == "TOKEN_REVOKED"

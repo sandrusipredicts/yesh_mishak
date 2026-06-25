@@ -1,5 +1,17 @@
 import bcrypt
 
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
+
+def validate_password(password: str) -> list[str]:
+    errors: list[str] = []
+    if len(password) < PASSWORD_MIN_LENGTH:
+        errors.append(f"Password must be at least {PASSWORD_MIN_LENGTH} characters")
+    if len(password) > PASSWORD_MAX_LENGTH:
+        errors.append(f"Password must be at most {PASSWORD_MAX_LENGTH} characters")
+    return errors
+
 
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
