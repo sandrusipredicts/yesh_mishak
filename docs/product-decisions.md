@@ -18101,3 +18101,56 @@ A release versioning policy has been defined and documented. The project adopts 
 - **Team workflow documented**: YES
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
+
+# ISSUE-116: Release Checklist Template
+
+## 1. Summary
+A reusable release checklist template has been created. The checklist covers all required release verification areas: backend tests, frontend tests, auth, notifications, games, fields, admin, environment/deployment, database, and security/privacy. It is designed to be copied or referenced before every release.
+
+This is a documentation task. No runtime, backend, frontend, or database behavior was changed.
+
+## 2. Files Changed
+- `docs/release-checklist-template.md` — full release checklist template (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Checklist Document Location
+[docs/release-checklist-template.md](docs/release-checklist-template.md)
+
+## 4. Required Release Areas Covered
+| Area | Included |
+| :--- | :--- |
+| Backend tests | YES |
+| Frontend tests | YES |
+| Auth | YES |
+| Notifications | YES |
+| Games | YES |
+| Fields | YES |
+| Admin | YES |
+| Security/privacy | YES |
+| Environment/deployment | YES |
+| Database | YES |
+| Release signoff | YES |
+| Rollback readiness | YES |
+| Post-release verification | YES |
+
+## 5. Team Usage Rule
+No release should proceed unless all required checks pass or exceptions are explicitly approved by the approval owner. The checklist must be copied or referenced for every release.
+
+## 6. Known Gaps / Follow-Ups
+- No automated CI integration exists to enforce the checklist.
+- No CHANGELOG.md exists yet (recommended in ISSUE-115 follow-ups).
+- Release approval workflow is manual (no automated gating).
+- Mobile-specific checks will be added when the mobile project exists.
+
+## 7. Final Result
+- **Release checklist exists**: YES
+- **Backend tests included**: YES
+- **Frontend tests included**: YES
+- **Notifications included**: YES
+- **Auth included**: YES
+- **Games included**: YES
+- **Fields included**: YES
+- **Reusable for every release**: YES
+- **Release signoff section exists**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
