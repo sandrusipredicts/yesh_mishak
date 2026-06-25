@@ -17456,3 +17456,351 @@ All application data is classified into one of the following categories:
 * **Runtime behavior changed**: NO
 * **DB schema changed**: NO
 * **Recommended next actions**: Create and prioritize the follow-up tickets for implementation before production deployment, starting with unregistering push tokens on logout and masking PII on the admin dashboard.
+
+---
+
+# ISSUE-109: Security Incident Handling Process
+
+## 1. Executive Summary
+* **Purpose**: This security incident handling playbook defines the unified protocol for identification, containment, investigation, eradication, recovery, and post-incident analysis of security breaches or suspected security vulnerabilities in the `yesh_mishak` project.
+* **When to use**: This playbook must be activated immediately upon detection or report of any suspected security anomaly, credential exposure, data leak, RLS bypass, or unauthorized system access.
+* **Scope**: This process covers all application services (frontend and backend), hosting infrastructures (Railway, Vercel, Supabase), third-party integrated services (Google Auth, Firebase Messaging), repositories, and user personal data. It does not cover local hardware theft or non-security functional software defects.
+
+## 2. Incident Definition
+A security incident is defined as any event that threatens the confidentiality, integrity, or availability of the application, infrastructure, or user personal data. Specific examples include:
+* **User Data Exposure**: Unauthorized retrieval, leakage, or listing of user emails, phone numbers, location preferences, or usernames.
+* **Unauthorized Admin Access**: Non-admin users reaching `/admin` interfaces or invoking admin REST endpoints, or the hijacking of admin user credentials.
+* **Leaked Secrets/API Keys**: Committing server-side credentials or developer settings files containing active keys to public source control.
+* **Supabase Service-Role Key Exposure**: Unintended release of the master `SUPABASE_SERVICE_ROLE_KEY`, which bypasses all RLS database constraints.
+* **Firebase Credentials/Token Abuse**: The leakage of FCM private keys or unauthorized dispatching of push messages to user devices.
+* **JWT/Session Compromise**: The compromise of `JWT_SECRET`, enabling malicious actors to forge valid user claims and hijack sessions.
+* **Database/RLS Bypass**: Exploitation of database configuration or API paths allowing users to read or write other users' private records.
+* **Malicious Account Behavior**: Automated sign-ups, brute-forcing auth endpoints, or bulk spam registrations designed to degrade or corrupt data.
+* **Abuse of Notification System**: Exploiting message brokers to send phishing links or bulk spam to user devices.
+* **Suspicious Production Traffic**: Sudden, anomalous surges in traffic targeting authentication/administrative routes, or excessive request errors.
+* **GitHub/Repository Compromise**: Unauthorized code commits, branch deletion, or third-party package modifications in git.
+* **Hosting/Deployment Compromise**: Unauthorized access to Railway, Vercel, or Supabase administrative consoles.
+
+## 3. Severity Levels
+
+| Severity Level | Description | Examples | Target Response Time | Required Escalation Level |
+| :--- | :--- | :--- | :--- | :--- |
+| **SEV-0 (Critical)** | Core infrastructure takeover or active, uncontained leakage of user PII or signing secrets. | * Supabase service-role key leaked on GitHub.<br>* JWT signing secret compromised.<br>* Active dump of database contents.<br>* Administrative hijacking. | **Immediate (Within 15 mins)** | All Project Leads, Technical Leads, and System Admins. |
+| **SEV-1 (High)** | Compromise of administrative features, active feature exploitation, or localized data leakage. | * Active push notification spamming.<br>* Broken RLS rule allowing unauthorized writes to games/fields.<br>* Compromise of a single admin account. | **Within 1 hour** | Technical Lead and Database Administrator. |
+| **SEV-2 (Medium)** | Configuration vulnerability or credential leakage without evidence of active exploitation. | * Committed local configuration file (`frontend/.env`).<br>* FCM push tokens not clearing from DB on client logout.<br>* Incomplete CORS configurations in production backend. | **Within 4 hours** | Entire development team notified. |
+| **SEV-3 (Low)** | Weak security postures, minor styling/text issues, or local development dependency notices. | * Outdated package warning from `npm audit` or `pip-audit`.<br>* Minor information disclosure in local development logs.<br>* Inquiry from user about data practices. | **Within 1 business day** | Developer backlog ticket created. |
+
+## 4. Incident Roles and Responsibilities
+
+During a security incident (SEV-0 to SEV-2), the team will assume the following roles:
+* **Incident Lead (IL)**:
+  * *Responsibilities*: Coordinates the overall response, declares the severity, assigns investigative actions, and approves the final containment/eradication plan.
+* **Technical Investigator (TI)**:
+  * *Responsibilities*: Traces the vulnerability, parses access logs, determines the root cause of the exploit, maps data impact, and develops remediation patches.
+* **Communications Owner (CO)**:
+  * *Responsibilities*: Manages internal status updates, drafts user notifications, coordinates disclosures, and acts as the sole spokesperson for the incident.
+* **Deployment/Infrastructure Owner (IO)**:
+  * *Responsibilities*: Coordinates token rotations, suspends cloud environments if necessary, reverts deployments, blocks IPs, and deploys security hotfixes.
+* **Documentation Owner (DO)**:
+  * *Responsibilities*: Logs timeline milestones in real-time, compiles evidence, preserves log artifacts, and drafts the Post-Incident Review document.
+  * *Note*: If team size is small, the Incident Lead or Communications Owner can assume this role.
+* **Business/Product Owner (PO)**:
+  * *Responsibilities*: Evaluates product, brand, and legal liabilities; approves public disclosures; and authorizes emergency service suspensions.
+
+## 5. Immediate Response Checklist
+When a security event is reported or detected, execute the following actions:
+- [ ] **Confirm Reality**: Verify if the incident is active or valid (differentiate from system errors or load issues).
+- [ ] **Preserve Evidence**: Do NOT restart services or wipe databases before securing memory dumps, database states, and active server logs.
+- [ ] **Halt Active Exploitation**: Apply immediate temporary blocks (e.g. block IP address in firewall, toggle environment flag, disable router path).
+- [ ] **Do NOT Delete Logs**: Alert the engineering team that logs and diagnostic output must not be deleted or truncated.
+- [ ] **Identify Affected Components**: Map whether the issue spans the backend, frontend, database, FCM, or Supabase Auth.
+- [ ] **Identify Scope of Exposed Data**: Assess what user records, tables, or credential types are exposed.
+- [ ] **Classify Severity**: Assign the severity rating (SEV-0 to SEV-3) to guide escalation.
+- [ ] **Designate Incident Lead**: Formally assign the Incident Lead to direct the response.
+- [ ] **Initiate Incident Log**: Establish a secure shared document for real-time tracking, timeline logging, and evidence consolidation.
+- [ ] **Freeze Deployments**: Pause all non-security deployments to maintain a stable containment and diagnostic environment.
+
+## 6. Containment Procedure
+
+Depending on the incident vector, execute containment actions immediately:
+* **Rotating Leaked Environment Variables**:
+  * Navigate to the Railway (backend) or Vercel (frontend) settings dashboard.
+  * Replace the leaked variable value with a newly generated cryptographically secure string.
+  * Re-trigger Nixpacks / Vite build and deployment to load the new config.
+* **Revoking Supabase Keys**:
+  * In the Supabase project dashboard, navigate to `Settings -> API`.
+  * Click `Regenerate` for the anon key or the service-role key.
+  * Update the variables in Railway/Vercel immediately and redeploy.
+* **Rotating Firebase/FCM Credentials**:
+  * Go to Firebase Console -> `Project Settings -> Service Accounts`.
+  * Revoke the compromised service account key, generate a new private key JSON, and encode it into the Railway configuration.
+* **Disabling Compromised Accounts**:
+  * Execute a database query or Supabase admin action setting `status = 'suspended'` or `banned` for target user IDs.
+* **Removing Secrets from Git History**:
+  * Run `git-filter-repo` or BFG Repo-Cleaner to delete files or rewrite commits containing secrets, then force-push changes to origin.
+* **Temporarily Disabling Endpoints/Features**:
+  * Update backend middleware or configuration to reject requests to the affected API router path (e.g., return `503 Service Unavailable`).
+* **Blocking Abusive IPs**:
+  * Implement IP blocks at the Vercel/Railway hosting layer or utilize Cloudflare WAF rules to block offender requests.
+* **Restricting Admin Privileges**:
+  * Demote compromised admin accounts to standard `user` role via the `users` table: `UPDATE users SET role = 'user' WHERE id = 'compromised_id'`.
+* **Pausing Notification Flows**:
+  * Set `DISABLE_GAME_CREATED_NOTIFICATIONS = True` in Railway configuration to suspend FCM push dispatches during spam attacks.
+* **Rolling Back Deployments**:
+  * If a deployment contains vulnerability bugs or backdoors, revert to the last known secure commit tag using the Railway/Vercel dashboard.
+
+## 7. Investigation Procedure
+
+When investigating an incident, inspect the following sources of truth:
+* **Git History**: Run `git log --pretty=format:"%h - %an, %ar : %s" -n 20` and look at recent commits and merges to trace unauthorized entries.
+* **GitHub PRs & Reviews**: Audit approvals, PR descriptions, and commit changes to find who authorized the code.
+* **Deployment Logs**: Download stdout/stderr logs from the Railway console and build logs from Vercel to inspect runtime warnings or errors.
+* **Supabase Logs & Queries**: Inspect the Supabase project API request logs, checking for high-frequency queries or SQL exceptions.
+* **Backend API Logs**: Analyze FastAPI structured logs for anomalous payloads or requests targeting administrative paths.
+* **Auth Logs**: Audit Supabase Auth logs for spikes in sign-up requests, email changes, or token refreshes.
+* **Admin Actions**: Query the admin action/audit database queries to trace which actions were initiated by administrative accounts.
+* **Database Records**: Check table entry timestamps and modified fields in tables such as `users` and `fields` to trace rogue writes.
+* **Notification Records**: Verify if notifications tables contain PII or phishing templates dispatched to users.
+* **Push Token Table**: Scan `push_tokens` to detect whether malicious actors registered push devices to other user IDs.
+* **User Reports**: Aggregate user feedback, support requests, and GitHub issue trackers describing the anomaly.
+* **Recent Configurations**: Check Railway and Vercel audit logs for environmental changes.
+
+## 8. Eradication and Recovery
+* **Remove Root Cause**: Ensure the vulnerability patch is verified, rogue configurations are deleted, and compromised account sessions are terminated.
+* **Patch Code/Config**: Apply the security fix directly to the `main` branch and push it to production.
+* **Rotate Credentials**: Conduct a complete rotation of all relevant secrets (database passwords, OAuth credentials, JWT secrets, service account keys).
+* **Re-enable Services Safely**: Remove the IP blocks, unpause notification triggers, restore disabled routers, and confirm regular system uptime.
+* **Verify Tests & Builds**: Run the local test suite (`pytest`) and ensure all CI/CD pipelines build successfully.
+* **Verify Logs Post-Recovery**: Inspect production server logs for a minimum of 60 minutes after recovery to confirm that the exploit attempts have ceased and no regressions occurred.
+* **Confirm No Continuing Abuse**: Monitor API request counts, database connection limits, and server CPU usage to ensure systems have returned to normal.
+* **Document Changes**: Ensure all environment changes, code patches, and credential rotations are logged in the incident document.
+
+## 9. Communication Rules
+* **Internal Notification**: Developers and system administrators must be updated immediately via secure channels (e.g. Signal, private Slack). Do not use public channels.
+* **Verify Facts**: Do not speculate, blame, or share unverified theories internally or externally. Only report confirmed facts.
+* **Communicate Uncertainty**: If details are still being investigated, clearly state: *"We are investigating an anomaly in [Component] and will provide confirmed details within [Timeframe]."*
+* **User Notification**: Under GDPR and local data protection regulations, if personal data (emails, phone numbers, location data) is compromised, users and regulatory bodies must be notified within 72 hours of verification.
+* **Prohibited Disclosures**: Never publish raw database connection strings, exploit payloads, raw logs, or JWT values in public statements or release notes.
+
+### Internal Team Update Template
+```markdown
+### Security Incident Notification: [Incident Title/ID]
+* **Declared Severity**: SEV-[0/1/2]
+* **Impact Summary**: [Brief description of what was affected e.g., unauthorized admin read access]
+* **Incident Lead**: [Name]
+* **Current Status**: [Investigating / Containing / Remediating / Resolved]
+* **Action Required**: [e.g. All engineers pause branch deployments; change DB passwords]
+* **Meeting Room / Chat**: [Secure Link]
+```
+
+### User-Facing Incident Notice Template
+```markdown
+Subject: Security Notice regarding your Yesh Mishak account
+
+Dear User,
+
+On [Date], the Yesh Mishak security team identified a security issue involving [brief description of component e.g., push notification settings].
+
+What Happened:
+A configuration setting allowed unauthorized access to [type of data e.g. general preference data]. We immediately secured the system, updated our settings, and rotated all security keys.
+
+What Data Was Affected:
+Our investigation confirms that the following data may have been exposed: [e.g. usernames and city preferences]. No passwords, payment details, or precise live locations were stored or affected.
+
+What We Did:
+* Secured the database rules and updated access tokens.
+* Implemented automatic security scanning on all backend components.
+* Deployed updates to ensure devices only receive notifications for authenticated sessions.
+
+What You Need To Do:
+No action is required on your part. The next time you open the app, you may be asked to log in again to refresh your security session.
+
+If you have any questions, please contact our support team at [Email].
+
+Sincerely,
+The Yesh Mishak Team
+```
+
+## 10. Evidence Preservation
+When preserving evidence, follow these rules to ensure its integrity:
+* **Export Logs**: Pull logs from Railway/Vercel immediately and save them to password-protected local files (e.g. `incident_[ID]_logs.txt`).
+* **Screenshots**: Take screenshots of committed secrets on GitHub, exploit responses in the terminal, or administrative screens.
+* **Maintain Timestamps**: Document all timestamps in UTC (e.g., `2026-06-25T13:20:00Z`).
+* **Git Metadata**: Record commit hashes, tags, and PR numbers of the offending changes.
+* **Deployment IDs**: Capture the Vercel deployment URL and the Railway build ID.
+* **Exposed Records**: Log the specific user IDs or database rows that were compromised. Do not store raw sensitive values (like passwords or tokens) in the evidence log; reference them by ID or placeholder.
+* **No Direct In-Place Edits**: Do not modify files or DB entries directly in the production environment during investigation; document the anomaly and fix it via code deploy.
+* **Live Timeline**: Maintain a chronological, append-only log of every investigation step and containment action.
+
+## 11. Incident Timeline Template
+Create a timeline section in the incident log document using this format:
+```markdown
+## Incident Log: [Incident ID / Title]
+
+* **Date**: YYYY-MM-DD
+* **Reported By**: [User / Alert System / Developer]
+* **Initial Severity**: SEV-[0/1/2/3]
+* **Final Severity**: SEV-[0/1/2/3]
+* **Systems Affected**: [e.g. Supabase DB, Frontend App, FCM Broker]
+* **Root Cause**: [Brief description of root cause]
+* **Follow-up Issues**: [ISSUE-X, ISSUE-Y]
+
+### Timeline (UTC)
+* **[HH:MM]** - Incident first detected by [alert/user report].
+* **[HH:MM]** - Incident Lead assigned. Severity declared as SEV-[X].
+* **[HH:MM]** - Initial analysis confirms [vector of exploit].
+* **[HH:MM]** - Containment active: [e.g. revoked token, blocked IP].
+* **[HH:MM]** - Security patch deployed to production.
+* **[HH:MM]** - Verification complete. Systems monitored and returning to baseline.
+* **[HH:MM]** - Incident declared closed. PIR scheduled.
+```
+
+## 12. Post-Incident Review (PIR)
+Within 5 business days of incident resolution, the Incident Lead must facilitate a PIR meeting. The output document must include:
+* **Root Cause Analysis (RCA)**: Explain why the incident happened, how it was introduced, and how it was exploited.
+* **What Worked**: List the playbook steps, monitoring tools, or team responses that successfully accelerated containment.
+* **What Failed**: Identify bottlenecks, missed alerts, communication delays, or configuration gaps.
+* **PIR Action Items**:
+  * **Detection Gaps**: Add monitoring alerts for the vulnerability pattern.
+  * **Prevention Gaps**: Add code checks or schema rules to prevent recurrence.
+  * **Monitoring Gaps**: Add logs to track the specific exploit vector.
+  * **Documentation Gaps**: Update database architecture or security maps.
+
+| Action Item ID | Description | Owner | Priority | Target Due Date |
+| :--- | :--- | :--- | :--- | :--- |
+| `ACT-[ID]-001` | *Update RLS policy to enforce strict foreign key constraints.* | Technical Lead | High | YYYY-MM-DD |
+| `ACT-[ID]-002` | *Add gitleaks checker to CI pipeline.* | DevOps Owner | Medium | YYYY-MM-DD |
+
+## 13. Security Incident Checklist
+*Use this cheat sheet to respond quickly when under pressure:*
+1. [ ] **Declare Incident**: Appoint an Incident Lead (IL) and open the incident log document.
+2. [ ] **Assess Severity**: Check the impact against the SEV levels table (SEV-0/1/2/3).
+3. [ ] **Lockdown & Contain**: Block active exploit paths (IP blocks, revoke tokens, freeze deployments).
+4. [ ] **Secure Evidence**: Export server/db logs, record Git commit metadata, and document the exploit footprint.
+5. [ ] **Remediate & Patch**: Deploy the hotfix code or configurations to the `main` branch and push to production.
+6. [ ] **Rotate Credentials**: Rotate affected API keys, Supabase tokens, FCM keys, and database passwords.
+7. [ ] **Verify Recovery**: Monitor logs and API metrics for 60 minutes after patch deployment.
+8. [ ] **Communicate**: Disclose status internally and update users if PII was exposed (within 72 hours).
+9. [ ] **Conduct PIR**: Host a post-incident review meeting and define prevention action items.
+
+## 14. Project-Specific Incident Scenarios
+
+### Scenario A: Frontend `.env` or Secret Committed to GitHub
+* **Severity**: SEV-2 (Medium)
+* **Immediate Response**:
+  1. Identify the file path and commit hash where the secret was introduced.
+  2. Untrack the file from git immediately: `git rm --cached frontend/.env` and commit.
+* **Containment**:
+  1. Update Vercel/Railway environment configurations with rotated public-safe credentials.
+  2. Purge the secret from the entire git repository commit history using `git-filter-repo` to prevent history digging.
+* **Eradication & Recovery**:
+  1. Add `.env` and `.env.local` to `frontend/.gitignore` to prevent developers from accidentally re-committing it.
+  2. Implement local `.env.example` templates to document the variables.
+
+### Scenario B: Supabase Service-Role Key Leak
+* **Severity**: SEV-0 (Critical)
+* **Immediate Response**:
+  1. Inform all administrators immediately and halt active database modification flows.
+* **Containment**:
+  1. Navigate to the Supabase console -> `Settings -> API` and click `Regenerate` for the service-role key.
+  2. Update the `SUPABASE_SERVICE_ROLE_KEY` in the Railway backend environment.
+  3. Rebuild and deploy the backend.
+* **Eradication & Recovery**:
+  1. Verify database audit logs to identify any database modifications or extractions.
+  2. Invalidate all active client JWTs if the database configuration allowed token validation using the service role key.
+
+### Scenario C: Unauthorized Admin Access
+* **Severity**: SEV-1 (High)
+* **Immediate Response**:
+  1. Identify the compromised administrative account or the bypassed API route.
+* **Containment**:
+  1. Change the role of the compromised account to `user` in the `users` table.
+  2. Rotate the `JWT_SECRET` in Railway to invalidate all current login sessions, forcing a global log-out.
+* **Eradication & Recovery**:
+  1. Audit admin action logs to identify what actions (e.g. banning users, modifying fields) were triggered.
+  2. Patch the backend code to ensure roles are strictly verified in FastAPI route dependencies (`Depends(require_admin)`).
+
+### Scenario D: User Email/Phone Exposure
+* **Severity**: SEV-1 (High)
+* **Immediate Response**:
+  1. Identify the endpoint or screen exposing PII in plaintext.
+* **Containment**:
+  1. Block access to the compromised endpoint or roll back the frontend deployment exposing details.
+* **Eradication & Recovery**:
+  1. Implement masking logic in the serializer schemas (e.g. `j***@example.com`, `+972*****567`).
+  2. Enforce strict database RLS rules so that users can only read their own user record unless they are verified admins.
+  3. Notify affected users of the exposure within 72 hours.
+
+### Scenario E: Push Notification Token Leak
+* **Severity**: SEV-2 (Medium)
+* **Immediate Response**:
+  1. Identify the user ID whose device tokens were exposed.
+* **Containment**:
+  1. Delete all push tokens associated with the user ID in the `push_tokens` table.
+* **Eradication & Recovery**:
+  1. De-register the token on the FCM server.
+  2. Patch the client application to ensure that token creation and unregistration endpoint calls require active Bearer JWT tokens.
+
+### Scenario F: Malicious Notification Spam
+* **Severity**: SEV-1 (High)
+* **Immediate Response**:
+  1. Identify the source dispatching push notifications.
+* **Containment**:
+  1. Set `DISABLE_GAME_CREATED_NOTIFICATIONS = True` or temporarily block connections to the FCM gateway.
+  2. Delete the spam notifications from the `notifications` table.
+* **Eradication & Recovery**:
+  1. Identify if notifications were triggered by a loop bug or an unauthorized admin.
+  2. Restrict trigger permissions and re-enable push flows.
+
+### Scenario G: JWT Signing Secret Compromise
+* **Severity**: SEV-0 (Critical)
+* **Immediate Response**:
+  1. Alert team leads and prepare for a global user logout event.
+* **Containment**:
+  1. Generate a new cryptographically secure random string.
+  2. Update `JWT_SECRET` in the Railway backend configuration.
+  3. Deploy the backend to invalidate all active JWT sessions.
+* **Eradication & Recovery**:
+  1. Monitor logins to verify users can successfully re-authenticate.
+  2. Verify that the JWT expiration (`JWT_EXPIRE_MINUTES`) is kept short (e.g. 7 days or less).
+
+### Scenario H: Location Data Exposure
+* **Severity**: SEV-1 (High)
+* **Immediate Response**:
+  1. Identify if coordinates are being leaked via frontend mapping components or API responses.
+* **Containment**:
+  1. Revert the frontend build or restrict the affected map bounds queries.
+* **Eradication & Recovery**:
+  1. Truncate coordinates saved for notification preferences to 3 decimal places (approx. 100m) to fuzzer location.
+  2. Verify that MapPage components only fetch public field locations and do not download active user coordinates.
+
+### Scenario I: Broken RLS Policy
+* **Severity**: SEV-1 (High)
+* **Immediate Response**:
+  1. Identify which table RLS rules are bypassed.
+* **Containment**:
+  1. Turn off the affected API route or toggle database access restrictions.
+* **Eradication & Recovery**:
+  1. Run Supabase SQL scripts to drop and recreate the correct RLS policy:
+     ```sql
+     ALTER TABLE target_table ENABLE ROW LEVEL SECURITY;
+     CREATE POLICY "policy_name" ON target_table FOR SELECT USING (auth.uid() = user_id);
+     ```
+  2. Audit database tables to check for unauthorized modifications.
+
+### Scenario J: Production Deployment Compromise
+* **Severity**: SEV-0 (Critical)
+* **Immediate Response**:
+  1. Halt all deployments and revoke hosting platform permissions.
+* **Containment**:
+  1. Revoke developer access tokens and Railway/Vercel dashboard keys.
+  2. Revert the deployment to the last known secure, signed commit tag.
+* **Eradication & Recovery**:
+  1. Audit all recent commit logs and Railway deployment change histories.
+  2. Force password rotations for all deployment-capable accounts.
+
+## 15. Final Result
+* **Playbook exists**: YES
+* **Team process documented**: YES
+* **Runtime behavior changed**: NO
+* **DB schema changed**: NO
