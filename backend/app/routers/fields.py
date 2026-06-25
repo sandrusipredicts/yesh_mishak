@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
+from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_payloads import get_game_payloads_for_fields
 from app.services.content_moderation import validate_field_submission
 
@@ -151,6 +152,12 @@ def get_field(field_id: str):
 
 @router.post("/")
 def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(require_active_user)):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "fields_create", [(3, 60), (10, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     moderation = validate_field_submission(
         name=field.name,
         notes=field.notes,

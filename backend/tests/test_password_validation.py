@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 
 from app.auth.passwords import (
@@ -214,6 +215,14 @@ def test_login_does_not_enforce_min_length_on_login_attempt(monkeypatch) -> None
 def test_google_login_unaffected(monkeypatch) -> None:
     """Google login doesn't use passwords — verify schema is unchanged."""
     configure_test_settings(monkeypatch)
+
+    def reject_google_token(token: str, attempt_id: str = "unknown") -> None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token",
+        )
+
+    monkeypatch.setattr("app.api.auth.verify_google_token", reject_google_token)
 
     response = TestClient(app).post(
         "/auth/google",
