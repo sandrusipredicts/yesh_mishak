@@ -18479,3 +18479,89 @@ Measured as tabletop elapsed time / estimated operational recovery time.
 - **Runtime behavior changed**: NO
 - **Database dumps committed**: NO
 - **Secrets committed**: NO
+
+---
+
+# ISSUE-121: Production Readiness Checklist
+
+## 1. Summary
+
+Created a comprehensive production readiness checklist (`docs/production-readiness-checklist.md`) covering Security, Performance, Monitoring, Logging, and Reliability readiness for the Web Production gate before mobile distribution.
+
+**Overall readiness status: NO-GO** — P0 security blocker AUTH-001 (Google account linking account-takeover risk) remains unresolved.
+
+## 2. Files Changed
+
+- `docs/production-readiness-checklist.md` — NEW (20 sections)
+- `docs/product-decisions.md` — APPENDED (this decision record)
+
+## 3. Key Decisions
+
+1. **Overall status: NO-GO** — AUTH-001 is a P0 security blocker that prevents declaring production readiness. Google login links accounts by email without verifying `email_verified` or checking `google_sub` match, enabling account-takeover attacks.
+
+2. **Security readiness: BLOCKED** — All security audits are complete (ISSUE-092, ISSUE-106, ISSUE-110), admin protections verified, JWT risks reviewed, environment/secrets reviewed. But AUTH-001 remains unresolved, making this a hard blocker.
+
+3. **Performance readiness: PARTIAL** — Rate limiting (ISSUE-099), pagination, and database indexing (ISSUE-079) are in place. Gaps: no load testing, no latency targets, no performance regression detection, frontend build size not measured.
+
+4. **Monitoring readiness: MINIMAL** — Health check exists (`GET /` returns 200), Railway/Vercel platform logs accessible. Gaps: no Sentry or error monitoring, no uptime monitoring, no alerting, no alerting owner assigned, Supabase/Firebase monitoring not confirmed.
+
+5. **Logging readiness: PARTIAL** — Python `logging` module used across 7 backend files (main.py, auth.py, admin.py, games.py, notifications.py, field_reports.py, game_payloads.py). Admin actions logged to `user_moderation_audit` table. Gaps: no formal PII-safe logging policy, no log retention owner.
+
+6. **Reliability readiness: GOOD** — All processes documented: deployment (deployment-process.md), release checklist (release-checklist-template.md), versioning (release-versioning-policy.md), rollback (rollback-procedure.md), backup (database-backup-strategy.md). Simulations performed: rollback tabletop (rollback-simulation-report.md), recovery tabletop (database-recovery-validation-report.md). Gap: staging not live for live drills.
+
+7. **12 blockers documented** — 1 P0 (AUTH-001), 6 P1 (staging, restore, backup verification, monitoring x2, logging), 5 P2 (privacy, performance, compliance).
+
+8. **13 non-blocking follow-ups documented** — prioritized by area with suggested issue titles.
+
+9. **Go/No-Go decision: NO-GO** — Required before GO: resolve AUTH-001 (ISSUE-111), re-verify security checklist. Approval requires Technical Lead + Product Owner.
+
+## 4. Known Gaps
+
+| Gap | Status | Impact |
+| :--- | :--- | :--- |
+| AUTH-001 unresolved | P0 BLOCKER | Prevents production readiness declaration |
+| Staging not live | Accepted gap | Cannot perform live drills |
+| No error monitoring (Sentry) | Accepted gap | Errors only detected via manual log review or user reports |
+| No uptime monitoring | Accepted gap | Downtime detection relies on user reports |
+| No load testing | Accepted gap | Performance baseline unknown |
+| No data retention policy | Accepted gap | Privacy/compliance risk |
+| No account deletion process | Accepted gap | GDPR/privacy risk |
+| Live restore not validated | Accepted gap | Restore time unknown |
+
+## 5. What This Does NOT Do
+
+- Does NOT change backend/frontend runtime behavior
+- Does NOT modify database schema
+- Does NOT commit secrets
+- Does NOT weaken authentication or authorization
+- Does NOT create PRs
+- Does NOT declare the system production-ready (explicitly marks NO-GO)
+
+## 6. Context From Prior Issues
+
+This checklist synthesizes findings from:
+- ISSUE-092: Security/auth audit → AUTH-001 identified
+- ISSUE-099: Rate limiting → in-process limits added
+- ISSUE-106: Environment/secrets audit → no secrets exposed
+- ISSUE-109: Incident response playbook
+- ISSUE-110: Security follow-up tracking → AUTH-001 remediation pending
+- ISSUE-114: Staging setup → PREPARED, not live
+- ISSUE-115: Versioning policy
+- ISSUE-116: Release checklist
+- ISSUE-117: Rollback procedure
+- ISSUE-118: Rollback simulation → tabletop, 30-60 min estimated recovery
+- ISSUE-119: Backup strategy → RPO ≤24h, RTO ≤4h
+- ISSUE-120: Recovery validation → tabletop/partial
+
+## 7. Final Result
+
+- **Production readiness checklist exists**: YES
+- **Security covered**: YES
+- **Performance covered**: YES
+- **Monitoring covered**: YES
+- **Logging covered**: YES
+- **Reliability covered**: YES
+- **Overall readiness**: NO-GO (AUTH-001 blocker)
+- **Runtime behavior changed**: NO
+- **Database schema changed**: NO
+- **Secrets committed**: NO
