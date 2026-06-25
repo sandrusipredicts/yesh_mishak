@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from postgrest.exceptions import APIError
 
 from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
@@ -208,7 +209,39 @@ def register(request: Request, payload: RegisterRequest) -> TokenResponse:
         "last_login": _now_iso(),
     }
 
-    response = get_supabase_client().table("users").insert(user_data).execute()
+    try:
+        response = get_supabase_client().table("users").insert(user_data).execute()
+    except APIError as exc:
+        error_details = getattr(exc, "args", [{}])[0]
+        msg = error_details.get("message", "") if isinstance(error_details, dict) else str(exc)
+        code = error_details.get("code", "") if isinstance(error_details, dict) else ""
+        if code == "23505" or "23505" in msg or "duplicate key" in msg.lower():
+            if "username" in msg.lower():
+                raise_api_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    code="USERNAME_TAKEN",
+                    message="Username is already taken",
+                )
+            elif "email" in msg.lower():
+                raise_api_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    code="EMAIL_TAKEN",
+                    message="Email is already registered",
+                )
+            elif "phone_number" in msg.lower():
+                raise_api_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    code="PHONE_TAKEN",
+                    message="Phone number is already registered",
+                )
+            else:
+                raise_api_error(
+                    status_code=status.HTTP_409_CONFLICT,
+                    code="CONFLICT",
+                    message="Uniqueness constraint violation",
+                )
+        raise
+
     if not response.data:
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -309,11 +342,21 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
 
 
 @router.post("/check-username", response_model=AvailabilityResponse)
-def check_username(payload: UsernameCheckRequest) -> AvailabilityResponse:
+def check_username(request: Request, payload: UsernameCheckRequest) -> AvailabilityResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_check_availability", [(20, 60), (100, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
     return AvailabilityResponse(available=_get_user_by_column("username", payload.username) is None)
 
 
 @router.post("/check-email", response_model=AvailabilityResponse)
-def check_email(payload: EmailCheckRequest) -> AvailabilityResponse:
+def check_email(request: Request, payload: EmailCheckRequest) -> AvailabilityResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_check_availability", [(20, 60), (100, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
     return AvailabilityResponse(available=_get_user_by_column("email", payload.email) is None)
 

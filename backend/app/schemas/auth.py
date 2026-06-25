@@ -7,6 +7,11 @@ class GoogleAuthRequest(BaseModel):
     token: str
 
 
+import re
+
+PHONE_REGEX = re.compile(r"^\+?[0-9]+$")
+
+
 class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=120)
     username: str = Field(min_length=3, max_length=40)
@@ -39,6 +44,17 @@ class RegisterRequest(BaseModel):
             raise ValueError("A valid email is required")
         return email
 
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        val = value.strip()
+        normalized = val.replace(" ", "").replace("-", "")
+        if not PHONE_REGEX.match(normalized):
+            raise ValueError("Phone number must contain only digits and optional leading +")
+        if not (7 <= len(normalized) <= 20):
+            raise ValueError("Phone number must be between 7 and 20 characters long")
+        return normalized
+
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=40)
@@ -54,7 +70,7 @@ class LoginRequest(BaseModel):
 
 
 class UsernameCheckRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=40)
+    username: str = Field(min_length=3, max_length=40)
 
     @field_validator("username")
     @classmethod
@@ -62,11 +78,13 @@ class UsernameCheckRequest(BaseModel):
         username = value.strip().lower()
         if not username:
             raise ValueError("Username is required")
+        if not username.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Username can contain only letters, numbers, hyphens and underscores")
         return username
 
 
 class EmailCheckRequest(BaseModel):
-    email: str = Field(min_length=1, max_length=254)
+    email: str = Field(min_length=3, max_length=254)
 
     @field_validator("email")
     @classmethod
@@ -74,7 +92,10 @@ class EmailCheckRequest(BaseModel):
         email = value.strip().lower()
         if not email:
             raise ValueError("Email is required")
+        if "@" not in email or "." not in email.rsplit("@", maxsplit=1)[-1]:
+            raise ValueError("A valid email is required")
         return email
+
 
 
 class AvailabilityResponse(BaseModel):

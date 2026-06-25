@@ -1,12 +1,12 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client
-from app.errors import raise_api_error
+from app.errors import raise_api_error, validate_uuid_id
 from app.rate_limit import check_rate_limit_by_user
 from app.services.content_moderation import validate_field_report
 
@@ -28,9 +28,21 @@ ALLOWED_FIELD_REPORT_CATEGORIES = {
 class FieldReportCreate(BaseModel):
     field_id: str
     category: str
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=1000)
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("category")
+    @classmethod
+    def validate_category_value(cls, value: str) -> str:
+        if value not in ALLOWED_FIELD_REPORT_CATEGORIES:
+            from app.errors import raise_api_error
+            raise_api_error(
+                status_code=400,
+                code="VALIDATION_ERROR",
+                message="Invalid field report category",
+            )
+        return value
 
 
 def _format_supabase_error(exc: Exception) -> dict[str, Any]:
@@ -74,6 +86,7 @@ def create_field_report(
     payload: FieldReportCreate,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    validate_uuid_id(payload.field_id, "field_id")
     rate_limit_hit = check_rate_limit_by_user(
         str(current_user["id"]), "field_reports_create", [(5, 60), (20, 3600)]
     )
