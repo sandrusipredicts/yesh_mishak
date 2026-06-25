@@ -19906,3 +19906,123 @@ The Create Game mobile experience is **NOT READY** due to the critical virtual k
 
 ## Final Verdict
 The Game Details mobile component (`GamePanel`) is **CONDITIONALLY READY**. The component is responsive and limits list expansions, but its final usability depends on fixing the parent container height limits (**ML-FIELD-DETAILS-001**) to prevent viewport trapping.
+
+---
+
+# ISSUE-133: Notifications Mobile Audit
+
+## Summary
+- **Overall mobile readiness verdict**: **PASS WITH FINDINGS**
+- The Notifications experience consists of `NotificationInboxModal.jsx` and `NotificationsModal.jsx`. Both screens are functional, scroll-safe, and responsive. No critical P0 blockers were identified. The lists are constrained, and Hebrew RTL layouts wrap safely. However, usability can be improved on small viewports by preventing header squashing, increasing thin button targets, and supporting touch events for input autocomplete dismissal.
+
+## Dependency Verification
+- This audit standard depends on `docs/mobile-audit-plan.md` created in ISSUE-126. It verifies the push and settings rules established in sections 12 and 14 of the plan.
+
+## Files Reviewed
+- `frontend/src/components/NotificationInboxModal.jsx`
+- `frontend/src/components/NotificationsModal.jsx`
+- `frontend/src/components/CityAutocomplete.jsx`
+- `frontend/src/api/notifications.js`
+- `frontend/src/firebaseMessaging.js`
+- `frontend/src/App.css`
+
+## Mobile Audit Matrix
+
+| Area | Status | Findings | Severity | Evidence | Recommendation |
+| --- | --- | --- | --- | --- | --- |
+| Notification List | PASS | Spaced correctly and styled with scroll limit max-height 420px. Read/unread states are clear. | - | `App.css` lines 1115-1120 | None. |
+| Read Actions | PARTIAL | Inline Mark as Read button has height ~30px, below the 44px touch target. | P2 | `App.css` line 1196 (`.notification-mark-read-button`) | Increase padding to achieve >= 44px. |
+| Read All | PARTIAL | Header flex layout squashes count text and button on narrow viewports. Button is under 44px target. | P1/P2 | `App.css` lines 1085, 1099 | Stack header columns on small screens. Increase padding. |
+| Long Notifications | PASS | Titles and bodies wrap safely without horizontal overflow. Timestamps are legibly placed. | - | `NotificationInboxModal.jsx` lines 153-156 | None. |
+
+## Detailed Findings
+
+### NTMOB-001: Header flex row squashes count and button on narrow mobile viewports
+- **Severity**: P1
+- **Area**: Read All
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.notifications-list-header` (line 1085) styled as flex-row.
+- **Mobile Impact**: Count label and "Mark all as read" button squash or wrap awkwardly on screens <= 360px wide, creating clutter.
+- **User Impact**: Visual layout degradation.
+- **Recommendation**: Stack header elements vertically on viewports <= 400px wide.
+- **Suggested Follow-up Issue**: Make notifications header responsive on narrow viewports.
+
+### NTMOB-002: Inline mark-as-read touch target height (~30px) is below 44px
+- **Severity**: P2
+- **Area**: Read Actions
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.notification-mark-read-button` (line 1196) with padding `7px 9px`.
+- **Mobile Impact**: High tap target density increases finger miss-taps.
+- **User Impact**: Missed taps when trying to clear single alerts without opening.
+- **Recommendation**: Increase padding to at least `11px 13px`.
+- **Suggested Follow-up Issue**: Increase touch target height of inline mark-read button.
+
+### NTMOB-003: Mark All as Read button height (~34px) is below 44px
+- **Severity**: P2
+- **Area**: Read All
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.notifications-list-header button` (line 1099) with padding `8px 10px`.
+- **Mobile Impact**: Small hit target.
+- **User Impact**: Missed taps when trying to clear notifications.
+- **Recommendation**: Increase padding to `12px 14px` on mobile viewports.
+- **Suggested Follow-up Issue**: Increase touch target height of Mark All as Read button.
+
+### NTMOB-004: CityAutocomplete click-outside handler uses mousedown instead of touchstart
+- **Severity**: P2
+- **Area**: Notification List / Preferences
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/CityAutocomplete.jsx`
+  - Code: `document.addEventListener('mousedown', handleClickOutside)` (line 56).
+- **Mobile Impact**: Click-outside to dismiss suggestions fails to trigger reliably on mobile touchscreens.
+- **User Impact**: Suggestions dropdown remains open when tapping outside the autocomplete field.
+- **Recommendation**: Add a `touchstart` listener to `handleClickOutside`.
+- **Suggested Follow-up Issue**: Support touch events for autocomplete click-outside dismissal.
+
+### NTMOB-005: Autocomplete suggestions dropdown clipped by virtual keyboard on short screens
+- **Severity**: P2
+- **Area**: Notification List / Preferences
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/App.css`
+  - Component: `.city-autocomplete-suggestions` (line 1310) having `max-height: 220px;`.
+- **Mobile Impact**: Suggestions picker overlaps/clips when the virtual keyboard is active on small viewports.
+- **User Impact**: Selection is cut off, forcing users to hide the keyboard to choose suggestions.
+- **Recommendation**: Constrain picker height or auto-scroll container when input is focused.
+- **Suggested Follow-up Issue**: Adjust suggestions dropdown bounds when keyboard is active.
+
+### NTMOB-006: Radius slider range input is difficult to control precisely
+- **Severity**: P2
+- **Area**: Notification List / Preferences
+- **Status**: Open
+- **Evidence**:
+  - File: `frontend/src/components/NotificationsModal.jsx` (line 429) using `<input type="range">`.
+- **Mobile Impact**: Precision dragging is difficult with a finger on small screens.
+- **User Impact**: Difficulty setting exact distances.
+- **Recommendation**: Add a text input display or increment/decrement buttons next to the slider.
+- **Suggested Follow-up Issue**: Add precise numerical controls to distance radius setting.
+
+## Positive Findings
+- **Roster Bounds**: The unread vs read visual boundaries are distinct and clean.
+- **Scroll Limits**: Restricting the notifications list height to 420px prevents modal overflow.
+- **RTL Language Compliance**: Hebrew text wraps and aligns correctly under flex and grid layouts.
+
+## Risks Not Fully Verified
+- Native browser web push permission behaviors on iOS Safari.
+- Soft keyboard activation height limits on older webviews.
+
+## Recommended Follow-up Issues
+1. **[P1] Layout**: Stack notifications header items vertically on viewports <= 400px wide.
+2. **[P2] Polish**: Increase padding to reach 44px height targets for the inline Mark Read and Mark All buttons.
+3. **[P2] Polish**: Add `touchstart` listener to `CityAutocomplete` outside tap handlers.
+4. **[P2] Polish**: Improve suggestions picker layout and height when keyboard is focused.
+5. **[P2] Polish**: Add manual steppers to distance radius range inputs.
+
+## Final Verdict
+The Notifications mobile experience is **READY WITH FINDINGS**. The notification list and settings screens are fully functional, scroll-safe, and responsive. Remediation is recommended for touch targets and header layout, but no P0 blocker exists.
