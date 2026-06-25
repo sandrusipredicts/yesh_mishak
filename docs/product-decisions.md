@@ -17298,3 +17298,161 @@ If a secret is compromised or committed, the following checklist must be execute
 
 ## Final Decision
 This Production Secrets Management Policy is officially approved as of June 25, 2026. The identified follow-up issues must be created and prioritized for implementation before the next production release.
+
+---
+
+# ISSUE-108: Privacy and Personal Data Audit
+
+## 1. Executive Summary
+* **What was audited**: The repository was audited for all flows, tables, files, storage mechanisms, and logs involving the collection, processing, display, storage, and notification of personal and privacy-sensitive data.
+* **Whether a Data Map now exists**: **YES**. A comprehensive Data Map classifying and tracking all user-related data points has been created and documented below.
+* **High-level privacy risk level**: **High** (primarily due to plain-text credential storage in client `localStorage`, push notification token retention upon user logout, and unmasked user list access in the admin dashboard).
+
+## 2. Data Classification Model
+All application data is classified into one of the following categories:
+* **Public Data**: Unrestricted data visible to all users (e.g. playground/field coordinates, verified statuses, opening hours).
+* **Internal Application Data**: Configuration parameters used by application services (e.g. cache TTLs, JWT algorithms).
+* **Personal Data (PII)**: Any information relating to an identified or identifiable natural person (e.g. user ID, name, username, profile picture).
+* **Sensitive Personal Data**: Special categories of data requiring higher protections (e.g. email address, phone number, password hashes, JWT session signatures).
+* **Device/Token Data**: Technical identifiers mapping to specific devices (e.g. Firebase device push tokens).
+* **Location Data**: Geographic coordinates or city selections indicating a user's location or interest area.
+* **Authentication Data**: Data used to verify identity (e.g. Google sub IDs, JWT payloads, password hashes).
+* **Admin-Only Data**: Data restricted to administrator visibility (e.g. moderation action logs, restriction reasons).
+* **Derived/Behavioral Data**: User actions recorded by the system (e.g. game creation, joining/leaving activity, last active timestamps).
+
+## 3. Complete Personal Data Map
+
+| Data Field/Name | Example | Classification | Source | Storage Location / Table | Backend Endpoints | Frontend Screens | Access Level | Retention / Cleanup | Risk Level | Notes & Recommendations |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **user id** | `fef15717...` | Personal Data | Database generated | `users.id`, `game_players.user_id`, `field_reports.user_id` | All endpoints | `localStorage` (`currentUserId`), all screens | Authenticated User, Admin | Persistent | Low | Standard internal identifier. Keep secure. |
+| **name** | `John Doe` | Personal Data | User input / Google profile | `users.name` | Auth endpoints, `/admin/users` | `localStorage` (`currentUserName`), Profile header | Public (for game lists) | Persistent | Low | Safe to display, but verify user consent. |
+| **email** | `john@example.com` | Sensitive Personal Data | User input / Google profile | `users.email` | Auth endpoints, `/admin/users`, `/admin/field-reports` | `localStorage` (`currentUserEmail`), Admin dashboard | User, Admin | Persistent | Medium | Mask in admin user list. |
+| **phone number** | `+972541234567` | Sensitive Personal Data | User input | `users.phone_number` | Auth endpoints, `/admin/users` | `LoginPage.jsx`, `AdminUsers.jsx` | User, Admin | Persistent | Medium | Mask in admin user list. |
+| **role/admin status** | `admin` | Admin-Only Data | DB assignment | `users.role` | Auth, `/admin/me` | `AdminRoute.jsx` check | Internal | Persistent | Low | Keep default role 'user'. |
+| **created_at** | `2026-06-25T13:00` | Derived/Behavioral | DB generated | `users.created_at` | `/admin/users` | `AdminUsers.jsx` | Admin | Persistent | Low | None. |
+| **last_active** | `2026-06-25T13:10` | Derived/Behavioral | Request middleware | `users.last_active` | `/admin/users` | `AdminUsers.jsx` | Admin | Persistent | Low | None. |
+| **Google identity data** | `10294810294` (sub) | Authentication Data | Google OAuth | `users.google_sub`, `users.picture` | `/auth/google` | `App.jsx` (avatar icon) | User, Admin | Persistent | Low | Standard identity mapping. |
+| **JWT/auth claims** | `eyJhbGciOiJIUzI1Ni...` | Sensitive Personal Data | Token generator | HTTP Request headers | Auth endpoints, all endpoints | `localStorage` (`access_token`) | User, Backend | Session-only (7 days) | High | LocalStorage is vulnerable to XSS. Migrate to HttpOnly cookies. |
+| **field submitter** | `fef15717...` | Personal Data | Creator user ID | `fields.added_by` | `/fields` (POST) | `AddFieldModal.jsx` | Admin | Persistent | Low | Used to audit spam submissions. |
+| **field coordinates** | `31.2529, 34.7972` | Location Data / Public | User input | `fields.lat`, `fields.lng` | `/fields` (GET, POST) | `MapPage.jsx`, `AddFieldModal.jsx` | Public | Persistent | Low | Public playground location. Safe. |
+| **city preferences** | `ירוחם` | Location Data | User selection | `notification_preferences.city`, `localStorage.userCity` | `/notifications/preferences` | `OnboardingPage.jsx`, `AddFieldModal.jsx` | User | Persistent | Low | General area. Safe. |
+| **radius preferences** | `lat=31.2, lng=34.7, radius=5km` | Location Data / Sensitive | User map selection | `notification_preferences.lat/lng/radius_km` | `/notifications/preferences` | `NotificationsModal.jsx` | User | Persistent | Medium | Persistently exposes user residential coordinates. Fuzz coordinates to 3 decimals. |
+| **selected fields** | `fef15717...` | Derived/Behavioral | User field selection | `notification_preferences.field_id` | `/notifications/preferences` | `NotificationsModal.jsx` | User | Persistent | Low | Specific field alerts. |
+| **push token** | `fcm_token_xyz` | Device/Token Data | FCM SDK client | `push_tokens.token` | `/notifications/push-token` | `NotificationsModal.jsx` | User, Backend, FCM | Until unregister | Medium | Token is not deleted from server on logout, leading to leakage risk. |
+| **notification records** | `נפתח משחק חדש...` | Personal Data | Event triggers | `notifications.title/body/data` | `/notifications` | `NotificationsModal.jsx` | User | 90 days retention | Low | Exposes player names. |
+| **notification read state** | `read_at=timestamp` | Derived/Behavioral | User action | `notifications.read_at` | `/notifications/{id}/read` | `NotificationsModal.jsx` | User | 90 days retention | Low | None. |
+| **game organizer id** | `fef15717...` | Personal Data | Game creator | `games.created_by` | `/games` | `MapPage.jsx` | Public | Persistent | Low | Standard game metadata. |
+| **game participants** | `List of user IDs` | Personal Data | Users joining | `game_players.user_id` | `/games/{id}/join` | `MapPage.jsx` | Public | Persistent | Low | Standard game metadata. |
+| **join/leave activity** | `joined_at=timestamp` | Derived/Behavioral | User action | `game_players.joined_at` | `/games/{id}/join` | `MapPage.jsx` | Public | Persistent | Low | None. |
+| **scheduled games** | `Scheduled slots` | Derived/Behavioral | User action | `games.scheduled_at` | `/games` | `MapPage.jsx` | Public | Persistent | Low | None. |
+| **admin user lists** | `List of user records` | Admin-Only Data | `/admin/users` API | `/admin/users` | `/admin/users` | `AdminUsers.jsx` | Admin | Persistent | Medium | Lists all phone numbers and emails in plaintext. |
+| **logs** | `user_id=fef15717...` | Derived/Behavioral | Backend log outputs | Log files (`*.log`) | None | None | Backend Server | Provider default | Low | Excludes email, phone, sub, and token strings. |
+
+## 4. API Privacy Flow Review
+* **POST `/auth/register`**: Writes `name`, `username`, `email`, `phone_number`, and `password_hash`. Exposes JWT and profile response. Auth required: No. Risk: Medium (collects phone/email).
+* **POST `/auth/login`**: Reads `username` and `password`. Exposes JWT and profile response. Auth required: No. Risk: Medium.
+* **POST `/auth/google`**: Resolves Google OAuth payload. Exposes JWT and profile response. Auth required: No. Risk: Medium (syncs third-party identity).
+* **POST `/auth/check-username` & `/auth/check-email`**: Verifies existence of username/email. Auth required: No. Risk: Low (minor enumeration risk, mitigated by IP-based rate limits).
+* **GET `/admin/users`**: Exposes ALL users' details (emails, phone numbers, activity times). Auth required: Yes (Admin-only). Risk: Medium/High (excessive visibility / lack of masking).
+* **GET `/admin/field-reports`**: Exposes reporter `name` and `email` for all reports. Auth required: Yes (Admin-only). Risk: Medium (reporter email exposure).
+* **GET `/notifications`**: Reads and returns `notifications` which contain player names. Auth required: Yes. Risk: Low.
+* **POST `/notifications/push-token` & DELETE `/notifications/push-token`**: Writes/deletes device push tokens. Auth required: Yes. Risk: Medium.
+* **PUT `/notifications/preferences`**: Writes location coordinates (`lat`, `lng`, `radius_km`) and `city`. Auth required: Yes. Risk: Medium (persists exact coordinates).
+
+## 5. Frontend Privacy Exposure Review
+* **localStorage**:
+  * `access_token` (JWT): Authenticates requests. Risk: High (vulnerable to XSS theft).
+  * `currentUserId`, `currentUserName`, `currentUserEmail`, `currentUsername`: Profile details. Risk: Medium (vulnerable to XSS profile scraping).
+  * `userCity`: Default city. Risk: Low.
+  * `cachedFields`: Map data. Risk: Low.
+* **App.jsx** (Header): Displays user `name` or `email` in the navigation header. Risk: Low (minor shoulder surfing).
+* **AdminUsers.jsx**: Lists all user profiles with plain-text email and phone numbers. Risk: Medium/High (compromised admin account).
+* **AdminFieldReports.jsx**: Displays reporter name and email. Risk: Medium.
+
+## 6. Notification Privacy Review
+* In-app notification data is saved in the `notifications` table for 90 days. It contains text with player names and location fields.
+* Push notification tokens are saved in the `push_tokens` table.
+* **Logout Vulnerability**: Push tokens are not deleted on logout. When a user logs out in the frontend, the token remains registered under their user ID in the backend. If a new user logs in or if the device is shared, push notifications containing player names and locations intended for the previous user could still be received by the device.
+* Location-based notification preferences (radius matching) store user coordinates persistently.
+
+## 7. Location Privacy Review
+* Browser geolocation (`navigator.geolocation`) is only executed client-side. The live coordinates of the user are NOT saved to the server.
+* The user's coordinates are only sent to the server in two cases:
+  1. Setting up a geographic notification radius (e.g. `notification_preferences.lat/lng`).
+  2. Submitting a new playground/field location (coordinates stored under `fields`).
+* **Risk**: If a user sets the notification radius center at their house, their exact residential location coordinates are saved persistently in the database. Obfuscating coordinates (e.g., snapping to 100m grids) or deleting stale preferences is recommended.
+
+## 8. Admin Privacy Review
+* The admin users dashboard `/admin/users` dumps the entire list of user accounts with raw `email` and `phone_number` fields.
+* This violates the **least privilege principle**. Admins should see phone numbers and emails masked (e.g. `j***@example.com`, `+972*****567`) by default, and only unmask them explicitly with an audit log.
+
+## 9. Logging / Error / Debug Privacy Review
+* No console `print(` statements exist in the backend application code.
+* Checked loggers in `backend/app/auth/google.py` and `backend/app/api/auth.py`. They log structured event data (attempt IDs, user IDs) but do NOT write emails, phone numbers, Google subs, password hashes, or token values in logs.
+
+## 10. Third-Party Data Sharing
+* **Supabase**: Primary database and auth host. Receives all users, emails, phone numbers, locations, push tokens.
+* **Google Auth**: Handles token verification. Receives Google ID tokens.
+* **Firebase Cloud Messaging (FCM)**: Receives device push tokens and the body of push notifications (which can contain player names and field names).
+* **OpenStreetMap (OSM)**: The react-leaflet `TileLayer` directly queries `{s}.tile.openstreetmap.org`. The user's browser requests map tiles directly from OSM servers, exposing the user's IP address and map coordinates.
+
+## 11. Privacy Risk Register
+
+### Finding PRIV-108-001: Committed Local Configuration File
+* **Severity**: P1
+* **Area**: Frontend Local Development
+* **Evidence**: `frontend/.env` is tracked and committed in git (verified with `git ls-files frontend/.env`).
+* **Problem**: Exposes public client keys directly in version control.
+* **Impact**: Bad repository hygiene.
+* **Recommendation**: Stop tracking `frontend/.env` in git and use `.env.example`.
+* **Suggested follow-up**: Remove `frontend/.env` from git tracking.
+
+### Finding PRIV-108-002: Push Token Leakage on Logout
+* **Severity**: P1
+* **Area**: Notification Privacy
+* **Evidence**: `App.jsx` handles logout by clearing localStorage but does NOT call `deletePushToken` to unregister the token on the server.
+* **Problem**: Logged-out users' push notifications (containing player names and locations) will continue to be sent to the device.
+* **Impact**: Potential exposure of PII to unauthorized or shared-device users.
+* **Recommendation**: Call `deletePushToken` on logout in `App.jsx`.
+* **Suggested follow-up**: Unregister push tokens on logout.
+
+### Finding PRIV-108-003: Excessive Admin Exposure (PII Leaks)
+* **Severity**: P1
+* **Area**: Admin Privacy
+* **Evidence**: `/admin/users` API and `AdminUsers.jsx` expose all users' emails and phone numbers in plaintext in a single search list.
+* **Problem**: Violates least privilege. Admin session compromise or malicious admin access leaks the entire database of contact info.
+* **Impact**: High risk of bulk user contact information theft.
+* **Recommendation**: Mask emails and phone numbers in the admin users list. Expose them only via explicit click-to-view action with logging.
+* **Suggested follow-up**: Mask user contact details in admin dashboard.
+
+### Finding PRIV-108-004: Sensitive Data in Browser Local Storage
+* **Severity**: P1
+* **Area**: Frontend Privacy Exposure
+* **Evidence**: `saveAuthSession` stores `access_token`, `currentUserEmail`, `currentUserName` in localStorage.
+* **Problem**: Vulnerable to theft/scraping via XSS.
+* **Impact**: Token theft and profile scraping risk.
+* **Recommendation**: Transition auth sessions to Secure HttpOnly Cookies.
+* **Suggested follow-up**: Implement secure HttpOnly cookies for session management.
+
+### Finding PRIV-108-005: Exact Geographic Coordinates Persistence
+* **Severity**: P2
+* **Area**: Location Privacy
+* **Evidence**: `notification_preferences` table saves exact user-provided `lat`/`lng` for radius checks.
+* **Problem**: Discloses precise residential or workplace coordinates of users.
+* **Impact**: Persistent storage of sensitive location interest centers.
+* **Recommendation**: Implement geographic coordinate fuzzing or rounding (e.g., truncate coordinates to 3 decimal places to match ~100m accuracy).
+* **Suggested follow-up**: Implement coordinate fuzzing for radius notifications.
+
+## 12. Recommended Follow-Up Issues
+1. **ISSUE-114: Unregister Push Tokens on Logout**: Call `deletePushToken` endpoint inside `handleLogout` in `App.jsx` to clean up FCM device tokens.
+2. **ISSUE-115: Mask PII in Admin Dashboard**: Modify `/admin/users` API or frontend to mask emails and phone numbers, and implement an audit-logged "unmask" action.
+3. **ISSUE-116: Implement Secure HttpOnly Cookies**: Move JWT token storage from `localStorage` to secure, HttpOnly, SameSite cookies.
+4. **ISSUE-117: Coordinate Fuzzing for Notification preferences**: Round latitude and longitude values to 3 decimal places before saving in `notification_preferences` to fuzzer location.
+5. **ISSUE-118: Add Privacy Policy and Data Retention policies**: Document user data retention rules (e.g. 90 days for notifications) and provide a self-service account deletion flow.
+
+## 13. Final Audit Result
+* **Data Map exists**: YES
+* **All personal data classified**: YES
+* **Runtime behavior changed**: NO
+* **DB schema changed**: NO
+* **Recommended next actions**: Create and prioritize the follow-up tickets for implementation before production deployment, starting with unregistering push tokens on logout and masking PII on the admin dashboard.
