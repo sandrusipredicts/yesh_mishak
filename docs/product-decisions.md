@@ -18768,3 +18768,110 @@ AUTH-001 is an open P0 blocker. It has not been resolved — verified by reviewi
 - **Runtime behavior changed**: NO
 - **Database schema changed**: NO
 - **Secrets committed**: NO
+
+---
+
+# ISSUE-123: Technical Debt Inventory
+
+## 1. Summary
+
+Created a centralized technical debt inventory documenting all known technical debt, accepted gaps, incomplete hardening work, and follow-up engineering risks.
+
+**File created**: docs/technical-debt-inventory.md
+
+**Total debt items documented**: 29
+
+| Severity | Count |
+| :--- | :--- |
+| P0 Critical | 1 |
+| P1 High | 5 |
+| P2 Medium | 21 |
+| P3 Low | 2 |
+
+## 2. Method
+
+### Sources Reviewed
+
+- docs/product-decisions.md (all audit/readiness sections: ISSUE-092, ISSUE-106, ISSUE-110, ISSUE-114, ISSUE-119, ISSUE-120, ISSUE-121, ISSUE-122)
+- docs/production-readiness-checklist.md (ISSUE-121 — all 20 sections, all 12 blocker IDs)
+- docs/rollback-simulation-report.md (ISSUE-118 — findings/gaps)
+- docs/release-versioning-policy.md (gap table)
+- docs/database-backup-strategy.md (gap table)
+- docs/production-support-handbook.md (not-implemented features)
+
+### Code/Config Areas Reviewed
+
+- backend/app/auth/google.py (AUTH-001 verification)
+- backend/app/auth/dependencies.py (user cache, admin checks)
+- backend/app/rate_limit.py (rate limiter architecture)
+- backend/app/main.py (CORS, error handling)
+- backend/app/core/config.py (settings, cache TTL)
+- backend/schema.sql (RLS status)
+- backend/migrations/ (12 migration files, no migration tool)
+- backend/load_tests/ (k6 test exists)
+- frontend/package.json (version, scripts)
+- frontend/src/ (no unit test files)
+- frontend/tests/ (8 Playwright spec files)
+- frontend/.env.example, backend/.env.example
+
+### Search Patterns Used
+
+- TODO, FIXME, HACK, XXX (0 results in code)
+- workaround, temporary, not implemented (found in docs only)
+- accepted gap, PARTIAL, NOT VERIFIED, NO-GO (production-readiness-checklist.md)
+- All 12 blocker IDs from ISSUE-121 (AUTH-001 through PERF-002)
+- RLS, enable row level security, service_role
+- in-memory, cache, lru_cache
+- retry, backoff (found in rate_limit.py and game_payloads.py)
+- migration runner, alembic (0 results)
+- sentry, newrelic, datadog (0 results in application code)
+- changelog (not found as file)
+
+## 3. Key Findings
+
+1. **TD-AUTH-001 (P0)**: Google OAuth account-takeover vulnerability remains unresolved. backend/app/auth/google.py:186-193 still links accounts by email only without email_verified enforcement or google_sub matching. This is the sole production blocker.
+
+2. **5 P1 operational gaps**: No error monitoring (TD-OPS-001), no uptime monitoring (TD-OPS-002), staging not live (TD-OPS-003), backup settings unconfirmed (TD-OPS-004), live restore not validated (TD-OPS-005). All documented as accepted gaps in ISSUE-121/122.
+
+3. **No TODO/FIXME/HACK markers in code**: The codebase has zero TODO/FIXME/HACK comments in source files, meaning debt is not self-documented in code — this inventory is the primary debt record.
+
+4. **Process/infrastructure debt dominates**: Most debt is in operations (monitoring, alerting, staging, backups, on-call) and process (migrations, release tooling, CI integration) rather than code quality.
+
+## 4. Production Blockers
+
+**AUTH-001 remains a P0 production blocker.**
+
+TD-AUTH-001 (Google OAuth account-takeover via email-only linking) is the only item that blocks production. Verified from code at backend/app/auth/google.py:186-193 — the vulnerability is still present. ISSUE-111 (Harden Google OAuth account linking) has not been implemented.
+
+The 5 P1 items are documented as accepted gaps and do not independently block the GO decision per ISSUE-121/122 assessment.
+
+## 5. Follow-Up Policy
+
+When future issues add or fix technical debt:
+- **Adding debt**: Add a new entry to docs/technical-debt-inventory.md with the discovering issue as source. Add a row to the summary table.
+- **Fixing debt**: Update the item status to FIXED. Add the resolving issue/PR reference. Do not delete the entry.
+- **Obsolete debt**: If a feature is removed making debt irrelevant, mark as OBSOLETE with explanation.
+- **Periodic review**: Re-review the inventory during each production readiness review cycle.
+
+## 6. Validation
+
+- git diff --check: PASS (no whitespace errors)
+- git status --short: 1 new file (technical-debt-inventory.md), 1 modified (product-decisions.md)
+- docs/technical-debt-inventory.md exists: YES
+- "# ISSUE-123: Technical Debt Inventory" exists in product-decisions.md: YES
+- Runtime behavior changed: NO
+- Database schema changed: NO
+- Secrets committed: NO
+
+## 7. Final Result
+
+- **Technical debt inventory exists**: YES
+- **Total items documented**: 29
+- **P0 items**: 1 (TD-AUTH-001)
+- **P1 items**: 5 (TD-OPS-001 through TD-OPS-005)
+- **P2 items**: 21
+- **P3 items**: 2
+- **Production blockers**: YES (AUTH-001 remains open)
+- **Runtime behavior changed**: NO
+- **Database schema changed**: NO
+- **Secrets committed**: NO
