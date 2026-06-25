@@ -14786,3 +14786,421 @@ Every finding from this repository-based audit is documented with:
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-093 authorization security audit report. |
 
+---
+
+# ISSUE-094: JWT Token Lifecycle Review
+
+**Date:** 2026-06-25
+**Status:** COMPLETE
+**Type:** Documentation / Audit (no code changes)
+**Priority:** P0
+
+## Scope
+
+This is a JWT lifecycle documentation and audit task only. No runtime, backend, or frontend behavior was changed. The purpose is to map the complete lifecycle of internal JWTs — from creation through expiration and logout — and document every gap, risk, and positive control with file-level evidence.
+
+## Current JWT Lifecycle Summary
+
+The application uses self-issued JWTs (not Supabase Auth tokens) for all API authentication. The lifecycle is:
+
+1. **Login/authentication:** User authenticates via password (`POST /auth/login`), Google OAuth (`POST /auth/google`), or registration (`POST /auth/register`).
+2. **Token issuance:** Backend creates a JWT with `sub` (user ID), `email`, `iat`, and `exp` claims. Signed with HS256 using a shared secret.
+3. **Token storage:** Frontend stores the JWT in `localStorage` under the key `access_token`.
+4. **Token use in API calls:** An Axios request interceptor reads `access_token` from `localStorage` and attaches it as `Authorization: Bearer <token>` on every request.
+5. **Backend validation:** `get_current_user` dependency decodes the JWT, verifies signature and expiration, then looks up the user in the database (with a 300-second TTL cache).
+6. **Expiration:** Token expires after `jwt_expire_minutes` (default: 10,080 minutes / 7 days). The `PyJWT` library enforces `exp` during decode.
+7. **Refresh behavior:** No refresh token exists. No refresh endpoint exists. When the token expires, the user must re-authenticate.
+8. **Revocation behavior:** No server-side revocation mechanism exists. No blacklist, denylist, `jti` claim, token version, or session table. Tokens remain valid until expiration.
+9. **Logout behavior:** Frontend-only. Removes `access_token` and user metadata from `localStorage`. No backend logout endpoint exists. The JWT remains cryptographically valid and usable until `exp`.
+
+## Token Creation
+
+### Issuer code path
+
+- **Function:** `create_access_token()` in `backend/app/auth/jwt.py` (line 9)
+- **Called by:** `_create_token_response()` in `backend/app/api/auth.py` (line 53)
+
+### Claims
+
+| Claim | Value | Source |
+|---|---|---|
+| `sub` | User's database UUID | `user["id"]` from DB response |
+| `email` | User's email | `user["email"]` from DB response |
+| `iat` | Issued-at timestamp | `datetime.now(timezone.utc)` |
+| `exp` | Expiration timestamp | `iat + timedelta(minutes=settings.jwt_expire_minutes)` |
+
+**Not included in token:** `role`, `status`, `name`, `username`, `jti`, `iss`, `aud`. Role and status are fetched server-side on every request via `get_current_user`.
+
+### Expiration
+
+- **Default:** 10,080 minutes (7 days) — configured via `JWT_EXPIRE_MINUTES` environment variable.
+- **Evidence:** `backend/app/core/config.py` line 18: `jwt_expire_minutes: int = Field(default=10080, alias="JWT_EXPIRE_MINUTES")`
+
+### Signing method
+
+- **Algorithm:** HS256 (HMAC-SHA256) — symmetric signing.
+- **Default:** `backend/app/core/config.py` line 17: `jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")`
+- **Configurable:** Yes, via `JWT_ALGORITHM` environment variable.
+
+### Config source
+
+- **Secret:** `JWT_SECRET` environment variable. Required (no default).
+- **Evidence:** `backend/app/core/config.py` line 12: `jwt_secret: str = Field(alias="JWT_SECRET")`
+
+### Login flows that issue tokens
+
+| Flow | Endpoint | Evidence |
+|---|---|---|
+| Password registration | `POST /auth/register` | `backend/app/api/auth.py` line 166 — calls `_create_token_response` |
+| Password login | `POST /auth/login` | `backend/app/api/auth.py` line 199 — calls `_create_token_response` |
+| Google OAuth | `POST /auth/google` | `backend/app/api/auth.py` line 115 — calls `_create_token_response` |
+
+All three flows return a `TokenResponse` containing `access_token`, `token_type: "bearer"`, and a `user` object.
+
+## Token Validation
+
+### Validation function/dependency
+
+- **JWT decode:** `decode_access_token()` in `backend/app/auth/jwt.py` (line 23)
+- **User resolution:** `get_current_user()` in `backend/app/auth/dependencies.py` (line 40)
+- **Active-user check:** `require_active_user()` in `backend/app/auth/dependencies.py` (line 117)
+- **Admin check:** `require_admin()` in `backend/app/auth/dependencies.py` (line 134)
+
+### Expiration enforcement
+
+Yes. `PyJWT`'s `jwt.decode()` automatically verifies the `exp` claim. Expired tokens raise `jwt.ExpiredSignatureError`, caught and re-raised as HTTP 401 with detail `"Token has expired"` (`backend/app/auth/jwt.py` lines 28-32).
+
+### User lookup behavior
+
+After JWT decode, `get_current_user` extracts `sub` as `user_id` and queries the `users` table for `id, email, name, role, status`. Results are cached in an in-process TTL cache (default 300 seconds). If the user is not found in the database, a 401 is returned.
+
+### Active-user behavior
+
+`require_active_user` (line 117) depends on `get_current_user` and rejects users with `status: "banned"` (403) or `status: "suspended"` (403).
+
+### Admin-user behavior
+
+`require_admin` (line 134) depends on `get_current_user` directly (NOT `require_active_user`). Checks `role == "admin"`. Does NOT check user status. A banned/suspended admin retains admin access. (Documented in ISSUE-093 as AUTHZ-093-001.)
+
+### Error behavior
+
+| Condition | HTTP Status | Error Code | Detail |
+|---|---|---|---|
+| No token provided | 401 | `AUTH_REQUIRED` | `"Missing bearer token"` |
+| Expired token | 401 | (raw HTTPException) | `"Token has expired"` |
+| Invalid/malformed token | 401 | (raw HTTPException) | `"Invalid token"` |
+| User not in database | 401 | `AUTH_INVALID` | `"User not found"` |
+| User banned | 403 | `ACCOUNT_RESTRICTED` | `"Account is banned"` |
+| User suspended | 403 | `ACCOUNT_RESTRICTED` | `"Account is suspended"` |
+| Non-admin accessing admin route | 403 | `FORBIDDEN` | `"Admin access required"` |
+
+## Expiration
+
+### Current behavior
+
+- JWT expiration is set to 7 days by default (`JWT_EXPIRE_MINUTES=10080`).
+- Expiration is enforced by `PyJWT` during `jwt.decode()` — expired tokens trigger `ExpiredSignatureError` → HTTP 401.
+- The `exp` claim is set at token creation time and cannot be extended without issuing a new token.
+
+### Frontend handling
+
+- **No automatic 401 response interceptor exists.** The Axios client in `frontend/src/api/client.js` only has a request interceptor (attaches token), no response interceptor.
+- The `AdminRoute` component (`frontend/src/components/AdminRoute.jsx` line 49) handles 401 responses by clearing auth storage and redirecting to login, but this is specific to admin route verification.
+- Regular API calls that return 401 due to expired tokens are not globally intercepted. Individual components must handle errors.
+
+### Gaps
+
+- No global 401 interceptor means expired-token errors may surface as unhandled errors in the UI rather than a clean redirect to login.
+- 7-day expiration with no refresh means users stay logged in for a week, then abruptly lose access.
+
+## Refresh
+
+**No refresh token lifecycle currently exists.**
+
+- No refresh token is issued at login.
+- No refresh endpoint exists on the backend.
+- No frontend code attempts token refresh.
+- When the JWT expires (after 7 days by default), the user must re-authenticate by logging in again.
+- There is no silent re-authentication or token rotation mechanism.
+
+### Risks
+
+- **Abrupt session loss:** After 7 days, the user's next API call fails with 401. Without a global interceptor, this may display as a generic error rather than redirecting to login.
+- **Long-lived tokens:** The 7-day expiration window is a trade-off — short enough to limit token theft exposure but long enough that users rarely need to re-login. However, if a token is stolen, the attacker has up to 7 days of access with no way to revoke it.
+
+## Revocation
+
+**No server-side JWT revocation mechanism currently exists.**
+
+- No blacklist or denylist table.
+- No `jti` (JWT ID) claim is included in tokens.
+- No token version or session ID tracked in the database.
+- No endpoint to invalidate a specific token.
+- Password changes do not invalidate existing JWTs (passwords are not part of the JWT or validation path).
+- Role changes are enforced on next DB lookup (or cache refresh), not by invalidating the JWT itself.
+
+### Which account changes are enforced and when
+
+| Change | Enforcement | Delay |
+|---|---|---|
+| User banned | `require_active_user` checks `status` from DB/cache | Up to 300s (cache TTL) |
+| User suspended | `require_active_user` checks `status` from DB/cache | Up to 300s (cache TTL) |
+| User deleted from DB | `get_current_user` returns 401 ("User not found") | Up to 300s (cache TTL) |
+| Role changed (e.g., admin → user) | `require_admin` checks `role` from DB/cache | Up to 300s (cache TTL) |
+| Password changed | No effect — JWT validation does not check password | JWT valid until `exp` |
+| Admin bans user | Status change enforced on next DB/cache lookup | Up to 300s (cache TTL) |
+
+### Known revocation gaps
+
+- A stolen token cannot be invalidated before expiration. The only mitigation is banning/suspending the user, which takes effect after cache expiry (up to 300s).
+- Password change does not invalidate active sessions. A user who changes their password (if such functionality is added) would still have their old JWT valid.
+- There is no "logout everywhere" capability.
+
+## Logout Behavior
+
+### Frontend logout
+
+- **Location:** `handleLogout` callback in `frontend/src/App.jsx` (line 78)
+- **Behavior:** Removes 5 `localStorage` keys:
+  - `access_token`
+  - `currentUserId`
+  - `currentUserName`
+  - `currentUserEmail`
+  - `currentUsername`
+- Sets `currentUser` state to `null`, which renders the login page.
+- **Also:** `clearAuthStorage()` in `frontend/src/components/AdminRoute.jsx` (line 12) removes 4 of these keys (all except `currentUsername`) when a 401 is received on admin route verification.
+
+### Backend logout
+
+- **No backend logout endpoint exists.** No `POST /auth/logout` or equivalent.
+- No server-side session is created at login, so there is nothing to invalidate server-side.
+
+### Cross-device/browser behavior
+
+- Logout on one device/browser has no effect on other devices/browsers. The JWT remains valid everywhere until `exp`.
+- There is no "logout all sessions" capability.
+
+### Supabase/Google session interaction
+
+- The application uses self-issued JWTs, not Supabase Auth sessions. Supabase is used as a database only (via PostgREST).
+- Google OAuth is used for identity verification at login time only. No persistent Google session is maintained by the application.
+- Logging out of the app does not revoke the Google OAuth grant. The user's Google account remains linked.
+
+## Frontend Token Storage
+
+### Storage location
+
+- **`localStorage`** under the key `access_token`.
+- **Evidence:** `frontend/src/api/auth.js` line 87: `localStorage.setItem('access_token', authData.access_token)`
+- Additional user metadata stored in `localStorage`: `currentUserId`, `currentUserName`, `currentUserEmail`, `currentUsername`.
+
+### Clear-on-logout behavior
+
+- Yes, `access_token` is removed on logout (`frontend/src/App.jsx` line 79).
+- All related user metadata keys are also removed.
+
+### API attachment behavior
+
+- Axios request interceptor in `frontend/src/api/client.js` (line 10) reads `access_token` from `localStorage` on every request.
+- Falls back to `authToken` and `token` keys for backwards compatibility (lines 16-18).
+- Attaches as `Authorization: Bearer <token>` header.
+
+### Security tradeoffs
+
+- **XSS risk:** `localStorage` is accessible to any JavaScript running on the same origin. If an XSS vulnerability exists, an attacker can read the JWT and use it from any device until expiration. This is a well-known trade-off for SPAs.
+- **No `httpOnly` cookie protection:** The token is not stored in an `httpOnly` cookie, so it cannot benefit from browser cookie protections against script access.
+- **CSRF:** Not applicable — the token is sent via `Authorization` header, not cookies, so CSRF attacks cannot attach it automatically.
+- **Persistence:** `localStorage` persists across browser restarts and tabs. The token survives until explicitly removed or `localStorage` is cleared.
+
+## Lifecycle Matrix
+
+| Stage | Current Behavior | Evidence | Risk | Status | Recommendation |
+|---|---|---|---|---|---|
+| Login | Three flows: password, Google OAuth, registration. All return JWT + user object | `backend/app/api/auth.py` lines 115, 166, 199 | None | PASS | — |
+| Token issuance | JWT with `sub`, `email`, `iat`, `exp`. HS256 signed. 7-day expiry | `backend/app/auth/jwt.py` lines 9-20 | Long-lived token increases theft window | ACCEPTABLE | Consider shorter expiry with refresh tokens |
+| Storage | `localStorage` under `access_token` | `frontend/src/api/auth.js` line 87 | XSS can steal token | KNOWN RISK | Document as accepted trade-off for SPA; consider `httpOnly` cookie in future |
+| API usage | Axios interceptor attaches `Bearer` token on every request | `frontend/src/api/client.js` lines 10-25 | Token sent on every request including to API | PASS | — |
+| Validation | JWT decode → user DB lookup (cached 300s) → status/role checks | `backend/app/auth/dependencies.py` lines 40-143 | Cache delays enforcement of status changes | ACCEPTABLE | Documented in ISSUE-093 |
+| Expiration | 7 days (configurable). Enforced by PyJWT. Returns 401 | `backend/app/auth/jwt.py` lines 28-32 | No global frontend 401 handler | GAP | Add global Axios 401 response interceptor |
+| Refresh | Does not exist. User must re-authenticate | No refresh code found anywhere | Abrupt session loss after 7 days | GAP | Implement refresh token flow or silent re-auth |
+| Revocation | Does not exist. No blacklist, no jti, no session table | No revocation code found anywhere | Stolen tokens valid until expiry; no "logout everywhere" | GAP | Implement token revocation for production |
+| Logout | Frontend-only: removes `localStorage` keys. No backend endpoint | `frontend/src/App.jsx` lines 78-85 | JWT still valid after logout; usable on other devices | GAP | Add backend logout or token revocation |
+| Role/status change | Enforced via DB lookup on next request (cached up to 300s) | `backend/app/auth/dependencies.py` lines 66-78, 117-131 | Delay window for ban/suspend/role enforcement | ACCEPTABLE | Consider cache invalidation on moderation actions |
+
+## Findings
+
+### JWT-094-001: No Refresh Token Mechanism
+
+- **ID:** JWT-094-001
+- **Severity:** P2 (Medium)
+- **Area:** Token Refresh
+- **Evidence:** No refresh token is issued in any login flow (`backend/app/api/auth.py`). No `/auth/refresh` endpoint exists. No frontend refresh logic exists.
+- **Problem:** When the JWT expires after 7 days, the user is silently logged out. The next API call fails with 401.
+- **Exploit/failure scenario:** A user in the middle of creating a game or submitting a field report loses their session without warning after 7 days. The frontend has no global 401 interceptor to redirect them to login gracefully.
+- **Impact:** Poor UX — users lose unsaved work when their session expires. Not a security vulnerability, but a usability gap.
+- **Recommendation:** Implement a refresh token mechanism with short-lived access tokens (e.g., 15-30 minutes) and longer-lived refresh tokens (e.g., 7-30 days). Alternatively, implement a global 401 interceptor that redirects to login.
+- **Suggested follow-up issue:** Create ISSUE for refresh token implementation.
+
+### JWT-094-002: No Server-Side Token Revocation
+
+- **ID:** JWT-094-002
+- **Severity:** P1 (High)
+- **Area:** Token Revocation
+- **Evidence:** No blacklist/denylist table, no `jti` claim (`backend/app/auth/jwt.py` lines 13-18), no token version in DB, no session tracking. The only enforcement is user status checks via `require_active_user` with cache delay.
+- **Problem:** Issued JWTs cannot be revoked before their 7-day expiration. If a token is compromised, there is no way to invalidate it short of banning the user account.
+- **Exploit/failure scenario:** Attacker steals a JWT from `localStorage` (via XSS or physical access). The token remains valid for up to 7 days. Even if the user logs out on their device, the stolen token continues to work. The user has no way to invalidate it. Banning the user account would also lock out the legitimate user.
+- **Impact:** A compromised token grants full access to the user's account for up to 7 days with no remediation path except account-level action.
+- **Recommendation:** For production: implement a `jti`-based token blacklist or session table. For MVP: document the risk and ensure the ban/suspend path is available as an emergency measure.
+- **Suggested follow-up issue:** Create ISSUE for server-side token revocation mechanism.
+
+### JWT-094-003: Logout Does Not Invalidate Token Server-Side
+
+- **ID:** JWT-094-003
+- **Severity:** P2 (Medium)
+- **Area:** Logout Behavior
+- **Evidence:** `handleLogout` in `frontend/src/App.jsx` (line 78) only removes `localStorage` keys. No backend `POST /auth/logout` endpoint exists. No server-side session or token record is created or destroyed.
+- **Problem:** Logging out only removes the token from the current browser. The JWT remains cryptographically valid and usable from any other client until expiration.
+- **Exploit/failure scenario:** User logs out of a shared/public computer but forgets to clear browser data. An attacker inspects browser history or dev tools, recovers the token from memory/storage, and uses it until expiration. Alternatively, a token copied before logout remains valid.
+- **Impact:** Logout provides a false sense of security. The user believes they are logged out, but their token is still usable.
+- **Recommendation:** Implement a backend logout endpoint that invalidates the token (requires JWT-094-002 first). At minimum, document that logout is local-only.
+- **Suggested follow-up issue:** Create ISSUE for backend logout endpoint (depends on token revocation).
+
+### JWT-094-004: No Global Frontend 401 Response Interceptor
+
+- **ID:** JWT-094-004
+- **Severity:** P2 (Medium)
+- **Area:** Frontend Token Expiration Handling
+- **Evidence:** `frontend/src/api/client.js` has only a request interceptor (lines 10-25). No `api.interceptors.response.use(...)` exists. The `AdminRoute` component handles 401 (line 49), but this is specific to admin verification, not global.
+- **Problem:** When a JWT expires, API calls fail with 401. Without a global response interceptor, these errors are handled (or not) by individual components, leading to inconsistent behavior — some may show error messages, others may silently fail.
+- **Exploit/failure scenario:** User's token expires while they are actively using the app. They attempt to join a game, and the request fails with an unhandled 401. The UI shows a generic error instead of redirecting to login.
+- **Impact:** Poor UX. Users see confusing error messages instead of a clear "session expired, please log in again" flow.
+- **Recommendation:** Add a global Axios response interceptor that detects 401 responses, clears auth storage, and redirects to login.
+- **Suggested follow-up issue:** Create ISSUE for global 401 interceptor.
+
+### JWT-094-005: JWT Stored in localStorage (XSS Risk)
+
+- **ID:** JWT-094-005
+- **Severity:** P2 (Medium)
+- **Area:** Frontend Token Storage
+- **Evidence:** `frontend/src/api/auth.js` line 87: `localStorage.setItem('access_token', authData.access_token)`. `frontend/src/api/client.js` line 16: `localStorage.getItem('access_token')`.
+- **Problem:** `localStorage` is accessible to any JavaScript running on the same origin. An XSS vulnerability would allow an attacker to exfiltrate the JWT and use it from any device.
+- **Exploit/failure scenario:** Attacker injects malicious JavaScript via an XSS vulnerability (e.g., through a field name or user-generated content). The script reads `localStorage.getItem('access_token')` and sends the token to an attacker-controlled server. The attacker uses the token for up to 7 days.
+- **Impact:** Combined with the 7-day expiration and no revocation, XSS + localStorage = full account takeover for a week.
+- **Recommendation:** This is a common and accepted trade-off for SPAs. Mitigate by: (1) preventing XSS through input sanitization and CSP, (2) shortening token lifetime with refresh tokens, (3) considering `httpOnly` cookie storage if architecture permits.
+- **Suggested follow-up issue:** Review XSS surface and CSP headers. Consider `httpOnly` cookie storage as a future enhancement.
+
+### JWT-094-006: Password Change Does Not Invalidate Existing JWTs
+
+- **ID:** JWT-094-006
+- **Severity:** P3 (Low)
+- **Area:** Token Revocation
+- **Evidence:** No password change endpoint currently exists in the API. If one is added in the future, the JWT validation path (`backend/app/auth/dependencies.py`) does not check password hash or password-change timestamp. The JWT contains only `sub` and `email`, not a password-derived claim.
+- **Problem:** If a password change feature is added, old JWTs would remain valid because password state is not part of the token or validation path.
+- **Exploit/failure scenario:** User suspects account compromise and changes password. Attacker's previously stolen JWT continues to work for up to 7 days.
+- **Impact:** Currently theoretical (no password change endpoint exists). Will become P1 if password change is implemented without token invalidation.
+- **Recommendation:** When implementing password change, also implement token invalidation (via `jti` blacklist or token version bump).
+- **Suggested follow-up issue:** Track as dependency for any password change feature.
+
+### JWT-094-007: Legacy Token Key Fallbacks in Frontend Client
+
+- **ID:** JWT-094-007
+- **Severity:** P3 (Low)
+- **Area:** Frontend Token Storage
+- **Evidence:** `frontend/src/api/client.js` lines 16-18: the request interceptor checks three `localStorage` keys in order: `access_token`, `authToken`, `token`.
+- **Problem:** Multiple fallback keys suggest migration from an older token storage scheme. If any code or browser extension writes to `authToken` or `token`, those values would be sent as Bearer tokens. This increases the attack surface marginally.
+- **Exploit/failure scenario:** An attacker (or a buggy browser extension) writes a value to `localStorage.authToken`. The Axios interceptor picks it up and sends it as the Authorization header, potentially leaking it to the backend.
+- **Impact:** Minor. The backend would reject an invalid token. However, the fallback keys could cause confusion during debugging.
+- **Recommendation:** Remove the `authToken` and `token` fallbacks once migration is confirmed complete. Standardize on `access_token` only.
+- **Suggested follow-up issue:** Clean up legacy token key fallbacks.
+
+## Positive Controls
+
+1. **Role and status are NOT embedded in the JWT.** The token contains only `sub` and `email`. Role and status are fetched from the database on every request (with caching). This means role changes and account moderation take effect without requiring token reissuance — only a cache refresh (up to 300s).
+
+2. **Expiration is enforced server-side.** `PyJWT` enforces the `exp` claim during `jwt.decode()`. Expired tokens are consistently rejected with 401 across all endpoints. Evidence: `backend/app/auth/jwt.py` lines 26-32.
+
+3. **Symmetric signing with configurable secret.** HS256 with a dedicated `JWT_SECRET` environment variable. The secret is required (no default value), so the application will not start without it.
+
+4. **Identity derived from JWT, not request body.** All endpoints extract user identity from the JWT `sub` claim. No endpoint trusts a `user_id` in the request body. Evidence: `backend/app/auth/dependencies.py` line 56.
+
+5. **User existence verified on every request.** Even with a valid JWT, `get_current_user` queries the database (or cache) for the user. If the user has been deleted, a 401 is returned. Evidence: `backend/app/auth/dependencies.py` lines 82-98.
+
+6. **Banned/suspended user enforcement.** `require_active_user` checks `status` and returns 403 for banned or suspended users. This provides a partial revocation mechanism — banning a user effectively revokes their access (after cache expiry). Evidence: `backend/app/auth/dependencies.py` lines 117-131.
+
+7. **Token type validation.** `get_current_user` checks that the credential scheme is `"bearer"` (line 44). Non-bearer schemes are rejected.
+
+8. **Registration does not embed role.** New users are created without a `role` field — the database default applies. No endpoint allows self-role-assignment. Evidence: `backend/app/api/auth.py` lines 179-186.
+
+9. **Google OAuth token verified server-side.** Google ID tokens are verified using `google.oauth2.id_token.verify_oauth2_token()` with the configured `GOOGLE_CLIENT_ID`. Evidence: `backend/app/auth/google.py` lines 104-109.
+
+10. **Login updates `last_login` timestamp.** All login flows call `_update_last_login()`, providing an audit trail. Evidence: `backend/app/api/auth.py` lines 85-112.
+
+## Missing Tests
+
+| Test | Area | Priority | Description |
+|---|---|---|---|
+| Expired JWT rejection | Backend | P1 | No test creates a JWT with a past `exp` and verifies that API endpoints return 401. The PyJWT library enforces this, but no application-level test confirms it. |
+| Malformed JWT rejection | Backend | P2 | No test sends a malformed/garbage string as a Bearer token and verifies 401. The `test_admin_endpoints_require_token` tests verify missing tokens, but not malformed ones. |
+| Token with wrong secret rejection | Backend | P2 | No test signs a JWT with a different secret and verifies rejection. |
+| Logout clears frontend token | Frontend | P2 | No frontend test verifies that clicking logout removes `access_token` from `localStorage`. |
+| Old token after logout remains valid | Backend | P2 | No test verifies that a JWT continues to work after frontend logout (documenting current behavior). |
+| Banned user with existing valid token | Backend | P2 | No test creates a valid JWT for a user, then bans the user, and verifies that subsequent requests with the same JWT return 403. Tests in `test_admin_me.py` test admin access but not the banned-user-with-valid-token scenario. |
+| Suspended user with existing valid token | Backend | P2 | Same as above for suspended status. |
+| Role changed user with existing token | Backend | P2 | No test creates a JWT for an admin user, then changes their role to "user", and verifies that admin endpoints return 403 with the same token (after cache expiry). |
+| Token with missing `sub` claim | Backend | P3 | No test verifies behavior when a valid JWT has no `sub` field. Code handles this (`if not user_id` → 401) but no test covers it. |
+| Admin token lifecycle (banned admin) | Backend | P2 | No test verifies that a banned admin's JWT is rejected. Documented in ISSUE-093 as AUTHZ-093-002. |
+| Expired token frontend handling | Frontend | P2 | No frontend test verifies UX when an API call returns 401 due to expired token. |
+
+## Required Follow-up Issues
+
+| Issue | Priority | Description |
+|---|---|---|
+| Add global Axios 401 response interceptor | P1 | Add `api.interceptors.response.use(...)` in `frontend/src/api/client.js` that detects 401 responses, clears auth storage, and redirects to login. Prevents confusing error messages when token expires. |
+| Add expired/malformed/wrong-secret JWT tests | P1 | Add backend tests in a dedicated `test_jwt_lifecycle.py` that verify: expired JWT → 401, malformed token → 401, wrong-secret token → 401, missing-sub token → 401. |
+| Implement refresh token mechanism | P2 | Issue short-lived access tokens (15-30 min) with longer-lived refresh tokens. Add `POST /auth/refresh` endpoint. Update frontend to use refresh flow. |
+| Implement server-side token revocation | P2 | Add `jti` claim to JWTs, create a `revoked_tokens` table or use token versioning in the users table. Add `POST /auth/logout` endpoint that revokes the current token. |
+| Add banned/suspended user with valid token tests | P2 | Add tests that verify a valid JWT for a banned/suspended user is rejected with 403 after cache expiry. |
+| Clean up legacy token key fallbacks | P3 | Remove `authToken` and `token` fallbacks from `frontend/src/api/client.js`. Standardize on `access_token` only. |
+| Review XSS surface and CSP headers | P3 | Audit user-generated content rendering for XSS. Review Content-Security-Policy headers. Document `localStorage` token storage as accepted risk. |
+
+## Final Lifecycle Decision
+
+### Is the current JWT lifecycle acceptable for MVP?
+
+**Yes, conditionally.** The JWT lifecycle is functional for MVP with the following caveats:
+
+- The 7-day expiration with no refresh means users will be logged out weekly, but this is acceptable for early usage.
+- The lack of token revocation is a known risk, mitigated by the ban/suspend mechanism with cache-delayed enforcement.
+- `localStorage` storage is the standard SPA approach and acceptable with proper XSS prevention.
+
+### Is the current JWT lifecycle acceptable for production?
+
+**No.** The following must be addressed before production:
+
+1. **P1: Global 401 interceptor** — Users currently get unhandled errors when tokens expire. This is a basic UX requirement.
+2. **P1: JWT lifecycle tests** — No tests cover expired, malformed, or wrong-secret tokens. This is a testing gap that could allow regressions.
+3. **P2: Token revocation** — Production systems need the ability to invalidate compromised tokens. The current system has no revocation path except banning the user.
+4. **P2: Refresh tokens** — 7-day non-refreshable tokens are too long for production security and too abrupt for UX when they expire.
+
+### What must be fixed before production?
+
+1. Add global frontend 401 response interceptor (P1)
+2. Add expired/malformed JWT rejection tests (P1)
+3. Implement token revocation mechanism (P2)
+4. Implement refresh token flow (P2)
+5. Fix `require_admin` to check user status (P1 — from ISSUE-093)
+
+## Acceptance Criteria
+
+The JWT lifecycle document exists in `docs/product-decisions.md`.
+
+## Definition of Done
+
+All lifecycle stages are defined: login, token issuance, storage, API usage, validation, expiration, refresh, revocation, logout, and role/status change.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-094 JWT token lifecycle review. |
+
