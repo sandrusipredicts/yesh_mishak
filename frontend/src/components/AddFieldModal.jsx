@@ -230,11 +230,18 @@ function AddFieldModal({ onClose, onCreated }) {
             </p>
           </div>
 
+          <p className="form-hint">{t('addField.locationHint')}</p>
+
           {error ? <p className="modal-error">{error}</p> : null}
 
-          <button className="primary-panel-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? t('addField.submitting') : t('addField.submit')}
-          </button>
+          <div className="field-report-actions">
+            <button className="secondary-modal-button" type="button" onClick={onClose} disabled={isSubmitting}>
+              {t('addField.cancel')}
+            </button>
+            <button className="primary-modal-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? t('addField.submitting') : t('addField.submit')}
+            </button>
+          </div>
         </form>
       </section>
     </div>

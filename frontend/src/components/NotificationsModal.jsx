@@ -455,6 +455,9 @@ function NotificationsModal({
                     disabled={!cityEnabled}
                     cities={israelCities}
                   />
+                  {cityEnabled && cityName.trim() && !israelCities.includes(cityName.trim()) ? (
+                    <span className="form-field-error">{t('notifications.cityInvalid')}</span>
+                  ) : null}
                 </div>
               </section>
 

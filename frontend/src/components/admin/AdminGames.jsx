@@ -101,6 +101,7 @@ function AdminGames() {
   const [loadError, setLoadError] = useState('')
   const [actionError, setActionError] = useState('')
   const [workingGameId, setWorkingGameId] = useState('')
+  const [closeConfirmGameId, setCloseConfirmGameId] = useState('')
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   async function loadGames() {
@@ -160,7 +161,12 @@ function AdminGames() {
     }
   }
 
+  function requestClose(gameId) {
+    setCloseConfirmGameId(gameId)
+  }
+
   async function handleClose(gameId) {
+    setCloseConfirmGameId('')
     setWorkingGameId(gameId)
     setActionError('')
 
@@ -194,7 +200,7 @@ function AdminGames() {
                 games={activeGames}
                 isActive
                 onExtend={handleExtend}
-                onClose={handleClose}
+                onClose={requestClose}
                 workingGameId={workingGameId}
                 locale={locale}
                 t={t}
@@ -219,6 +225,23 @@ function AdminGames() {
             )}
           </section>
         </>
+      ) : null}
+
+      {closeConfirmGameId ? (
+        <div className="confirm-modal-backdrop" role="presentation">
+          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="admin-close-confirm-title">
+            <h3 id="admin-close-confirm-title">{t('admin.adminCloseConfirmTitle')}</h3>
+            <p>{t('admin.adminCloseConfirm')}</p>
+            <div className="confirm-modal-actions">
+              <button type="button" className="secondary-modal-button" onClick={() => setCloseConfirmGameId('')}>
+                {t('admin.moderationCancelAction')}
+              </button>
+              <button type="button" className="danger-modal-button" onClick={() => handleClose(closeConfirmGameId)}>
+                {t('admin.adminCloseConfirmAction')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )

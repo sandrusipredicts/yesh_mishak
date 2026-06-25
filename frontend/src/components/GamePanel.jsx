@@ -103,6 +103,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
     isOpen: false,
@@ -208,10 +209,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
   }
 
   async function handleCloseGame() {
-    if (!window.confirm(t('game.closeConfirm'))) {
-      return
-    }
-
+    setShowCloseConfirm(false)
     setIsLoading(true)
     setError('')
     setSuccessMessage('')
@@ -356,13 +354,30 @@ function GamePanel({ game, currentUserId, onUpdate }) {
           <button
             type="button"
             className="danger-panel-button"
-            onClick={handleCloseGame}
+            onClick={() => setShowCloseConfirm(true)}
             disabled={cannotUseActiveControls}
           >
             {t('game.closeGame')}
           </button>
         ) : null}
       </div>
+
+      {showCloseConfirm ? (
+        <div className="confirm-modal-backdrop" role="presentation">
+          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="close-game-confirm-title">
+            <h3 id="close-game-confirm-title">{t('game.closeConfirmTitle')}</h3>
+            <p>{t('game.closeConfirm')}</p>
+            <div className="confirm-modal-actions">
+              <button type="button" className="secondary-modal-button" onClick={() => setShowCloseConfirm(false)}>
+                {t('field.cancel')}
+              </button>
+              <button type="button" className="danger-modal-button" onClick={handleCloseGame}>
+                {t('game.closeConfirmAction')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {successMessage ? <p className="panel-success">{successMessage}</p> : null}
       {error ? <p className="panel-error">{error}</p> : null}

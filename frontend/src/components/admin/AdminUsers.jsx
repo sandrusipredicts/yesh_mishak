@@ -21,6 +21,8 @@ function AdminUsers() {
   const [error, setError] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
   const [actionError, setActionError] = useState('')
+  const [moderationModal, setModerationModal] = useState(null)
+  const [moderationReason, setModerationReason] = useState('')
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -81,21 +83,18 @@ function AdminUsers() {
     }
   }, [t])
 
-  async function handleModeration(userId, action) {
-    let reason = ''
-
+  function requestModeration(userId, action) {
     if (action === 'ban' || action === 'suspend') {
-      reason = window.prompt(t('admin.moderationReasonPrompt'))
-      if (reason === null) {
-        return
-      }
-      reason = reason.trim()
-      if (!reason) {
-        setActionError(t('admin.moderationReasonRequired'))
-        return
-      }
+      setModerationModal({ userId, action })
+      setModerationReason('')
+      return
     }
 
+    executeModeration(userId, action, '')
+  }
+
+  async function executeModeration(userId, action, reason) {
+    setModerationModal(null)
     setActionLoading(userId)
     setActionError('')
 
@@ -117,6 +116,16 @@ function AdminUsers() {
     }
   }
 
+  function handleModerationConfirm() {
+    const trimmed = moderationReason.trim()
+    if (!trimmed) {
+      setActionError(t('admin.moderationReasonRequired'))
+      return
+    }
+
+    executeModeration(moderationModal.userId, moderationModal.action, trimmed)
+  }
+
   function renderActions(user) {
     if (user.role === 'admin') {
       return null
@@ -129,7 +138,7 @@ function AdminUsers() {
         <button
           className="admin-action-button unban"
           disabled={isUserLoading}
-          onClick={() => handleModeration(user.id, 'unban')}
+          onClick={() => requestModeration(user.id, 'unban')}
         >
           {isUserLoading ? t('admin.moderationLoading') : t('admin.unban')}
         </button>
@@ -141,7 +150,7 @@ function AdminUsers() {
         <button
           className="admin-action-button unsuspend"
           disabled={isUserLoading}
-          onClick={() => handleModeration(user.id, 'unsuspend')}
+          onClick={() => requestModeration(user.id, 'unsuspend')}
         >
           {isUserLoading ? t('admin.moderationLoading') : t('admin.unsuspend')}
         </button>
@@ -153,14 +162,14 @@ function AdminUsers() {
         <button
           className="admin-action-button ban"
           disabled={isUserLoading}
-          onClick={() => handleModeration(user.id, 'ban')}
+          onClick={() => requestModeration(user.id, 'ban')}
         >
           {t('admin.ban')}
         </button>
         <button
           className="admin-action-button suspend"
           disabled={isUserLoading}
-          onClick={() => handleModeration(user.id, 'suspend')}
+          onClick={() => requestModeration(user.id, 'suspend')}
         >
           {t('admin.suspend')}
         </button>
@@ -245,6 +254,40 @@ function AdminUsers() {
               })}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {moderationModal ? (
+        <div className="confirm-modal-backdrop" role="presentation">
+          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="moderation-confirm-title">
+            <h3 id="moderation-confirm-title">{t('admin.moderationConfirmTitle')}</h3>
+            <p>{t('admin.moderationReasonPrompt')}</p>
+            <label className="confirm-modal-label">
+              <span>{t('admin.moderationReasonLabel')}</span>
+              <textarea
+                value={moderationReason}
+                onChange={(event) => setModerationReason(event.target.value)}
+                rows={3}
+                autoFocus
+              />
+            </label>
+            <div className="confirm-modal-actions">
+              <button
+                type="button"
+                className="secondary-modal-button"
+                onClick={() => setModerationModal(null)}
+              >
+                {t('admin.moderationCancelAction')}
+              </button>
+              <button
+                type="button"
+                className="danger-modal-button"
+                onClick={handleModerationConfirm}
+              >
+                {t('admin.moderationConfirmAction')}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
