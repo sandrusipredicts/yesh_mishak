@@ -17980,3 +17980,66 @@ The environment inventory is stored in [docs/environment-inventory.md](file:///c
 * **Unknown details marked clearly**: YES
 * **Runtime behavior changed**: NO
 * **DB schema changed**: NO
+
+# ISSUE-113: Staging Environment Strategy
+
+## 1. Summary
+The staging environment strategy has been defined and documented. This is a decision and strategy task only — no infrastructure was provisioned, no runtime behavior was changed, and no database schema was modified.
+
+The strategy recommends a fully isolated staging environment with dedicated instances of every production component: frontend (Vercel), backend (Railway), database (Supabase), push notifications (Firebase/FCM), and authentication (Google OAuth). Staging must use synthetic test data only and must never contain production PII.
+
+## 2. Files Changed
+- `docs/staging-environment-strategy.md` — full staging strategy document (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Strategy Document Location
+The complete staging environment strategy is documented in [docs/staging-environment-strategy.md](docs/staging-environment-strategy.md).
+
+## 4. Final Staging Decision
+- **Staging required**: YES
+- **Strategy approved/documented**: YES
+
+## 5. Component Separation Decisions
+| Component | Separated? | Details |
+| :--- | :--- | :--- |
+| Frontend | YES | Dedicated Vercel staging deployment pointing to staging backend |
+| Backend | YES | Separate Railway service with staging environment variables |
+| Database / Supabase | YES | Completely separate Supabase project for staging |
+| Firebase / FCM | YES | Dedicated staging Firebase project to prevent notification spam to production users |
+| Google OAuth | YES | Separate Google OAuth client credentials with staging-specific authorized origins |
+| Test data | Synthetic only | Production PII copied to staging: **NO** |
+
+## 6. Risks / Tradeoffs
+- **Additional operational cost**: Separate Railway, Supabase, and Firebase projects increase infrastructure expenses (mitigated by free tiers initially).
+- **More environment management overhead**: DevOps must maintain and sync configurations across two deployment tracks.
+- **Risk of environment drift**: If changes are applied to production without staging validation, the environments diverge, leading to false confidence.
+- **Risk of fake confidence if staging differs from production**: Synthetic data may not replicate production-scale query performance or edge cases.
+- **Risk of sharing production DB**: Schema migrations or staging tests could corrupt production data. Decision: **do not share**.
+- **Risk of sharing Firebase/FCM with production**: Staging test dispatches could send notification spam to production users. Decision: **do not share**.
+- **Risk of OAuth/CORS misconfiguration**: Mismatched client IDs or redirect origins cause login failures or cross-environment redirects. Decision: **fully separate credentials**.
+- **Risk of stale staging test data**: Synthetic data may become outdated relative to production patterns. Mitigation: periodic re-seeding and stress testing.
+
+## 7. Follow-Up Implementation Issues
+| Issue | Title | Priority |
+| :--- | :--- | :--- |
+| ISSUE-126 | Create staging backend service on Railway | P1 |
+| ISSUE-127 | Create staging frontend environment on Vercel | P1 |
+| ISSUE-128 | Create staging Supabase project | P1 |
+| ISSUE-129 | Create staging Firebase/FCM project | P2 |
+| ISSUE-130 | Configure staging Google OAuth client/origins | P2 |
+| ISSUE-131 | Add staging seed/test data process | P2 |
+| ISSUE-132 | Configure staging deployment branching rules | P2 |
+| — | Add staging smoke-test checklist | P2 |
+| — | Add environment variable validation for staging | P2 |
+| — | Add staging deployment verification checklist | P2 |
+
+## 8. Final Result
+- **Staging strategy documented**: YES
+- **Staging required**: YES
+- **Frontend separation documented**: YES
+- **Backend separation documented**: YES
+- **Database separation documented**: YES
+- **Firebase/FCM separation documented**: YES
+- **Google OAuth separation documented**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
