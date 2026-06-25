@@ -14554,3 +14554,235 @@ Every finding from this repository-based audit is documented with:
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-092 authentication security audit report. |
 
+---
+
+# ISSUE-093: Authorization Security Audit
+
+**Date:** 2026-06-25
+**Status:** COMPLETE
+**Type:** Security Audit (documentation only — no code changes)
+**Priority:** P0
+
+## Scope
+
+This audit examines authorization enforcement across the yesh_mishak backend. Authorization means: once a user is authenticated, can they only perform actions they are allowed to perform? This covers:
+
+1. **Close Game** — only the game creator can close their own game
+2. **Extend Game** — only the game creator can extend their own game
+3. **Admin Routes** — only users with `role: "admin"` can access admin endpoints
+4. **Field Approval** — users cannot self-approve fields; only admins can approve/reject
+5. **User Management** — moderation actions (ban/suspend/unban/unsuspend) are admin-only
+
+Out of scope: authentication (covered in ISSUE-092), RLS policies, Supabase dashboard access, frontend-only restrictions.
+
+## Authorization Model Observed
+
+The backend uses three FastAPI dependency functions in `backend/app/auth/dependencies.py`:
+
+| Dependency | What It Checks | Used By |
+|---|---|---|
+| `get_current_user` (line 40) | Validates JWT, extracts `sub` as user_id, looks up user in DB (with TTL cache), returns `{id, email, name, role, status}` | Base dependency for all auth |
+| `require_active_user` (line 117) | Depends on `get_current_user`. Rejects users with `status: "banned"` or `status: "suspended"` (403) | Game endpoints, field creation, notifications, field reports |
+| `require_admin` (line 134) | Depends on `get_current_user` **directly** (NOT `require_active_user`). Checks `role == "admin"` | All `/admin/*` endpoints |
+
+**Key observation:** `require_admin` bypasses the active-user status check. A banned or suspended admin retains full admin access.
+
+Identity is always derived from the JWT `sub` claim, never from request body parameters. The `bearer_scheme` uses `auto_error=False`, returning `None` when no token is present (caught by `get_current_user` with 401).
+
+## Endpoint/Feature Review Matrix
+
+### Game Mutation Endpoints (`backend/app/routers/games.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `POST /games` (create, line 142) | Active user | `require_active_user` | Sets `created_by: current_user["id"]` from JWT | None | PASS |
+| `POST /games/{id}/join` (line 470) | Active user | `require_active_user` | Any active user can join; no ownership needed | None | PASS |
+| `POST /games/{id}/leave` (line 534) | Active user + is member | `require_active_user` + membership check | Checks current user is a game member before removing | None | PASS |
+| `POST /games/{id}/close` (line 568) | Active user + game creator | `require_active_user` + `created_by == current_user["id"]` | Ownership verified from DB, not request body. Returns 403 for non-creators | None | PASS |
+| `POST /games/{id}/extend` (line 653) | Active user + game creator | `require_active_user` + `created_by == current_user["id"]` | Same ownership pattern as close | None | PASS |
+| `POST /games/{id}/cancel` (line 695) | Active user + game creator | `require_active_user` + `created_by == current_user["id"]` | Ownership verified before using service_role client for update | None | PASS |
+| `GET /games/active` (line 349) | None (public) | No auth | Intentionally public — map viewing | None | PASS |
+| `GET /games/upcoming` (line 366) | None (public) | No auth | Intentionally public — upcoming games list | None | PASS |
+| `GET /games/my` (line 385) | Active user | `require_active_user` | Scoped to `current_user["id"]` | None | PASS |
+
+### Admin Endpoints (`backend/app/api/admin.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `GET /admin/me` (line 129) | Admin | `require_admin` | Returns current admin user dict | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/users` (line 139) | Admin | `require_admin` | Returns user list with selected columns only | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/users/{id}/ban` (line 256) | Admin | `require_admin` + admin-target protection | `_perform_moderation_action` blocks moderating other admins, writes audit log | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/users/{id}/unban` (line 265) | Admin | `require_admin` + admin-target protection | Same pattern as ban | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/users/{id}/suspend` (line 274) | Admin | `require_admin` + admin-target protection | Same pattern | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/users/{id}/unsuspend` (line 283) | Admin | `require_admin` + admin-target protection | Same pattern | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/field-reports` (line 348) | Admin | `require_admin` | Read-only listing | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `PATCH /admin/field-reports/{id}/status` (line 373) | Admin | `require_admin` | Status transition validation, sets `reviewed_by` from current user | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/stats` (line 410) | Admin | `require_admin` | Aggregate counts only | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/fields` (line 425) | Admin | `require_admin` | Read-only listing | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/fields/pending` (line 437) | Admin | `require_admin` | Filtered listing | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/fields/{id}/approve` (line 450) | Admin | `require_admin` | Sets `approval_status: "approved"`, `verified: True` | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/fields/{id}/reject` (line 460) | Admin | `require_admin` | Sets `approval_status: "rejected"`, `verified: False` | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `PATCH /admin/fields/{id}/status` (line 470) | Admin | `require_admin` | Only changes `status` (open/closed/renovation), not `approval_status` | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/fields/duplicates` (line 479) | Admin | `require_admin` | Read-only | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/games` (line 579) | Admin | `require_admin` | Read-only listing with filters | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/games/{id}/close` (line 711) | Admin | `require_admin` (no ownership check — admin privilege) | Admin can close any game | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/games/{id}/extend` (line 765) | Admin | `require_admin` (no ownership check — admin privilege) | Admin can extend any game | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/games/{id}/cancel` (line 819) | Admin | `require_admin` (no ownership check — admin privilege) | Admin can cancel any game | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/reminders/run` (line 603) | Admin | `require_admin` | Triggers scheduled job | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `POST /admin/notifications/cleanup` (line 657) | Admin | `require_admin` | Triggers cleanup job | See AUTHZ-093-001 | CONDITIONAL PASS |
+| `GET /admin/monitoring` (line 921) | Admin | `require_admin` | System health data, no sensitive strings | See AUTHZ-093-001 | CONDITIONAL PASS |
+
+### Field Endpoints (`backend/app/routers/fields.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `GET /fields` (line 78) | None (public) | No auth | Intentionally public for map. Only returns `verified=True` or `approval_status IN (approved, open)` fields | None | PASS |
+| `GET /fields/{id}` (line 134) | None (public) | No auth | Intentionally public — single field detail | None | PASS |
+| `POST /fields` (line 152) | Active user | `require_active_user` | Hard-codes `verified: False`, `approval_status: "pending"`. User cannot self-approve | None | PASS |
+| `PATCH /fields/{id}/status` (line 196) | Admin | `require_admin` | Only updates `status` field (open/closed/renovation), NOT `approval_status` or `verified` | See AUTHZ-093-001 | CONDITIONAL PASS |
+
+### Notification Endpoints (`backend/app/routers/notifications.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `GET /notifications` (line 940) | Active user | `require_active_user` + scoped to `authenticated_user_id` | Cross-user access impossible | None | PASS |
+| `GET /notifications/unread/count` (line 954) | Active user | `require_active_user` + scoped to `authenticated_user_id` | Cross-user access impossible | None | PASS |
+| `PATCH /notifications/{id}/read` (line 1157) | Active user + ownership | `require_active_user` + filters by BOTH `id` AND `user_id` | Cannot mark another user's notification as read | None | PASS |
+| `PATCH /notifications/read-all` (line 1119) | Active user | `require_active_user` + scoped to `authenticated_user_id` | Only affects own notifications | None | PASS |
+| `POST /notifications/push-token` (line 982) | Active user | `require_active_user` + sets `user_id` from JWT | Cannot register token for another user | None | PASS |
+| `DELETE /notifications/push-token` (line 1021) | Active user | `require_active_user` + filters by `user_id` AND `token` | Cannot delete another user's token | None | PASS |
+| `PUT /notifications/preferences` (line 1352) | Active user | `require_active_user` + uses `current_user["id"]` | Cannot modify another user's preferences | None | PASS |
+| `GET /notifications/preferences` (line 1193) | Active user | `require_active_user` + scoped to `current_user["id"]` | Cannot read another user's preferences | None | PASS |
+| `GET /admin/notification-candidates` (line 1422) | Admin | `require_admin` | Admin-only diagnostic endpoint | See AUTHZ-093-001 | CONDITIONAL PASS |
+
+### Field Report Endpoints (`backend/app/routers/field_reports.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `POST /fields/{id}/reports` (line 71) | Active user | `require_active_user` | Sets `user_id: current_user["id"]` from JWT, not from request body | None | PASS |
+
+### Auth Endpoints (`backend/app/api/auth.py`)
+
+| Endpoint | Required Authorization | Current Enforcement | Evidence | Risk | Status |
+|---|---|---|---|---|---|
+| `POST /auth/register` | None (public) | No auth | Does NOT set `role` — DB default applies. No way to self-elevate to admin | None | PASS |
+| `POST /auth/login` | None (public) | No auth | Returns JWT on valid credentials | None | PASS |
+| `POST /auth/google` | None (public) | No auth | Google OAuth flow | None | PASS |
+| `GET /auth/check-username` | None (public) | No auth | Read-only availability check | None | PASS |
+| `GET /auth/check-email` | None (public) | No auth | Read-only availability check | None | PASS |
+
+## Findings
+
+### AUTHZ-093-001: `require_admin` Does Not Check User Status (Banned/Suspended Admin Retains Full Access)
+
+- **ID:** AUTHZ-093-001
+- **Severity:** P1 (High)
+- **Area:** Admin Authorization
+- **Evidence:** `backend/app/auth/dependencies.py` line 134: `require_admin` depends on `get_current_user` (line 40), NOT `require_active_user` (line 117). The `require_active_user` dependency checks `status == "banned"` and `status == "suspended"` and returns 403. The `require_admin` dependency only checks `role == "admin"` and does not inspect `status` at all.
+- **Exploit Scenario:** Admin user is banned via `/admin/users/{id}/ban`. The admin-target protection in `_perform_moderation_action` (line 174) prevents banning admins with `role: "admin"`, but if the admin's status is changed directly in the database (e.g., by a superadmin or DB operator), or if the admin-target protection is bypassed in future code changes, that banned admin can still call ALL 22+ admin endpoints. They could unban themselves, ban other users, approve/reject fields, close/cancel/extend any game, and access monitoring data.
+- **Impact:** A banned or suspended admin retains full administrative privileges. The ban/suspend moderation action is ineffective for admin-role users at the API level.
+- **Mitigating Factor:** The `_perform_moderation_action` function (line 174) currently prevents moderating admin users (`target_user["role"] == "admin"` check returns 403), so under the current code a banned admin status can only be set via direct database access. This reduces the practical likelihood but does not eliminate the architectural gap.
+- **Status:** OPEN — authorization gap confirmed in code
+- **Recommendation:** Change `require_admin` to depend on `require_active_user` instead of `get_current_user`. This is a one-line change: `def require_admin(current_user: dict[str, Any] = Depends(require_active_user))`. This ensures banned/suspended admins are rejected before the role check runs.
+- **Follow-up:** Create implementation issue to fix `require_admin` dependency chain.
+
+### AUTHZ-093-002: No Test Coverage for Banned/Suspended Admin Access to Admin Routes
+
+- **ID:** AUTHZ-093-002
+- **Severity:** P2 (Medium)
+- **Area:** Test Coverage Gap
+- **Evidence:** `backend/tests/test_admin_me.py` tests admin vs. regular user access and unauthenticated access for all admin endpoints (lines 209-269). However, no test creates an admin user with `status: "banned"` or `status: "suspended"` and verifies that admin endpoints reject them.
+- **Exploit Scenario:** If AUTHZ-093-001 is fixed, a regression could re-introduce the gap without a test to catch it.
+- **Impact:** The authorization gap in AUTHZ-093-001 has no automated regression protection.
+- **Status:** OPEN — test gap confirmed
+- **Recommendation:** Add parameterized tests that create admin users with `status: "banned"` and `status: "suspended"` and verify all admin endpoints return 403.
+- **Follow-up:** Add tests as part of the AUTHZ-093-001 implementation fix.
+
+### AUTHZ-093-003: TTL Cache May Delay Status Change Enforcement
+
+- **ID:** AUTHZ-093-003
+- **Severity:** P2 (Medium)
+- **Area:** Authorization Enforcement Timing
+- **Evidence:** `backend/app/auth/dependencies.py` lines 22-37: `_get_cached_user` / `_set_cached_user` use an in-process TTL cache with a 300-second default (`auth_user_cache_ttl_seconds`). When an admin bans/suspends a user, the cached user dict (which includes `status`) is NOT invalidated. The banned user continues to pass `require_active_user` checks until their cache entry expires (up to 5 minutes).
+- **Exploit Scenario:** Admin bans a malicious user. The malicious user's existing JWT + cached user record allows continued access for up to 300 seconds. During this window they can close/extend/cancel their own games, create fields, submit reports, etc.
+- **Impact:** Moderation actions have a delayed enforcement window of up to 5 minutes. This is a trade-off accepted for performance (ISSUE-084) but should be documented as a known limitation.
+- **Mitigating Factor:** The cache is in-process; a server restart clears it. The 300s TTL is configurable via environment variable. This was a deliberate performance decision.
+- **Status:** KNOWN LIMITATION — accepted trade-off from ISSUE-084
+- **Recommendation:** Document the enforcement delay in operational runbooks. Consider adding cache invalidation on moderation actions as a future enhancement if the delay proves problematic in practice.
+- **Follow-up:** No immediate action required; accepted as part of performance optimization. Consider cache-busting on ban/suspend in a future issue if needed.
+
+## Positive Controls
+
+The following authorization patterns are correctly implemented and represent good security practices:
+
+1. **Identity from JWT, not request body:** All endpoints that need the current user's identity extract it from the JWT `sub` claim via `get_current_user`. No endpoint trusts a `user_id` sent in the request body. Verified in: `close_game`, `extend_game`, `cancel_game`, `create_game`, `create_field`, `create_field_report`, `save_push_token`, `mark_notification_read`.
+
+2. **Ownership checks on game mutations:** `close_game` (line 568), `extend_game` (line 653), and `cancel_game` (line 695) all verify `game["created_by"] == current_user["id"]` from the database before allowing the action. Comprehensive test coverage exists in `backend/tests/test_game_creator_ownership.py`.
+
+3. **Hard-coded field creation defaults:** `create_field` (line 152) hard-codes `verified: False` and `approval_status: "pending"` regardless of what the request body contains. Users cannot self-approve fields.
+
+4. **Notification scoping:** All notification endpoints scope queries to `authenticated_user_id` derived from JWT. `mark_notification_read` (line 1157) uses a compound filter (`eq("id", notification_id)` AND `eq("user_id", authenticated_user_id)`) preventing cross-user notification manipulation.
+
+5. **Admin-target protection:** `_perform_moderation_action` (line 174) prevents admin users from being banned/suspended by other admins via the API, with audit logging to `user_moderation_audit` table.
+
+6. **Consistent admin gate:** All 22+ admin endpoints use `Depends(require_admin)` without exception. No admin endpoint accidentally uses `require_active_user` or `get_current_user` alone.
+
+7. **Admin user list column selection:** `GET /admin/users` (line 139) selects only specific columns (`id, username, name, email, phone_number, created_at, last_active, role, status, restriction_reason, restricted_at`), preventing leakage of sensitive fields like `google_sub`, `picture`, or password hashes.
+
+8. **Service-role client usage after authorization:** `cancel_game` (line 695) uses `get_supabase_service_role_client()` for the database update, but only AFTER verifying ownership with the regular client. The elevated privilege is not used to bypass authorization checks.
+
+9. **Registration does not set role:** `POST /auth/register` does not accept or set a `role` field. The role defaults to whatever the database column default is (presumably `"user"`). There is no API endpoint for users to change their own role.
+
+10. **Monitoring endpoint sanitization:** `GET /admin/monitoring` returns system health data without exposing sensitive strings (API keys, JWTs, emails, tokens). Verified by test `test_monitoring_no_sensitive_data` (line 1132).
+
+## Gaps / Missing Tests
+
+| Gap | Severity | Description |
+|---|---|---|
+| Banned/suspended admin test | P2 | No test verifies that a banned/suspended admin user is rejected from admin endpoints. Needed to prevent regression if AUTHZ-093-001 is fixed. |
+| Cache invalidation on moderation | P3 | No mechanism to invalidate the user TTL cache when a user is banned/suspended. Moderation enforcement is delayed by up to 300 seconds. |
+| Admin self-demotion test | P3 | No test verifies what happens if an admin tries to change their own role. Currently no endpoint exists for this, but no test guards against one being added. |
+| Cross-user game close/extend/cancel integration test | P3 | Unit tests exist in `test_game_creator_ownership.py`, but no integration test with real Supabase verifies the ownership check against actual database state. |
+
+## Required Follow-up Issues
+
+| Issue | Priority | Description |
+|---|---|---|
+| Fix `require_admin` to depend on `require_active_user` | P1 | One-line change in `backend/app/auth/dependencies.py` line 134: change `Depends(get_current_user)` to `Depends(require_active_user)`. Add tests for banned/suspended admin rejection. |
+| Add banned/suspended admin test coverage | P2 | Add parameterized tests in `test_admin_me.py` that verify all admin endpoints reject admins with `status: "banned"` and `status: "suspended"`. |
+| Document cache enforcement delay | P3 | Add operational documentation noting that user bans/suspensions take up to `auth_user_cache_ttl_seconds` (default 300s) to take effect due to the in-process TTL cache. |
+
+## Final Audit Result
+
+**Result: CONDITIONAL PASS**
+
+Authorization enforcement is fundamentally sound across the application. All user-facing endpoints correctly derive identity from JWT, enforce ownership where required, and prevent cross-user access. The admin role gate is consistently applied to all admin endpoints.
+
+One P1 authorization gap was found: `require_admin` does not check user status, meaning a banned or suspended admin retains full admin access. This is mitigated by the fact that the current API prevents banning admin users (admin-target protection), but the architectural gap exists and should be closed.
+
+The system can continue operating in its current state because the mitigating control (admin-target protection) prevents the P1 gap from being exploitable through normal API usage. However, the fix (changing one dependency in `require_admin`) is trivial and should be prioritized.
+
+All other authorization controls passed the audit. Game ownership checks, field approval restrictions, notification scoping, and user management protections are correctly implemented with appropriate test coverage.
+
+## Acceptance Criteria
+
+The authorization security audit report exists in `docs/product-decisions.md`.
+
+## Definition of Done
+
+Every finding from this repository-based audit is documented with:
+
+- area
+- severity
+- status
+- evidence
+- risk/exploit scenario
+- recommendation
+- follow-up decision
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-093 authorization security audit report. |
+
