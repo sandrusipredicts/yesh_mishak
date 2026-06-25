@@ -18044,6 +18044,73 @@ The complete staging environment strategy is documented in [docs/staging-environ
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
 
+# ISSUE-114: Implement Staging Environment
+
+## 1. Summary
+Staging environment implementation was prepared at the repository level. All environment variable templates, setup instructions, verification checklists, and manual dashboard provisioning steps are documented.
+
+This is a preparation and documentation task. No external staging services were provisioned because Vercel, Railway, Supabase, Firebase, and Google Cloud dashboard access is required for those steps. The staging status is **PREPARED / WAITING FOR EXTERNAL DASHBOARD SETUP**.
+
+## 2. Files Changed
+- `docs/staging-setup.md` — comprehensive staging setup and configuration guide (created)
+- `docs/staging-smoke-test-checklist.md` — staging verification checklist (created)
+- `frontend/.env.staging.example` — frontend staging environment variable template (created)
+- `backend/.env.staging.example` — backend staging environment variable template (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. What Was Implemented / Prepared
+- **Frontend staging env template**: `frontend/.env.staging.example` with all required `VITE_*` variables and placeholder values.
+- **Backend staging env template**: `backend/.env.staging.example` with all required backend variables and placeholder values. Variable names match actual repository usage (`SUPABASE_KEY`, not `SUPABASE_ANON_KEY`).
+- **Staging setup guide**: `docs/staging-setup.md` covering architecture, setup steps for all 5 external services, environment variable tables, CORS configuration, rollback procedures, and verification flow.
+- **Smoke test checklist**: `docs/staging-smoke-test-checklist.md` with 11 test areas including push notification safety verification and a pass/fail signoff table.
+
+## 4. What Requires External Dashboard Setup
+| Service | Action Required | Dashboard |
+| :--- | :--- | :--- |
+| Vercel | Create staging project/environment, set env vars | Vercel Dashboard |
+| Railway | Create staging service, set env vars, deploy | Railway Dashboard |
+| Supabase | Create staging project, apply schema, seed data | Supabase Dashboard |
+| Firebase | Create staging project, generate service account key | Firebase Console |
+| Google OAuth | Create staging client ID, add staging origins | Google Cloud Console |
+
+## 5. Staging Status
+**PREPARED / WAITING FOR EXTERNAL DASHBOARD SETUP**
+
+Repository-level preparation is complete. External service provisioning is required before staging goes live.
+
+## 6. Environment Isolation Decisions
+- Separate frontend deployment: YES (Vercel staging environment)
+- Separate backend service: YES (Railway staging service)
+- Separate database: YES (dedicated Supabase staging project)
+- Separate Firebase/FCM: YES (dedicated Firebase staging project)
+- Separate Google OAuth: YES (staging client ID with staging-specific origins)
+- Synthetic test data only: YES
+- Production PII in staging: NO (forbidden)
+- Production secrets in staging: NO (each service gets its own staging credentials)
+
+## 7. Verification Checklist Location
+[docs/staging-smoke-test-checklist.md](docs/staging-smoke-test-checklist.md)
+
+## 8. Known Gaps / Blockers
+- No external staging services have been provisioned (requires dashboard access).
+- Staging database seed script is a future task (ISSUE-131).
+- GitHub `staging` branch protection rules are a future task (ISSUE-132).
+- Staging is not live until all external services are provisioned and verified.
+
+## 9. Final Result
+- **Staging setup document exists**: YES
+- **Frontend staging prepared**: PARTIAL (env template ready, Vercel setup pending)
+- **Backend staging prepared**: PARTIAL (env template ready, Railway setup pending)
+- **Separate DB required**: YES
+- **Separate Firebase required**: YES
+- **Separate OAuth required**: YES
+- **Manual dashboard steps documented**: YES
+- **Staging env example files created**: YES
+- **Smoke test checklist created**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
+- **Staging live**: NO (waiting for external dashboard setup)
+
 # ISSUE-115: Release Versioning Policy
 
 ## 1. Summary
