@@ -16486,3 +16486,139 @@ The official brute force protection strategy is approved:
 
 No runtime behavior changed in this issue. The next implementation step is a dedicated issue to implement progressive login delay according to this policy.
 
+# ISSUE-101: Brute Force Protection Implementation
+
+## Summary
+
+Implemented MVP brute-force protection for password login by adding backend progressive delay for repeated failed `POST /auth/login` attempts.
+
+This implementation slows abnormal login attempts that stay under ISSUE-099 request-rate limits. It does not lock accounts, does not add CAPTCHA, does not change password hashing, does not change JWT lifecycle, and does not rely on frontend controls.
+
+## Strategy Source
+
+ISSUE-100 selected progressive delay as the preferred next brute-force protection after ISSUE-099 rate limiting.
+
+The implementation follows that strategy:
+
+- Keep ISSUE-099 rate limiting as the primary defense.
+- Add progressive delay for repeated failed password login attempts.
+- Preserve generic login failure responses.
+- Avoid hard account lockout for MVP.
+- Keep CAPTCHA as future escalation only.
+
+## Implemented Behavior
+
+Progressive delay now applies only to failed password login attempts on `POST /auth/login`.
+
+Delay schedule:
+
+| Failed attempt count for any applicable key | Delay |
+|---------------------------------------------|-------|
+| 1-5 | 0 seconds |
+| 6 | 2 seconds |
+| 7 | 5 seconds |
+| 8 | 10 seconds |
+| 9+ | 30 seconds |
+
+Policy details:
+
+- Max delay: 30 seconds.
+- Failure window: 15 minutes.
+- Tracking keys:
+  - client IP
+  - normalized login identifier
+  - client IP + normalized login identifier
+- Delay is calculated from the highest applicable key count.
+- Successful password login resets failure state for the relevant tracking keys.
+- Unknown and known usernames use the same generic failure response.
+- Existing ISSUE-099 rate limiting remains active and still returns HTTP 429 before Supabase lookup or bcrypt verification when exceeded.
+- No hard lockout is implemented.
+- No CAPTCHA is implemented.
+
+## Implementation Details
+
+Files changed:
+
+| File | Change |
+|------|--------|
+| `backend/app/brute_force.py` | Added process-local brute-force failure tracker, delay schedule, tracking key helpers, injectable clock/sleep hooks, and reset helpers. |
+| `backend/app/api/auth.py` | Wired progressive delay into password login failures and reset state on successful password login. |
+| `backend/tests/conftest.py` | Added brute-force state reset and no-op test sleep isolation. |
+| `backend/tests/test_brute_force_protection.py` | Added focused brute-force protection tests. |
+| `docs/product-decisions.md` | Added ISSUE-101 implementation documentation. |
+
+Storage mechanism:
+
+- MVP storage is process-local in memory.
+- State is not distributed across backend processes or instances.
+- State resets on process restart.
+- Redis or another shared store is required before multi-instance production use.
+
+Testability:
+
+- The brute-force protector supports injectable `sleep` and `clock` functions.
+- Tests use mocked/no-op sleep so no test waits for real seconds.
+- Tests reset brute-force and rate-limit state between test cases.
+
+Response behavior:
+
+- The invalid login response remains unchanged:
+  - `401`
+  - `AUTH_INVALID`
+  - `Invalid username or password`
+- Failure counters and delay state are not exposed to clients.
+- New delay logging avoids plaintext passwords and raw identifiers.
+
+## Security Behavior
+
+Security properties:
+
+- Generic login failure response is preserved.
+- Known and unknown usernames are tracked using the same key strategy.
+- The implementation avoids hard account lockout and therefore avoids a simple attacker-driven account denial-of-service path.
+- ISSUE-099 rate limiting remains the first-line control for high-volume abuse.
+- Progressive delay slows repeated failures that remain under the rate limit.
+
+Limitations:
+
+- In-memory state is not shared across multiple backend instances.
+- IP tracking uses the ASGI client IP and does not trust spoofable forwarded headers without a trusted proxy configuration.
+- Distributed attacks can still spread attempts across IPs and instances.
+- No CAPTCHA escalation exists yet.
+- No dedicated telemetry/alerting exists yet beyond logs and tests.
+
+## Tests Added
+
+Added `backend/tests/test_brute_force_protection.py` covering:
+
+1. Repeated failed login attempts increase progressive delay.
+2. Delay starts only after the configured threshold.
+3. Delay is capped at 30 seconds.
+4. Successful login resets failure state.
+5. Unknown username and known username use the same generic failure response.
+6. Unknown username failures contribute to brute-force tracking.
+7. IP-based failures affect later attempts from the same IP.
+8. Identifier-based failures affect attempts for the same normalized identifier.
+9. Different identifiers do not incorrectly share identifier-specific counters.
+10. Different IPs do not incorrectly share IP-specific counters.
+11. ISSUE-099 rate limiting still returns 429 when exceeded.
+12. Progressive delay does not bypass rate limiting.
+13. No hard lockout occurs after many failures.
+14. Delay tests use mocked sleep, not real sleep.
+15. New brute-force logging does not include plaintext credentials or raw identifiers.
+
+## Remaining Follow-ups
+
+Recommended follow-up work:
+
+1. Move brute-force state to Redis/shared storage before multi-instance production.
+2. Add brute-force telemetry and alerting.
+3. Tune delay schedule using real traffic and abuse data.
+4. Add CAPTCHA escalation only after abuse threshold and provider/privacy/accessibility review.
+5. Evaluate account lockout only after telemetry proves it is needed and safe recovery flows exist.
+6. Add production runbook guidance for brute-force events.
+
+## Final Result
+
+Abnormal password login attempts are now handled for MVP by backend progressive delay. The implementation slows repeated failures, preserves generic login responses, avoids hard lockout, avoids CAPTCHA, and keeps ISSUE-099 rate limiting intact.
+

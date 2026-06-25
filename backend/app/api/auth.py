@@ -9,6 +9,7 @@ from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
+from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
 from app.rate_limit import check_rate_limit_by_ip
@@ -228,6 +229,19 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
 
     user = _get_user_by_column("username", payload.username)
     if not user or not verify_password(payload.password, user.get("password_hash")):
+        delay_seconds = record_failed_login_and_delay(request, payload.username)
+        if delay_seconds > 0:
+            logger.warning(
+                "password login progressive delay applied",
+                extra={
+                    "event": "auth.login.progressive_delay",
+                    "auth_method": "password",
+                    "endpoint": "/auth/login",
+                    "method": "POST",
+                    "delay_seconds": delay_seconds,
+                    "result": "delayed",
+                },
+            )
         logger.warning(
             "password login failed",
             extra={
@@ -246,6 +260,7 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
             message="Invalid username or password",
         )
 
+    reset_failed_login_state(request, payload.username)
     _update_last_login(str(user["id"]), attempt_id="password")
     token_response = _create_token_response(user)
     logger.info(
