@@ -19464,3 +19464,118 @@ Create a focused mobile remediation issue for the Registration screen findings a
 - Render field-specific registration errors where possible.
 - Increase shared auth tab touch targets to at least 44px.
 - Verify Register mode on real Android and iPhone devices with native keyboards.
+
+---
+
+# ISSUE-129: Perform Map Screen Mobile Audit
+
+## Date
+
+2026-06-25
+
+## Context
+
+The Map screen is the central authenticated app screen. ISSUE-129 audited Map mobile compatibility against the ISSUE-126 mobile audit plan.
+
+This was an audit/documentation task only. No frontend, backend, database, schema, runtime, or configuration behavior was changed.
+
+## Dependency Verification
+
+- `docs/mobile-audit-plan.md` exists: YES
+- `docs/product-decisions.md` contains `ISSUE-126: Create Complete Mobile Audit Plan`: YES
+- ISSUE-126 was used as the audit standard: YES
+- `docs/mobile-login-screen-audit.md` exists and was reviewed for format consistency: YES
+- `docs/mobile-registration-screen-audit.md` exists and was reviewed for format consistency: YES
+- EPIC 02 status remains NOT COMPLETE.
+- AUTH-001 remains open and remains the production blocker.
+
+## Scope
+
+- Screen audited: Map
+- Device classes audited:
+  - Small Android: 360x640
+  - Large Android: 412x915
+  - Small iPhone: 375x667
+  - Large iPhone: 428x926
+- Validation areas audited:
+  - Map Controls
+  - Zoom Controls
+  - Marker Selection
+  - Field Selection
+  - Bottom Sheets
+  - Location Button
+- Out of scope:
+  - Implementing fixes
+  - Backend/API changes
+  - Database/schema/config changes
+  - Production mobile release approval
+
+## Work Completed
+
+- Reviewed the ISSUE-126 mobile audit plan.
+- Reviewed ISSUE-127 and ISSUE-128 audit documents for format consistency.
+- Reviewed Map screen implementation, field markers, field details panel, game panel, add-field modal, notification modals, API field loading, CSS, package scripts, and Playwright setup.
+- Ran the local Vite frontend.
+- Used browser/mobile emulation to measure the Map screen across all four required mobile device classes.
+- Tested mocked authenticated Map state with mocked fields, notifications, unread count, geolocation success, and geolocation denial.
+- Tested marker selection, Leaflet zoom controls, location button, field details panel, close behavior, and add-field modal sizing.
+- Documented all findings in `docs/mobile-map-screen-audit.md`.
+
+## Files Changed
+
+- `docs/mobile-map-screen-audit.md` — new Map screen mobile audit report
+- `docs/product-decisions.md` — ISSUE-129 decision record
+
+## Device Classes Audited
+
+| Device Class | Viewport | Result |
+| :--- | :--- | :--- |
+| Small Android | 360x640 | FAIL |
+| Large Android | 412x915 | PASS WITH FINDINGS |
+| Small iPhone | 375x667 | FAIL |
+| Large iPhone | 428x926 | PASS WITH FINDINGS |
+
+## Validation Areas Audited
+
+| Area | Result | Summary |
+| :--- | :--- | :--- |
+| Map Controls | PASS WITH FINDINGS | Map and floating controls render; safe-area spacing should be improved. |
+| Zoom Controls | PASS WITH FINDINGS | Zoom works in emulation, but controls are only 30x30. |
+| Marker Selection | PASS WITH FINDINGS | Markers are 54x54 and selectable, but nearby markers overlap and selected state is not persistent on the marker. |
+| Field Selection | FAIL on short screens | Field details opens, but close button is above viewport on Small Android and Small iPhone. |
+| Bottom Sheets | FAIL on short screens | Field details panel can trap users on short screens; add-field modal is scrollable. |
+| Location Button | PASS WITH FINDINGS | Works after geolocation success; denied/unavailable location has no user-facing message or retry path. |
+
+## Findings Summary
+
+| Finding ID | Severity | Summary | Blocking |
+| :--- | :--- | :--- | :--- |
+| ML-MAP-001 | P1 | Field details bottom sheet close button is above the viewport on Small Android and Small iPhone, trapping users. | YES |
+| ML-MAP-002 | P2 | Leaflet zoom controls are 30x30, below the 44x44 mobile touch target target. | NO |
+| ML-MAP-003 | P2 | Geolocation denied/unavailable state has no user-facing message or recovery path. | NO |
+| ML-MAP-004 | P2 | Nearby markers overlap, making precise mobile selection harder. | NO |
+| ML-MAP-005 | P3 | Selected marker state is not visibly persistent on the marker itself. | NO |
+| ML-MAP-006 | P3 | Bottom controls and modals lack explicit safe-area-aware spacing. | NO |
+
+## Final Audit Decision
+
+**FAIL**
+
+The Map screen has a blocking mobile usability issue on short required device classes. The field-details panel can trap users because the close button is above the visible viewport and normal tapping fails.
+
+## Gate Status
+
+- Mobile production remains blocked by AUTH-001.
+- This audit does not mark EPIC 02 complete.
+- This audit does not authorize mobile production release.
+
+## Next Recommended Issue
+
+Create a focused mobile remediation issue for the Map screen findings:
+
+- Fix the field-details bottom sheet trap on short mobile viewports.
+- Add internal scrolling and sticky visible close/action header to field details.
+- Increase or replace mobile zoom controls.
+- Add geolocation denied/unavailable messaging and retry guidance.
+- Add a mobile strategy for dense marker selection.
+- Add safe-area-aware spacing for bottom floating controls and modal/bottom-sheet layouts.
