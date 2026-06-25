@@ -20589,3 +20589,170 @@ Implemented 12 findings fully, 1 partially, and deferred 1:
 
 ## Definition of Done Confirmation
 All 14 FUMOB findings reviewed. 12 resolved, 1 partially resolved, 1 deferred. All forms reviewed. Build and lint pass. Implementation documented in `docs/mobile-form-usability-implementation.md`. Decision record appended.
+
+
+---
+
+# ISSUE-144: Mobile Modal Usability Audit
+
+## Summary
+- **Date**: 2026-06-25
+- **Branch**: `issue-144-mobile-modal-usability-audit`
+- **Scope**: All modal dialogs, panels, confirmation dialogs, and modal-like overlays in the frontend
+- **Overall result**: PARTIAL -- most modals handle mobile width and overflow correctly; key gaps are missing body-scroll locking, field-details-panel height overflow, and inconsistent keyboard-safe layout
+- **Number of modals reviewed**: 11
+- **Findings by severity**: P0: 0, P1: 3, P2: 5, P3: 3, Total: 11
+
+## Modal Inventory
+
+| Modal / Component | File | Flow | Has Inputs | Mobile Risk |
+| :--- | :--- | :--- | :--- | :--- |
+| OpenGameModal | `OpenGameModal.jsx` | Field Details > Open Game | Yes (radio, select, number, text, date, time) | Medium |
+| AddFieldModal | `AddFieldModal.jsx` | Map toolbar > Add Field | Yes (text, select, checkbox, map) | High |
+| FieldReportModal | `FieldReportModal.jsx` | Field Details > Report | Yes (select, textarea) | Low |
+| NotificationsModal | `NotificationsModal.jsx` | Map toolbar > Notification Preferences | Yes (checkbox, range, city autocomplete) | Medium |
+| NotificationInboxModal | `NotificationInboxModal.jsx` | Map toolbar > Notification Inbox | No (buttons only) | Low |
+| FieldDetailsPanel | `FieldDetailsPanel.jsx` | Map marker tap | No (buttons only) | Medium-High |
+| NavigationModal | `FieldDetailsPanel.jsx` (inline) | Field Details > Navigate | No (buttons only) | Low |
+| GamePanel close confirm | `GamePanel.jsx` | Game Details > Close Game | No | Low |
+| Admin moderation modal | `admin/AdminUsers.jsx` | Admin > Ban/Suspend | Yes (textarea) | Low |
+| Admin close-game confirm | `admin/AdminGames.jsx` | Admin > Close Game | No | Low |
+| LoginPanel | `LoginPage.jsx` | App entry | Yes (text, email, tel, password) | Medium |
+
+## Findings
+
+| ID | Severity | Component | Problem |
+| :--- | :--- | :--- | :--- |
+| MODAL-MOBILE-001 | P1 | All modals | No body scroll locking -- page behind modal scrolls via touch |
+| MODAL-MOBILE-002 | P1 | FieldDetailsPanel | No max-height or overflow-y on mobile -- content can overflow viewport |
+| MODAL-MOBILE-003 | P1 | AddFieldModal | Map (220px) + 8 fields makes modal extremely tall; submit unreachable with keyboard open on 667px screens |
+| MODAL-MOBILE-004 | P2 | OpenGameModal | Submit button requires scrolling when keyboard is open in future-game mode |
+| MODAL-MOBILE-005 | P2 | NotificationsModal, NotificationInboxModal | Nested scroll regions (.notifications-list at 420px inside scrollable modal) create confusing double-scroll on mobile |
+| MODAL-MOBILE-006 | P2 | LoginPanel (Register) | Registration form (6+ fields) exceeds viewport with keyboard open; page scrolls but submit not pinned |
+| MODAL-MOBILE-007 | P2 | FieldDetailsPanel child modals | Modals opened from panel stack visually (panel z-1100, modal z-1200); panel remains mounted and tab-reachable behind modal |
+| MODAL-MOBILE-008 | P2 | Confirm modals (all 3) | No max-height on .confirm-modal -- safe for current content but risky if textarea grows |
+| MODAL-MOBILE-009 | P3 | NavigationModal | min(340px, 100%) width may be tight on 320px viewport with safe-area padding |
+| MODAL-MOBILE-010 | P3 | All modals | Backdrop opacity inconsistent: modal-backdrop uses 0.28, confirm-modal-backdrop uses 0.4 |
+| MODAL-MOBILE-011 | P3 | All modals | No Escape-to-close keyboard handler on any modal |
+
+## Detailed Findings
+
+### MODAL-MOBILE-001: No body scroll locking (P1)
+
+**Affects**: All modals and dialogs
+**Evidence**: No `overflow: hidden` set on `body` or `html` when any modal opens. `modal-backdrop` does not call `preventDefault` on touch events. Searched codebase for `body.style.overflow`, `scroll-lock`, `useScrollLock` -- none found.
+**Impact**: On mobile, if a user touches the backdrop area and drags, the map behind the modal scrolls/pans. This is disorienting and can cause accidental map interactions.
+**Recommendation**: Create a shared `useBodyScrollLock()` hook that sets `overflow: hidden` on `document.body` on mount and restores on unmount. Apply to all components rendering `.modal-backdrop` or `.confirm-modal-backdrop`.
+
+### MODAL-MOBILE-002: FieldDetailsPanel has no mobile height constraint (P1)
+
+**Affects**: FieldDetailsPanel
+**Evidence**: Desktop CSS (line 679 in App.css): `position: absolute; bottom: 20px; width: min(360px, calc(100% - 40px))` -- no max-height, no overflow-y. Mobile override (line 2373): `bottom: 0; width: 100%; border-radius: 12px 12px 0 0; padding-bottom: calc(20px + var(--safe-area-bottom))` -- still no max-height or overflow-y.
+**Impact**: When a field has an active game with a participants list, upcoming games, and action buttons, the panel content can exceed the viewport height on mobile. Content grows upward from the bottom, potentially pushing the close button off-screen.
+**Recommendation**: Add to the mobile media query: `.field-details-panel { max-height: calc(80dvh); overflow-y: auto; }`.
+
+### MODAL-MOBILE-003: AddFieldModal is excessively tall on mobile (P1)
+
+**Affects**: AddFieldModal
+**Evidence**: `.add-field-modal` has `max-height: min(760px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)))` and `overflow: auto`. The form contains: field name input + sport type select + surface type input + has nets checkbox + has water checkbox + opening hours input + notes input + 220px fixed-height map + location hint + cancel/submit buttons. The 220px `.location-picker-map` alone consumes 33% of a 667px viewport.
+**Impact**: With the soft keyboard open (~300px visible), the submit button requires extensive scrolling. The map dominates the viewport, leaving little room for the input the user is actively editing.
+**Recommendation**: Reduce map height on mobile (e.g., `@media (max-width: 640px) { .location-picker-map { height: 160px; } }`) or make it collapsible. Ensure submit is always reachable.
+
+### MODAL-MOBILE-004: OpenGameModal submit requires scroll with keyboard (P2)
+
+**Affects**: OpenGameModal
+**Evidence**: `.open-game-modal` has `max-height: min(600px, calc(100dvh - 40px - ...))` with `overflow-y: auto`. In future-game mode, the form adds date and time inputs to the existing sport type select + players present + max players + age note + submit button. On 667px with keyboard open (~300px visible), the submit button scrolls out of view.
+**Impact**: User must dismiss keyboard or scroll to find submit. Functional but not ideal.
+**Recommendation**: Consider a sticky submit button on mobile, or reduce form gap.
+
+### MODAL-MOBILE-005: Nested scroll in notifications modals (P2)
+
+**Affects**: NotificationsModal, NotificationInboxModal
+**Evidence**: Both use `.notifications-modal` class with `max-height: min(720px, calc(100dvh - ...)); overflow: auto`. Inside, `.notifications-list` has its own `max-height: 420px; overflow: auto`. On a 667px viewport, the 420px inner scroll region takes most of the available modal height, creating a nested scroll situation.
+**Impact**: Users may not realize they are scrolling the inner list vs. the outer modal. Touch scrolling can feel unpredictable.
+**Recommendation**: Add a mobile override: `.notifications-list { max-height: min(220px, 40dvh); }` (similar to the existing `.field-selection-list` override at line 2438).
+
+### MODAL-MOBILE-006: LoginPanel registration form height (P2)
+
+**Affects**: LoginPage (registration tab)
+**Evidence**: Registration form has 6 fields (username, full name, email, phone, password, confirm password) + password hint + submit button + divider + Google button. `.login-page` uses `min-height: 100dvh; overflow-y: auto`. `.login-panel` at `min(420px, 100%)` has no max-height.
+**Impact**: On 375x667 with keyboard open, the form exceeds the visible area. The entire page scrolls rather than just the form. Submit button is below the fold.
+**Recommendation**: Acceptable given full-page layout. Could benefit from scroll-into-view on input focus in a future enhancement.
+
+### MODAL-MOBILE-007: FieldDetailsPanel child modal stacking (P2)
+
+**Affects**: OpenGameModal, FieldReportModal when opened from FieldDetailsPanel
+**Evidence**: FieldDetailsPanel renders at z-index 1100 (`position: absolute`). Child modals (OpenGameModal, FieldReportModal) use `.modal-backdrop` at z-index 1200, which visually covers the panel. However, the panel remains mounted in the DOM and its interactive elements are still tab-reachable via keyboard.
+**Impact**: On narrow screens, the panel may peek through on sides. Keyboard users can tab into the covered panel.
+**Recommendation**: Consider hiding/disabling panel content when a child modal is open, or implement a focus trap within the modal.
+
+### MODAL-MOBILE-008: Confirm modals have no max-height (P2)
+
+**Affects**: GamePanel close confirm, Admin moderation modal (with textarea), Admin close-game confirm
+**Evidence**: `.confirm-modal` (line 2310 in App.css) has `width: min(360px, 100%); border-radius: 8px; padding: 22px; background: white` -- no max-height, no overflow.
+**Impact**: Currently safe because content is short. However, the admin moderation modal has a textarea with `resize: vertical` -- if a user drags it tall enough, the modal can exceed viewport height with no scroll mechanism.
+**Recommendation**: Add `max-height: min(400px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom))); overflow-y: auto;` to `.confirm-modal`.
+
+### MODAL-MOBILE-009: NavigationModal tight on 320px (P3)
+
+**Affects**: NavigationModal
+**Evidence**: `.navigation-modal` (line 944 in App.css) uses `width: min(340px, 100%); padding: 22px`. On a 320px viewport with 20px backdrop padding on each side, inner modal width is 280px minus 44px padding = 236px for content.
+**Impact**: Button text may be tight. However, 320px is an extreme edge case (iPhone SE 1st gen).
+**Recommendation**: No action needed unless 320px is officially supported.
+
+### MODAL-MOBILE-010: Inconsistent backdrop opacity (P3)
+
+**Affects**: All modals
+**Evidence**: `.modal-backdrop` (line 921): `background: rgba(15, 23, 42, 0.28)`. `.confirm-modal-backdrop` (line 2300): `background: rgba(15, 23, 42, 0.4)`. Two different opacity values for the same visual pattern.
+**Impact**: On bright map backgrounds, the lighter 0.28 opacity may make modal edges harder to distinguish. Confirm modals appear more visually prominent than primary modals.
+**Recommendation**: Standardize to 0.4 for all backdrops.
+
+### MODAL-MOBILE-011: No Escape-to-close on any modal (P3)
+
+**Affects**: All modals and dialogs
+**Evidence**: No `onKeyDown` handler checking for Escape key in any modal component. Searched for `Escape`, `keydown`, `onKeyDown` in modal files -- none found.
+**Impact**: Primarily affects accessibility: screen reader users, external keyboard users (iPad with keyboard, Android with Bluetooth keyboard). Less impactful for touch-only mobile users.
+**Recommendation**: Add Escape key handler to all modal containers. Could be part of a shared `<Modal>` component or a `useEscapeKey` hook.
+
+## Cross-Cutting Problems
+
+### 1. No shared Modal primitive
+Each modal re-implements its own backdrop + container + close button + aria attributes. This leads to inconsistencies in z-index values (1100, 1200, 1300), max-height strategies, padding calculations, safe-area handling, close behavior, and scroll locking (none implemented). A shared `<Modal>` component would fix MODAL-MOBILE-001, MODAL-MOBILE-011, and prevent future inconsistencies.
+
+### 2. Consistent patterns that work well
+- All true modals use `100dvh` (not `100vh`) for height calculations -- correct for mobile Safari
+- All true modals use safe-area CSS variables (`--safe-area-top`, `--safe-area-bottom`) -- correct for notched devices
+- All true modals use `min(Npx, 100%)` for responsive width -- good pattern
+- All true modals use `display: grid; place-items: center` on backdrop -- correct centering
+- Close buttons use consistent `.modal-close-button` positioning (top: 12px, inset-inline-end: 12px)
+- Inputs use `font-size: 16px` on mobile to prevent iOS auto-zoom (ISSUE-139)
+
+### 3. Z-index stacking model
+| Layer | z-index | Components |
+| :--- | :--- | :--- |
+| FieldDetailsPanel | 1100 | Field details, navigation modal |
+| Primary modals | 1200 | OpenGameModal, AddFieldModal, FieldReportModal, NotificationsModal, NotificationInboxModal |
+| Confirm dialogs | 1300 | GamePanel close confirm, Admin moderation, Admin close-game confirm |
+
+This model works correctly: confirm dialogs overlay primary modals, which overlay the field details panel. No conflicts observed.
+
+## Recommended Follow-Up Issues
+
+1. **Add body scroll lock to all modals** (P1) -- Create `useBodyScrollLock` hook, apply to all modal-backdrop and confirm-modal-backdrop components. Fixes MODAL-MOBILE-001.
+2. **Fix FieldDetailsPanel mobile height overflow** (P1) -- Add max-height and overflow-y: auto to mobile CSS. Fixes MODAL-MOBILE-002.
+3. **Reduce AddFieldModal map height on mobile** (P1) -- Reduce .location-picker-map from 220px to 160px on mobile, or make it collapsible. Fixes MODAL-MOBILE-003.
+4. **Fix nested scroll in notification modals** (P2) -- Add mobile max-height override for .notifications-list. Fixes MODAL-MOBILE-005.
+5. **Add max-height safety to confirm modals** (P2) -- Add max-height and overflow to .confirm-modal. Fixes MODAL-MOBILE-008.
+6. **Add Escape-to-close for all modals** (P3) -- Add keyboard Escape handler. Fixes MODAL-MOBILE-011.
+7. **Standardize backdrop opacity** (P3) -- Unify to 0.4 for all backdrops. Fixes MODAL-MOBILE-010.
+8. **Create shared Modal component** (P3) -- Extract reusable `<Modal>` handling backdrop, scroll lock, Escape, max-height, safe areas, focus trapping. Addresses duplicated patterns across 8+ components.
+
+## Validation
+- `git diff --check` -- no whitespace errors expected (documentation only)
+- `npm run build` -- no build impact (documentation only)
+- `npm run lint` -- no lint impact (documentation only)
+- No CSS, component, or runtime changes made
+- Modal discovery: Glob for *Modal* files, Grep for role="dialog", modal-backdrop, position:fixed, z-index patterns, overflow patterns
+
+## Definition of Done Confirmation
+All 11 modal-like components reviewed. 11 findings documented (MODAL-MOBILE-001 through MODAL-MOBILE-011) with severity P1-P3. Cross-cutting problems identified. Prioritized follow-up issue list created. No runtime changes made. Documentation appended to product-decisions.md.
