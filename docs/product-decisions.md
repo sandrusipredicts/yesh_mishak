@@ -19243,3 +19243,108 @@ Created a comprehensive mobile audit plan document at docs/mobile-audit-plan.md 
 - Runtime behavior changed: NO
 - Database schema changed: NO
 - Secrets committed: NO
+
+---
+
+# ISSUE-127: Perform Login Screen Mobile Audit
+
+## Date
+
+2026-06-25
+
+## Context
+
+The Login screen is one of the first screens a user sees. ISSUE-127 audited the Login screen against the mobile audit standard created in ISSUE-126.
+
+This was an audit/documentation task only. No frontend, backend, database, schema, runtime, or configuration behavior was changed.
+
+## Dependency Verification
+
+- `docs/mobile-audit-plan.md` exists: YES
+- `docs/product-decisions.md` contains `ISSUE-126: Create Complete Mobile Audit Plan`: YES
+- ISSUE-126 was used as the audit standard: YES
+- EPIC 02 status remains NOT COMPLETE.
+- AUTH-001 remains open and remains the production blocker.
+
+## Scope
+
+- Screen audited: Login
+- Included states: Login mode, Register mode present on the Login screen, local Google script failure error state, simulated password login failure error state
+- Device classes audited:
+  - Small Android: 360x640
+  - Large Android: 412x915
+  - Small iPhone: 375x667
+  - Large iPhone: 428x926
+- Validation areas audited:
+  - Layout
+  - Keyboard
+  - Overflow
+  - Button Accessibility
+  - Error Messages
+- Out of scope:
+  - Implementing fixes
+  - Auth/security remediation
+  - Production mobile release approval
+
+## Work Completed
+
+- Reviewed the ISSUE-126 mobile audit plan.
+- Reviewed Login/Auth frontend implementation, routing behavior, CSS, i18n files, package scripts, and Playwright setup.
+- Ran the local Vite frontend.
+- Used browser/mobile emulation to measure the Login screen across all four required mobile device classes.
+- Tested Hebrew/RTL Login layout.
+- Tested focus behavior for Login and Register fields.
+- Tested simulated password login error layout.
+- Documented all findings in `docs/mobile-login-screen-audit.md`.
+
+## Files Changed
+
+- `docs/mobile-login-screen-audit.md` — new Login screen mobile audit report
+- `docs/product-decisions.md` — ISSUE-127 decision record
+
+## Device Classes Audited
+
+| Device Class | Viewport | Result |
+| :--- | :--- | :--- |
+| Small Android | 360x640 | PASS WITH FINDINGS |
+| Large Android | 412x915 | PASS |
+| Small iPhone | 375x667 | PASS WITH FINDINGS |
+| Large iPhone | 428x926 | PASS |
+
+## Validation Areas Audited
+
+| Area | Result | Summary |
+| :--- | :--- | :--- |
+| Layout | PASS WITH FINDINGS | Login mode fits on all devices; Register mode is taller than short viewports. |
+| Keyboard | PASS WITH FINDINGS | Login submit remains visible when username is focused; Register submit is below viewport on short devices. |
+| Overflow | PASS WITH FINDINGS | No horizontal overflow found; Register mode scrolls vertically on short devices. |
+| Button Accessibility | PASS WITH FINDINGS | Sign in button is 45px tall; tabs are 41px tall; real Google-rendered button was not verified because external script failed locally. |
+| Error Messages | PASS | Google load failure and simulated password login failure messages were readable and did not break layout. |
+
+## Findings Summary
+
+| Finding ID | Severity | Summary | Blocking |
+| :--- | :--- | :--- | :--- |
+| ML-LOGIN-001 | P2 | Register mode submit button is below the viewport on Small Android and Small iPhone when the first field is focused. | NO |
+| ML-LOGIN-002 | P3 | Login/Register tab buttons are slightly below the 44px touch target target. | NO |
+| ML-LOGIN-003 | P3 | Actual Google-rendered button could not be verified in local audit because the Google Identity script did not load. | NO |
+
+## Final Audit Decision
+
+**PASS WITH FINDINGS**
+
+No Login screen mobile blocker was identified during this audit. The Login screen is acceptable for mobile planning purposes with the documented non-blocking findings.
+
+## Gate Status
+
+- Mobile production remains blocked by AUTH-001.
+- This audit does not mark EPIC 02 complete.
+- This audit does not authorize mobile production release.
+
+## Next Recommended Issue
+
+Create a focused mobile remediation issue for the Login screen findings after AUTH-001 is prioritized:
+
+- Improve Register mode small-screen keyboard ergonomics.
+- Increase Login/Register tab touch targets to at least 44px.
+- Add a controlled Google button test/mocking path and run a real staging OAuth smoke test after AUTH-001 is remediated.
