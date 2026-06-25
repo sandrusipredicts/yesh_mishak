@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import Modal from '../Modal'
+
 import { adminCloseGame, adminExtendGame, getAdminGames } from '../../api/admin'
 
 function GamesTable({ games, isActive, onExtend, onClose, workingGameId, locale, t }) {
@@ -227,22 +229,23 @@ function AdminGames() {
         </>
       ) : null}
 
-      {closeConfirmGameId ? (
-        <div className="confirm-modal-backdrop" role="presentation">
-          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="admin-close-confirm-title">
-            <h3 id="admin-close-confirm-title">{t('admin.adminCloseConfirmTitle')}</h3>
-            <p>{t('admin.adminCloseConfirm')}</p>
-            <div className="confirm-modal-actions">
-              <button type="button" className="secondary-modal-button" onClick={() => setCloseConfirmGameId('')}>
-                {t('admin.moderationCancelAction')}
-              </button>
-              <button type="button" className="danger-modal-button" onClick={() => handleClose(closeConfirmGameId)}>
-                {t('admin.adminCloseConfirmAction')}
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={!!closeConfirmGameId}
+        onClose={() => setCloseConfirmGameId('')}
+        isConfirm={true}
+        ariaLabelledBy="admin-close-confirm-title"
+      >
+        <h3 id="admin-close-confirm-title">{t('admin.adminCloseConfirmTitle')}</h3>
+        <p>{t('admin.adminCloseConfirm')}</p>
+        <div className="confirm-modal-actions">
+          <button type="button" className="secondary-modal-button" onClick={() => setCloseConfirmGameId('')}>
+            {t('admin.moderationCancelAction')}
+          </button>
+          <button type="button" className="danger-modal-button" onClick={() => handleClose(closeConfirmGameId)}>
+            {t('admin.adminCloseConfirmAction')}
+          </button>
         </div>
-      ) : null}
+      </Modal>
     </div>
   )
 }

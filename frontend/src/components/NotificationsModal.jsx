@@ -12,6 +12,7 @@ import { israelCities } from '../data/israelCities'
 import { requestFirebasePushToken } from '../firebaseMessaging'
 import CityAutocomplete from './CityAutocomplete'
 import LanguageSwitcher from './LanguageSwitcher'
+import Modal from './Modal'
 
 const DEFAULT_CITY = 'ירוחם'
 const DEFAULT_RADIUS_KM = 5
@@ -363,18 +364,13 @@ function NotificationsModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="notifications-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="notification-preferences-title"
-      >
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
-          x
-        </button>
-
-        <h2 id="notification-preferences-title">{t('notifications.preferencesTitle')}</h2>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      className="notifications-modal"
+      ariaLabelledBy="notification-preferences-title"
+    >
+      <h2 id="notification-preferences-title">{t('notifications.preferencesTitle')}</h2>
 
         {isLoading ? (
           <p className="settings-loading">{t('notifications.loadingPreferences')}</p>
@@ -499,8 +495,7 @@ function NotificationsModal({
             </form>
           </>
         )}
-      </section>
-    </div>
+    </Modal>
   )
 }
 

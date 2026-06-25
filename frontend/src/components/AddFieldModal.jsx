@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import L from 'leaflet'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
+import Modal from './Modal'
+
 import { createField } from '../api/fields'
 import { getApiErrorMessage } from '../api/errors'
 
@@ -128,13 +130,13 @@ function AddFieldModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="add-field-modal" role="dialog" aria-modal="true" aria-labelledby="add-field-title">
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
-          x
-        </button>
-
-        <h2 id="add-field-title">{t('addField.title')}</h2>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      className="add-field-modal"
+      ariaLabelledBy="add-field-title"
+    >
+      <h2 id="add-field-title">{t('addField.title')}</h2>
 
         <form className="add-field-form" onSubmit={handleSubmit}>
           <label>
@@ -243,8 +245,7 @@ function AddFieldModal({ onClose, onCreated }) {
             </button>
           </div>
         </form>
-      </section>
-    </div>
+    </Modal>
   )
 }
 

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import Modal from './Modal'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
@@ -362,22 +364,23 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         ) : null}
       </div>
 
-      {showCloseConfirm ? (
-        <div className="confirm-modal-backdrop" role="presentation">
-          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="close-game-confirm-title">
-            <h3 id="close-game-confirm-title">{t('game.closeConfirmTitle')}</h3>
-            <p>{t('game.closeConfirm')}</p>
-            <div className="confirm-modal-actions">
-              <button type="button" className="secondary-modal-button" onClick={() => setShowCloseConfirm(false)}>
-                {t('field.cancel')}
-              </button>
-              <button type="button" className="danger-modal-button" onClick={handleCloseGame}>
-                {t('game.closeConfirmAction')}
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showCloseConfirm}
+        onClose={() => setShowCloseConfirm(false)}
+        isConfirm={true}
+        ariaLabelledBy="close-game-confirm-title"
+      >
+        <h3 id="close-game-confirm-title">{t('game.closeConfirmTitle')}</h3>
+        <p>{t('game.closeConfirm')}</p>
+        <div className="confirm-modal-actions">
+          <button type="button" className="secondary-modal-button" onClick={() => setShowCloseConfirm(false)}>
+            {t('field.cancel')}
+          </button>
+          <button type="button" className="danger-modal-button" onClick={handleCloseGame}>
+            {t('game.closeConfirmAction')}
+          </button>
         </div>
-      ) : null}
+      </Modal>
 
       {successMessage ? <p className="panel-success">{successMessage}</p> : null}
       {error ? <p className="panel-error">{error}</p> : null}

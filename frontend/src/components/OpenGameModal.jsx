@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import Modal from './Modal'
+
 import { createGame } from '../api/games'
 
 function getErrorMessage(error, t) {
@@ -104,13 +106,13 @@ function OpenGameModal({ field, onClose, onCreated }) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="open-game-modal" role="dialog" aria-modal="true" aria-labelledby="open-game-title">
-        <button className="modal-close-button" type="button" onClick={onClose} aria-label={t('field.close')}>
-          x
-        </button>
-
-        <h2 id="open-game-title">{t('openGame.title')}</h2>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      className="open-game-modal"
+      ariaLabelledBy="open-game-title"
+    >
+      <h2 id="open-game-title">{t('openGame.title')}</h2>
 
         <form className="open-game-form" onSubmit={handleSubmit}>
           <div className="schedule-mode-options" role="radiogroup" aria-label={t('openGame.timing')}>
@@ -223,8 +225,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
             {isSubmitting ? t('openGame.opening') : t('openGame.title')}
           </button>
         </form>
-      </section>
-    </div>
+    </Modal>
   )
 }
 

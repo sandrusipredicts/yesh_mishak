@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import Modal from '../Modal'
+
 import { banUser, getAdminUsers, suspendUser, unbanUser, unsuspendUser } from '../../api/admin'
 
 function matchesSearch(user, normalizedSearch) {
@@ -257,39 +259,40 @@ function AdminUsers() {
         </div>
       ) : null}
 
-      {moderationModal ? (
-        <div className="confirm-modal-backdrop" role="presentation">
-          <div className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="moderation-confirm-title">
-            <h3 id="moderation-confirm-title">{t('admin.moderationConfirmTitle')}</h3>
-            <p>{t('admin.moderationReasonPrompt')}</p>
-            <label className="confirm-modal-label">
-              <span>{t('admin.moderationReasonLabel')}</span>
-              <textarea
-                value={moderationReason}
-                onChange={(event) => setModerationReason(event.target.value)}
-                rows={3}
-                autoFocus
-              />
-            </label>
-            <div className="confirm-modal-actions">
-              <button
-                type="button"
-                className="secondary-modal-button"
-                onClick={() => setModerationModal(null)}
-              >
-                {t('admin.moderationCancelAction')}
-              </button>
-              <button
-                type="button"
-                className="danger-modal-button"
-                onClick={handleModerationConfirm}
-              >
-                {t('admin.moderationConfirmAction')}
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={!!moderationModal}
+        onClose={() => setModerationModal(null)}
+        isConfirm={true}
+        ariaLabelledBy="moderation-confirm-title"
+      >
+        <h3 id="moderation-confirm-title">{t('admin.moderationConfirmTitle')}</h3>
+        <p>{t('admin.moderationReasonPrompt')}</p>
+        <label className="confirm-modal-label">
+          <span>{t('admin.moderationReasonLabel')}</span>
+          <textarea
+            value={moderationReason}
+            onChange={(event) => setModerationReason(event.target.value)}
+            rows={3}
+            autoFocus
+          />
+        </label>
+        <div className="confirm-modal-actions">
+          <button
+            type="button"
+            className="secondary-modal-button"
+            onClick={() => setModerationModal(null)}
+          >
+            {t('admin.moderationCancelAction')}
+          </button>
+          <button
+            type="button"
+            className="danger-modal-button"
+            onClick={handleModerationConfirm}
+          >
+            {t('admin.moderationConfirmAction')}
+          </button>
         </div>
-      ) : null}
+      </Modal>
     </div>
   )
 }
