@@ -16,7 +16,8 @@ create table if not exists users (
     phone_number text unique,
     created_at timestamptz not null default now(),
     last_login timestamptz,
-    last_active timestamptz
+    last_active timestamptz,
+    tokens_valid_after timestamptz
 );
 
 create table if not exists fields (

@@ -15204,3 +15204,166 @@ All lifecycle stages are defined: login, token issuance, storage, API usage, val
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-094 JWT token lifecycle review. |
 
+---
+
+# ISSUE-095: JWT Lifecycle Improvements
+
+**Date:** 2026-06-25
+**Status:** COMPLETE
+**Type:** Implementation
+**Priority:** P1
+**Dependencies:** ISSUE-094, ISSUE-093
+
+## Summary
+
+Implemented the minimum production-relevant JWT lifecycle improvements identified in ISSUE-094 and the `require_admin` fix from ISSUE-093:
+
+1. **Server-side token revocation** via `tokens_valid_after` timestamp on user record.
+2. **Backend logout endpoint** (`POST /auth/logout`) that invalidates all tokens issued before logout.
+3. **`require_admin` fix** — now depends on `require_active_user` so banned/suspended admins are rejected.
+4. **Global frontend 401 interceptor** — clears auth state on any 401 API response.
+5. **Frontend logout calls backend** — logout invalidates tokens server-side before clearing local state.
+6. **17 new backend tests** covering the full JWT lifecycle.
+
+## Final JWT Behavior
+
+### Token expiration
+Unchanged. JWTs expire after `JWT_EXPIRE_MINUTES` (default: 10,080 minutes / 7 days). Enforced by PyJWT during `jwt.decode()`.
+
+### Logout behavior
+- Frontend calls `POST /auth/logout` (fire-and-forget) before clearing `localStorage`.
+- Backend sets `tokens_valid_after = now()` on the user record and invalidates the user cache entry.
+- All tokens issued before the logout timestamp are rejected with `401 TOKEN_REVOKED`.
+- New login after logout issues a valid token (with `iat` after `tokens_valid_after`).
+- Logout invalidates **all tokens for the user** (all devices/browsers), not just the current token.
+
+### Revocation/invalidation behavior
+- Design: `tokens_valid_after` timestamp on user record, compared against JWT `iat` claim.
+- When `iat < tokens_valid_after`, the token is rejected with HTTP 401 and code `TOKEN_REVOKED`.
+- The check runs in `get_current_user` after user DB lookup (or cache hit), so it applies to all protected endpoints.
+- Cache invalidation: `invalidate_cached_user()` is called after logout to ensure immediate effect on the same server instance. For other instances, enforcement takes effect after cache TTL (up to 300s).
+
+### Refresh behavior
+Still does not exist. No refresh tokens, no refresh endpoint. Users must re-authenticate after JWT expiration.
+
+### Frontend storage behavior
+Unchanged. JWT stored in `localStorage` under `access_token`. Cleared on logout and on 401 responses.
+
+### 401 behavior
+- New: global Axios response interceptor in `frontend/src/api/client.js` detects 401 responses.
+- On 401: clears `access_token`, `currentUserId`, `currentUserName`, `currentUserEmail`, `currentUsername` from `localStorage`.
+- Dispatches `auth-session-changed` event, which triggers `App.jsx` to re-render and show the login page.
+- Does not intercept 401 if no `access_token` is stored (prevents loops during login).
+
+## Implementation Details
+
+### Backend changes
+
+**`backend/app/auth/dependencies.py`:**
+- `get_current_user` (line 40): Now extracts `iat` from JWT payload. After user lookup (DB or cache), calls `_check_token_revoked()` to compare `iat` against `tokens_valid_after`.
+- `get_current_user` DB query: Added `tokens_valid_after` to the `select()` column list.
+- New function `invalidate_cached_user(user_id)`: Removes a user from the in-process TTL cache. Called after logout to ensure immediate revocation on the same server instance.
+- New function `_check_token_revoked(user, token_iat)`: Compares JWT `iat` against `tokens_valid_after`. If `iat < tokens_valid_after`, raises 401 with code `TOKEN_REVOKED`.
+- New function `_parse_iso_timestamp(value)`: Parses ISO 8601 timestamp strings from Supabase into Unix timestamps for comparison with JWT `iat`.
+- `require_admin` (line 150): Changed from `Depends(get_current_user)` to `Depends(require_active_user)`. This fixes ISSUE-093 finding AUTHZ-093-001 — banned/suspended admins are now rejected.
+
+**`backend/app/api/auth.py`:**
+- New endpoint `POST /auth/logout`: Requires `require_active_user`. Updates `tokens_valid_after = now()` on the user record. Calls `invalidate_cached_user()`. Returns `{"message": "Logged out successfully"}`.
+- Added imports for `Depends`, `invalidate_cached_user`, `require_active_user`.
+
+### Frontend changes
+
+**`frontend/src/api/client.js`:**
+- Added `api.interceptors.response.use(...)` that detects 401 responses. Clears auth `localStorage` keys and dispatches `auth-session-changed` event.
+
+**`frontend/src/api/auth.js`:**
+- New function `logoutFromServer()`: Calls `POST /auth/logout`. Catches and ignores errors (logout should clear local state regardless).
+
+**`frontend/src/App.jsx`:**
+- `handleLogout` now calls `logoutFromServer()` before clearing `localStorage`.
+
+### DB/schema changes
+
+- Added `tokens_valid_after timestamptz` (nullable) column to the `users` table.
+- Canonical schema: `backend/schema.sql` — column added to the `create table users` definition.
+- Migration: `backend/migrations/jwt_token_revocation.sql` — idempotent `alter table users add column if not exists tokens_valid_after timestamptz;`
+- If the column does not exist at runtime, the revocation check is a no-op (graceful degradation — `tokens_valid_after` will be `None` and no comparison is made).
+
+### JWT claims
+
+No changes to JWT claims. The existing `iat` claim (already present) is now used for revocation comparison.
+
+### Validation logic changes
+
+- `get_current_user` now performs an additional check: if the user has `tokens_valid_after` set and the JWT `iat` is before that timestamp, the request is rejected with 401.
+- `require_admin` now chains through `require_active_user` → `get_current_user` instead of `get_current_user` directly. This adds status checks (banned/suspended) to all admin endpoints.
+
+## Security Tradeoffs
+
+### Refresh tokens — still missing
+No refresh token mechanism was implemented. The 7-day access token remains. This is acceptable for MVP but should be addressed for production to reduce token theft window.
+
+### localStorage XSS risk — still present
+JWT is still stored in `localStorage`. This is the standard SPA approach. The new 401 interceptor does not change this risk. Mitigation: prevent XSS via input sanitization and CSP headers.
+
+### All-user-token logout
+The chosen design (timestamp-based) invalidates ALL tokens for the user, not just the current one. This means logout on one device logs out all devices. This is acceptable and arguably more secure — if a user suspects compromise, logout invalidates everything.
+
+### Cache delay
+The in-process TTL cache (300s default) means revocation may be delayed by up to 5 minutes on other server instances. Mitigated by `invalidate_cached_user()` call on the same instance. For single-instance deployments (current setup), revocation is immediate.
+
+### Token issued in the same second as logout
+If a token is issued in the exact same second as `tokens_valid_after`, it will be accepted (the comparison is `iat < threshold`, not `iat <= threshold`). This is a negligible edge case.
+
+## Tests Added
+
+17 new tests in `backend/tests/test_jwt_lifecycle.py`:
+
+| # | Test | Verifies |
+|---|------|----------|
+| 1 | `test_login_issues_usable_jwt` | Login returns JWT that is accepted by protected endpoints |
+| 2 | `test_protected_endpoint_accepts_valid_jwt` | Valid JWT passes auth on protected route |
+| 3 | `test_expired_jwt_is_rejected` | Expired JWT returns 401 |
+| 4 | `test_malformed_jwt_is_rejected` | Garbage Bearer token returns 401 |
+| 5 | `test_missing_jwt_is_rejected` | No token returns 401 |
+| 6 | `test_wrong_secret_jwt_is_rejected` | JWT signed with wrong secret returns 401 |
+| 7 | `test_logout_invalidates_token` | Token works before logout, rejected after |
+| 8 | `test_token_rejected_after_logout_has_revoked_code` | Revoked token returns code `TOKEN_REVOKED` |
+| 9 | `test_new_login_after_logout_works` | New login after logout issues working token; old token rejected |
+| 10 | `test_banned_user_is_rejected` | Banned user gets 403 `ACCOUNT_RESTRICTED` |
+| 11 | `test_suspended_user_is_rejected` | Suspended user gets 403 `ACCOUNT_RESTRICTED` |
+| 12 | `test_admin_route_works_for_active_admin` | Active admin can access `/admin/me` |
+| 13 | `test_admin_route_rejects_banned_admin` | Banned admin gets 403 `ACCOUNT_RESTRICTED` |
+| 14 | `test_admin_route_rejects_suspended_admin` | Suspended admin gets 403 `ACCOUNT_RESTRICTED` |
+| 15 | `test_token_without_sub_is_rejected` | JWT missing `sub` claim returns 401 |
+| 16 | `test_logout_requires_authentication` | Logout endpoint rejects unauthenticated requests |
+| 17 | `test_token_issued_after_revocation_is_accepted` | Token issued after `tokens_valid_after` is accepted |
+
+All 558 backend tests pass (541 existing + 17 new).
+
+## Follow-up Issues
+
+Remaining items from ISSUE-094 not addressed in this issue:
+
+| Item | Priority | Reason Not Fixed |
+|---|---|---|
+| Refresh token mechanism | P2 | Significant scope — requires new token type, refresh endpoint, frontend token rotation. Separate implementation issue. |
+| `httpOnly` cookie storage | P3 | Architecture change — requires backend to set cookies, CSRF protection. Out of scope for this issue. |
+| Legacy token key fallbacks cleanup | P3 | `frontend/src/api/client.js` still checks `authToken` and `token` fallback keys. Minor cleanup issue. |
+| Password change invalidates tokens | P3 | No password change endpoint exists yet. When implemented, should call `invalidate_cached_user` and set `tokens_valid_after`. |
+| Cross-instance cache invalidation | P3 | Current in-process cache has no cross-instance invalidation. For multi-instance deployments, consider Redis or shorter TTL. |
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/app/auth/dependencies.py` | Added `tokens_valid_after` check, `invalidate_cached_user()`, `_check_token_revoked()`, `_parse_iso_timestamp()`. Fixed `require_admin` to depend on `require_active_user`. |
+| `backend/app/api/auth.py` | Added `POST /auth/logout` endpoint with token invalidation. |
+| `backend/schema.sql` | Added `tokens_valid_after timestamptz` column to `users` table definition. |
+| `backend/migrations/jwt_token_revocation.sql` | New file: idempotent migration to add `tokens_valid_after` column. |
+| `backend/tests/test_jwt_lifecycle.py` | New file: 17 JWT lifecycle tests. |
+| `frontend/src/api/client.js` | Added global 401 response interceptor. |
+| `frontend/src/api/auth.js` | Added `logoutFromServer()` function. |
+| `frontend/src/App.jsx` | Updated `handleLogout` to call backend logout. |
+| `docs/product-decisions.md` | Added ISSUE-095 implementation documentation. |
+
