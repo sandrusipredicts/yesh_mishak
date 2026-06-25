@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth.passwords import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validate_password
+
 
 class GoogleAuthRequest(BaseModel):
     token: str
@@ -10,8 +12,8 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=40)
     email: str = Field(min_length=3, max_length=254)
     phone_number: str = Field(min_length=6, max_length=30)
-    password: str = Field(min_length=8, max_length=128)
-    password_confirm: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    password_confirm: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
     @field_validator("full_name", "username", "email", "phone_number")
     @classmethod

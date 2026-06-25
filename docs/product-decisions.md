@@ -15632,3 +15632,111 @@ Official password security policy decision is recorded with: minimum length, com
 |------|--------|
 | `docs/product-decisions.md` | Added ISSUE-096 password security policy. |
 
+---
+
+# ISSUE-097: Password Policy Validation
+
+**Date:** 2026-06-25
+**Status:** COMPLETE
+**Type:** Implementation
+**Priority:** P1
+
+## Summary
+
+Implemented the approved MVP password validation policy from ISSUE-096. Added a reusable `validate_password()` helper in the backend, wired it into the registration endpoint, aligned Pydantic schema constants with the helper, added `maxLength` to frontend password inputs for UX consistency, and added 22 edge-case tests covering all password boundary conditions.
+
+## Policy Source
+
+ISSUE-096: Password Security Policy (this document). The MVP policy implemented:
+
+- Minimum password length: 8 characters
+- Maximum password length: 128 characters
+- Whitespace: allowed (supports passphrases)
+- Complexity rules: not required for MVP
+- Common-password blocklist: not required for MVP
+- Email/username in password check: not required for MVP
+- Password reuse prevention: not required for MVP
+
+## Backend Enforcement
+
+| File | Change |
+|------|--------|
+| `backend/app/auth/passwords.py` | Added `PASSWORD_MIN_LENGTH = 8`, `PASSWORD_MAX_LENGTH = 128` constants and `validate_password()` function that returns a list of error strings. |
+| `backend/app/schemas/auth.py` | Changed `RegisterRequest.password` and `password_confirm` fields to use `PASSWORD_MIN_LENGTH` / `PASSWORD_MAX_LENGTH` constants from `passwords.py` instead of hardcoded values. |
+| `backend/app/api/auth.py` | Added explicit `validate_password()` call in the `register()` endpoint, before uniqueness checks. Returns 400 with `VALIDATION_ERROR` code if validation fails. |
+
+The `validate_password()` helper is the single source of truth for password policy. Future production rules (blocklist, email check, complexity) should be added there. Pydantic schema constraints remain as a defense-in-depth layer.
+
+The `LoginRequest` schema is intentionally unchanged — login accepts `min_length=1` to avoid leaking whether a user exists via different error responses for short vs. normal passwords.
+
+## Frontend UX Validation
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/LoginPage.jsx` | Added `maxLength={128}` to both password and password_confirm inputs in the registration form. `minLength={8}` was already present. |
+
+Frontend validation is UX-only. Backend is the source of truth. The login form password input has no `minLength` or `maxLength` constraints (correct — login should not validate password policy).
+
+## Edge Cases Tested
+
+File: `backend/tests/test_password_validation.py` — 22 tests:
+
+### Unit tests for `validate_password()`:
+| Test | Description |
+|------|-------------|
+| `test_validate_password_accepts_minimum_length` | Exactly 8 chars accepted |
+| `test_validate_password_accepts_above_minimum` | 9 chars accepted |
+| `test_validate_password_rejects_below_minimum` | 7 chars rejected |
+| `test_validate_password_rejects_empty` | Empty string rejected |
+| `test_validate_password_rejects_single_char` | Single char rejected |
+| `test_validate_password_accepts_maximum_length` | Exactly 128 chars accepted |
+| `test_validate_password_rejects_above_maximum` | 129 chars rejected |
+| `test_validate_password_accepts_whitespace_passphrase` | "correct horse battery staple" accepted |
+| `test_validate_password_accepts_spaces_only_if_long_enough` | 8 spaces accepted |
+| `test_validate_password_accepts_unicode` | Hebrew characters accepted |
+| `test_validate_password_constants` | Constants match policy (8, 128) |
+
+### Integration tests (registration endpoint):
+| Test | Description |
+|------|-------------|
+| `test_register_rejects_short_password` | 7-char password → 422 |
+| `test_register_rejects_empty_password` | Empty password → 422 |
+| `test_register_accepts_minimum_length_password` | 8-char password → 201 |
+| `test_register_accepts_maximum_length_password` | 128-char password → 201 |
+| `test_register_rejects_over_maximum_length_password` | 129-char password → 422 |
+| `test_register_accepts_passphrase_with_spaces` | Passphrase with spaces → 201 |
+| `test_register_does_not_return_password_in_response` | No password or hash in response body |
+| `test_register_does_not_log_password` | Password not in log output |
+| `test_login_still_works_after_validation_changes` | Existing login flow unaffected |
+| `test_login_does_not_enforce_min_length_on_login_attempt` | Short login password → 401 (not 422) |
+| `test_google_login_unaffected` | Google auth schema unchanged |
+
+## Out of Scope / Remaining Follow-ups
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Password reset flow | Not implemented | No reset endpoint exists. Required for production (ISSUE-096). |
+| Password change endpoint | Not implemented | No change endpoint exists. Required for production (ISSUE-096). |
+| Password history / reuse prevention | Not implemented | No `password_history` table. Required for production (ISSUE-096). |
+| Common-password blocklist | Not implemented | Required for production (ISSUE-096). Add to `validate_password()` when implemented. |
+| Email/username in password check | Not implemented | Required for production (ISSUE-096). Add to `validate_password()` when implemented. |
+| Breached-password API | Not implemented | Not required per ISSUE-096. |
+| Login rate limiting | Not implemented | Separate issue. Required for production (ISSUE-096). |
+| JWT invalidation after password change | Not applicable | No password change exists. Mechanism ready via ISSUE-095 `tokens_valid_after`. |
+| Pre-existing flaky test | Not fixed | `test_new_login_after_logout_works` in `test_jwt_lifecycle.py` is timing-sensitive (same-second JWT `iat` vs `tokens_valid_after` microsecond precision). Fails ~66% of runs on main. Not caused by ISSUE-097. |
+
+## Final Result
+
+Password validation now matches the approved MVP policy from ISSUE-096. All passwords created through the registration endpoint are validated by the reusable `validate_password()` helper, which enforces 8-128 character length. The helper is designed for extension with future production rules (blocklist, email check). Frontend validation matches backend policy as UX guidance only.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/app/auth/passwords.py` | Added `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH`, `validate_password()`. |
+| `backend/app/schemas/auth.py` | Schema uses constants from `passwords.py`. |
+| `backend/app/api/auth.py` | Register endpoint calls `validate_password()`. |
+| `frontend/src/components/LoginPage.jsx` | Added `maxLength={128}` to password inputs. |
+| `backend/tests/test_password_validation.py` | 22 new tests for password validation edge cases. |
+| `docs/product-decisions.md` | Added ISSUE-097 documentation. |
+

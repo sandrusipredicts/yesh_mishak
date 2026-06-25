@@ -302,6 +302,7 @@ function LoginPage({ onLogin }) {
               <span>{t('auth.password')}</span>
               <input
                 autoComplete="new-password"
+                maxLength={128}
                 minLength={8}
                 name="password"
                 onChange={updateRegisterForm}
@@ -314,6 +315,7 @@ function LoginPage({ onLogin }) {
               <span>{t('auth.confirmPassword')}</span>
               <input
                 autoComplete="new-password"
+                maxLength={128}
                 minLength={8}
                 name="password_confirm"
                 onChange={updateRegisterForm}
