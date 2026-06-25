@@ -2351,6 +2351,96 @@ select {
   .city-autocomplete-suggestions {
     max-height: min(220px, 40dvh);
   }
+
+  .modal-close-button,
+  .panel-close-button {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .auth-mode-tabs button,
+  .notifications-tabs button,
+  .schedule-mode-options label {
+    min-height: 44px;
+  }
+
+  .auth-toolbar button,
+  .notifications-list-header button,
+  .location-picker-header button,
+  .admin-back-link {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .notification-mark-read-button {
+    min-height: 44px;
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .admin-tab-button {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .admin-actions button,
+  .admin-secondary-button,
+  .admin-danger-button {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .admin-action-button {
+    min-height: 44px;
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .admin-status-select {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .language-switcher select {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .city-autocomplete-option {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .my-games-filter-toggle {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .my-games-back-button {
+    min-height: 44px;
+    padding: 10px 0;
+  }
+
+  .admin-error button,
+  .admin-stats-error button,
+  .my-games-error button {
+    min-height: 44px;
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+
+  .leaflet-control-zoom a {
+    width: 44px !important;
+    height: 44px !important;
+    line-height: 44px !important;
+    font-size: 20px !important;
+  }
+
+  .admin-user-actions {
+    gap: 8px;
+  }
 }
 
 .error-boundary-fallback {
