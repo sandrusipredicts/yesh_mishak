@@ -16952,3 +16952,47 @@ The following security-critical libraries are used in the runtime path and must 
 * **Critical Vulnerabilities found by executed audit commands**: 0
 * **High Vulnerabilities found by executed audit commands**: 0
 * **Status**: **INCOMPLETE** (Backend pip audit is incomplete until `pip-audit` or equivalent is added. Frontend npm audit is clean/PASSED).
+
+---
+
+# ISSUE-105: Critical Dependency Vulnerability Resolution
+
+## Summary
+This section documents the resolution process for critical dependency vulnerabilities in the `yesh_mishak` project. Both frontend `npm` and backend `pip` dependencies were audited and successfully remediated. All identified vulnerabilities have been resolved, and the entire test suite passes successfully.
+
+## Vulnerabilities Found Before Upgrade
+Under the initial backend audit, the following package vulnerabilities were identified by `pip-audit`:
+* **python-dotenv==1.0.1** (CVE-2026-28684) -> Fixed in `1.2.2`
+* **PyJWT==2.10.1** (PYSEC-2026-179, PYSEC-2026-175, PYSEC-2026-177, PYSEC-2026-178, PYSEC-2026-176, PYSEC-2026-120, PYSEC-2025-183) -> Fixed in `2.13.0`
+* **pytest==8.3.4** (CVE-2025-71176) -> Fixed in `9.0.3`
+* **starlette==0.41.3** (transitive via `fastapi==0.115.6`; vulnerable to PYSEC-2026-161, CVE-2025-54121, CVE-2025-62727, CVE-2026-48818, CVE-2026-48817, CVE-2026-54283, CVE-2026-54282) -> Fixed in `1.3.1`
+
+## Packages Upgraded
+To remediate the vulnerabilities while maintaining compatibility:
+1. **python-dotenv**: Upgraded from `1.0.1` to `1.2.2`.
+2. **PyJWT**: Upgraded from `2.10.1` to `2.13.0`.
+3. **pytest**: Upgraded from `8.3.4` to `9.0.3`.
+4. **fastapi**: Upgraded from `0.115.6` to `0.133.0` (minimal upgrade compatible with Starlette 1.x without upper constraints).
+5. **starlette**: Upgraded transitively and pinned to `1.3.1` (fully-patched secure release).
+
+## Audit Commands & Results After Upgrade
+| Area | Command | Result | Critical Count | High Count | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Frontend** | `npm audit --json` | Clean | 0 | 0 | Successfully scanned 289 packages with zero security issues. |
+| **Backend** | `.venv\Scripts\python.exe -m pip_audit -r backend/requirements.txt` | Clean | 0 | 0 | No known vulnerabilities found. |
+
+## Remaining Vulnerabilities
+* **Remaining Vulnerabilities**: None.
+
+## Validation and Test Results
+* **Test Command**: `..\.venv\Scripts\python.exe -m pytest`
+* **Pytest Version**: 9.0.3 (running on Python 3.14.3)
+* **Test Results**: **624 passed**, 0 failed, 728 warnings in 12.62s.
+* **Git Status Verification**:
+  - `git diff --stat` (shows requirements.txt and docs/product-decisions.md changes only)
+  - `git diff --check` (no trailing whitespaces or check warnings)
+  - `git diff --name-only` (only the expected files modified)
+
+## Final Result
+All backend and frontend critical dependency vulnerabilities have been successfully remediated. The codebase is clean, and the application builds and tests cleanly.
+
