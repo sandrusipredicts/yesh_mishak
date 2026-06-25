@@ -1,11 +1,11 @@
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client
-from app.errors import raise_api_error
+from app.errors import raise_api_error, validate_uuid_id
 from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_payloads import get_game_payloads_for_fields
 from app.services.content_moderation import validate_field_submission
@@ -33,26 +33,47 @@ def _format_supabase_error(exc: Exception) -> dict[str, Any]:
 
 
 class FieldCreate(BaseModel):
-    name: str
-    lat: float
-    lng: float
-    sport_type: str  # football / basketball / both
-    surface_type: str
+    name: str = Field(min_length=2, max_length=200)
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    sport_type: Literal["football", "basketball", "both"]
+    surface_type: str = Field(max_length=100)
     has_nets: bool
     has_water: bool
-    opening_hours: Optional[str] = None
-    city: Optional[str] = None
-    notes: Optional[str] = None
+    opening_hours: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Field name cannot be empty")
+        return stripped
 
 
 ALLOWED_FIELD_STATUSES = {"open", "closed", "renovation"}
 
 
 class FieldStatusUpdate(BaseModel):
-    status: str  # open / closed / renovation
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status_value(cls, value: str) -> str:
+        if value not in ALLOWED_FIELD_STATUSES:
+            from app.errors import raise_api_error
+            raise_api_error(
+                status_code=400,
+                code="VALIDATION_ERROR",
+                message="Invalid field status",
+            )
+        return value
 
 
 def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[str, Any]:
+    field_id = validate_uuid_id(field_id, "field_id")
     if body.status not in ALLOWED_FIELD_STATUSES:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -83,6 +104,31 @@ def get_fields(
     east: Optional[float] = Query(default=None),
     west: Optional[float] = Query(default=None),
 ):
+    for coord_name, coord_val, min_val, max_val in [
+        ("north", north, -90.0, 90.0),
+        ("south", south, -90.0, 90.0),
+        ("east", east, -180.0, 180.0),
+        ("west", west, -180.0, 180.0),
+    ]:
+        if coord_val is not None:
+            if not (min_val <= coord_val <= max_val):
+                raise_api_error(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="VALIDATION_ERROR",
+                    message=f"{coord_name} must be between {min_val} and {max_val}",
+                )
+    if north is not None and south is not None and north < south:
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="north must be greater than or equal to south",
+        )
+    if east is not None and west is not None and east < west:
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="east must be greater than or equal to west (antimeridian crossing not supported)",
+        )
     supabase = get_supabase_client()
 
     has_bounds = all(v is not None for v in (north, south, east, west))
@@ -134,6 +180,7 @@ def get_fields(
 
 @router.get("/{field_id}")
 def get_field(field_id: str):
+    field_id = validate_uuid_id(field_id, "field_id")
     supabase = get_supabase_client()
     response = supabase.table("fields").select("*").eq("id", field_id).execute()
     if not response.data:

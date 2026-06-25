@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+from typing import Any, Optional, Literal
+from app.errors import raise_api_error, validate_uuid_id
 
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
@@ -83,6 +85,18 @@ FIELD_REPORT_REVIEW_STATUSES = {"in_review", "resolved", "rejected"}
 
 class FieldReportStatusUpdate(BaseModel):
     status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status_value(cls, value: str) -> str:
+        if value not in FIELD_REPORT_REVIEW_STATUSES:
+            from app.errors import raise_api_error
+            raise_api_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="VALIDATION_ERROR",
+                message="status must be in_review, resolved, or rejected",
+            )
+        return value
 
 
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
@@ -163,7 +177,7 @@ ACTION_REQUIRED_CURRENT_STATUS = {
 
 
 class ModerationActionBody(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
 
     @field_validator("reason")
     @classmethod
@@ -177,6 +191,7 @@ def _perform_moderation_action(
     body: ModerationActionBody,
     admin_user: dict[str, Any],
 ) -> dict[str, Any]:
+    user_id = validate_uuid_id(user_id, "user_id")
     supabase = get_supabase_service_role_client()
 
     target = (
@@ -376,6 +391,7 @@ def update_admin_field_report_status(
     body: FieldReportStatusUpdate,
     current_user: dict[str, Any] = Depends(require_admin),
 ):
+    report_id = validate_uuid_id(report_id, "report_id")
     if body.status not in FIELD_REPORT_REVIEW_STATUSES:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -449,6 +465,7 @@ def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
 
 @router.post("/fields/{field_id}/approve")
 def approve_field(field_id: str, current_user: dict[str, Any] = Depends(require_admin)):
+    field_id = validate_uuid_id(field_id, "field_id")
     return _update_field_approval(
         field_id=field_id,
         updates={"verified": True, "approval_status": "approved"},
@@ -459,6 +476,7 @@ def approve_field(field_id: str, current_user: dict[str, Any] = Depends(require_
 
 @router.post("/fields/{field_id}/reject")
 def reject_field(field_id: str, current_user: dict[str, Any] = Depends(require_admin)):
+    field_id = validate_uuid_id(field_id, "field_id")
     return _update_field_approval(
         field_id=field_id,
         updates={"verified": False, "approval_status": "rejected"},
@@ -473,6 +491,7 @@ def update_admin_field_status(
     body: FieldStatusUpdate,
     _: dict[str, Any] = Depends(require_admin),
 ):
+    field_id = validate_uuid_id(field_id, "field_id")
     return update_field_status_record(field_id, body)
 
 
@@ -710,6 +729,7 @@ def run_notification_cleanup(current_user: dict[str, Any] = Depends(require_admi
 
 @router.post("/games/{game_id}/close")
 def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
+    game_id = validate_uuid_id(game_id, "game_id")
     game = _get_game(game_id)
     _ensure_admin_active_game(game)
 
@@ -764,6 +784,7 @@ def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requir
 
 @router.post("/games/{game_id}/extend")
 def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
+    game_id = validate_uuid_id(game_id, "game_id")
     game = _get_game(game_id)
     _ensure_admin_active_game(game)
 
@@ -813,7 +834,7 @@ def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requi
 
 
 class AdminGameCancelBody(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 @router.post("/games/{game_id}/cancel")
@@ -822,6 +843,7 @@ def cancel_admin_game(
     body: AdminGameCancelBody = AdminGameCancelBody(),
     current_user: dict[str, Any] = Depends(require_admin),
 ):
+    game_id = validate_uuid_id(game_id, "game_id")
     game = _get_game(game_id)
 
     if game.get("status") not in ACTIVE_GAME_STATUSES:

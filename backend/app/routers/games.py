@@ -1,14 +1,15 @@
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_active_user
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
-from app.errors import raise_api_error
+from app.errors import raise_api_error, validate_uuid_id
 from app.core.config import get_settings
 from app.rate_limit import check_rate_limit_by_user
 from app.services.content_moderation import validate_game_text
@@ -37,17 +38,17 @@ timing_logger = logging.getLogger("uvicorn.error")
 
 class GameCreate(BaseModel):
     field_id: str
-    sport_type: str
-    players_present: int = Field(ge=1)
-    max_players: int = Field(gt=0)
+    sport_type: Literal["football", "basketball"]
+    players_present: int = Field(ge=1, le=1000)
+    max_players: int = Field(gt=0, le=1000)
     age_note: Optional[str] = None
-    min_age: Optional[int] = Field(default=None, ge=0)
-    max_age: Optional[int] = Field(default=None, ge=0)
+    min_age: Optional[int] = Field(default=None, ge=0, le=120)
+    max_age: Optional[int] = Field(default=None, ge=0, le=120)
     scheduled_at: Optional[datetime] = None
 
 
 class GameCancelBody(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 def _get_single(table: str, item_id: str, not_found_detail: str) -> dict[str, Any]:
@@ -146,6 +147,7 @@ def create_game(
     background_tasks: BackgroundTasks,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    validate_uuid_id(game.field_id, "field_id")
     rate_limit_hit = check_rate_limit_by_user(
         str(current_user["id"]), "games_create", [(5, 60), (20, 3600)]
     )
@@ -283,7 +285,19 @@ def create_game(
     }
 
     t_insert_game_start = time.perf_counter()
-    response = supabase.table("games").insert(data).execute()
+    try:
+        response = supabase.table("games").insert(data).execute()
+    except APIError as exc:
+        error_details = getattr(exc, "args", [{}])[0]
+        msg = error_details.get("message", "") if isinstance(error_details, dict) else str(exc)
+        code = error_details.get("code", "") if isinstance(error_details, dict) else ""
+        if code == "23505" or "23505" in msg or "duplicate key" in msg.lower():
+            raise_api_error(
+                status_code=status.HTTP_409_CONFLICT,
+                code="CONFLICT",
+                message="Scheduled game already exists for this field and sport at this time",
+            )
+        raise
     created_game = response.data[0]
     t_insert_game_end = time.perf_counter()
     duration_insert_game = t_insert_game_end - t_insert_game_start
@@ -476,6 +490,7 @@ def _attach_field_names(games: list[dict[str, Any]], supabase: Any) -> list[dict
 
 @router.post("/{game_id}/join")
 def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
+    game_id = validate_uuid_id(game_id, "game_id")
     supabase = get_supabase_client()
     game = _get_single("games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -540,6 +555,7 @@ def join_game(game_id: str, current_user: dict[str, Any] = Depends(require_activ
 
 @router.post("/{game_id}/leave")
 def leave_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
+    game_id = validate_uuid_id(game_id, "game_id")
     supabase = get_supabase_client()
     game = _get_single("games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -574,6 +590,7 @@ def leave_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
 
 @router.post("/{game_id}/close")
 def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
+    game_id = validate_uuid_id(game_id, "game_id")
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -659,6 +676,7 @@ def close_game(game_id: str, current_user: dict[str, Any] = Depends(require_acti
 
 @router.post("/{game_id}/extend")
 def extend_game(game_id: str, current_user: dict[str, Any] = Depends(require_active_user)):
+    game_id = validate_uuid_id(game_id, "game_id")
     supabase = get_supabase_client()
     game = _get_single_with_client(supabase, "games", game_id, "Game not found")
     _ensure_active_game(game)
@@ -705,6 +723,7 @@ def cancel_game(
     body: GameCancelBody = GameCancelBody(),
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    game_id = validate_uuid_id(game_id, "game_id")
     moderation = validate_game_text(cancel_reason=body.reason)
     if not moderation.allowed:
         raise_api_error(

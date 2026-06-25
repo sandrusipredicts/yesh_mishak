@@ -16842,3 +16842,42 @@ However, prior to **production launch**, the following issues must be resolved:
 * **UUID Syntax Errors**: Malformed path identifiers must return HTTP 400/422/404 instead of HTTP 500 errors (**ISSUE-103**).
 * **Coordinate Boundaries**: Field coordinates must be validated to prevent system anomalies (**ISSUE-104**).
 * **Availability Checks**: Availability lookups must be rate-limited and secured against brute-force harvesting (**ISSUE-105**).
+
+---
+
+# ISSUE-103: Input Validation Gap Fixes
+
+## Summary
+Under ISSUE-103, we have successfully addressed and closed all 7 input validation gaps and security vulnerabilities identified in the ISSUE-102 input validation audit.
+
+## Closed Findings & Backend Checks
+1. **UUID Path & Request Payload Parameter Validation**:
+   - Implemented a regex-based UUID format validator `validate_uuid_id(value, name)` in `backend/app/errors.py`.
+   - Applied UUID validation to all path parameters across routes (including `field_id`, `game_id`, `report_id`, `user_id`, `notification_id`) and payload properties (such as `field_id` in game creation, reports, and preferences).
+   - Any malformed UUID inputs are caught and return a structured `HTTP 400 Bad Request` with code `"INVALID_ID"` instead of raising unhandled database exceptions that return `HTTP 500`.
+2. **Geographic Coordinates Constraints**:
+   - Latitude restricted to `[-90, 90]` and Longitude to `[-180, 180]` in `FieldCreate` schema.
+   - Bounding query parameters (`north`, `south`, `east`, `west`) in `GET /fields` validated to enforce coordinate ranges, and verified that `north >= south` and `east >= west` (rejecting antimeridian crossings).
+3. **Availability Check Security & Throttling**:
+   - Configured IP-based rate limiting on `/auth/check-username` and `/auth/check-email` endpoints (20 requests per minute) to prevent brute-force enumeration.
+   - Applied username and email length, character, and structure checks directly in Pydantic schemas (`UsernameCheckRequest` and `EmailCheckRequest`).
+4. **Phone Number Format Validation**:
+   - Enforced phone number validation in `RegisterRequest`. Phone numbers must contain only digits with an optional leading `+` (length between 7 and 20 after removing spaces and hyphens).
+5. **Free Text Bounding Limits**:
+   - Implemented maximum string length limits at the API schema layer:
+     - Moderation action reasons, user restriction reasons, and cancellation reasons limited to `500` characters.
+     - Field report descriptions limited to `1000` characters.
+     - Field submission text fields (e.g. `name` limited to 2-200 characters, `notes` to 1000, `opening_hours` to 200, `city` to 200, `surface_type` to 100). Blank/empty strings for field `name` are explicitly rejected.
+6. **Enum / Literal Type Schema Enforcement**:
+   - Enforced Pydantic validations at the schema level for:
+     - `sport_type` in `FieldCreate` (`"football"`, `"basketball"`, `"both"`) and `GameCreate` (`"football"`, `"basketball"`).
+     - `status` in `FieldStatusUpdate` (`"open"`, `"closed"`, `"renovation"`) and `FieldReportStatusUpdate` (`"in_review"`, `"resolved"`, `"rejected"`).
+     - `category` in `FieldReportCreate`.
+7. **Database Unique Constraints Conflict Handling**:
+   - Wrapped user insertions and scheduled slot inserts in try/except blocks to catch Postgrest `APIError` with error code `23505` (unique constraint violations).
+   - Translated those database failures into clean client-facing `HTTP 409 Conflict` responses with descriptive error codes (e.g. `USERNAME_TAKEN`, `EMAIL_TAKEN`, `PHONE_TAKEN`) instead of letting database exceptions propagate as unhandled `HTTP 500` errors.
+
+## Verification & Final Re-Audit Status
+- **Test Coverage**: Added comprehensive integration and unit tests in `backend/tests/test_issue_103_validation.py` covering all coordinate range boundaries, path UUID rejections, phone validation formats, rate limiting, and database conflict translation.
+- **Suite Execution**: All 622 tests pass successfully.
+- **Re-Audit Status**: **PASSED**. All documented validation gaps are closed.

@@ -1,3 +1,6 @@
+import os
+os.environ["ALLOW_TEST_MOCK_IDS"] = "true"
+
 import pytest
 
 from app.brute_force import get_brute_force_protector

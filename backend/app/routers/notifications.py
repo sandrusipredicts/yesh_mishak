@@ -1,14 +1,14 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from math import asin, cos, radians, sin, sqrt
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth.dependencies import require_active_user, require_admin
-from app.errors import raise_api_error
+from app.errors import raise_api_error, validate_uuid_id
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
@@ -24,18 +24,18 @@ NOTIFICATION_RETENTION_DAYS = 90
 
 class NotificationPreference(BaseModel):
     enabled: bool = True
-    sport_type: str = "both"
-    notification_type: str = "radius"
+    sport_type: Literal["football", "basketball", "both"] = "both"
+    notification_type: Literal["radius", "city", "specific_field"] = "radius"
     radius_km: Optional[float] = Field(default=None, gt=0)
     lat: Optional[float] = None
     lng: Optional[float] = None
-    city: Optional[str] = None
+    city: Optional[str] = Field(default=None, max_length=100)
     field_id: Optional[str] = None
 
 
 class NotificationCandidateRequest(BaseModel):
     field_id: str
-    sport_type: str
+    sport_type: Literal["football", "basketball"]
 
 
 class NotificationSettings(BaseModel):
@@ -1172,6 +1172,7 @@ def mark_notification_read(
     notification_id: str,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    notification_id = validate_uuid_id(notification_id, "notification_id")
     authenticated_user_id = str(current_user["id"])
     client = get_supabase_service_role_client()
 
@@ -1252,6 +1253,8 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
         settings_data["selected_field_ids"] = []
 
     settings = NotificationSettings(**settings_data)
+    for fid in settings.selected_field_ids:
+        validate_uuid_id(fid, "field_id")
     supabase = get_supabase_service_role_client()
     user_id = current_user["id"]
 
@@ -1381,6 +1384,8 @@ def save_preferences(
             return _save_settings(body, current_user)
 
         pref = NotificationPreference(**body)
+        if pref.field_id:
+            validate_uuid_id(pref.field_id, "field_id")
     except ValidationError as error:
         details = {}
         for err in error.errors():
@@ -1437,6 +1442,7 @@ def get_notification_candidates(
     body: NotificationCandidateRequest,
     _: dict[str, Any] = Depends(require_admin),
 ):
+    validate_uuid_id(body.field_id, "field_id")
     if body.sport_type not in ("football", "basketball"):
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
