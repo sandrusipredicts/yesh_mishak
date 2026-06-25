@@ -20153,3 +20153,52 @@ The Notifications mobile experience is **READY WITH FINDINGS**. The notification
 
 ## Final Verdict
 The Admin Panel mobile experience is **READY WITH FINDINGS**. The interface is responsive and functions (filtering, viewing, approving, banning) are accessible without crashing, but improvements should be made to native input prompts, touch targets, and inputs auto-zoom. No P0 blockers exist.
+
+---
+
+# ISSUE-135: Consolidated Mobile Audit Report
+
+## Summary
+This decision record registers the centralized results of the mobile usability and layout audit conducted across all core screens of the yesh_mishak application. All findings from ISSUE-127 through ISSUE-134 have been consolidated into one actionable playbook. Mobile remediation work is authorized to begin in targeted branches according to the prioritizations defined below. The overall verdict is **NOT READY** due to critical viewport trapping and keyboard covering issues on Create Game and Field Details.
+
+## Documents Reviewed
+- `docs/mobile-audit-plan.md`
+- `docs/mobile-login-screen-audit.md` (ISSUE-127)
+- `docs/mobile-registration-screen-audit.md` (ISSUE-128)
+- `docs/mobile-map-screen-audit.md` (ISSUE-129)
+- `docs/mobile-field-details-screen-audit.md` (ISSUE-130)
+- `docs/mobile-create-game-screen-audit.md` (ISSUE-131)
+- `docs/mobile-game-details-screen-audit.md` (ISSUE-132)
+- `docs/mobile-notifications-screen-audit.md` (ISSUE-133)
+- `docs/mobile-admin-panel-audit.md` (ISSUE-134)
+
+## Total Findings by Severity
+* **Critical (P0)**: 1 finding (`CGMOB-001`)
+* **High (P1)**: 7 findings (`ML-MAP-001`, `ML-FIELD-DETAILS-001`, `CGMOB-002`, `GDMOB-001`, `NTMOB-001`, `ADMOB-001`, `ADMOB-003`)
+* **Medium (P2)**: 26 findings
+* **Low (P3)**: 6 findings
+* **Total Consolidated Findings**: 40 findings
+
+## Overall Verdict
+The mobile experience is **NOT READY** for production release. Remediation of Batch 1 and Batch 2 issues is required before a mobile launch is reconsidered, and `AUTH-001` remains the absolute project-level blocker.
+
+## Top Critical/High Items
+1. **`CGMOB-001` (Critical)**: Create Game modal has no height constraint or scroll, causing the keyboard to cover form actions and trap users on short viewports.
+2. **`ML-MAP-001` / `ML-FIELD-DETAILS-001` (High)**: Field details panel has no height limit or scroll, pushing close buttons off-screen and trapping users on Map.
+3. **`GDMOB-001` (High)**: Inline participants list accordion expansion adds dynamic height, worsening the parent sheet trapping risk.
+4. **`CGMOB-002` (High)**: Input font-size is 14px, triggering iOS Safari zoom on focus.
+5. **`NTMOB-001` (High)**: Notifications flex header squashes count and button on narrow screens.
+6. **`ADMOB-001` (High)**: User moderation inputs rely on native `window.prompt()`.
+7. **`ADMOB-003` (High)**: Search inputs and select dropdowns trigger iOS Safari auto-zoom in Admin panel.
+
+## Recommended Remediation Order
+1. **Critical Blocker Fix**: `CGMOB-001` (Create Game keyboard trap)
+2. **Field details Viewport traps**: `ML-MAP-001` / `ML-FIELD-DETAILS-001` & `GDMOB-001` (Parent sheet height limits and scroll boundaries)
+3. **iOS Zoom triggers**: `CGMOB-002` & `ADMOB-003` (Force `font-size: 16px` on mobile inputs/selects)
+4. **Layout squashing**: `NTMOB-001` (Responsive layout stack for notifications header)
+5. **Admin Prompts**: `ADMOB-001` (Custom modal for user moderation reasons)
+6. **Medium Usability Polish**: Touch targets padding, numeric keypads, event propagation blocks.
+7. **Low Polish / Safe-Area**: Apply CSS safe-area margins.
+
+## Definition of Done Confirmation
+The mobile audit has been completed and fully documented. This consolidation provides a centralized, actionable guide for all subsequent mobile fix tickets.
