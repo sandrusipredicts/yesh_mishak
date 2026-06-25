@@ -20363,3 +20363,41 @@ This decision record registers the implementation of keyboard handling improveme
 
 ## Definition of Done Confirmation
 All forms were reviewed and keyboard behavior was validated. Eight form/screen areas were reviewed against the ISSUE-138 keyboard specification. Critical finding CGMOB-001 is resolved. Build and lint pass cleanly. Desktop behavior is preserved.
+
+# ISSUE-140: Mobile Touch Target Size Audit
+
+## Date
+2026-06-25
+
+## Status
+Complete — audit and documentation only. No code changes.
+
+## Decision
+Conduct a comprehensive audit of all interactive elements across every screen in the frontend, measuring touch target sizes against the 44x44px minimum standard defined in `docs/mobile-design-guide.md` (ISSUE-136). Document all violations with TTMOB-XXX finding IDs, cross-reference with existing findings from ISSUE-135, and provide a prioritized remediation plan.
+
+## Context
+The ISSUE-135 consolidated mobile audit identified 10 touch-target-related findings across various screens. However, those findings were discovered incidentally during screen-by-screen audits, not through a systematic touch-target-focused review. A dedicated audit was needed to ensure complete coverage and provide a structured remediation path.
+
+## Outcome
+The audit identified 18 touch target violations (14 Medium, 4 Low) across all screens. Key findings:
+- Modal/panel close buttons (~20px) are the most severe violations, affecting every modal in the application
+- Admin panel has 6 violations concentrated in action buttons, filter tabs, and status selects
+- Notification action buttons have 2 violations
+- All 10 previously identified ISSUE-135 touch-target findings were cross-referenced and cataloged
+- 8 new violations were identified that were not in the ISSUE-135 report
+
+All violations are fixable with CSS-only changes scoped to mobile viewports. No component restructuring is needed.
+
+## Output
+- `docs/mobile-touch-target-audit.md` — full audit with 18 TTMOB-XXX findings, screen-by-screen review, and prioritized remediation plan
+
+## Remediation Priority
+1. Close buttons (TTMOB-001, TTMOB-002) — highest impact, affects all modals/panels
+2. Admin user action buttons (TTMOB-003) — destructive actions with tiny targets
+3. Notification action buttons (TTMOB-004, TTMOB-005)
+4. Admin table/filter buttons (TTMOB-006, TTMOB-007, TTMOB-008)
+5. Map/autocomplete controls (TTMOB-009, TTMOB-010)
+6. Remaining elements (TTMOB-011 through TTMOB-018)
+
+## Definition of Done Confirmation
+All screens were systematically reviewed. Every interactive element was measured against the 44x44px standard. 18 violations were cataloged with TTMOB-XXX IDs. All 10 ISSUE-135 touch-target findings were cross-referenced. A prioritized remediation plan with engineering rules was provided. No code changes were made — this is a documentation-only audit.
