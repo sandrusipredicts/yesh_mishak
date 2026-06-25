@@ -15367,3 +15367,268 @@ Remaining items from ISSUE-094 not addressed in this issue:
 | `frontend/src/App.jsx` | Updated `handleLogout` to call backend logout. |
 | `docs/product-decisions.md` | Added ISSUE-095 implementation documentation. |
 
+---
+
+# ISSUE-096: Password Security Policy
+
+**Date:** 2026-06-25
+**Status:** COMPLETE
+**Type:** Policy / Documentation (no runtime changes)
+**Priority:** P1
+
+## Scope
+
+This is a policy and documentation task only. No backend, frontend, or runtime behavior was changed. The purpose is to define the official password security policy for yesh_mishak based on repository evidence of current behavior, and to document what must be implemented as follow-up work.
+
+## Current Password Behavior Observed
+
+### Registration (`POST /auth/register`)
+
+- **Backend validation:** Pydantic schema in `backend/app/schemas/auth.py` (lines 13-14) enforces `password: str = Field(min_length=8, max_length=128)` and `password_confirm: str = Field(min_length=8, max_length=128)`.
+- **Password match check:** `backend/app/api/auth.py` (line 171) rejects registration if `password != password_confirm`.
+- **No complexity rules:** No uppercase, lowercase, digit, or symbol requirements exist in backend validation.
+- **No weak password blocklist:** No check against common passwords (e.g., "password1", "12345678").
+- **No check for email/username reuse in password:** A user could set their password to their own email or username.
+- **Frontend validation:** `frontend/src/components/LoginPage.jsx` (line 305) sets `minLength={8}` on the password input and `minLength={8}` on confirm (line 317). This is HTML-only validation — easily bypassed by calling the API directly.
+
+### Login (`POST /auth/login`)
+
+- **Verification:** `backend/app/api/auth.py` (line 205) calls `verify_password(payload.password, user.get("password_hash"))`.
+- **Error message:** Returns `"Invalid username or password"` (line 221) — does not reveal whether the username or password was wrong. This is correct for preventing user enumeration.
+- **No rate limiting:** No login attempt counter, no account lockout, no throttling. An attacker can brute-force passwords without restriction.
+- **Logging:** Failed login attempts are logged with event `auth.login.failure` (line 207) without including the username or password in logs.
+
+### Password Hashing/Storage
+
+- **Algorithm:** bcrypt via `backend/app/auth/passwords.py`.
+- **Hash function:** `bcrypt.hashpw(password_bytes, bcrypt.gensalt())` (line 6) — uses default bcrypt cost factor (12 rounds).
+- **Verification:** `bcrypt.checkpw()` (line 14) with error handling for malformed hashes.
+- **Storage:** Hashed password stored in `password_hash` column of `users` table. Plaintext password is never stored.
+- **No password in API responses:** The `UserResponse` schema (`backend/app/schemas/auth.py` line 82) does not include `password_hash`.
+- **No password in logs:** Login failure logs do not include the attempted password (verified in `test_manual_auth.py` lines 206-207, 235-236).
+
+### Password Reset
+
+- **Does not exist.** No `POST /auth/reset-password`, no `POST /auth/forgot-password`, no reset token generation, no reset email flow. If a user forgets their password, there is currently no recovery mechanism for password-based accounts. Google OAuth accounts are unaffected.
+
+### Password Change
+
+- **Does not exist.** No `POST /auth/change-password` or equivalent endpoint. Users cannot change their password after registration.
+
+### Password History
+
+- **Does not exist.** No `password_history` table, no previous-password tracking.
+
+### Existing Tests
+
+- `backend/tests/test_manual_auth.py`:
+  - `test_register_creates_manual_user_and_returns_token` — verifies registration succeeds with valid password, confirms `password_hash != "strongpass123"` (line 118).
+  - `test_register_rejects_password_mismatch` — verifies password/confirm mismatch is rejected (line 167).
+  - `test_login_accepts_valid_username_and_password` — verifies correct password works (line 184).
+  - `test_login_rejects_wrong_password` — verifies wrong password returns 401 with safe error message (line 210).
+- No test for: short password rejection, empty password, password at min/max boundary, weak password, password containing username/email.
+
+## Official Password Policy Decision
+
+### Summary
+
+The policy prioritizes **length over complexity**, following modern security guidance (NIST SP 800-63B). Long passwords/passphrases are more secure and user-friendly than short passwords with arbitrary complexity rules. Complexity rules (requiring uppercase + digit + symbol) lead to predictable patterns (e.g., "Password1!") and frustrate users without meaningfully improving security.
+
+### Policy Table
+
+| Aspect | Decision |
+|---|---|
+| Minimum length | 8 characters |
+| Recommended length | 12+ characters |
+| Maximum length | 128 characters |
+| Whitespace | Allowed — supports passphrases |
+| Complexity rules | Not required for MVP; recommended for production |
+| Common password blocklist | Required for production; not enforced today |
+| Email/username in password | Should be blocked in production; not enforced today |
+| Password history / reuse prevention | Not required for MVP; recommended for production |
+| Password reset | Required for production; does not exist today |
+| Password change | Required for production; does not exist today |
+| Hashing algorithm | bcrypt (current implementation is correct) |
+| Rate limiting on login | Required for production; not enforced today |
+| Account lockout | Not recommended — prefer throttling over lockout |
+| Session invalidation on password change | Required when password change is implemented |
+
+## Minimum Length
+
+**Decision: 8 characters minimum, 128 characters maximum.**
+
+- The current Pydantic schema already enforces `min_length=8, max_length=128`. This is acceptable for MVP.
+- 8 characters is the NIST SP 800-63B minimum for memorized secrets.
+- The 128-character maximum prevents denial-of-service via extremely long passwords hitting bcrypt (which has a 72-byte input limit internally, but the pre-hash input should still be bounded).
+- Whitespace is allowed. Passphrases like "correct horse battery staple" are encouraged.
+- For production, consider raising the minimum to 10 characters.
+
+## Complexity Rules
+
+**Decision: No mandatory complexity rules for MVP. Recommend common-password blocklist for production.**
+
+- Modern security guidance (NIST SP 800-63B) recommends against composition rules (e.g., "must contain uppercase + digit + symbol"). These rules lead to predictable patterns and user frustration.
+- Instead, security should come from length (8+ characters) and blocking known-compromised passwords.
+- **MVP:** Accept any password that meets the minimum length. No complexity requirements.
+- **Production:** Implement a common-password blocklist (top 10,000 compromised passwords). Block passwords that match the user's email, username, or name.
+
+## Password Reuse Rules
+
+**Decision: No reuse prevention for MVP. Recommended for production.**
+
+- No password history tracking exists today. No `password_history` table, no previous-hash comparison.
+- **MVP:** No reuse prevention. Users can set any password that meets length requirements.
+- **Production:** When password change is implemented, store the last 3-5 password hashes and reject reuse. Hashes should be stored in a `password_history` table with timestamps.
+- **Session invalidation:** When password change is implemented, it must set `tokens_valid_after = now()` on the user record (using the ISSUE-095 revocation mechanism) to invalidate all existing JWTs.
+
+## Password Reset Policy
+
+**Decision: Password reset does not exist today. Required for production.**
+
+When implemented, the reset flow must follow these requirements:
+
+| Requirement | Decision |
+|---|---|
+| Reset request endpoint | `POST /auth/forgot-password` — accepts email, always returns 200 (prevents user enumeration) |
+| Reset token delivery | Email only |
+| Reset token expiration | 30 minutes maximum |
+| Reset token reuse | One-time use — invalidated after use or after new token is generated |
+| Reset token storage | Hashed (not plaintext) in database |
+| Reset execution endpoint | `POST /auth/reset-password` — accepts token + new password |
+| Session invalidation | Must set `tokens_valid_after = now()` to revoke all existing JWTs |
+| Rate limiting | Maximum 3 reset requests per email per hour |
+| Logging | Log reset requests and completions (without token values) |
+| User enumeration prevention | Same response whether email exists or not |
+
+## Storage and Hashing Policy
+
+**Decision: Current bcrypt implementation is correct and approved.**
+
+| Requirement | Current Status | Decision |
+|---|---|---|
+| Plaintext password storage | Never stored | Approved |
+| Hashing algorithm | bcrypt with default cost (12 rounds) | Approved |
+| Password in API responses | Never returned | Approved |
+| Password in logs | Never logged | Approved — verified by tests |
+| Password in error messages | Never included | Approved |
+| Hash upgrade path | Not implemented | Follow-up: consider argon2id for new registrations in future |
+
+- bcrypt with 12 rounds is acceptable for production. The default `bcrypt.gensalt()` cost factor is sufficient.
+- If migrating to argon2id in the future, implement a transparent upgrade: on successful login, re-hash the password with the new algorithm and update the stored hash.
+
+## Login and Brute-Force Protection
+
+**Decision: No rate limiting exists today. Required for production.**
+
+| Requirement | MVP Decision | Production Decision |
+|---|---|---|
+| Login rate limiting | Not required | Required — max 5 failed attempts per username per 15 minutes |
+| Account lockout | Not implemented | Not recommended — prefer progressive throttling |
+| Progressive throttling | Not required | Required — increasing delay after failed attempts |
+| Safe error messages | Implemented | Approved — "Invalid username or password" does not reveal which field is wrong |
+| Login attempt logging | Implemented | Approved — logs `auth.login.failure` without credentials |
+| IP-based throttling | Not required | Recommended — complement username-based rate limiting |
+| CAPTCHA | Not required | Consider after 3 failed attempts in production |
+
+**Rationale against account lockout:** Account lockout enables denial-of-service attacks — an attacker can lock out any user by repeatedly attempting wrong passwords. Progressive throttling (increasing delay between attempts) is more resilient.
+
+## MVP vs Production Requirements
+
+| Requirement | MVP Decision | Production Decision | Status | Follow-up Needed |
+|---|---|---|---|---|
+| Minimum length 8 chars | Required | Required | IMPLEMENTED | No |
+| Maximum length 128 chars | Required | Required | IMPLEMENTED | No |
+| Password confirmation on register | Required | Required | IMPLEMENTED | No |
+| bcrypt hashing | Required | Required | IMPLEMENTED | No |
+| No plaintext storage | Required | Required | IMPLEMENTED | No |
+| No password in responses/logs | Required | Required | IMPLEMENTED | No |
+| Safe login error messages | Required | Required | IMPLEMENTED | No |
+| Login failure logging | Required | Required | IMPLEMENTED | No |
+| Common-password blocklist | Not required | Required | NOT IMPLEMENTED | Yes |
+| Email/username in password check | Not required | Required | NOT IMPLEMENTED | Yes |
+| Password complexity rules | Not required | Not required | N/A — length-based policy | No |
+| Password change endpoint | Not required | Required | NOT IMPLEMENTED | Yes |
+| Password reset flow | Not required | Required | NOT IMPLEMENTED | Yes |
+| Password reuse prevention | Not required | Required | NOT IMPLEMENTED | Yes |
+| Login rate limiting | Not required | Required | NOT IMPLEMENTED | Yes |
+| Session invalidation on password change | Not required | Required | NOT IMPLEMENTED | Yes (mechanism exists via ISSUE-095 `tokens_valid_after`) |
+| Minimum length test | Not required | Required | NOT IMPLEMENTED | Yes |
+| Weak password test | Not required | Required | NOT IMPLEMENTED | Yes |
+
+## Security Rationale
+
+The policy balances five concerns:
+
+1. **Security:** Length-based policy (8+ characters) provides strong baseline security. bcrypt hashing with default cost is industry-standard. The main gaps (no rate limiting, no password reset, no common-password blocklist) are acceptable for MVP with a small user base but must be addressed before production.
+
+2. **User experience:** No complexity rules means users can choose memorable passwords or passphrases without fighting "must contain uppercase + digit + symbol" rules. Mobile-friendly — no requirement to switch keyboard layouts for symbols.
+
+3. **Implementation complexity:** The MVP policy requires zero code changes — the existing 8-character minimum and bcrypt hashing already meet the MVP bar. Production requirements are incremental additions, not redesigns.
+
+4. **Mobile-friendly login:** Passphrases and simple long passwords are easier to type on mobile than short complex passwords. The policy encourages length over complexity, which aligns with mobile UX.
+
+5. **Future production hardening:** The policy clearly separates MVP-acceptable from production-required items. Each production requirement is a well-scoped follow-up issue. The ISSUE-095 `tokens_valid_after` mechanism already provides the session invalidation foundation needed for password change and reset.
+
+## Gaps / Missing Tests
+
+| Test | Priority | Description |
+|---|---|---|
+| Short password rejection (backend) | P1 | No test sends a password shorter than 8 characters to `POST /auth/register` and verifies 422 rejection. Pydantic enforces this, but no test confirms it. |
+| Empty password rejection | P2 | No test sends an empty password string. |
+| Maximum length password | P2 | No test sends a 128-character password and verifies it succeeds. No test sends a 129-character password and verifies rejection. |
+| Password with whitespace | P3 | No test verifies that passwords containing spaces are accepted. |
+| Weak/common password rejection | P2 | Cannot test — no blocklist implemented. Required for production. |
+| Email/username in password | P2 | Cannot test — no check implemented. Required for production. |
+| Password reset token expiry | P2 | Cannot test — no reset flow implemented. |
+| Password reset one-time use | P2 | Cannot test — no reset flow implemented. |
+| Password reuse prevention | P3 | Cannot test — no password history implemented. |
+| Password change invalidates JWT | P2 | Cannot test — no password change endpoint implemented. When implemented, must verify `tokens_valid_after` is set. |
+| Rate limiting / brute-force protection | P1 | Cannot test — no rate limiting implemented. |
+| Login with bcrypt-incompatible hash | P3 | No test verifies behavior when `password_hash` column contains a non-bcrypt value (e.g., corrupted data). `verify_password` catches `ValueError` and returns `False`, but no test covers this. |
+
+## Required Follow-up Issues
+
+| Issue | Priority | Description |
+|---|---|---|
+| Add password boundary tests | P1 | Add backend tests for: password shorter than 8 chars → 422, password exactly 8 chars → success, password at 128 chars → success, password at 129 chars → 422, empty password → 422. |
+| Implement common-password blocklist | P2 | Add a check during registration (and future password change) that rejects passwords found in a common-password list (top 10,000). Can use a static file or in-memory set. |
+| Block email/username in password | P2 | Add a check during registration that rejects passwords containing the user's email, username, or name (case-insensitive). |
+| Implement password change endpoint | P2 | Add `POST /auth/change-password` requiring current password + new password. Must set `tokens_valid_after = now()` to invalidate existing JWTs. |
+| Implement password reset flow | P2 | Add `POST /auth/forgot-password` and `POST /auth/reset-password`. Must include: hashed one-time-use token, 30-minute expiry, session invalidation, rate limiting, user-enumeration-safe response. |
+| Implement login rate limiting | P1 | Add rate limiting to `POST /auth/login` — max 5 failed attempts per username per 15 minutes with progressive throttling. |
+| Consider argon2id migration | P3 | Evaluate migrating from bcrypt to argon2id for new password hashes. Implement transparent upgrade on login if decided. |
+
+## Final Decision
+
+**The password security policy is approved.**
+
+The current implementation meets the MVP bar:
+- 8-character minimum length enforced by Pydantic schema
+- 128-character maximum length
+- bcrypt hashing with default cost factor
+- No plaintext storage, no password in responses or logs
+- Safe login error messages that prevent user enumeration
+
+**What must be implemented before production:**
+1. Login rate limiting (P1)
+2. Password boundary tests (P1)
+3. Common-password blocklist (P2)
+4. Password change endpoint (P2)
+5. Password reset flow (P2)
+
+The ISSUE-095 `tokens_valid_after` revocation mechanism provides the foundation for session invalidation on password change and reset.
+
+## Acceptance Criteria
+
+The password security policy is documented in `docs/product-decisions.md`.
+
+## Definition of Done
+
+Official password security policy decision is recorded with: minimum length, complexity rules, reuse rules, reset policy, storage/hashing policy, login defense policy, MVP vs production requirements, security rationale, gaps, and follow-up issues.
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `docs/product-decisions.md` | Added ISSUE-096 password security policy. |
+
