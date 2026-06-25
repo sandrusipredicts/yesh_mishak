@@ -18333,3 +18333,62 @@ A production release (`v1.3.0`) causes game creation and join to fail with 500 e
 - **Database changed**: NO
 - **Runtime behavior changed**: NO
 - **Procedure usable today**: PARTIAL
+
+# ISSUE-119: Database Backup Strategy
+
+## 1. Summary
+A comprehensive database backup and restore strategy has been defined covering all 9 production tables, 15 failure scenarios, backup frequency, retention, restore procedures, approval rules, and verification checklists.
+
+This is a strategy and documentation task. No runtime, backend, frontend, or database behavior was changed. No production backup or restore was performed.
+
+## 2. Files Changed
+- `docs/database-backup-strategy.md` — full backup and restore strategy document (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Backup Strategy Document Location
+[docs/database-backup-strategy.md](docs/database-backup-strategy.md)
+
+## 4. Backup Frequency Decision
+- Production: daily automated backups (minimum).
+- Before risky migrations: manual pre-change snapshot required.
+- Before major releases: verify latest backup exists.
+- Before destructive data operations: explicit backup/export required.
+- Staging: optional daily/weekly (when live).
+
+## 5. Retention Decision
+- Daily backups: ≥ 7 days.
+- Weekly backups: ≥ 4 weeks.
+- Monthly backups: ≥ 3 months (if supported).
+- Pre-migration snapshots: retained until post-release verification passes.
+- Security incident snapshots: per evidence policy.
+
+## 6. Restore Process Decision
+An 18-step restore procedure is defined covering: incident declaration, owner assignment, deployment freeze, evidence preservation, backup identification, approval, staged restore (staging first if possible), verification, production restore, smoke testing, monitoring, communication, and follow-up.
+
+Approval rules:
+- Production restore: Technical Lead + Database Owner.
+- Data-loss restore: add Product Owner.
+- Security incident: add Security Owner.
+
+## 7. Scenario Coverage
+15 scenarios documented: accidental row deletion, bad migration, dropped table, corrupted data, wrong environment connected to production DB, Supabase outage, credential leak, malicious admin action, broken RLS policy, notification corruption/spam, push token issues, user account corruption, field/game data corruption, staging reset, local DB rebuild.
+
+## 8. Known Gaps / Needs Confirmation
+- Supabase plan level, backup frequency, retention, and PITR: require dashboard confirmation.
+- Backup dashboard owner: needs explicit assignment.
+- Restore permissions and process: need dashboard verification.
+- Staging not live (ISSUE-114).
+- Seed data process not implemented (ISSUE-131).
+- Automated backup monitoring not implemented.
+- Live restore drill not yet performed.
+
+## 9. Final Result
+- **Backup strategy exists**: YES
+- **Frequency defined**: YES
+- **Retention defined**: YES
+- **Restore process defined**: YES
+- **Scenarios covered**: YES (15 scenarios)
+- **Ownership/approval rules documented**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
+- **Production backup/restore performed**: NO
