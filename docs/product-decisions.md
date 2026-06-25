@@ -16881,3 +16881,74 @@ Under ISSUE-103, we have successfully addressed and closed all 7 input validatio
 - **Test Coverage**: Added comprehensive integration and unit tests in `backend/tests/test_issue_103_validation.py` covering all coordinate range boundaries, path UUID rejections, phone validation formats, rate limiting, and database conflict translation.
 - **Suite Execution**: All 622 tests pass successfully.
 - **Re-Audit Status**: **PASSED**. All documented validation gaps are closed.
+
+---
+
+# ISSUE-104: Dependency Vulnerability Audit
+
+## Scope
+This section documents a comprehensive dependency vulnerability audit performed across the `yesh_mishak` project dependencies. This was an audit and documentation task only. No runtime behavior was changed, no dependency packages were upgraded, and no manifests or lockfiles were modified.
+
+## Dependency Sources Reviewed
+The following files were inspected for direct and transitive third-party dependencies:
+* [frontend/package.json](file:///c:/Users/orel1/yesh_mishak/frontend/package.json) (Frontend direct dependencies)
+* [frontend/package-lock.json](file:///c:/Users/orel1/yesh_mishak/frontend/package-lock.json) (Frontend transitive dependency tree)
+* [backend/requirements.txt](file:///c:/Users/orel1/yesh_mishak/backend/requirements.txt) (Backend direct pinned dependencies list)
+* [frontend/vercel.json](file:///c:/Users/orel1/yesh_mishak/frontend/vercel.json) (Vercel deployment route config)
+
+## Audit Commands Run
+| Area | Command | Result | Notes |
+| :--- | :--- | :--- | :--- |
+| **Frontend** | `npm audit --json` | 0 vulnerabilities | Scanned 289 packages successfully with zero security advisories returned. |
+| **Backend** | `python -m pip_audit` | Vulnerability audit could not be fully executed | `pip-audit` is not installed in the project virtual environment. |
+| **Backend** | `python -m safety` | Vulnerability audit could not be fully executed | `safety` is not installed in the project virtual environment. |
+
+*Note: Direct and transitive backend packages were inventoried from requirements.txt and pip list, but because backend vulnerability scanners were not present in the workspace, the backend pip vulnerability audit could not be fully executed.*
+
+## Current Dependency Inventory
+* **Frontend**: `npm` package manager. Features 9 direct runtime dependencies and 10 devDependencies. Total package dependency tree contains 289 resolved packages.
+* **Backend**: `requirements.txt` manifest. Features 12 direct pinned dependencies (11 runtime, 1 dev-only). Total virtual environment packages installed: 47.
+* **Infrastructure**: Minimal static deployment config (`vercel.json`) with rewrite rules. No container files (`Dockerfile`/`docker-compose.yml`) or CI/CD workflow configuration directories exist.
+
+## Vulnerability Summary
+| Ecosystem | Critical | High | Moderate | Low | Unknown | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **npm** | 0 | 0 | 0 | 0 | 0 | Clean scan report from `npm audit`. |
+| **pip** | 0 | 0 | 0 | 0 | Unknown | Backend pip vulnerability audit could not be fully executed due to lack of local scanner tooling. |
+| **infrastructure** | 0 | 0 | 0 | 0 | 0 | No container images or GitHub Actions workflows present. |
+
+## Detailed Findings
+No vulnerabilities were found in the frontend package ecosystem (via `npm audit`). For the backend package ecosystem, the automated pip vulnerability audit could not be fully executed because `pip-audit` and `safety` are not installed in the workspace. While direct/transitive backend packages were inventoried from `requirements.txt` and `pip list` and checked manually against public catalogs without finding obvious issues, this manual review is a static limitation and does not constitute proof of zero vulnerabilities.
+
+## Critical Vulnerabilities
+No critical vulnerabilities were identified by the executed audit commands.
+
+## High-Risk Dependencies To Watch
+The following security-critical libraries are used in the runtime path and must be monitored closely for new advisories:
+* `PyJWT` (version `2.10.1`): Handles JWT token encoding, decoding, and signatures.
+* `bcrypt` (version `4.2.1`): Used for secure password hashing.
+* `supabase` (version `2.10.0`): Database client wrapper. Relies on the deprecated `gotrue` package which emits deprecation warnings.
+* `fastapi` (version `0.115.6`) / `starlette` (version `0.41.3`): Web framework routing, exception mapping, and middleware layers.
+* `pydantic` (version `2.13.4`): Request deserialization and schema-level validation.
+* `firebase` (frontend, version `^12.15.0`): Client-side push notification registry.
+* `axios` (frontend, version `^1.17.0`): Main client API communicator.
+
+## Infrastructure Tooling Review
+* **GitHub Actions**: None. No workflow configuration folder exists.
+* **Docker**: None. No containers are used in the repository.
+* **Deployment Config Risks**: [vercel.json](file:///c:/Users/orel1/yesh_mishak/frontend/vercel.json) is limited to basic SPA routing rewrites.
+* **Global Install Scripts**: None. No bash/curl installation wrappers are used.
+* **Unpinned Infrastructure Tools**: None.
+
+## Limitations
+* **Backend Tooling**: Automated backend vulnerability scanners (`pip-audit` or `safety`) were unavailable in the workspace. The backend audit was completed through manual inspection of the direct pinned versions, which may not capture unknown nested sub-dependency risks as comprehensively as automated scanning.
+
+## Required Follow-up Issues
+1. **ISSUE-110: Add pip-audit to Dev/Security Workflow**: Add `pip-audit` to `requirements.txt` (or dev/security dependencies) to allow local developers to run automated audits, and rerun the backend dependency audit.
+2. **ISSUE-111: Integrate Security Audit in CI Pipeline**: Set up a GitHub Actions workflow that runs `npm audit` and `pip-audit` on every push to fail builds containing high/critical security advisories.
+3. **ISSUE-112: Monitor gotrue Deprecation Warning**: Keep the Supabase Python SDK client updated to migrate away from deprecated `gotrue` packages once stable replacements are published.
+
+## Final Audit Result
+* **Critical Vulnerabilities found by executed audit commands**: 0
+* **High Vulnerabilities found by executed audit commands**: 0
+* **Status**: **INCOMPLETE** (Backend pip audit is incomplete until `pip-audit` or equivalent is added. Frontend npm audit is clean/PASSED).
