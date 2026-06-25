@@ -17895,3 +17895,47 @@ Within 5 business days of incident resolution, the Incident Lead must facilitate
 * **Section 4 marked Complete**: NO (Status is **BLOCKED**)
 * **Runtime behavior changed**: NO
 * **DB schema changed**: NO
+
+---
+
+# ISSUE-111: Deployment Process Documentation
+
+## 1. Summary
+This section documents the decision to create the official deployment process playbook for the `yesh_mishak` project. The playbook aggregates deployment, verification, rollback, and environment variable configuration details that were previously undocumented or scattered among team members.
+
+## 2. Files Changed
+* [deployment-process.md](file:///c:/Users/orel1/yesh_mishak/docs/deployment-process.md) (New Document)
+* [product-decisions.md](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md) (Modified Decision Record)
+
+## 3. Deployment Document Location
+The deployment instructions are stored in [docs/deployment-process.md](file:///c:/Users/orel1/yesh_mishak/docs/deployment-process.md).
+
+## 4. What the Document Covers
+The playbook covers:
+* System architecture (React/Vite on Vercel, FastAPI on Railway, Supabase DB/Auth, Firebase FCM).
+* Release permissions and branching workflow rules (main branch locks, PR checks).
+* Step-by-step frontend deployment process (Vercel).
+* Step-by-step backend deployment process (Railway).
+* Environment variable table mapping all 22+ frontend and backend configuration variables.
+* Supabase schema changes and rollback procedures.
+* Firebase Web SDK and messaging setup details.
+* GCP Google Auth redirect origins alignment.
+* Pre-deployment and post-deployment verification checklists.
+* Rollback procedures for frontend, backend, database, and feature reversions.
+* End-to-end local development walkthrough for new developers.
+
+## 5. Known Gaps / Needs Confirmation
+* Staging environment URLs and names.
+* Precise production project names on Vercel and Railway dashboard consoles.
+* Specific team members possessing admin credentials to Supabase, Firebase, Google Cloud, Vercel, and Railway.
+* Plan for automating database migrations in Supabase (manual vs CI).
+
+## 6. Final Result
+* **Deployment document exists**: YES
+* **Frontend deploy documented**: YES
+* **Backend deploy documented**: YES
+* **Env vars documented**: YES
+* **Rollback documented**: YES
+* **New developer can follow process**: YES (with credentials from shared vault)
+* **Runtime behavior changed**: NO
+* **DB schema changed**: NO
