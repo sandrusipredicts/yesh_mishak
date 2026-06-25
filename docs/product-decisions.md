@@ -18276,3 +18276,60 @@ This document is the source of truth during failed deployments. All rollbacks mu
 - **Reusable rollback checklist included**: YES
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
+
+# ISSUE-118: Rollback Simulation Exercise
+
+## 1. Summary
+A tabletop/dry-run rollback simulation exercise was performed to validate the rollback procedure documented in ISSUE-117. The exercise simulated a SEV-1 backend deployment failure (game creation broken due to missing database migration) and walked through every step of the rollback procedure, measuring timing and identifying gaps.
+
+No production or staging rollback was performed. No deployments, databases, secrets, or runtime behavior were changed.
+
+## 2. Files Changed
+- `docs/rollback-simulation-report.md` — full simulation exercise report (created)
+- `docs/product-decisions.md` — this exercise record (appended)
+
+## 3. Simulation Report Location
+[docs/rollback-simulation-report.md](docs/rollback-simulation-report.md)
+
+## 4. Exercise Type
+**TABLETOP / DRY-RUN SIMULATION** — staging is not live (ISSUE-114 status: PREPARED), so a live rollback drill was not possible.
+
+## 5. Scenario Simulated
+A production release (`v1.3.0`) causes game creation and join to fail with 500 errors because the backend references a database column that does not exist (migration was not applied before deployment). Frontend, auth, fields, and notifications are unaffected. Classified as SEV-1 High.
+
+## 6. Rollback Time Measured
+| Metric | Value |
+| :--- | :--- |
+| Tabletop exercise time | ~48 minutes |
+| Estimated real recovery time | 30-60 minutes |
+| Main bottleneck | Railway rebuild time + detection delay (no automated alerting) |
+
+## 7. Key Findings
+- The rollback procedure (ISSUE-117) is logical and followable.
+- Severity matrix and rollback vs forward-fix decision framework worked well.
+- Communication templates saved time.
+- **Gaps found**: exact Vercel/Railway project names not documented, no dashboard access inventory, no monitoring/alerting, staging not live for live drill, Supabase backup policy unconfirmed, no on-call rotation defined.
+- **Highest risk area**: Database rollback (stateful, destructive potential, backup policy unconfirmed).
+- **Procedure usable today**: PARTIAL — followable but blocked by unconfirmed dashboard details and missing monitoring.
+
+## 8. Follow-Up Issues
+- P1: Assign deployment/rollback owners by name.
+- P1: Confirm exact Vercel project name and rollback navigation.
+- P1: Confirm exact Railway service name and rollback navigation.
+- P1: Create dashboard access inventory.
+- P1: Make staging fully live (ISSUE-114 follow-up).
+- P2: Confirm Supabase backup/snapshot policy.
+- P2: Run live staging rollback drill once staging is live.
+- P2: Add monitoring/alerting for backend health.
+- P2: Define on-call rotation.
+
+## 9. Final Result
+- **Rollback exercise performed**: YES
+- **Exercise type**: TABLETOP / DRY-RUN SIMULATION
+- **Rollback time measured**: YES
+- **Total estimated recovery time**: 30-60 minutes
+- **Production touched**: NO
+- **Deployment changed**: NO
+- **Database changed**: NO
+- **Runtime behavior changed**: NO
+- **Procedure usable today**: PARTIAL
