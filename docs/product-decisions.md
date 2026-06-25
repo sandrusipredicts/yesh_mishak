@@ -17804,3 +17804,94 @@ Within 5 business days of incident resolution, the Incident Lead must facilitate
 * **Team process documented**: YES
 * **Runtime behavior changed**: NO
 * **DB schema changed**: NO
+
+---
+
+# ISSUE-110: Security Readiness Review
+
+## 1. Executive Summary
+* **What was reviewed**: A comprehensive security readiness gate check was conducted, auditing authentication and authorization controls, secrets/environment management settings, client storage policies, privacy regulations (PII / location precision), and the incident response playbook.
+* **Whether Security & Hardening is ready**: **NO**. The readiness gate has failed due to an active, unmitigated **P0 Critical** security vulnerability.
+* **Final decision**: **BLOCKED**. Production deployment is blocked until the P0 vulnerability (`AUTH-001`) is remediated. No separate Section 4 status marker file was found in the repository, so the gate decision is documented exclusively in this record.
+
+## 2. Readiness Criteria
+* **All P0 security issues completed**: **FAILED** (P0 issue `AUTH-001` remains open in `backend/app/auth/google.py`).
+* **Required audits completed**: **PASSED** (All 6 security audits and policies are fully completed and documented).
+* **No critical security risk open**: **FAILED** (Critical risk `AUTH-001` remains open).
+* **Known P1/P2 risks documented as follow-ups**: **PASSED** (All P1/P2 findings are registered in the follow-up backlog).
+* **Section 4 status can be marked Complete only if the gate passes**: **FAILED** (The gate is **BLOCKED**; Section 4 cannot be marked Complete).
+
+## 3. Audit Completion Matrix
+
+| Area | Related Issue | Status | Evidence Location | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **Authentication Security Audit** | ISSUE-092 | Complete | docs: [product-decisions.md#L14248-L14685](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L14248-L14685) | Audited Google/password authentication, JWT storage, and logout. Identified 1 P0 and 7 P1 issues. |
+| **Authorization Security Audit** | ISSUE-093 | Complete | docs: [product-decisions.md#L14687-L14912](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L14687-L14912) | Audited route authorization, ownership validation, and admin actions. Identified `require_admin` bypass. |
+| **Environment Variable Management Audit** | ISSUE-106 | Complete | docs: [product-decisions.md#L17001-L17188](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L17001-L17188) | Audited Railway/Vercel keys, local configs, and `.gitignore` safety. |
+| **Production Secrets Management Policy** | ISSUE-107 | Complete | docs: [product-decisions.md#L17191-L17302](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L17191-L17302) | Created policy for production environment secrets, rotation schedules, and templates. |
+| **Privacy and Personal Data Audit** | ISSUE-108 | Complete | docs: [product-decisions.md#L17304-L17458](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L17304-L17458) | Mapped 23 data fields, reviewed frontend storage exposure, location data, and notification flows. |
+| **Security Incident Handling Process** | ISSUE-109 | Complete | docs: [product-decisions.md#L17461-L17806](file:///c:/Users/orel1/yesh_mishak/docs/product-decisions.md#L17461-L17806) | Created incident playbook, including response workflows, communication templates, and 10 scenarios. |
+
+## 4. P0 Security Requirements Review
+
+| Requirement | Source Issue | Status | Evidence | Blocking? |
+| :--- | :--- | :--- | :--- | :--- |
+| **Harden Google account linking and require verified Google email** | ISSUE-092 (`AUTH-001`) | **OPEN** | `backend/app/auth/google.py` line 187: looks up existing users strictly by `email` without requiring matched `google_sub` or verifying the Google token `email_verified` claim. | **YES** |
+
+## 5. Open Security Risk Register
+
+### Critical Blockers
+| Finding ID | Severity | Area | Summary | Blocking? | Follow-up Issue Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`AUTH-001`** | Critical (P0) | Authentication | Google login links existing accounts by email without verifying the `email_verified` claim or checking `google_sub` matches, enabling account takeovers. | **YES** | **ISSUE-111: Harden Google OAuth account linking**: Enforce `email_verified is True` and restrict direct linking to matching `google_sub` keys. |
+
+### Non-Blocking Follow-Ups (P1/P2/P3)
+| Finding ID | Severity | Area | Summary | Blocking? | Follow-up Issue Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`AUTH-002`** | High (P1) | Authentication | Internal Supabase diagnostics and database query hints are returned in client error responses during Google login failure. | No | **ISSUE-112: Sanitize Google auth database error responses**: Return clean generic errors to clients. |
+| **`AUTH-003`** | High (P1) | Authentication | Password login endpoint `POST /auth/login` lacks rate-limiting, increasing brute-force vulnerabilities. | No | **ISSUE-113: Implement login rate limiting**: Add FastAPI rate limit middleware to auth routes. |
+| **`AUTH-004`** | High (P1) | Authentication | Registration and availability check routes (`POST /auth/register`, `/auth/check-*`) lack rate-limiting. | No | **ISSUE-114: Rate limit registration routes**: Add rate limits to registration paths. |
+| **`AUTH-005`** | High (P1) | Authentication | Default 7-day JWT expiration with no session refresh token mechanism. | No | **ISSUE-115: Implement refresh token mechanism**: Shorten JWT access token lifetime. |
+| **`AUTH-006`** | High (P1) | Authentication | Frontend API client checks legacy fallback keys (`authToken`/`token`) that logout does not clear from `localStorage`. | No | **ISSUE-116: Clean up legacy local keys**: Centralize localStorage cleanup and remove legacy keys. |
+| **`AUTH-007`** | High (P1) | Authentication | In-memory user cache TTL (300 seconds) delays active moderation actions (bans/suspensions) from taking effect. | No | **ISSUE-117: Optimize user cache TTL**: Evict user records from cache immediately upon status updates. |
+| **`PRIV-108-001`** | High (P1) | Secrets | Public-safe but environment-specific `frontend/.env` is tracked and committed in git. | No | **ISSUE-118: Remove committed frontend env configuration**: Clean git tracking for env configs. |
+| **`PRIV-108-002`** | High (P1) | Privacy | User logout in frontend does not unregister push notification tokens from the backend database. | No | **ISSUE-119: Unregister push tokens on logout**: Call token deletion on user logout. |
+| **`PRIV-108-003`** | High (P1) | Privacy | `/admin/users` endpoints and admin users screen expose plaintext emails and phone numbers. | No | **ISSUE-120: Mask admin-visible PII**: Mask contact details in administrative listings. |
+| **`PRIV-108-004`** | High (P1) | Privacy | JWT access tokens are stored in plain text inside browser `localStorage`, making them vulnerable to XSS theft. | No | **ISSUE-121: HttpOnly cookie storage migration**: Move JWT token session state to HttpOnly cookies. |
+| **`PRIV-108-005`** | Medium (P2) | Location | Exact geographic coordinates are saved for notification preferences center points, exposing residential locations. | No | **ISSUE-122: Coordinate location fuzzing**: Fuzz preference coordinates to 3 decimal places. |
+
+## 6. Section 4 Completion Decision
+* **Section 4 Status**: **BLOCKED**
+* **Reason**: The Security & Hardening readiness gate is BLOCKED because the P0 Critical vulnerability `AUTH-001` remains unresolved.
+* **Date of Decision**: June 25, 2026
+* **Evidence**:
+  1. `backend/app/auth/google.py` lines 187-230 verify Google tokens but look up and link user accounts directly using only the unverified `email` field.
+  2. Banned/suspended admin account privileges are verified as fixed (resolved in ISSUE-095 by chaining `require_admin` through `require_active_user`).
+  3. Server-side token revocation and immediate logout invalidation are verified as active (implemented in ISSUE-095).
+* **Assumptions**: Security requirements can only pass the production readiness gate once all P0 vulnerabilities are successfully remediated and unit tested in the codebase.
+
+## 7. Required Follow-Up Issues
+
+1. **ISSUE-111: Harden Google OAuth account linking (P0 - BLOCKER)**: Update `backend/app/auth/google.py` to check `email_verified` and restrict linking to verified Google accounts matching `google_sub`.
+2. **ISSUE-112: Sanitize database error messages (P1)**: Ensure Google auth endpoints do not return raw Supabase diagnostics.
+3. **ISSUE-113: Implement login rate limiting (P1)**: Add throttling logic to `POST /auth/login` using FastAPI rate-limiters.
+4. **ISSUE-114: Rate limit registration/availability routes (P1)**: Secure `POST /auth/register`, `/auth/check-username`, and `/auth/check-email`.
+5. **ISSUE-115: Implement refresh tokens (P1)**: Transition from a static 7-day token to short-lived access tokens and secure refresh tokens.
+6. **ISSUE-116: Clean up legacy local keys (P1)**: Purge legacy keys (`authToken`, `token`) from frontend client and localStorage cleanup.
+7. **ISSUE-117: Optimize user cache TTL (P1)**: Evict or bypass cached user status during moderation changes to avoid the 300-second latency window.
+8. **ISSUE-118: Remove committed frontend env configuration (P1)**: Run `git rm --cached frontend/.env` and update `.gitignore`.
+9. **ISSUE-119: Unregister push tokens on logout (P1)**: Call the unregister token endpoint during client logout.
+10. **ISSUE-120: Mask admin-visible PII (P1)**: Mask emails and phone numbers in `/admin/users`.
+11. **ISSUE-121: HttpOnly cookie storage migration (P1)**: Move JWT storage out of `localStorage` into secure, HttpOnly cookies.
+12. **ISSUE-122: Coordinate location fuzzing (P2)**: Snap coordinates to 3 decimal places to anonymize specific addresses in preferences.
+13. **ISSUE-123: Add PII-safe logging policy (P2)**: Implement developer guidelines and checkers to prevent contact details or tokens from entering server logs.
+14. **ISSUE-124: Add privacy policy & user deletion flow (P2)**: Document data retention limits and provide account termination mechanisms.
+15. **ISSUE-125: Establish admin access reviews (P3)**: Create schedules for auditing admin roles and actions.
+
+## 8. Final Result
+* **All P0 completed**: NO
+* **All audits completed**: YES
+* **Critical risk open**: YES
+* **Section 4 marked Complete**: NO (Status is **BLOCKED**)
+* **Runtime behavior changed**: NO
+* **DB schema changed**: NO
