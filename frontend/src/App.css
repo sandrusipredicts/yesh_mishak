@@ -147,10 +147,11 @@ select {
 
 .login-page {
   display: grid;
-  min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
   padding: 24px;
   background: #f5f7fb;
+  overflow-y: auto;
 }
 
 .login-panel {
@@ -930,8 +931,11 @@ select {
 .open-game-modal {
   position: relative;
   width: min(420px, 100%);
+  max-height: min(600px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+  overflow-y: auto;
   border-radius: 8px;
   padding: 22px;
+  padding-bottom: calc(22px + var(--safe-area-bottom));
   background: #ffffff;
   color: #172033;
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
@@ -2323,6 +2327,29 @@ select {
 
   .admin-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .login-page {
+    align-content: safe center;
+  }
+
+  .auth-form input,
+  .open-game-form input,
+  .open-game-form select,
+  .add-field-form input,
+  .add-field-form select,
+  .add-field-form textarea,
+  .field-report-form select,
+  .field-report-form textarea,
+  .notifications-form input,
+  .admin-users-search input,
+  .admin-status-select,
+  .city-autocomplete input {
+    font-size: 16px;
+  }
+
+  .city-autocomplete-suggestions {
+    max-height: min(220px, 40dvh);
   }
 }
 

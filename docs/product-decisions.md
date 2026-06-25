@@ -20314,3 +20314,52 @@ Seven keyboard interaction scenarios are defined: full-page forms (Login/Registe
 
 ## Definition of Done Confirmation
 All keyboard interaction scenarios are defined. The specification covers 7 scenario types, 9 behavior rule categories, 6 screen-specific requirement sections, a manual validation checklist, and a known-findings mapping. Future keyboard fixes can now proceed using this specification as the authoritative standard.
+
+---
+
+# ISSUE-139: Keyboard Handling Improvements
+
+## Summary
+This decision record registers the implementation of keyboard handling improvements defined in the ISSUE-138 keyboard interaction specification. The changes ensure all mobile form fields remain accessible when the virtual keyboard opens, modals scroll internally, submit/cancel actions remain reachable, iOS Safari auto-zoom is prevented, and numeric keypads are used for player count fields. The critical finding CGMOB-001 (Create Game modal keyboard trap) is resolved.
+
+## Files Changed
+- `frontend/src/App.css` — Login page 100dvh and overflow-y: auto; Create Game modal max-height and overflow-y: auto; mobile 16px font-size for all form inputs; viewport-aware autocomplete suggestions height; safe center alignment for login page on mobile
+- `frontend/src/components/OpenGameModal.jsx` — Added inputMode="numeric" and pattern="[0-9]*" to player count inputs
+- `frontend/src/components/CityAutocomplete.jsx` — Added touchstart listener for outside-click dismissal
+- `docs/mobile-keyboard-handling-implementation.md` — Implementation documentation
+
+## Forms Reviewed
+- Login (LoginPage.jsx) — PASS
+- Registration (LoginPage.jsx register mode) — PASS
+- Create Game (OpenGameModal.jsx) — PASS
+- Add Field (AddFieldModal.jsx) — PASS
+- Field Report (FieldReportModal.jsx) — PASS
+- Notifications Preferences (NotificationsModal.jsx) — PASS
+- City Autocomplete (CityAutocomplete.jsx) — PASS
+- Admin Filters (AdminUsers.jsx) — PASS
+
+## Findings Addressed
+- `CGMOB-001` (Critical): Create Game modal keyboard trap — RESOLVED
+- `CGMOB-002` (High): Create Game iOS Safari auto-zoom — RESOLVED
+- `CGMOB-005` (Medium): Numeric keyboard for player counts — RESOLVED
+- `ADMOB-003` (High): Admin search input iOS auto-zoom — RESOLVED
+- `NTMOB-004` (Medium): Autocomplete touch dismissal — ADDRESSED
+- `NTMOB-005` (Medium): Autocomplete suggestions clipped by keyboard — ADDRESSED
+- `ML-LOGIN-001` (Medium): Login submit below viewport — ADDRESSED
+- `ML-REGISTER-001` (Medium): Registration submit unreachable — ADDRESSED
+
+## Validation Performed
+- `npm run build` — PASS (no errors)
+- `npm run lint` — PASS (2 pre-existing errors unrelated to this change)
+- `git diff --check` — PASS (no whitespace errors)
+- Desktop layout preserved via mobile-scoped media query (`@media max-width: 640px`)
+
+## Known Remaining Issues
+- Touch target sizing below 44px (multiple findings) — separate issue
+- Admin native prompt replacement (ADMOB-001) — separate issue
+- Inline validation errors (CGMOB-004) — requires validation architecture change
+- Notification header wrapping (NTMOB-001) — separate issue
+- Admin table scroll indicators (ADMOB-002) — separate issue
+
+## Definition of Done Confirmation
+All forms were reviewed and keyboard behavior was validated. Eight form/screen areas were reviewed against the ISSUE-138 keyboard specification. Critical finding CGMOB-001 is resolved. Build and lint pass cleanly. Desktop behavior is preserved.
