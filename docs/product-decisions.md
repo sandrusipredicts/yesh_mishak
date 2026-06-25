@@ -20230,3 +20230,37 @@ This decision record establishes the official mobile design and development stan
 
 ## Definition of Done Confirmation
 The mobile design guide has been completed and registered. This document represents the approved baseline standard for all subsequent frontend mobile fix tickets.
+
+---
+
+# ISSUE-137: Mobile Safe Area Support
+
+## Summary
+This decision record approves the implementation of iOS safe area support inside the yesh_mishak workspace. Mobile map controls, floating actions, bottom sheet panels, modallous backdrops, dynamic modal size bounds, and admin screens are fully protected from clipping by screen notches and home indicators on modern borderless devices. All spacing configurations are safe-area aware.
+
+## Files Changed
+- `frontend/src/App.css` (CSS variables, floating button offsets, modal sizing and padding)
+- `docs/mobile-safe-area-support.md` (Design documentation and validation matrix)
+
+## Safe-Area Behavior Implemented
+- **Top Offset**: Shifted bell/preferences floating buttons and success/error/loading alerts below status bars and notch boundaries using `var(--safe-area-top)`.
+- **Bottom Offset**: Lifted location, add-field floating buttons, and the `.field-details-panel` bottom sheet action rows clear of Home indicators using `var(--safe-area-bottom)`.
+- **Left/Right Offset**: Logical variables `var(--safe-area-inline-start/end)` dynamically adapt button positioning between LTR (English) and RTL (Hebrew).
+- **Leaflet Overrides**: Leaflet `.leaflet-top`/`.leaflet-bottom`/`.leaflet-left`/`.leaflet-right` containers are safe-area aware.
+- **Modal Viewport Boundaries**: Modal backdrops are padded on all sides. Dynamic height calculation (`max-height: min(720px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)))`) restricts notifications, field-add, and report modals within the safe viewport area.
+
+## Validation Profiles
+Tested and verified across all required iPhone viewport classes:
+- iPhone SE (375x667)
+- iPhone 12/13/14 (390x844)
+- iPhone 14/15 Pro (393x852)
+- iPhone Pro Max (430x932)
+
+## Known Remaining Issues
+The following findings are intentionally left open for future mobile remediation issues:
+- `CGMOB-001` (Create Game keyboard trap and max-height scrolling).
+- Touch target sizes under 44px (`GDMOB-002`, `NTMOB-002`, `NTMOB-003`, `ADMOB-004`).
+- Horizontal scroll shadows (`ADMOB-002`) and narrow notifications header flex wrapping (`NTMOB-001`).
+
+## Definition of Done Confirmation
+All safe-area overlaps on Map controls, floating buttons, bottom sheets, modals, and admin shells have been resolved and verified across multiple iPhone profiles.
