@@ -16622,3 +16622,223 @@ Recommended follow-up work:
 
 Abnormal password login attempts are now handled for MVP by backend progressive delay. The implementation slows repeated failures, preserves generic login responses, avoids hard lockout, avoids CAPTCHA, and keeps ISSUE-099 rate limiting intact.
 
+---
+
+# ISSUE-102: Input Validation Audit
+
+## Scope
+
+This section documents a comprehensive input validation audit performed on the `yesh_mishak` backend API. This was an audit and documentation task only. No runtime behavior was changed, no new validators were added, no API schemas were modified, and no new tests were committed to the repository in this issue.
+
+## Current Validation Model Observed
+
+The `yesh_mishak` backend uses a layered validation strategy combining Pydantic schemas, inline route checks, and database constraints:
+
+* **Pydantic Schema Validation**: Incoming request bodies are deserialized and validated using Pydantic `BaseModel` models. Pydantic enforces basic types, field presence, and string length boundaries (e.g., `RegisterRequest` and `LoginRequest` constraints). It also runs field-level sanitization/normalization (e.g., stripping strings, lowercasing usernames and emails).
+* **Manual Validation (Route Code)**: Routes apply business-logic validations, such as checking if dates are in the future (`scheduled_at`), comparing passwords and confirm-passwords, checking sport types against in-memory allowlists, and invoking UGC content moderation rules.
+* **DB Constraints as Secondary Defense**: The PostgreSQL database (`schema.sql`) enforces integrity through primary keys, foreign keys, unique constraints (`email`, `username`, `phone_number`), and check constraints (`sport_type` options, status enums, non-negative players/age limits).
+* **Frontend Validation Role**: The React frontend forms implement UI-level validations (e.g., verifying fields are filled, checking email formatting, selecting valid dates/maps coordinates) to provide a smooth user experience. This frontend validation is treated purely as a UX helper, and the backend re-validates all inputs.
+* **Standardized Error Behavior**: FastAPI's default handlers translate Pydantic `ValidationError` exceptions into standard `HTTP 422 Unprocessable Entity` responses. Unhandled runtime/database exceptions are caught by a global generic exception handler, returning standard `HTTP 500 Internal Server Error` to prevent internal leakage.
+
+---
+
+## Endpoint Input Inventory
+
+| Area | Endpoint / Function | Input Type | Fields / Params | Current Validation | Evidence | Risk | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Login** | `POST /auth/login` | JSON Body | `username`, `password` | Pydantic length limits, username normalization (strip/lowercase). Brute force tracking & progressive delay resets. | [auth.py:43-55](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L43-L55) | Low | Checked |
+| **Login** | `POST /auth/google` | JSON Body | `token` | Pydantic string type validation. Google client verification. | [auth.py:6-7](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L6-L7) | Low | Checked |
+| **Login** | `POST /auth/check-username` | JSON Body | `username` | Pydantic length limit (1-40) and basic strip/lowercase normalization. | [auth.py:56-66](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L56-L66) | Medium | Checked |
+| **Login** | `POST /auth/check-email` | JSON Body | `email` | Pydantic length limit (1-254) and basic strip/lowercase normalization. | [auth.py:68-78](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L68-L78) | Medium | Checked |
+| **Login** | `POST /auth/logout` | None | JWT Auth Header | Signature verification, token validity window check. | [dependencies.py:69-147](file:///c:/Users/orel1/yesh_mishak/backend/app/auth/dependencies.py#L69-L147) | Low | Checked |
+| **Register** | `POST /auth/register` | JSON Body | `full_name`, `username`, `email`, `phone_number`, `password`, `password_confirm` | Pydantic length limits, alphanumeric check for username, basic `@/.` check for email, matching password route checks, uniqueness DB lookups. | [auth.py:10-41](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L10-L41) | Medium | Checked |
+| **Games** | `POST /games/` | JSON Body | `field_id`, `sport_type`, `players_present`, `max_players`, `age_note`, `min_age`, `max_age`, `scheduled_at` | Pydantic bounds (gt/ge), route checks for sport_type enum, age range logic, future scheduled time, field verification & status, duplicate slots. | [games.py:38-47](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L38-L47) | Medium | Checked |
+| **Games** | `POST /games/{game_id}/join` | Path Param | `game_id` | Read-only database lookup. | [games.py:477-538](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L477-L538) | Medium | Checked |
+| **Games** | `POST /games/{game_id}/leave` | Path Param | `game_id` | Read-only database lookup and membership verification. | [games.py:541-573](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L541-L573) | Medium | Checked |
+| **Games** | `POST /games/{game_id}/close` | Path Param | `game_id` | Read-only database lookup, organizer ownership check. | [games.py:575-658](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L575-L658) | Medium | Checked |
+| **Games** | `POST /games/{game_id}/extend` | Path Param | `game_id` | Read-only database lookup, organizer ownership check. | [games.py:660-700](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L660-L700) | Medium | Checked |
+| **Games** | `POST /games/{game_id}/cancel` | Path Param, JSON Body | `game_id`, `reason` | Organizer ownership check, future status check, cancel reason UGC moderation. | [games.py:702-774](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/games.py#L702-L774) | Medium | Checked |
+| **Fields** | `GET /fields` | Query Params | `north`, `south`, `east`, `west` | Bounding box spatial coordinate query parsing. | [fields.py:79-132](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L79-L132) | Medium | Checked |
+| **Fields** | `GET /fields/{field_id}` | Path Param | `field_id` | Read-only database lookup. | [fields.py:135-150](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L135-L150) | Medium | Checked |
+| **Fields** | `POST /fields/` | JSON Body | `name`, `lat`, `lng`, `sport_type`, `surface_type`, `has_nets`, `has_water`, `opening_hours`, `city`, `notes` | Pydantic types, text fields moderated via `validate_field_submission()`. | [fields.py:35-46](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L35-L46) | Medium | Checked |
+| **Fields** | `PATCH /fields/{field_id}/status` | Path Param, JSON Body | `field_id`, `status` | Admin-only route, manual check against `ALLOWED_FIELD_STATUSES`. | [fields.py:203-210](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L203-L210) | Medium | Checked |
+| **Reports** | `POST /field-reports` | JSON Body | `field_id`, `category`, `description` | Pydantic (extra="forbid"), manual category check against allowed list, description moderation. | [field_reports.py:28-33](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/field_reports.py#L28-L33) | Medium | Checked |
+| **Admin** | `POST /admin/users/{user_id}/ban` | Path Param, JSON Body | `user_id`, `reason` | Admin check, status state checks, manual non-empty reason check. | [admin.py:256-263](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L256-L263) | Medium | Checked |
+| **Admin** | `POST /admin/users/{user_id}/unban` | Path Param, JSON Body | `user_id`, `reason` | Admin check, status state checks. | [admin.py:265-272](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L265-L272) | Medium | Checked |
+| **Admin** | `POST /admin/users/{user_id}/suspend` | Path Param, JSON Body | `user_id`, `reason` | Admin check, status state checks, manual non-empty reason check. | [admin.py:274-281](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L274-L281) | Medium | Checked |
+| **Admin** | `POST /admin/users/{user_id}/unsuspend` | Path Param, JSON Body | `user_id`, `reason` | Admin check, status state checks. | [admin.py:283-290](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L283-L290) | Medium | Checked |
+| **Admin** | `GET /admin/field-reports` | Query Param | `status` | Admin check, query status validation against enum list. | [admin.py:348-371](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L348-L371) | Low | Checked |
+| **Admin** | `PATCH /admin/field-reports/{report_id}/status` | Path Param, JSON Body | `report_id`, `status` | Admin check, status validation against `FIELD_REPORT_REVIEW_STATUSES`. | [admin.py:373-408](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L373-L408) | Medium | Checked |
+| **Admin** | `POST /admin/fields/{field_id}/approve` | Path Param | `field_id` | Admin check. | [admin.py:450-458](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L450-L458) | Medium | Checked |
+| **Admin** | `POST /admin/fields/{field_id}/reject` | Path Param | `field_id` | Admin check. | [admin.py:460-468](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L460-L468) | Medium | Checked |
+| **Admin** | `PATCH /admin/fields/{field_id}/status` | Path Param, JSON Body | `field_id`, `status` | Admin check, delegates to `update_field_status_record`. | [admin.py:470-477](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L470-L477) | Medium | Checked |
+| **Admin** | `GET /admin/games` | Query Param | `status` | Admin check, manual status validation. | [admin.py:579-601](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L579-L601) | Low | Checked |
+| **Admin** | `POST /admin/games/{game_id}/close` | Path Param | `game_id` | Admin check, checks game is active. | [admin.py:711-763](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L711-L763) | Medium | Checked |
+| **Admin** | `POST /admin/games/{game_id}/extend` | Path Param | `game_id` | Admin check, checks game is active. | [admin.py:765-813](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L765-L813) | Medium | Checked |
+| **Admin** | `POST /admin/games/{game_id}/cancel` | Path Param, JSON Body | `game_id`, `reason` | Admin check, future start check, status checks, cancel reason UGC moderation. | [admin.py:819-876](file:///c:/Users/orel1/yesh_mishak/backend/app/api/admin.py#L819-L876) | Medium | Checked |
+
+---
+
+## Login Validation Review
+
+* **Password Login (`POST /auth/login`)**: Required parameters (`username` and `password`) are correctly validated via `LoginRequest`. The schema enforces minimum/maximum lengths. Normalization strips whitespace and lowercases the username. Password verification uses bcrypt in a timing-safe manner. Brute-force protections track failed attempts by IP and normalized username, triggering progressive delays, resetting cleanly on successful login.
+* **Google Login (`POST /auth/google`)**: Request token is validated as a non-empty string. Token contents are validated securely by the Google OAuth client library during verification.
+* **Availability Checks (`/auth/check-username`, `/auth/check-email`)**: Pydantic schemas enforce length bounds and normalize the username/email. However, they lack regex/formatting filters (e.g., checking if the email contains `@` and `.`, or if the username consists only of alphanumeric characters/hyphens/underscores). Additionally, these availability endpoints are not rate-limited, creating a user enumeration risk.
+* **Logout (`POST /auth/logout`)**: Accepts no client-controlled request body or query inputs, eliminating input validation risks. Handled entirely via JWT token verification in request headers.
+* **JWT/Header Validation**: Standard PyJWT signature verification handles headers. It successfully decodes claims and extracts `sub` as the user identifier.
+* **Frontend Alignment**: `frontend/src/components/LoginPage.jsx` validates username and password emptiness and email format before requesting the backend. This is UX-only.
+
+## Register Validation Review
+
+* **Registration Fields**: `RegisterRequest` validates:
+  * `full_name` (1-120 chars) - stripped.
+  * `username` (3-40 chars) - stripped, lowercased, and restricted via regex to letters, numbers, hyphens, and underscores.
+  * `email` (3-254 chars) - stripped, lowercased, and basic `@` and domain dot check.
+  * `phone_number` (6-30 chars) - stripped, but has no format checks (accepts arbitrary text characters).
+  * `password` and `password_confirm` (8-128 chars) - strength is validated via `validate_password` in the route, and matching passwords are confirmed.
+* **Mass-Assignment / Status Injection**: Safe. Client-submitted JSON is mapped to schema objects, and the route constructs the SQL insertion dictionary manually and explicitly. Clients cannot inject `role` or `status` attributes.
+* **Duplicate Prevention**: DB constraints act as the primary defense. If duplicate checks in python are bypassed due to concurrent requests, the Supabase unique constraints trigger an unhandled database exception that results in an HTTP 500 error instead of a clean client conflict response (HTTP 409).
+* **Frontend Alignment**: `LoginPage.jsx` registration form runs basic verification on email structure and password equality. This is UX-only.
+
+## Games Validation Review
+
+* **Game Creation**: Pydantic validates `players_present >= 1` and `max_players > 0`, but lacks upper limits (allowing extremely large integers). `sport_type` is validated in route logic to match `football` or `basketball`. Dates are parsed and verified to be in the future. Field details are fetched to verify status is `open` and approved. Duplicates/overlaps are checked against database rows.
+* **Path IDs / Parameters**: Path parameters like `game_id` and body IDs like `field_id` are processed as strings. Malformed UUID values are passed directly to database queries, throwing syntax errors that result in unhandled HTTP 500 errors.
+* **Game Lifecycle Actions**: Join, leave, close, extend, and cancel routes verify game status state constraints and ownership, preventing unauthorized transitions.
+* **Frontend Alignment**: `OpenGameModal.jsx` and `GamePanel.jsx` validate user input bounds for players present and schedule times. This is UX-only.
+
+## Fields Validation Review
+
+* **Field Creation**: Moderation logic (`validate_field_submission`) checks notes, city, opening hours, and field names. However, `surface_type` length is completely unchecked, and the schema has no maximum limits on string sizes. Coordinate parameters `lat` and `lng` lack boundary validation, allowing values outside standard GPS coordinates.
+* **Query Parameters (`GET /fields`)**: Bounding box coordinates `north`, `south`, `east`, `west` are parsed as floats but are not validated for mathematical validity (e.g. `north >= south` or limits within `[-90, 90]` / `[-180, 180]`).
+* **Path Parameters**: Malformed `field_id` strings trigger unhandled PostgreSQL UUID formatting syntax exceptions, leading to generic HTTP 500 errors.
+* **Frontend Alignment**: `AddFieldModal.jsx` enforces location selection and type constraints. This is UX-only.
+
+## Reports Validation Review
+
+* **Report Creation**: `FieldReportCreate` enforces `extra="forbid"`, preventing extra fields. Category is validated in route manually against `ALLOWED_FIELD_REPORT_CATEGORIES`. Description text is moderated up to 1000 characters.
+* **Path Parameters**: Malformed `report_id` or `field_id` syntax causes unhandled DB errors, resulting in HTTP 500.
+* **Frontend Alignment**: `FieldReportModal.jsx` enforces dropdown option selection and character constraints. This is UX-only.
+
+## Admin Validation Review
+
+* **Admin Input-Bearing Endpoints**: Endpoints checking moderation reasons (`ban_user`, `suspend_user`, etc.) and game cancellations (`cancel_admin_game`) strip text strings but lack max length checks. Malformed path IDs result in database UUID syntax errors and HTTP 500 responses.
+* **Status Updates**: Status attributes are validated manually against strict allowlists (e.g., `FIELD_REPORT_REVIEW_STATUSES`, `ALLOWED_FIELD_STATUSES`), which prevents random updates.
+* **Frontend Alignment**: `AdminUsers.jsx`, `AdminFieldReports.jsx`, and other views in `frontend/src/components/admin/` present form validation for reasons and actions. This is UX-only.
+
+---
+
+## Positive Controls
+
+The audit identified several robust validation controls already correctly implemented:
+1. **Password Enforcement**: Enforces `min_length=8` and `max_length=128` constraints at both schema and route levels, checking complex policies.
+2. **Mass-Assignment Defense**: Backend routes map API fields explicitly to databases instead of passing request payloads directly, which eliminates injection risks.
+3. **Pydantic Extra Forbid**: Certain schemas (e.g. `FieldReportCreate`) specify `extra="forbid"` to reject unexpected attributes.
+4. **Alphanumeric Username Constraints**: Register validates username characters strictly, which blocks injection attempts.
+5. **Community UGC Content Moderation**: Moderate text fields via `validate_text()`, `validate_field_submission()`, `validate_field_report()`, and `validate_game_text()` to block profanities, spam, personal information (phone numbers and emails), and fake test entries.
+
+---
+
+## Findings
+
+### INPUT-102-001: Unhandled Database Exceptions on Invalid UUID Parameters (P1)
+* **Area**: Games / Fields / Reports / Admin / Notifications
+* **Evidence**: Route path and body variables representing UUIDs (e.g., `game_id`, `field_id`, `report_id`, `user_id`, `notification_id`) are accepted as `str` and sent to PostgreSQL. Example: `get_field(field_id: str)` in [fields.py:135-150](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L135-L150).
+* **Problem**: Passing a non-UUID string format (e.g., `"invalid-uuid"`) triggers a PostgreSQL formatting syntax error. Lacking try-except validation blocks in endpoints, the application crashes and returns an HTTP 500 Internal Server Error.
+* **Exploit/Failure Scenario**: An attacker calls `/games/not-a-uuid/join` or `/fields/malformed-id` causing mass unhandled exceptions, filling application logs with traceback dumps.
+* **Impact**: System integrity, log noise, and poor API design (returns server errors instead of client validation errors).
+* **Recommendation**: Validate all UUID strings at the schema or route level (e.g. using Pydantic's `UUID4` type or a custom UUID validation regex helper).
+* **Suggested follow-up issue**: "ISSUE-103: Enforce UUID Format Validation across all API endpoints".
+
+### INPUT-102-002: Lack of Numeric Bounds on Geographic Coordinates (P1)
+* **Area**: Fields
+* **Evidence**: `FieldCreate` schema in [fields.py:35-46](file:///c:/Users/orel1/yesh_mishak/backend/app/routers/fields.py#L35-L46) accepts `lat` and `lng` as floats without limits. Bounding query parameters in `GET /fields` are also unbound.
+* **Problem**: No check restricts coordinates to the physical boundaries of latitude `[-90, 90]` and longitude `[-180, 180]`.
+* **Exploit/Failure Scenario**: A user submits a field at coordinates `lat = 500.0, lng = 900.0`. The database accepts it because the column type is `numeric(10, 7)`. When map pages fetch this field, frontend rendering libraries crash or exhibit unexpected layout behaviors.
+* **Impact**: Data corruption, frontend application crashes.
+* **Recommendation**: Enforce Pydantic constraints `ge=-90, le=90` on latitude and `ge=-180, le=180` on longitude in Pydantic schemas, and apply similar checks on spatial search parameters.
+* **Suggested follow-up issue**: "ISSUE-104: Enforce Geographic Bounds Validation for Coordinates".
+
+### INPUT-102-003: Lack of Rate Limiting and Validation on Availability Checks (P2)
+* **Area**: Login
+* **Evidence**: Availability routes `/auth/check-username` and `/auth/check-email` in [auth.py:311-319](file:///c:/Users/orel1/yesh_mishak/backend/app/api/auth.py#L311-L319) lack character filtering or rate limit protections.
+* **Problem**: Malformed formats are not validated, and no rate limiting is enforced on these public routes.
+* **Exploit/Failure Scenario**: Attackers can run automated scripts to test username/email directories on these endpoints at high volumes, harvesting valid user accounts.
+* **Impact**: User privacy risk, account harvesting.
+* **Recommendation**: Implement `check_rate_limit_by_ip` on username/email check endpoints, and apply standard format checks.
+* **Suggested follow-up issue**: "ISSUE-105: Secure and Rate Limit Auth Availability Checks".
+
+### INPUT-102-004: Lack of Validation for Phone Number Formats (P2)
+* **Area**: Register
+* **Evidence**: `RegisterRequest.phone_number` in [auth.py:14](file:///c:/Users/orel1/yesh_mishak/backend/app/schemas/auth.py#L14) only validates length (6-30 chars).
+* **Problem**: Allows non-numeric characters (e.g. `abcdef` or symbols) to be registered.
+* **Exploit/Failure Scenario**: A user registers with phone number `"abc-xyz-phone"`. The system saves it, but any downstream notifications (e.g. SMS integrations) will fail or raise exceptions.
+* **Impact**: Bad data quality, integration vulnerability.
+* **Recommendation**: Enforce a strict regex check (e.g. matching standard Israeli formats or E.164 international standard formatting) on phone number fields.
+* **Suggested follow-up issue**: "ISSUE-106: Enforce Phone Number Format Validation".
+
+### INPUT-102-005: Unbounded Text Inputs for Moderation and Cancellation Reasons (P2)
+* **Area**: Admin / Games / Notifications
+* **Evidence**: Pydantic schemas like `ModerationActionBody`, `AdminGameCancelBody`, `GameCancelBody`, and `PushTokenRequest` have no maximum lengths set on their string attributes.
+* **Problem**: Large payloads can be sent to the API, causing memory bloating during validation processing.
+* **Exploit/Failure Scenario**: An attacker submits a 20MB string as the moderation/cancellation reason. Parsing it triggers high CPU usage and memory consumption.
+* **Impact**: Denial-of-service risks, resource exhaustion.
+* **Recommendation**: Enforce maximum length validations (e.g., `max_length=1000`) on all text inputs in Pydantic models.
+* **Suggested follow-up issue**: "ISSUE-107: Enforce Maximum Length Limits on Free Text Fields".
+
+### INPUT-102-006: Missing Enum Validation at Schema Layer for Sport Types and Statuses (P3)
+* **Area**: Games / Fields
+* **Evidence**: `GameCreate.sport_type` and `FieldCreate.sport_type` are declared as plain strings. Route validation checks sport types manually or relies on database check constraints.
+* **Problem**: Allowed values are not documented in the OpenAPI specifications, and database validation failures return HTTP 500 errors.
+* **Exploit/Failure Scenario**: A client submits a field creation request with `sport_type = "tennis"`. The API route accepts it but the database insert fails, resulting in a generic HTTP 500 error.
+* **Impact**: API schema inconsistency, incorrect HTTP status codes (returns server errors instead of client request errors).
+* **Recommendation**: Use `Literal` types or enum structures in Pydantic models to validate fields before database insertion.
+* **Suggested follow-up issue**: "ISSUE-108: Move Sport Type and Status Enums to Pydantic Schema Validation".
+
+### INPUT-102-007: Unhandled Database Exception on Unique Constraint Violations (P2)
+* **Area**: Register
+* **Evidence**: In [auth.py:211-218](file:///c:/Users/orel1/yesh_mishak/backend/app/api/auth.py#L211-L218), if concurrent registration requests bypass python checks, the database unique index raises a constraint violation.
+* **Problem**: The exception is not caught and translates into an HTTP 500 error.
+* **Exploit/Failure Scenario**: Two users attempt to register the same username simultaneously. One succeeds, while the other receives a confusing HTTP 500 Internal Server Error.
+* **Impact**: API consistency, poor error UX.
+* **Recommendation**: Wrap insertion in a try-except block, check for unique violation exceptions, and raise an HTTP 409 Conflict error.
+* **Suggested follow-up issue**: "ISSUE-109: Catch Database Constraints and Unique Violations in Routes".
+
+---
+
+## Missing Tests
+
+The test suite lacks coverage for:
+1. **Invalid UUID Path Parameters**: No test cases check if sending non-UUID paths (e.g. `/games/not-a-uuid/join`) returns appropriate errors instead of HTTP 500s.
+2. **Coordinate Boundaries**: No tests check if submitting fields with coordinates like `lat = 120.0` or query parameter bounding boxes like `north = 400.0` are blocked.
+3. **Email/Username Availability Abuse**: No tests verify rate limiting on username/email checks, or check behavior for invalid characters.
+4. **Invalid Phone Number Characters**: No tests verify if phone numbers containing non-numeric strings are blocked.
+5. **Overly Long Text Payloads**: No tests verify if huge moderation reasons or cancellation text payloads (e.g., > 10,000 characters) are rejected at the API schema layer.
+6. **Unique Constraint Race Conditions**: No integration tests verify that concurrent database inserts that trigger unique constraint violations return HTTP 409 Conflict instead of HTTP 500.
+
+---
+
+## Required Follow-up Issues
+
+1. **ISSUE-103**: Enforce UUID Format Validation across all API endpoints (P1).
+2. **ISSUE-104**: Enforce Geographic Bounds Validation for Coordinates (P1).
+3. **ISSUE-105**: Secure and Rate Limit Auth Availability Checks (P2).
+4. **ISSUE-106**: Enforce Phone Number Format Validation (P2).
+5. **ISSUE-107**: Enforce Maximum Length Limits on Free Text Fields (P2).
+6. **ISSUE-108**: Move Sport Type and Status Enums to Pydantic Schema Validation (P3).
+7. **ISSUE-109**: Catch Database Constraints and Unique Violations in Routes (P2).
+
+---
+
+## Final Audit Result
+
+The current input validation model is **sufficient for an MVP** because:
+* Parameterized DB operations block SQL injection.
+* UGC moderation filters block inappropriate text and spam.
+* Authentication and role checks secure restricted routes.
+* API inputs are explicitly mapped, which prevents mass-assignment vulnerabilities.
+
+However, prior to **production launch**, the following issues must be resolved:
+* **UUID Syntax Errors**: Malformed path identifiers must return HTTP 400/422/404 instead of HTTP 500 errors (**ISSUE-103**).
+* **Coordinate Boundaries**: Field coordinates must be validated to prevent system anomalies (**ISSUE-104**).
+* **Availability Checks**: Availability lookups must be rate-limited and secured against brute-force harvesting (**ISSUE-105**).
