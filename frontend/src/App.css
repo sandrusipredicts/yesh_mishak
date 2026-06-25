@@ -1,3 +1,19 @@
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-inline-start: var(--safe-area-left);
+  --safe-area-inline-end: var(--safe-area-right);
+  --mobile-edge-padding: 16px;
+  --mobile-safe-bottom-padding: calc(16px + var(--safe-area-bottom));
+}
+
+[dir='rtl'] {
+  --safe-area-inline-start: var(--safe-area-right);
+  --safe-area-inline-end: var(--safe-area-left);
+}
+
 .app-shell,
 .language-selection-page,
 .login-page,
@@ -25,7 +41,7 @@ select {
 .offline-banner {
   position: fixed;
   z-index: 3000;
-  top: 12px;
+  top: calc(12px + var(--safe-area-top));
   left: 50%;
   display: inline-flex;
   max-width: min(92vw, 560px);
@@ -435,32 +451,46 @@ select {
 }
 
 .floating-button.top {
-  top: 20px;
-  inset-inline-start: 20px;
+  top: calc(20px + var(--safe-area-top));
+  inset-inline-start: calc(20px + var(--safe-area-inline-start));
   font-size: 24px;
 }
 
 .floating-button.preferences {
-  top: 84px;
-  inset-inline-start: 20px;
+  top: calc(84px + var(--safe-area-top));
+  inset-inline-start: calc(20px + var(--safe-area-inline-start));
   font-size: 24px;
   font-weight: 800;
 }
 
 .floating-button.my-location {
-  inset-inline-start: 20px;
-  bottom: 24px;
+  inset-inline-start: calc(20px + var(--safe-area-inline-start));
+  bottom: calc(24px + var(--safe-area-bottom));
   font-size: 24px;
 }
 
 .floating-button.bottom {
-  bottom: 24px;
+  bottom: calc(24px + var(--safe-area-bottom));
   inset-inline-start: 50%;
   transform: translateX(-50%);
 }
 
 [dir='rtl'] .floating-button.bottom {
   transform: translateX(50%);
+}
+
+/* Leaflet map controls safe area overrides */
+.leaflet-top {
+  top: var(--safe-area-top) !important;
+}
+.leaflet-left {
+  left: var(--safe-area-left) !important;
+}
+.leaflet-right {
+  right: var(--safe-area-right) !important;
+}
+.leaflet-bottom {
+  bottom: var(--safe-area-bottom) !important;
 }
 
 .field-popup {
@@ -601,8 +631,8 @@ select {
 .map-error {
   position: absolute;
   z-index: 1000;
-  top: 20px;
-  inset-inline-end: 20px;
+  top: calc(20px + var(--safe-area-top));
+  inset-inline-end: calc(20px + var(--safe-area-inline-end));
   max-width: 280px;
   border-radius: 6px;
   padding: 10px 12px;
@@ -615,8 +645,8 @@ select {
 .map-loading {
   position: absolute;
   z-index: 1000;
-  top: 20px;
-  inset-inline-end: 20px;
+  top: calc(20px + var(--safe-area-top));
+  inset-inline-end: calc(20px + var(--safe-area-inline-end));
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -893,7 +923,7 @@ select {
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: calc(20px + var(--safe-area-top)) calc(20px + var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) calc(20px + var(--safe-area-left));
   background: rgba(15, 23, 42, 0.28);
 }
 
@@ -920,7 +950,7 @@ select {
 .notifications-modal {
   position: relative;
   width: min(480px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
+  max-height: min(720px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
   overflow: auto;
   border-radius: 8px;
   padding: 22px;
@@ -932,7 +962,7 @@ select {
 .add-field-modal {
   position: relative;
   width: min(520px, 100%);
-  max-height: min(760px, calc(100vh - 40px));
+  max-height: min(760px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
   overflow: auto;
   border-radius: 8px;
   padding: 22px;
@@ -944,7 +974,7 @@ select {
 .field-report-modal {
   position: relative;
   width: min(480px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
+  max-height: min(720px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
   overflow: auto;
   border-radius: 8px;
   padding: 22px;
@@ -1528,8 +1558,8 @@ select {
 .map-success {
   position: absolute;
   z-index: 1000;
-  top: 20px;
-  inset-inline-end: 20px;
+  top: calc(20px + var(--safe-area-top));
+  inset-inline-end: calc(20px + var(--safe-area-inline-end));
   max-width: 280px;
   border-radius: 6px;
   padding: 10px 12px;
@@ -2255,6 +2285,7 @@ select {
     bottom: 0;
     width: 100%;
     border-radius: 12px 12px 0 0;
+    padding-bottom: calc(20px + var(--safe-area-bottom));
   }
 
   .form-toggle-row,
@@ -2265,7 +2296,7 @@ select {
   }
 
   .admin-page {
-    padding: 18px;
+    padding: calc(18px + var(--safe-area-top)) calc(18px + var(--safe-area-right)) calc(18px + var(--safe-area-bottom)) calc(18px + var(--safe-area-left));
   }
 
   .admin-header {
