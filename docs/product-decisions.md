@@ -18221,3 +18221,58 @@ No release should proceed unless all required checks pass or exceptions are expl
 - **Release signoff section exists**: YES
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
+
+# ISSUE-117: Rollback Procedure Documentation
+
+## 1. Summary
+A comprehensive rollback procedure has been created covering frontend, backend, environment variables, database, Firebase/notifications, Google Auth, and feature-level rollback. The document includes severity classification, decision matrices, communication templates, and reusable checklists.
+
+This is a documentation and procedure task. No runtime, backend, frontend, or database behavior was changed. No actual rollback or deployment was performed.
+
+## 2. Files Changed
+- `docs/rollback-procedure.md` — full rollback procedure document (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Rollback Document Location
+[docs/rollback-procedure.md](docs/rollback-procedure.md)
+
+## 4. Rollback Areas Covered
+| Area | Documented |
+| :--- | :--- |
+| Frontend (Vercel) rollback | YES |
+| Backend (Railway) rollback | YES |
+| Environment variable rollback | YES |
+| Database / Supabase rollback | YES |
+| Firebase / push notification rollback | YES |
+| Google Auth rollback | YES |
+| Feature rollback (git revert, hotfix) | YES |
+| Rollback vs forward-fix decision | YES |
+| Severity and decision matrix | YES |
+| Communication procedure | YES |
+| Rollback verification checklist | YES |
+| Post-rollback review template | YES |
+| Reusable rollback checklist | YES |
+
+## 5. Team Usage Rule
+This document is the source of truth during failed deployments. All rollbacks must follow this procedure. SEV-0 incidents require immediate rollback. Every rollback must produce a follow-up issue documenting root cause and remediation.
+
+## 6. Known Gaps / Needs Confirmation
+- Exact Vercel project name needs confirmation.
+- Exact Railway service name needs confirmation.
+- Dashboard access list needs confirmation.
+- Supabase backup retention policy needs confirmation.
+- Automated rollback tooling not confirmed.
+- Monitoring/alerting not implemented.
+- Staging not yet live (ISSUE-114).
+
+## 7. Final Result
+- **Rollback procedure exists**: YES
+- **Frontend rollback documented**: YES
+- **Backend rollback documented**: YES
+- **Environment variable rollback documented**: YES
+- **Database rollback considerations documented**: YES
+- **Notifications/auth rollback documented**: YES
+- **Failed deployment procedure documented**: YES
+- **Reusable rollback checklist included**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
