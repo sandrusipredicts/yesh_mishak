@@ -16996,3 +16996,192 @@ To remediate the vulnerabilities while maintaining compatibility:
 ## Final Result
 All backend and frontend critical dependency vulnerabilities have been successfully remediated. The codebase is clean, and the application builds and tests cleanly.
 
+---
+
+# ISSUE-106: Environment Variable Management Audit
+
+## Scope
+This section documents the security and repository hygiene audit of environment variables and sensitive keys in the `yesh_mishak` codebase. This was a documentation and configuration audit only; no application runtime logic or backend behavior was modified, and no secret keys were rotated or modified.
+
+## Files and Config Reviewed
+The following configuration, environment, build, and source code files were inspected:
+1. **Backend Configuration & Settings**:
+   * [config.py](file:///c:/Users/orel1/yesh_mishak/backend/app/core/config.py) (Pydantic settings declaration)
+   * [supabase.py](file:///c:/Users/orel1/yesh_mishak/backend/app/db/supabase.py) (Supabase client initialization)
+   * [firebase_push.py](file:///c:/Users/orel1/yesh_mishak/backend/app/services/firebase_push.py) (Firebase credentials processing)
+   * [errors.py](file:///c:/Users/orel1/yesh_mishak/backend/app/errors.py) (Test environment flag handling)
+   * [measure_production_api.py](file:///c:/Users/orel1/yesh_mishak/backend/scripts/measure_production_api.py) (Production measurements script)
+2. **Frontend Configuration & Env**:
+   * [client.js](file:///c:/Users/orel1/yesh_mishak/frontend/src/api/client.js) (API client configuration)
+   * [firebaseMessaging.js](file:///c:/Users/orel1/yesh_mishak/frontend/src/firebaseMessaging.js) (Firebase public web config)
+   * [LoginPage.jsx](file:///c:/Users/orel1/yesh_mishak/frontend/src/components/LoginPage.jsx) (Google OAuth client config)
+   * [NotificationsModal.jsx](file:///c:/Users/orel1/yesh_mishak/frontend/src/components/NotificationsModal.jsx) (Test push toggles)
+   * [vercel.json](file:///c:/Users/orel1/yesh_mishak/frontend/vercel.json) (Vercel rewrite and deployment config)
+3. **Repository Environment manifests**:
+   * `backend/.env.example`
+   * `frontend/.env.example`
+   * `frontend/.env` (Committed local configuration)
+   * `.gitignore` (Root)
+   * `frontend/.gitignore` (Frontend)
+
+## Secret Scanning Method
+The workspace was scanned using regex-based local text search tools. The search query was designed to identify:
+* Common secret naming conventions: `SECRET`, `TOKEN`, `PASSWORD`, `SERVICE_ROLE`, `PRIVATE_KEY`, `API_KEY`
+* Third-party service names: `SUPABASE`, `FIREBASE`, `GOOGLE`, `JWT`
+* Known secret prefix formats: `sk-`, `AIza`, `eyJ`, `-----BEGIN PRIVATE KEY-----`
+
+All scan hits were verified locally. The only matches found were:
+* Expected public-facing keys in `frontend/.env`
+* Local development secrets in ignored/non-tracked `backend/.env`
+* Mock user JWTs in the ignored `backend/load_tests/tokens.txt` and `issue-088-scheduled-debug-full.txt` logs
+No private production keys, service accounts, or database passwords were found hardcoded in the codebase or committed to the repository history.
+
+## Environment Variable Inventory
+
+### Secret Backend-Only Variables
+| Variable | Area | Sensitivity | Used By | Required In Production | Required Locally | Current Documentation | Storage Location | Status | Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend | Secret | `get_supabase_service_role_client()` (notifications, admin bypass) | Yes | Yes (for testing) | Documented in `backend/.env.example` | Railway env / local `.env` | Safe (not committed) | Keep in secure env configuration. Never expose to client. |
+| `JWT_SECRET` | Backend | Secret | Auth JWT verification and creation | Yes | Yes | Documented in `backend/.env.example` | Railway env / local `.env` | Safe (not committed) | Generate a strong random key for production. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Backend | Secret | FCM Push Notifications credentials | Yes (if file-less) | Yes (alternative) | Documented in `backend/.env.example` | Railway env / local `.env` | Safe (not committed) | Store as a single-line string in Railway config. |
+| `FIREBASE_SERVICE_ACCOUNT_FILE` | Backend | Secret | FCM Push Notifications credentials | No | Yes (alternative) | Documented in `backend/.env.example` | Local filesystem | Safe (not committed) | Avoid using in production. Ensure ignored in git. |
+| `PROD_USER_JWT` / `PROD_ADMIN_JWT` | Backend | Secret | `measure_production_api.py` script | No | No (testing only) | None | Local env | Safe (not committed) | Transient use only. |
+
+### Public-Safe Backend Variables
+| Variable | Area | Sensitivity | Used By | Required In Production | Required Locally | Current Documentation | Storage Location | Status | Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `SUPABASE_URL` | Backend | Public-Safe | Supabase Client init | Yes | Yes | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Store in Railway environment config. |
+| `SUPABASE_KEY` | Backend | Public-Safe | Supabase anon key client init | Yes | Yes | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Store in Railway environment config. |
+| `GOOGLE_CLIENT_ID` | Backend | Public-Safe | Google OAuth token verification | Yes | Yes | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Store in Railway environment config. |
+
+### Internal Backend Config Variables
+| Variable | Area | Sensitivity | Used By | Required In Production | Required Locally | Current Documentation | Storage Location | Status | Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `CORS_ORIGINS` | Backend | Internal Config | CORS policy middleware | Yes (production frontend URL) | Optional | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Point to production frontend URL. |
+| `JWT_ALGORITHM` | Backend | Internal Config | JWT encoding/decoding | Optional | Optional | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Defaults to HS256. |
+| `JWT_EXPIRE_MINUTES` | Backend | Internal Config | JWT expiration time | Optional | Optional | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Defaults to 10080 (7 days). |
+| `FIREBASE_PROJECT_ID` | Backend | Internal Config | FCM project identifier | Yes | Yes | Documented in `backend/.env.example` | Railway env / local `.env` | Safe | Configure for Push service. |
+| `DISABLE_GAME_CREATED_NOTIFICATIONS` | Backend | Internal Config | Push notifications bypass | Optional | Optional | None | Railway env / local `.env` | Safe (not committed) | Document in `backend/.env.example`. |
+| `AUTH_USER_CACHE_TTL_SECONDS` | Backend | Internal Config | Cache expiration TTL | Optional | Optional | None | Railway env / local `.env` | Safe (not committed) | Document in `backend/.env.example`. |
+| `ALLOW_TEST_MOCK_IDS` | Backend | Internal Config | errors.py UUID format bypass | No | No (set in tests) | None | Test fixtures | Safe | Only set dynamically in conftest.py. |
+| `PROD_API_BASE_URL` | Backend | Internal Config | `measure_production_api.py` script | No | No | None | Local env | Safe | Transient diagnostic script config. |
+
+### Public-Safe Frontend Variables
+| Variable | Area | Sensitivity | Used By | Required In Production | Required Locally | Current Documentation | Storage Location | Status | Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `VITE_API_URL` | Frontend | Public-Safe | API Client base URL | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_API_BASE_URL` | Frontend | Public-Safe | API Client base URL (fallback) | Yes | Yes | None | Vercel env / local `.env` | Committed in `frontend/.env` | Align on `VITE_API_URL`. Remove `frontend/.env`. |
+| `VITE_GOOGLE_CLIENT_ID` | Frontend | Public-Safe | LoginPage Google Login init | Yes | Yes | None | Vercel env / local `.env` | Committed in `frontend/.env` | Document in `frontend/.env.example`. |
+| `VITE_FIREBASE_API_KEY` | Frontend | Public-Safe | Firebase Client messaging config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Frontend | Public-Safe | Firebase client config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_PROJECT_ID` | Frontend | Public-Safe | Firebase client config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Frontend | Public-Safe | Firebase client config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Frontend | Public-Safe | Firebase client config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_APP_ID` | Frontend | Public-Safe | Firebase client config | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_FIREBASE_VAPID_KEY` | Frontend | Public-Safe | FCM Web Push Token registration | Yes | Yes | Documented in `frontend/.env.example` | Vercel env / local `.env` | Committed in `frontend/.env` | Remove `frontend/.env` from git tracking. |
+| `VITE_SHOW_TEST_PUSH` | Frontend | Public-Safe | NotificationsModal toggle | No | Yes (dev only) | None | Vercel env / local `.env` | Safe (not committed) | Document in `frontend/.env.example`. |
+
+## Railway Backend Variables
+Railway backend deployment uses automated Nixpacks detection. The required variables to configure in Railway for production are:
+* **SUPABASE_URL** (Public-Safe, but backend needs it to connect to DB)
+* **SUPABASE_KEY** (Public-Safe anon key)
+* **SUPABASE_SERVICE_ROLE_KEY** (Secret, used for bypassing RLS in admin actions and triggers)
+* **GOOGLE_CLIENT_ID** (Public-Safe OAuth ID)
+* **JWT_SECRET** (Secret, used to sign/verify JWT tokens)
+* **FIREBASE_PROJECT_ID** (Internal config)
+* **FIREBASE_SERVICE_ACCOUNT_JSON** (Secret, private credentials string)
+* **CORS_ORIGINS** (Internal config, set to `https://yesh-mishak.vercel.app` or production domain)
+* **DISABLE_GAME_CREATED_NOTIFICATIONS** (Internal config, defaults to `False`)
+* **AUTH_USER_CACHE_TTL_SECONDS** (Internal config, defaults to `300`)
+
+## Vercel Frontend Variables
+The Vercel environment hosts the static frontend build. Variables prefixed with `VITE_*` are publicly accessible as they are bundled directly into static HTML/JS assets during build-time.
+The required variables to configure in Vercel are:
+* **VITE_API_URL** (Public-safe API endpoint url)
+* **VITE_GOOGLE_CLIENT_ID** (Public-safe client ID)
+* **VITE_FIREBASE_API_KEY** (Public-safe key)
+* **VITE_FIREBASE_AUTH_DOMAIN** (Public-safe domain)
+* **VITE_FIREBASE_PROJECT_ID** (Public-safe ID)
+* **VITE_FIREBASE_STORAGE_BUCKET** (Public-safe bucket)
+* **VITE_FIREBASE_MESSAGING_SENDER_ID** (Public-safe sender ID)
+* **VITE_FIREBASE_APP_ID** (Public-safe app ID)
+* **VITE_FIREBASE_VAPID_KEY** (Public-safe key)
+* **VITE_SHOW_TEST_PUSH** (Public-safe toggle, should be `false` in production)
+
+> [!WARNING]
+> Since Vercel builds these environment variables directly into client assets, **no backend-only secrets** (such as `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, or `FIREBASE_SERVICE_ACCOUNT_JSON`) must ever be prefixed with `VITE_` or added to Vercel configurations.
+
+## Local Development Variables
+Local developers use `.env` files to configure their environments.
+* **Backend**: Uses a local `backend/.env` file loaded via Pydantic `BaseSettings`. An example configuration is documented in `backend/.env.example`.
+* **Frontend**: Uses `frontend/.env` loaded via Vite. An example configuration is documented in `frontend/.env.example`.
+* **Issue**: The `frontend/.env` file was committed to git, which conflicts with local custom setups and violates general repository hygiene.
+
+## Secret Exposure Review
+* **Hardcoded Secrets**: None found. No private keys, passwords, or active API credentials exist inside any `.py`, `.js`, or `.jsx` source files.
+* **Committed `.env` Files**: `frontend/.env` is tracked and committed in git. While it contains only public-safe client configuration, it should be untracked.
+* **Service Account/Private Keys**: None found. No service account `.json` or private `.pem` key files are committed or present in untracked workspace directories.
+* **Frontend Exposure Risks**: No server-side secrets are exposed via Vite `VITE_*` variables or included in frontend bundles.
+
+## Git Ignore Review
+* The root `.gitignore` correctly ignores `.env` (protecting root `.env` and `backend/.env`), `.venv/`, test caches, and log files.
+* **Issue**: `frontend/.gitignore` does not contain `.env` or `.env.local` patterns, which contributed to `frontend/.env` being committed.
+
+## Findings
+
+### Finding ENV-106-001: Committed Local Configuration File
+* **Severity**: P1
+* **Area**: Frontend Local Development
+* **Evidence**: `frontend/.env` is tracked and committed in git (verified with `git ls-files frontend/.env`).
+* **Problem**: Committing local environment files makes it difficult to maintain separate environments and exposes public keys directly in git history.
+* **Impact**: Developers might overwrite their local configs, and it makes deployment pipelines less flexible.
+* **Recommendation**: Stop tracking `frontend/.env` in git by running `git rm --cached frontend/.env` and update gitignore.
+* **Suggested follow-up issue**: Remove `frontend/.env` from git tracking and migrate to `.env.example`.
+
+### Finding ENV-106-002: Missing Frontend Gitignore Patterns
+* **Severity**: P1
+* **Area**: Git Ignore / Repository Hygiene
+* **Evidence**: `frontend/.gitignore` lacks any patterns to ignore `.env` or `.env.local` files.
+* **Problem**: Without ignoring env files in the frontend gitignore, developers are likely to accidentally commit `.env` or `.env.local` files containing environment-specific settings.
+* **Impact**: High risk of accidental credential leakage in the future.
+* **Recommendation**: Add `.env`, `.env.local`, `.env.*.local`, and other environment configuration files to `frontend/.gitignore`.
+* **Suggested follow-up issue**: Add environment variable file patterns to `frontend/.gitignore`.
+
+### Finding ENV-106-003: Undocumented Backend Configuration Variables
+* **Severity**: P2
+* **Area**: Backend Environment Variables
+* **Evidence**: `DISABLE_GAME_CREATED_NOTIFICATIONS` and `AUTH_USER_CACHE_TTL_SECONDS` are read by backend config but not listed in `backend/.env.example`.
+* **Problem**: Developers deploying or configuring the application won't know these options exist unless they inspect the source code.
+* **Impact**: Configuration parameters are hidden and hard to discover.
+* **Recommendation**: Add both variables to `backend/.env.example` with default/example values.
+* **Suggested follow-up issue**: Add missing variables to `backend/.env.example`.
+
+### Finding ENV-106-004: Undocumented Frontend Configuration Variables
+* **Severity**: P2
+* **Area**: Frontend Environment Variables
+* **Evidence**: `VITE_GOOGLE_CLIENT_ID`, `VITE_SHOW_TEST_PUSH`, and `VITE_API_BASE_URL` are used in frontend code but not documented in `frontend/.env.example`.
+* **Problem**: Developers setting up the frontend locally won't know they need to configure these variables.
+* **Impact**: Incomplete local development documentation, leading to configuration confusion.
+* **Recommendation**: Document all used variables in `frontend/.env.example`.
+* **Suggested follow-up issue**: Document all frontend variables in `frontend/.env.example`.
+
+### Finding ENV-106-005: CORS Origins Default Configuration
+* **Severity**: P2
+* **Area**: Backend Environment Variables
+* **Evidence**: `CORS_ORIGINS` in `config.py` defaults to localhost/127.0.0.1 origins: `http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000`.
+* **Problem**: If `CORS_ORIGINS` is not set in production, the application will default to accepting only local origins, preventing the production Vercel frontend from accessing it.
+* **Impact**: Service connection failure in production if env config is missing.
+* **Recommendation**: Document that `CORS_ORIGINS` is mandatory in production deployments.
+* **Suggested follow-up issue**: Create deployment checklist for Railway.
+
+## Required Follow-up Issues
+1. **ISSUE-107: Untrack frontend/.env and update frontend/.gitignore**: Remove `frontend/.env` from git tracking and add `.env`, `.env.local`, `.env.*.local` to `frontend/.gitignore`.
+2. **ISSUE-108: Document all environment variables in backend/.env.example**: Add `DISABLE_GAME_CREATED_NOTIFICATIONS` and `AUTH_USER_CACHE_TTL_SECONDS` to the backend example configuration.
+3. **ISSUE-109: Document all environment variables in frontend/.env.example**: Add `VITE_GOOGLE_CLIENT_ID`, `VITE_SHOW_TEST_PUSH`, and `VITE_API_BASE_URL` to the frontend example configuration.
+4. **ISSUE-110: Implement secret scanning in CI pipeline**: Set up automatic scanning of PRs for potential secrets using tools like `gitleaks` or similar in GitHub Actions.
+
+## Final Audit Result
+* **Committed Secrets Found**: None.
+* **Frontend Secret Exposure Found**: None.
+* **All Required Secrets Mapped**: Yes.
+* **Local/Dev/Deployment Documentation Sufficient**: Partially. Gaps identified in `.env.example` files and `.gitignore` configurations must be addressed in follow-up issues before production deployment.
