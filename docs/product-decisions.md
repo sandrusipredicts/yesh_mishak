@@ -18565,3 +18565,206 @@ This checklist synthesizes findings from:
 - **Runtime behavior changed**: NO
 - **Database schema changed**: NO
 - **Secrets committed**: NO
+
+---
+
+# ISSUE-122: Production Readiness Review
+
+## Review Date
+
+- **Date**: 2026-06-25
+- **Branch**: issue-122-production-readiness-review
+- **Reviewer**: Development team (automated review)
+
+## Source Documents
+
+- **ISSUE-121 checklist**: docs/production-readiness-checklist.md
+- **Related audit sections reviewed**: ISSUE-092 (security/auth audit), ISSUE-099 (rate limiting), ISSUE-106 (environment/secrets), ISSUE-109 (incident response), ISSUE-110 (security follow-up), ISSUE-111 (AUTH-001 remediation — not implemented), ISSUE-114 (staging), ISSUE-115 (versioning), ISSUE-116 (release checklist), ISSUE-117 (rollback), ISSUE-118 (rollback simulation), ISSUE-119 (backup), ISSUE-120 (recovery validation), ISSUE-121 (production readiness checklist)
+- **Code/config areas reviewed**: backend/app/auth/google.py, backend/app/auth/dependencies.py, backend/app/auth/passwords.py, backend/app/main.py, backend/app/core/config.py, backend/app/rate_limit.py, backend/app/api/admin.py, backend/app/api/auth.py, backend/app/routers/games.py, backend/app/routers/fields.py, backend/app/routers/notifications.py, backend/app/services/firebase_push.py, backend/schema.sql, frontend/.env.example, backend/.env.example, backend/.env.staging.example
+
+## Executive Decision
+
+- **Final decision**: **NO-GO**
+- **Reason**: P0 security blocker AUTH-001 remains unresolved. Google OAuth account linking looks up users by email only (find_or_create_google_user in backend/app/auth/google.py:186-193) without verifying email_verified claim or matching google_sub, enabling account-takeover attacks.
+- **Production status**: NOT PRODUCTION-READY
+- **Can ISSUE-122 be closed**: **NO** — P0 blocker AUTH-001 must be resolved first. Definition of Done ("No blockers are open") is not met.
+
+## Blocker Status
+
+| ID | Severity | Area | Status | Evidence | Production Risk | Required Fix |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| AUTH-001 | P0 Critical | Security / Auth | **OPEN** | backend/app/auth/google.py:186-193 — find_or_create_google_user queries .eq("email", email) with no email_verified check and no google_sub match. An attacker with an unverified Google account using the victim's email can take over the victim's account. | Account takeover — attacker gains full access to victim's games, notifications, and data | ISSUE-111: Harden Google OAuth account linking — add email_verified check + google_sub match before linking |
+| STAGING-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-114 status: PREPARED. No Vercel/Railway/Supabase/Firebase/OAuth staging services provisioned. | Cannot perform live drills or pre-prod validation | Provision all 5 staging services |
+| RESTORE-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-120 report: tabletop/dry-run only. No live restore performed. | Actual restore time and success rate unknown | Run live staging restore drill |
+| BACKUP-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-119 gap: Supabase dashboard not accessed. Backup frequency, retention, PITR not confirmed. | Backups may not be configured or may not meet RPO target | Verify in Supabase dashboard |
+| MONITOR-001 | P1 High | Monitoring | OPEN (accepted gap) | Codebase grep for sentry/newrelic/datadog returns 0 results in application code. Only found in docs referencing the gap. | Errors only detected via manual log review or user reports | Implement error monitoring (Sentry or equivalent) |
+| MONITOR-002 | P1 High | Monitoring | OPEN (accepted gap) | No uptime monitoring configuration found in codebase or infrastructure config. | Downtime detection relies entirely on user reports | Implement uptime monitoring and alerting |
+
+## Checklist Execution Summary
+
+| Area | Status | Evidence Reviewed | Risk | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| Authentication | FAIL | backend/app/auth/google.py — Google login links by email without email_verified or google_sub match | P0 Critical | AUTH-001 blocks production readiness |
+| Authorization | PASS | backend/app/auth/dependencies.py:167-175 — require_admin checks role == admin, require_active_user checks banned/suspended status | Low | All 22 admin endpoints use Depends(require_admin) |
+| Secrets / Env Vars | PASS | backend/app/core/config.py — secrets loaded from env vars via pydantic-settings, not hardcoded. .env.example has empty placeholders. Frontend .env.example has no backend secrets. | Low | No real secrets in repo |
+| Production Config Safety | PASS | backend/app/main.py:86-107 — CORS from CORS_ORIGINS env var, dev origins appended for local dev. JWT defaults: HS256, 10080 min (7 days). | Low | CORS controlled by env var at deploy time |
+| Database Readiness | PARTIAL | backend/schema.sql — 9 tables with constraints, foreign keys, check constraints. RLS enabled on user_moderation_audit only (line 139). | Medium | RLS not enabled on other tables — relies on API-layer access control |
+| Row Level Security / Service-Role | PARTIAL | Only user_moderation_audit has RLS enabled. Backend uses SUPABASE_KEY (anon key) for most queries. | Medium | Access control enforced at API layer, not DB layer. Defense-in-depth gap. |
+| API Error Handling | PASS | backend/app/main.py:17-84 — global exception handlers for HTTPException, RequestValidationError, and unhandled Exception. Generic 500 message hides internals. | Low | No stack traces leaked to clients |
+| Logging | PARTIAL | 9 backend files use Python logging module. Auth events logged with structured extra fields. No PII-safe logging policy documented. | Medium | Logging functional but no formal PII policy or log retention owner |
+| Monitoring | FAIL | No Sentry, NewRelic, Datadog, or equivalent found. Only monitoring: health check GET / and platform logs. | P1 High | No proactive error detection or alerting |
+| Rate Limiting / Abuse Protection | PASS | backend/app/rate_limit.py — in-process RateLimiter with sliding window. Applied to auth, games, fields, notifications. Generic error message, no PII. | Low | In-process only — resets on restart. Acceptable for current scale. |
+| Data Privacy | PARTIAL | Personal data: email, name, phone, location prefs, push tokens. No data retention policy, no account deletion, no privacy policy in repo. | Medium | Data classified but formal policies missing |
+| Notification System | PASS | backend/app/routers/notifications.py — preferences, inbox, cleanup. Rate-limited. | Low | Functional and rate-limited |
+| Push Notifications | PASS | backend/app/services/firebase_push.py — FCM via Firebase Admin SDK. Errors logged. | Low | Push tokens separated by environment in staging strategy |
+| Frontend Production Behavior | PASS | frontend/.env.example — 8 VITE_ vars, no backend secrets. SPA rewrite only in vercel.json. | Low | No sensitive data in frontend build |
+| Deployment Readiness | PASS | docs/deployment-process.md, release-checklist-template.md, release-versioning-policy.md all exist and complete. | Low | All deployment docs complete |
+| CORS / Allowed Origins | PASS | backend/app/main.py:86-107 — production CORS from CORS_ORIGINS env var. Dev origins always appended but only relevant in dev. | Low | Configurable per environment |
+| Admin Route Protection | PASS | All 22 admin endpoints use Depends(require_admin). require_admin checks role == admin after JWT + active status validation. | Low | Verified by test suite |
+| Load / Scalability | NOT VERIFIED | No load testing performed. No latency targets defined. In-process rate limiter resets on restart. | Medium | Unknown performance under load |
+| Backup / Restore | PARTIAL | Strategy documented (RPO ≤24h, RTO ≤4h). Recovery validation tabletop only. Supabase backup settings not confirmed. | P1 High | Strategy documented but not verified against live infrastructure |
+| Incident Response | PASS | Rollback procedure with severity matrix. Simulation report (~48 min tabletop). Communication templates exist. | Low | Procedure documented and simulated |
+| Known Unresolved Audit Findings | FAIL | AUTH-001 (ISSUE-092/110/111) remains open. No implementation evidence of fix. Code at vulnerable location unchanged. | P0 Critical | Must be resolved before production launch |
+
+## Detailed Findings
+
+### Authentication (FAIL — AUTH-001 OPEN)
+
+**Reviewed**: backend/app/auth/google.py (full file, 306 lines)
+
+**Evidence**: The find_or_create_google_user function (line 173-305) performs user lookup at line 186-193 using .eq("email", email) only. There is no check for email_verified claim from Google token (the field is read in _token_debug_claims at line 35 but only for debug logging, never enforced) and no google_sub match against the existing user's stored google_sub value.
+
+**Attack vector**: An attacker creates a Google account with the victim's email (unverified), obtains a Google ID token, and calls the login endpoint. The backend finds the existing user by email and returns a valid JWT for the victim's account.
+
+**Current readiness**: FAIL
+**Required follow-up**: ISSUE-111 must implement email_verified enforcement and google_sub match before account linking.
+
+### Authorization (PASS)
+
+**Reviewed**: backend/app/auth/dependencies.py:167-175, backend/app/api/admin.py (all 22 require_admin usages)
+
+**Evidence**: require_admin chains through require_active_user which validates JWT, checks user exists, checks status is not banned/suspended. Admin check verifies role == admin. Non-admin gets 403 with FORBIDDEN code. Test coverage in test_admin_me.py.
+
+**Current readiness**: PASS
+
+### Secrets and Environment Variables (PASS)
+
+**Reviewed**: backend/app/core/config.py, backend/.env.example, frontend/.env.example, backend/.env.staging.example
+
+**Evidence**: All secrets loaded from environment variables via pydantic-settings. .env.example files contain empty placeholders only. Frontend env vars are all VITE_FIREBASE_* — no backend secrets (JWT_SECRET, SUPABASE_SERVICE_ROLE_KEY) exposed to frontend. SUPABASE_SERVICE_ROLE_KEY is optional (defaults to None).
+
+**Current readiness**: PASS
+
+### Rate Limiting (PASS)
+
+**Reviewed**: backend/app/rate_limit.py (full file), usage in auth.py, games.py, fields.py, notifications.py
+
+**Evidence**: In-process sliding-window rate limiter applied to auth login/register (IP-based), game creation, field creation, notification preferences (user-based). Rate-limit error response returns generic message with Retry-After header. No PII leaked.
+
+**Limitation**: In-process only — state lost on process restart. Acceptable for current single-instance deployment.
+
+**Current readiness**: PASS
+
+### API Error Handling (PASS)
+
+**Reviewed**: backend/app/main.py:17-84
+
+**Evidence**: Three global exception handlers for HTTPException, RequestValidationError, and generic Exception. All return standardized error format. Generic 500 catch-all returns "An internal server error occurred" — no stack traces or internal details leaked.
+
+**Current readiness**: PASS
+
+### Database / RLS (PARTIAL)
+
+**Reviewed**: backend/schema.sql (9 tables), RLS grep
+
+**Evidence**: Only user_moderation_audit has ENABLE ROW LEVEL SECURITY (line 139). All other tables have no RLS. Backend uses SUPABASE_KEY (anon key) for most operations — access control enforced at API layer. Defense-in-depth gap but acceptable for current architecture.
+
+**Current readiness**: PARTIAL
+
+### Monitoring (FAIL)
+
+**Reviewed**: Full codebase grep for sentry/newrelic/datadog — 0 results in application code
+
+**Evidence**: No error monitoring tool integrated. Only monitoring is GET / health check and platform logs (Railway/Vercel).
+
+**Current readiness**: FAIL — no proactive error detection
+
+### Logging (PARTIAL)
+
+**Reviewed**: 9 files use Python logging module
+
+**Evidence**: Structured logging with extra fields in auth flows. Admin actions logged. No PII (passwords, tokens) logged. But no formal PII-safe logging policy, no log retention owner assigned.
+
+**Current readiness**: PARTIAL
+
+### Backup / Restore (PARTIAL)
+
+**Reviewed**: docs/database-backup-strategy.md, docs/database-recovery-validation-report.md
+
+**Evidence**: Strategy documented with RPO ≤24h, RTO ≤4h targets. Recovery validation was tabletop only. Supabase backup settings not confirmed. No live restore drill performed.
+
+**Current readiness**: PARTIAL
+
+## GO / NO-GO Rationale
+
+**Decision: NO-GO**
+
+The system cannot be declared production-ready because:
+
+1. **AUTH-001 is a P0 Critical security blocker** that remains unresolved. The Google OAuth account-linking flow in backend/app/auth/google.py:186-193 looks up users by email without verifying the email_verified claim or matching the google_sub identifier. This enables account-takeover attacks.
+
+2. **No implementation evidence exists** that AUTH-001 has been fixed. The code at the vulnerable location has not changed since the vulnerability was identified in ISSUE-092. ISSUE-111 (the remediation issue) has not been implemented.
+
+3. **The Definition of Done for ISSUE-122 states "No blockers are open"** — AUTH-001 is an open P0 blocker, so the DoD is not met.
+
+Even if AUTH-001 were resolved, additional P1 gaps would need to be accepted or resolved:
+- No error monitoring (MONITOR-001)
+- No uptime monitoring (MONITOR-002)
+- Staging not live (STAGING-001)
+- Backup settings unverified (BACKUP-001)
+- Live restore not validated (RESTORE-001)
+
+These P1 items are documented as accepted gaps in ISSUE-121 and do not independently block the GO decision, but they represent meaningful operational risk.
+
+## Required Follow-Up Issues
+
+| Priority | Issue | Area | Reason |
+| :--- | :--- | :--- | :--- |
+| P0 | ISSUE-111: Harden Google OAuth account linking | Security | AUTH-001 — account-takeover vulnerability must be fixed before production |
+| P1 | Provision staging environment services | Reliability | STAGING-001 — required for live drills and pre-prod validation |
+| P1 | Implement error monitoring (Sentry or equivalent) | Monitoring | MONITOR-001 — no proactive error detection exists |
+| P1 | Implement uptime monitoring and alerting | Monitoring | MONITOR-002 — no automated downtime detection exists |
+| P1 | Verify Supabase backup configuration | Reliability | BACKUP-001 — backup settings unconfirmed |
+| P1 | Run live database restore drill | Reliability | RESTORE-001 — only tabletop performed |
+| P2 | Document PII-safe logging policy | Logging | No formal policy exists |
+| P2 | Document data retention policy | Privacy | No formal retention rules |
+| P2 | Implement account deletion process | Privacy | GDPR/privacy requirement |
+| P2 | Create/confirm privacy policy | Privacy | Not found in repo |
+| P2 | Perform load testing | Performance | No baseline performance data |
+| P2 | Define API latency targets | Performance | No formal targets exist |
+| P3 | Enable RLS on additional tables | Security (defense-in-depth) | Only user_moderation_audit has RLS |
+
+## Definition of Done Assessment
+
+**Definition of Done met: NO**
+
+The DoD for ISSUE-122 states: "No blockers are open."
+
+AUTH-001 is an open P0 blocker. It has not been resolved — verified by reviewing the current code at backend/app/auth/google.py:186-193, which still performs email-only lookup without email_verified enforcement or google_sub matching.
+
+**ISSUE-122 cannot be closed until**:
+1. AUTH-001 is resolved (ISSUE-111 implemented and verified)
+2. The production readiness review is re-executed and confirms no remaining P0 blockers
+3. The final decision changes from NO-GO to GO
+
+## Final Result
+
+- **Production readiness review completed**: YES
+- **Every ISSUE-121 checklist area reviewed**: YES (21 areas)
+- **Evidence documented**: YES (code references, file paths, line numbers)
+- **Blockers identified**: YES (1 P0, 5 P1)
+- **Final decision**: NO-GO
+- **ISSUE-122 can be closed**: NO
+- **Runtime behavior changed**: NO
+- **Database schema changed**: NO
+- **Secrets committed**: NO
