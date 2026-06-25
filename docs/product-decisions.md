@@ -19171,3 +19171,75 @@ Mobile development work (UI scaffolding, local development, prototype builds) ma
 | Runtime behavior changed | NO |
 | Database schema changed | NO |
 | Secrets committed | NO |
+
+---
+
+# ISSUE-126: Create Complete Mobile Audit Plan
+
+## 1. Date
+
+2026-06-25
+
+## 2. Context
+
+Before starting mobile UI remediation, a complete mobile audit plan must exist defining exactly which screens, device classes, and checks are required. EPIC 02 is currently NOT COMPLETE because AUTH-001 remains open. This task creates the audit plan as documentation only — it does not execute the audit or implement fixes.
+
+## 3. Work Completed
+
+Created a comprehensive mobile audit plan document at docs/mobile-audit-plan.md with 18 sections covering:
+- Gate status and production blocker acknowledgement
+- Audit principles (9 principles)
+- Device matrix (4 device classes)
+- Screen audit matrix (8 screens)
+- Detailed audit checklists for each screen (Login, Register, Map, Field Details, Create Game, Game Details, Notifications, Admin)
+- Cross-cutting mobile checks (layout, touch, viewport, states, navigation, accessibility)
+- Audit execution checklist (4 device classes x 9 areas = 36 audit slots)
+- Pass/fail rules with blocking criteria
+- Future audit report template with severity definitions
+
+## 4. Files Changed
+
+- docs/mobile-audit-plan.md — NEW (18 sections)
+- docs/product-decisions.md — APPENDED (this decision record)
+
+## 5. Device Classes Defined
+
+| Device Class | Viewport Examples | OS / Browser |
+| :--- | :--- | :--- |
+| Small Android | 360x640 / 360x740 | Android Chrome |
+| Large Android | 412x915 / 430x932 | Android Chrome |
+| Small iPhone | 375x667 / 390x844 | iOS Safari |
+| Large iPhone | 428x926 / 430x932 | iOS Safari |
+
+## 6. Screens Covered
+
+| Screen | Included | Checks Defined |
+| :--- | :--- | :--- |
+| Login | YES | 13 checks |
+| Register | YES | 11 checks |
+| Map | YES | 18 checks |
+| Field Details | YES | 15 checks |
+| Create Game | YES | 17 checks |
+| Game Details | YES | 15 checks |
+| Notifications | YES | 18 checks |
+| Admin | YES | 13 checks |
+| Cross-Cutting | YES | 20+ checks |
+
+## 7. Gate Status
+
+- EPIC 02: NOT COMPLETE
+- AUTH-001: OPEN (P0 Critical — account-takeover)
+- Production readiness: NO-GO
+- Mobile production work: BLOCKED
+
+## 8. Final Decision
+
+- Mobile audit plan created: YES
+- All required screens defined: YES (8 screens)
+- All required device classes defined: YES (4 device classes)
+- Audit execution checklist included: YES (36 slots)
+- Mobile production work remains blocked by AUTH-001 until resolved
+- Next recommended issue: Execute mobile audit using docs/mobile-audit-plan.md (after AUTH-001 remediation, or in strictly non-production planning mode)
+- Runtime behavior changed: NO
+- Database schema changed: NO
+- Secrets committed: NO
