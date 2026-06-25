@@ -18043,3 +18043,61 @@ The complete staging environment strategy is documented in [docs/staging-environ
 - **Google OAuth separation documented**: YES
 - **Runtime behavior changed**: NO
 - **DB schema changed**: NO
+
+# ISSUE-115: Release Versioning Policy
+
+## 1. Summary
+A release versioning policy has been defined and documented. The project adopts Semantic Versioning (SemVer) with the format `MAJOR.MINOR.PATCH`. This is a policy and documentation task — no runtime, backend, frontend, or database behavior was changed.
+
+## 2. Files Changed
+- `docs/release-versioning-policy.md` — full versioning policy document (created)
+- `docs/product-decisions.md` — this decision record (appended)
+
+## 3. Policy Document Location
+[docs/release-versioning-policy.md](docs/release-versioning-policy.md)
+
+## 4. Final Versioning Decision
+- **Format**: Semantic Versioning — `MAJOR.MINOR.PATCH` (e.g. `1.0.0`, `1.1.0`, `1.1.1`)
+- **Recommended initial production release**: `1.0.0`
+- **Pre-release labels**: `alpha`, `beta`, `rc` with numeric suffix (e.g. `1.2.0-beta.1`)
+- **Git tags**: `vX.Y.Z` (e.g. `v1.2.0`)
+- **Release branches**: `release/vX.Y.Z`
+- **Hotfix branches**: `hotfix/vX.Y.Z`
+
+## 5. Version Format
+| Component | Meaning |
+| :--- | :--- |
+| MAJOR | Breaking or incompatible changes |
+| MINOR | New backwards-compatible functionality |
+| PATCH | Bug fixes and small improvements |
+
+## 6. Team Workflow
+- Product/technical owner proposes version bump type.
+- PR reviewer confirms the bump type matches the changes.
+- Security fixes may use an expedited patch release process.
+- Breaking changes require explicit MAJOR version discussion.
+- App Store / Google Play releases require product owner approval.
+
+## 7. App Store / Google Play Notes
+- User-facing version follows SemVer (`1.2.0`).
+- Internal build number is a monotonically increasing integer, never reused.
+- TestFlight / internal testing can use pre-release labels.
+- Production store releases use clean versions only.
+- No mobile app project currently exists — policy is forward-compatible.
+
+## 8. Known Gaps / Follow-Ups
+- No CHANGELOG.md exists (recommended follow-up).
+- No single app-wide version source of truth (`frontend/package.json` is scaffold default `0.0.0`).
+- No mobile app project exists yet.
+- No automated release tagging or build number automation in CI.
+- No GitHub Releases configured.
+
+## 9. Final Result
+- **Versioning policy exists**: YES
+- **Format defined**: YES (MAJOR.MINOR.PATCH)
+- **MAJOR/MINOR/PATCH rules defined**: YES
+- **Pre-release/build metadata rules defined**: YES
+- **App Store / Google Play considerations documented**: YES
+- **Team workflow documented**: YES
+- **Runtime behavior changed**: NO
+- **DB schema changed**: NO
