@@ -35,6 +35,121 @@ It serves as the single source of truth for debt items identified during audits 
 | OBSOLETE | No longer relevant — include reason |
 | NEEDS VERIFICATION | Believed fixed but not independently verified |
 
+## Prioritized Backlog
+
+### Critical
+
+| Rank | Debt ID | Title | Reason | Blocks Production | Recommended Next Issue |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | TD-AUTH-001 | Google OAuth account-takeover via email-only linking | P0 security vulnerability — account takeover. Must be fixed before any production launch. | **YES** | AUTH-001: Harden Google OAuth account linking |
+
+### High
+
+| Rank | Debt ID | Title | Reason | Blocks Production | Recommended Next Issue |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 2 | TD-OPS-001 | No error monitoring (Sentry or equivalent) | No proactive error detection. Errors only found via user reports or manual log review. | NO (accepted gap) | Add error monitoring to backend |
+| 3 | TD-OPS-002 | No uptime monitoring or alerting | No automated downtime detection. Outages go unnoticed until users report. | NO (accepted gap) | Add uptime monitoring and alerting |
+| 4 | TD-OPS-004 | Supabase backup settings not confirmed | Backup frequency, retention, and PITR unverified. Data loss risk if backups are misconfigured. | NO (accepted gap) | Verify Supabase backup configuration |
+| 5 | TD-OPS-003 | Staging environment not live | Cannot perform live drills, pre-prod validation, or restore testing. All simulations are tabletop only. | NO (accepted gap) | Provision staging environment services |
+| 6 | TD-OPS-005 | Live database restore not validated | Only tabletop restore performed. Actual restore time and success rate unknown. Depends on TD-OPS-003 (staging) and TD-OPS-004 (backup confirmation). | NO (accepted gap) | Run live database restore drill |
+
+### Medium
+
+| Rank | Debt ID | Title | Reason | Blocks Production | Recommended Next Issue |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 7 | TD-DB-001 | RLS not enabled on most tables | Defense-in-depth gap. If anon key is compromised, all table data is accessible. | NO | Enable RLS on additional database tables |
+| 8 | TD-PRIVACY-002 | No account deletion/export process | Required for App Store submission and GDPR compliance. Blocks mobile distribution. | NO | Implement account deletion process |
+| 9 | TD-PRIVACY-003 | No privacy policy document confirmed | Required for App Store submission and legal compliance. Blocks mobile distribution. | NO | Create privacy policy document |
+| 10 | TD-PRIVACY-001 | No formal data retention policy | Compliance risk. No defined rules for how long personal data is retained. | NO | Create data retention policy |
+| 11 | TD-DB-002 | No migration runner/tool — manual SQL files only | Risk of migrations applied out of order, skipped, or applied twice. Schema drift between environments. | NO | Implement migration management tool |
+| 12 | TD-OPS-006 | No formal PII-safe logging policy | Future code changes could inadvertently log PII. Privacy/compliance risk. | NO | Create PII-safe logging policy |
+| 13 | TD-OPS-008 | No on-call rotation or escalation chain | Incidents outside business hours go unhandled. No accountability for incident response. | NO | Define on-call rotation |
+| 14 | TD-OPS-009 | Dashboard access inventory missing | During incidents, the person with dashboard access may be unavailable. Access bottleneck. | NO | Create dashboard access inventory |
+| 15 | TD-OPS-010 | Exact Vercel/Railway project names not documented | Rollback operator must search for correct project during an incident. Delays rollback. | NO | Document deployment project names |
+| 16 | TD-NOTIFY-001 | No notification delivery failure monitoring | Push notification failures go undetected. Users may stop receiving notifications silently. | NO | Add notification delivery monitoring |
+| 17 | TD-FE-001 | No frontend unit/component tests | Frontend regressions not caught before e2e. No isolated testing of UI logic. | NO | Add frontend component tests |
+| 18 | TD-TEST-001 | Playwright e2e tests exist but no CI integration confirmed | E2e tests may not run automatically on PRs or merges. Regressions not caught before merge. | NO | Verify e2e tests run in CI |
+| 19 | TD-PERF-001 | No load testing performed | Unknown capacity limits. k6 test script exists but no results documented. | NO | Run backend load testing |
+| 20 | TD-PERF-002 | No latency targets or SLAs defined | No way to detect performance regressions or set user expectations. | NO | Define API latency targets |
+| 21 | TD-PERF-003 | In-process rate limiter resets on restart | Rate limits reset after every deployment or crash. Acceptable at single-instance scale. | NO | Evaluate distributed rate limiting |
+| 22 | TD-PERF-004 | In-memory auth user cache not shared across instances | Banned/suspended user could continue using app for up to 300s on another instance. Acceptable at single-instance scale. | NO | Evaluate shared auth cache |
+| 23 | TD-OPS-007 | No log retention owner assigned | Logs may grow unbounded or be lost without notice. | NO | Assign monitoring and logging ownership |
+| 24 | TD-RELEASE-001 | No CHANGELOG.md exists | No human-readable record of changes between releases. | NO | Create CHANGELOG.md |
+| 25 | TD-RELEASE-002 | No automated release tagging in CI | Releases not tagged automatically. Manual error risk in release process. | NO | Implement CI release tagging |
+| 26 | TD-FE-002 | Frontend version is scaffold default 0.0.0 | Cannot correlate deployments to versions. | NO | Set initial frontend version |
+| 27 | TD-PERF-005 | Frontend bundle size not measured | Bundle size may grow without detection, affecting load times on mobile. | NO | Audit frontend bundle size |
+
+### Low
+
+| Rank | Debt ID | Title | Reason | Blocks Production | Recommended Next Issue |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 28 | TD-DB-003 | No seed data process for staging/testing | Staging environment will have empty database. Manual test data setup required. | NO | ISSUE-131: Create seed data process |
+| 29 | TD-DOCS-001 | Admin dashboard UI not implemented | Admin operations require API calls. Higher barrier for non-technical admins. | NO | Build admin dashboard UI |
+
+## Execution Order
+
+1. **TD-AUTH-001** — Google OAuth account-takeover via email-only linking — **Critical** — Sole P0 production blocker. Account-takeover class vulnerability. Must be fixed first. — *AUTH-001: Harden Google OAuth account linking*
+2. **TD-OPS-001** — No error monitoring — **High** — Without error monitoring, production issues go undetected. Foundation for all operational maturity. — *Add error monitoring to backend*
+3. **TD-OPS-002** — No uptime monitoring or alerting — **High** — Complements error monitoring. Together they form minimum viable observability. — *Add uptime monitoring and alerting*
+4. **TD-OPS-004** — Supabase backup settings not confirmed — **High** — Quick verification task. Must be confirmed before any restore drill. Prerequisite for TD-OPS-005. — *Verify Supabase backup configuration*
+5. **TD-OPS-003** — Staging environment not live — **High** — Prerequisite for live drills, restore validation, and pre-prod testing. Unblocks TD-OPS-005 and TD-DB-003. — *Provision staging environment services*
+6. **TD-OPS-005** — Live database restore not validated — **High** — Depends on TD-OPS-003 (staging) and TD-OPS-004 (backup confirmation). Validates backup strategy in practice. — *Run live database restore drill*
+7. **TD-DB-001** — RLS not enabled on most tables — **Medium** — Defense-in-depth. Ranked first among medium items because it is a security hardening task. — *Enable RLS on additional database tables*
+8. **TD-PRIVACY-002** — No account deletion/export process — **Medium** — Required for App Store and GDPR. Blocks mobile distribution path. — *Implement account deletion process*
+9. **TD-PRIVACY-003** — No privacy policy document confirmed — **Medium** — Required for App Store and legal compliance. Quick documentation task. — *Create privacy policy document*
+10. **TD-PRIVACY-001** — No formal data retention policy — **Medium** — Compliance prerequisite. Informs account deletion implementation. — *Create data retention policy*
+11. **TD-DB-002** — No migration runner/tool — **Medium** — Reduces deployment risk. Prevents schema drift. — *Implement migration management tool*
+12. **TD-OPS-006** — No formal PII-safe logging policy — **Medium** — Privacy safeguard. Should be done before scaling logging volume. — *Create PII-safe logging policy*
+13. **TD-OPS-008** — No on-call rotation or escalation chain — **Medium** — Operational maturity. Pairs with monitoring (TD-OPS-001/002). — *Define on-call rotation*
+14. **TD-OPS-009** — Dashboard access inventory missing — **Medium** — Quick documentation task. Reduces rollback bottleneck risk. — *Create dashboard access inventory*
+15. **TD-OPS-010** — Exact Vercel/Railway project names not documented — **Medium** — Quick documentation task. Reduces rollback delay. — *Document deployment project names*
+16. **TD-NOTIFY-001** — No notification delivery failure monitoring — **Medium** — Depends on monitoring infrastructure (TD-OPS-001). — *Add notification delivery monitoring*
+17. **TD-FE-001** — No frontend unit/component tests — **Medium** — Testing gap. Important for frontend quality but backend tests exist. — *Add frontend component tests*
+18. **TD-TEST-001** — Playwright e2e tests exist but no CI integration confirmed — **Medium** — Tests exist but may not run. Quick verification task. — *Verify e2e tests run in CI*
+19. **TD-PERF-001** — No load testing performed — **Medium** — k6 script exists. Depends on staging (TD-OPS-003) for realistic results. — *Run backend load testing*
+20. **TD-PERF-002** — No latency targets or SLAs defined — **Medium** — Depends on load testing (TD-PERF-001) for baseline data. — *Define API latency targets*
+21. **TD-PERF-003** — In-process rate limiter resets on restart — **Medium** — Only relevant at multi-instance scale. Acceptable for now. — *Evaluate distributed rate limiting*
+22. **TD-PERF-004** — In-memory auth user cache not shared across instances — **Medium** — Only relevant at multi-instance scale. Acceptable for now. — *Evaluate shared auth cache*
+23. **TD-OPS-007** — No log retention owner assigned — **Medium** — Operational hygiene. Low effort to assign. — *Assign monitoring and logging ownership*
+24. **TD-RELEASE-001** — No CHANGELOG.md exists — **Medium** — Important for release communication but not blocking. — *Create CHANGELOG.md*
+25. **TD-RELEASE-002** — No automated release tagging in CI — **Medium** — Improves release process but manual tagging works for now. — *Implement CI release tagging*
+26. **TD-FE-002** — Frontend version is scaffold default 0.0.0 — **Medium** — Should be set before first production release but trivial fix. — *Set initial frontend version*
+27. **TD-PERF-005** — Frontend bundle size not measured — **Medium** — Nice to know but not actionable until frontend matures. — *Audit frontend bundle size*
+28. **TD-DB-003** — No seed data process for staging/testing — **Low** — Depends on staging (TD-OPS-003). Convenience improvement. — *ISSUE-131: Create seed data process*
+29. **TD-DOCS-001** — Admin dashboard UI not implemented — **Low** — API-based admin works. UI is a convenience improvement. — *Build admin dashboard UI*
+
+## Prioritization Rationale
+
+Items were ranked using the following criteria, in order of weight:
+
+1. **Production blocker**: Items that prevent declaring production readiness outrank all others. TD-AUTH-001 is the sole production blocker.
+2. **Security / account-takeover risk**: Security vulnerabilities that enable account takeover or data exposure are always Critical, regardless of this issue's own P2 priority.
+3. **Data loss risk**: Unverified backups and untested restore procedures are ranked High because they represent data loss risk in production incidents.
+4. **Operational reliability**: Monitoring, alerting, and staging are ranked High because without them, production incidents cannot be detected or practiced.
+5. **Compliance / app store requirements**: Privacy policy, account deletion, and data retention are ranked Medium-high within the Medium category because they block the mobile distribution path.
+6. **Defense-in-depth**: Security hardening (RLS) is ranked above maintainability debt because it reduces blast radius of other failures.
+7. **Testing gaps**: Frontend testing and CI integration are ranked Medium because backend test coverage exists (29 test files) and e2e tests exist.
+8. **Scalability**: In-process rate limiter and cache items are ranked lower Medium because they are acceptable at current single-instance scale.
+9. **Documentation / convenience**: CHANGELOG, release tagging, version numbering, and bundle size measurement are ranked low Medium because they improve process but don't affect reliability.
+10. **Nice-to-have**: Seed data and admin UI are ranked Low because they are convenience improvements with no production impact.
+
+**Key principle**: Security and account-takeover risks always outrank documentation, cleanup, and convenience work, regardless of the priority of the issue that created this inventory.
+
+## Dependency Notes
+
+The following dependencies exist between debt items:
+
+- **TD-AUTH-001 must be fixed before production readiness can become GO.** No other item can override this.
+- **TD-OPS-004 (backup confirmation) should come before TD-OPS-005 (restore drill)** — cannot validate restore if backup settings are unknown.
+- **TD-OPS-003 (staging) should come before TD-OPS-005 (restore drill)** — cannot perform live restore drill without a staging environment.
+- **TD-OPS-003 (staging) should come before TD-PERF-001 (load testing)** — realistic load testing requires a staging environment.
+- **TD-OPS-003 (staging) should come before TD-DB-003 (seed data)** — seed data is only useful once staging exists.
+- **TD-OPS-001 (error monitoring) should come before TD-NOTIFY-001 (notification delivery monitoring)** — notification monitoring builds on general error monitoring infrastructure.
+- **TD-OPS-001 + TD-OPS-002 (monitoring) should come before TD-OPS-008 (on-call rotation)** — on-call rotation is only meaningful once monitoring/alerting exists.
+- **TD-PERF-001 (load testing) should come before TD-PERF-002 (latency targets)** — need baseline data before setting targets.
+- **TD-PRIVACY-001 (retention policy) informs TD-PRIVACY-002 (account deletion)** — retention rules help define what deletion means.
+- **TD-FE-002 (version) should be done before TD-RELEASE-001 (CHANGELOG)** — CHANGELOG needs a version to reference.
+
 ## Technical Debt Summary
 
 | ID | Severity | Area | Title | Status | Source / Evidence | Recommended Follow-Up |
@@ -81,7 +196,7 @@ It serves as the single source of truth for debt items identified during audits 
 - **Impact**: An attacker can create a Google account with the victim's email (unverified), obtain a Google ID token, and call the login endpoint. The backend finds the existing user by email and returns a valid JWT for the victim's account. Full account takeover.
 - **Risk if ignored**: Any user account can be hijacked via Google login.
 - **Recommended fix**: Enforce email_verified == true before accepting Google token. When an existing user is found by email, verify google_sub matches the stored value before linking. If no google_sub stored, require explicit account linking flow.
-- **Suggested follow-up issue**: ISSUE-111: Harden Google OAuth account linking
+- **Suggested follow-up issue**: AUTH-001: Harden Google OAuth account linking
 - **Blocks production**: **YES**
 
 ### TD-OPS-001 — No error monitoring (Sentry or equivalent)

@@ -17843,7 +17843,7 @@ Within 5 business days of incident resolution, the Incident Lead must facilitate
 ### Critical Blockers
 | Finding ID | Severity | Area | Summary | Blocking? | Follow-up Issue Recommendation |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`AUTH-001`** | Critical (P0) | Authentication | Google login links existing accounts by email without verifying the `email_verified` claim or checking `google_sub` matches, enabling account takeovers. | **YES** | **ISSUE-111: Harden Google OAuth account linking**: Enforce `email_verified is True` and restrict direct linking to matching `google_sub` keys. |
+| **`AUTH-001`** | Critical (P0) | Authentication | Google login links existing accounts by email without verifying the `email_verified` claim or checking `google_sub` matches, enabling account takeovers. | **YES** | **AUTH-001: Harden Google OAuth account linking**: Enforce `email_verified is True` and restrict direct linking to matching `google_sub` keys. |
 
 ### Non-Blocking Follow-Ups (P1/P2/P3)
 | Finding ID | Severity | Area | Summary | Blocking? | Follow-up Issue Recommendation |
@@ -17872,7 +17872,7 @@ Within 5 business days of incident resolution, the Incident Lead must facilitate
 
 ## 7. Required Follow-Up Issues
 
-1. **ISSUE-111: Harden Google OAuth account linking (P0 - BLOCKER)**: Update `backend/app/auth/google.py` to check `email_verified` and restrict linking to verified Google accounts matching `google_sub`.
+1. **AUTH-001: Harden Google OAuth account linking (P0 - BLOCKER)**: Update `backend/app/auth/google.py` to check `email_verified` and restrict linking to verified Google accounts matching `google_sub`.
 2. **ISSUE-112: Sanitize database error messages (P1)**: Ensure Google auth endpoints do not return raw Supabase diagnostics.
 3. **ISSUE-113: Implement login rate limiting (P1)**: Add throttling logic to `POST /auth/login` using FastAPI rate-limiters.
 4. **ISSUE-114: Rate limit registration/availability routes (P1)**: Secure `POST /auth/register`, `/auth/check-username`, and `/auth/check-email`.
@@ -18593,7 +18593,7 @@ This checklist synthesizes findings from:
 
 | ID | Severity | Area | Status | Evidence | Production Risk | Required Fix |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| AUTH-001 | P0 Critical | Security / Auth | **OPEN** | backend/app/auth/google.py:186-193 — find_or_create_google_user queries .eq("email", email) with no email_verified check and no google_sub match. An attacker with an unverified Google account using the victim's email can take over the victim's account. | Account takeover — attacker gains full access to victim's games, notifications, and data | ISSUE-111: Harden Google OAuth account linking — add email_verified check + google_sub match before linking |
+| AUTH-001 | P0 Critical | Security / Auth | **OPEN** | backend/app/auth/google.py:186-193 — find_or_create_google_user queries .eq("email", email) with no email_verified check and no google_sub match. An attacker with an unverified Google account using the victim's email can take over the victim's account. | Account takeover — attacker gains full access to victim's games, notifications, and data | AUTH-001: Harden Google OAuth account linking — add email_verified check + google_sub match before linking |
 | STAGING-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-114 status: PREPARED. No Vercel/Railway/Supabase/Firebase/OAuth staging services provisioned. | Cannot perform live drills or pre-prod validation | Provision all 5 staging services |
 | RESTORE-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-120 report: tabletop/dry-run only. No live restore performed. | Actual restore time and success rate unknown | Run live staging restore drill |
 | BACKUP-001 | P1 High | Reliability | OPEN (accepted gap) | ISSUE-119 gap: Supabase dashboard not accessed. Backup frequency, retention, PITR not confirmed. | Backups may not be configured or may not meet RPO target | Verify in Supabase dashboard |
@@ -18730,7 +18730,7 @@ These P1 items are documented as accepted gaps in ISSUE-121 and do not independe
 
 | Priority | Issue | Area | Reason |
 | :--- | :--- | :--- | :--- |
-| P0 | ISSUE-111: Harden Google OAuth account linking | Security | AUTH-001 — account-takeover vulnerability must be fixed before production |
+| P0 | AUTH-001: Harden Google OAuth account linking | Security | AUTH-001 — account-takeover vulnerability must be fixed before production |
 | P1 | Provision staging environment services | Reliability | STAGING-001 — required for live drills and pre-prod validation |
 | P1 | Implement error monitoring (Sentry or equivalent) | Monitoring | MONITOR-001 — no proactive error detection exists |
 | P1 | Implement uptime monitoring and alerting | Monitoring | MONITOR-002 — no automated downtime detection exists |
@@ -18872,6 +18872,93 @@ When future issues add or fix technical debt:
 - **P2 items**: 21
 - **P3 items**: 2
 - **Production blockers**: YES (AUTH-001 remains open)
+- **Runtime behavior changed**: NO
+- **Database schema changed**: NO
+- **Secrets committed**: NO
+
+---
+
+# ISSUE-124: Prioritize Technical Debt Backlog
+
+## 1. Summary
+
+Prioritized all 29 technical debt items from the ISSUE-123 inventory into a ranked backlog with clear execution order.
+
+- **Source inventory**: docs/technical-debt-inventory.md
+- **Sections added**: Prioritized Backlog (Critical/High/Medium/Low tables), Execution Order (29-item ranked list), Prioritization Rationale, Dependency Notes
+
+## 2. Method
+
+Each debt item was ranked using a weighted evaluation of:
+
+1. Production blocker status (highest weight)
+2. Security / account-takeover risk
+3. Data loss risk
+4. Operational reliability impact
+5. Compliance / app store requirements
+6. Defense-in-depth value
+7. Testing coverage impact
+8. Scalability relevance at current scale
+9. Documentation / convenience value
+10. Dependency ordering between items
+
+Items were not moved between severity levels — original P0/P1/P2/P3 classifications from ISSUE-123 were preserved. The prioritization adds execution ranking within and across severity levels.
+
+## 3. Priority Distribution
+
+| Category | Count |
+| :--- | :--- |
+| Critical | 1 |
+| High | 5 |
+| Medium | 21 |
+| Low | 2 |
+| **Total** | **29** |
+
+## 4. Highest Priority Items
+
+Top 5 items in execution order:
+
+1. **TD-AUTH-001** — Google OAuth account-takeover via email-only linking — **Critical** — sole production blocker
+2. **TD-OPS-001** — No error monitoring (Sentry or equivalent) — **High** — foundation for operational maturity
+3. **TD-OPS-002** — No uptime monitoring or alerting — **High** — minimum viable observability
+4. **TD-OPS-004** — Supabase backup settings not confirmed — **High** — prerequisite for restore drill
+5. **TD-OPS-003** — Staging environment not live — **High** — prerequisite for live drills and pre-prod testing
+
+## 5. Production Blockers
+
+**TD-AUTH-001 / AUTH-001 remains the sole production blocker.**
+
+Google OAuth account linking (backend/app/auth/google.py:186-193) still performs email-only lookup without email_verified enforcement or google_sub matching. This is an account-takeover class vulnerability. ISSUE-111 (Harden Google OAuth account linking) has not been implemented.
+
+No other debt item blocks production independently — the 5 High items are documented as accepted gaps per ISSUE-121/122.
+
+## 6. Definition of Done Assessment
+
+**Definition of Done met: YES**
+
+- Every debt item from the ISSUE-123 inventory (29 items) has been assigned a clear priority category (Critical/High/Medium/Low).
+- All 29 items appear exactly once in the prioritized backlog.
+- A clear execution order from rank 1 to rank 29 exists.
+- No items were dropped or invented.
+
+## 7. Validation
+
+- git diff --check: PASS (no whitespace errors)
+- git status --short: 1 modified (product-decisions.md), 1 modified (technical-debt-inventory.md)
+- docs/technical-debt-inventory.md exists: YES
+- "# ISSUE-124: Prioritize Technical Debt Backlog" in product-decisions.md: YES
+- All 29 debt IDs present in prioritized backlog: YES
+- Runtime behavior changed: NO
+- Database schema changed: NO
+- Secrets committed: NO
+
+## 8. Final Result
+
+- **Prioritized backlog created**: YES
+- **All debt items ranked**: YES (29/29)
+- **Execution order defined**: YES (ranks 1-29)
+- **Dependencies documented**: YES (10 dependency relationships)
+- **Production blockers**: YES (TD-AUTH-001 remains open)
 - **Runtime behavior changed**: NO
 - **Database schema changed**: NO
 - **Secrets committed**: NO
