@@ -81,6 +81,14 @@ export async function checkEmail(email) {
   return response.data
 }
 
+export async function logoutFromServer() {
+  try {
+    await api.post('/auth/logout')
+  } catch {
+    // Logout should clear local state regardless of server response
+  }
+}
+
 export function saveAuthSession(authData) {
   const sessionUser = getSessionUserFromAuthData(authData)
 

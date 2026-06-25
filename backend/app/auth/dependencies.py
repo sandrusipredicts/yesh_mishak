@@ -37,6 +37,35 @@ def _set_cached_user(user_id: str, user: dict[str, Any]) -> None:
     _user_cache[user_id] = (expires_at, dict(user))
 
 
+def invalidate_cached_user(user_id: str) -> None:
+    _user_cache.pop(user_id, None)
+
+
+def _parse_iso_timestamp(value: str) -> float:
+    from datetime import datetime, timezone
+
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _check_token_revoked(user: dict[str, Any], token_iat: float | int | None) -> None:
+    tokens_valid_after = user.get("tokens_valid_after")
+    if tokens_valid_after is None or token_iat is None:
+        return
+    if isinstance(tokens_valid_after, str):
+        threshold = _parse_iso_timestamp(tokens_valid_after)
+    else:
+        threshold = float(tokens_valid_after)
+    if float(token_iat) < threshold:
+        raise_api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="TOKEN_REVOKED",
+            message="Token has been revoked",
+        )
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
@@ -62,9 +91,12 @@ def get_current_user(
             message="Invalid token",
         )
 
+    token_iat = payload.get("iat")
+
     # Cache lookup
     cached_user = _get_cached_user(user_id)
     if cached_user is not None:
+        _check_token_revoked(cached_user, token_iat)
         duration_db = 0.0
         t_total_end = time.perf_counter()
         duration_total = t_total_end - t_start
@@ -82,7 +114,7 @@ def get_current_user(
     response = (
         get_supabase_client()
         .table("users")
-        .select("id,email,name,role,status")
+        .select("id,email,name,role,status,tokens_valid_after")
         .eq("id", user_id)
         .limit(1)
         .execute()
@@ -98,6 +130,7 @@ def get_current_user(
         )
 
     user = response.data[0]
+    _check_token_revoked(user, token_iat)
     _set_cached_user(user_id, user)
 
     t_total_end = time.perf_counter()
@@ -131,7 +164,7 @@ def require_active_user(current_user: dict[str, Any] = Depends(get_current_user)
     return current_user
 
 
-def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+def require_admin(current_user: dict[str, Any] = Depends(require_active_user)) -> dict[str, Any]:
     if current_user.get("role") != "admin":
         raise_api_error(
             status_code=status.HTTP_403_FORBIDDEN,

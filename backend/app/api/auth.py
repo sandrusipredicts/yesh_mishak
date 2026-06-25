@@ -5,6 +5,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status
 
+from fastapi import Depends
+
+from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, verify_password
@@ -232,6 +235,37 @@ def login(payload: LoginRequest) -> TokenResponse:
         },
     )
     return token_response
+
+
+@router.post("/logout")
+def logout(current_user: dict = Depends(require_active_user)) -> dict:
+    user_id = current_user["id"]
+    try:
+        get_supabase_client().table("users").update(
+            {"tokens_valid_after": _now_iso()}
+        ).eq("id", user_id).execute()
+    except Exception:
+        logger.warning(
+            "logout tokens_valid_after update failed",
+            extra={
+                "event": "auth.logout.failure",
+                "user_id": user_id,
+            },
+        )
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="INTERNAL_SERVER_ERROR",
+            message="Logout failed",
+        )
+    invalidate_cached_user(user_id)
+    logger.info(
+        "user logged out",
+        extra={
+            "event": "auth.logout.success",
+            "user_id": user_id,
+        },
+    )
+    return {"message": "Logged out successfully"}
 
 
 @router.post("/check-username", response_model=AvailabilityResponse)

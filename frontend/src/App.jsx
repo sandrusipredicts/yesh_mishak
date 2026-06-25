@@ -10,7 +10,7 @@ import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
-import { getStoredSessionUserId } from './api/auth'
+import { getStoredSessionUserId, logoutFromServer } from './api/auth'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import { hasSelectedLanguage } from './i18n'
 
@@ -76,6 +76,7 @@ function App() {
   }, [currentUser])
 
   const handleLogout = useCallback(() => {
+    logoutFromServer()
     localStorage.removeItem('access_token')
     localStorage.removeItem('currentUserId')
     localStorage.removeItem('currentUserName')

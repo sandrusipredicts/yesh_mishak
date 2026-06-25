@@ -24,4 +24,24 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      error.response?.status === 401 &&
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('access_token')
+    ) {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('currentUserId')
+      localStorage.removeItem('currentUserName')
+      localStorage.removeItem('currentUserEmail')
+      localStorage.removeItem('currentUsername')
+      window.dispatchEvent(new Event('auth-session-changed'))
+    }
+
+    return Promise.reject(error)
+  },
+)
+
 export default api
