@@ -19348,3 +19348,119 @@ Create a focused mobile remediation issue for the Login screen findings after AU
 - Improve Register mode small-screen keyboard ergonomics.
 - Increase Login/Register tab touch targets to at least 44px.
 - Add a controlled Google button test/mocking path and run a real staging OAuth smoke test after AUTH-001 is remediated.
+
+---
+
+# ISSUE-128: Perform Registration Screen Mobile Audit
+
+## Date
+
+2026-06-25
+
+## Context
+
+The registration screen includes multiple fields and can easily break on mobile. The product does not currently have a separate registration route; registration is implemented as Register mode inside `frontend/src/components/LoginPage.jsx`.
+
+This was an audit/documentation task only. No frontend, backend, database, schema, runtime, or configuration behavior was changed.
+
+## Dependency Verification
+
+- `docs/mobile-audit-plan.md` exists: YES
+- `docs/product-decisions.md` contains `ISSUE-126: Create Complete Mobile Audit Plan`: YES
+- ISSUE-126 was used as the audit standard: YES
+- `docs/mobile-login-screen-audit.md` exists: YES
+- ISSUE-127 registration-related findings were reviewed: YES
+- EPIC 02 status remains NOT COMPLETE.
+- AUTH-001 remains open and remains the production blocker.
+
+## Scope
+
+- Screen audited: Registration
+- Implementation audited: Register mode inside the Login/Auth UI
+- Device classes audited:
+  - Small Android: 360x640
+  - Large Android: 412x915
+  - Small iPhone: 375x667
+  - Large iPhone: 428x926
+- Validation areas audited:
+  - Form Layout
+  - Validation Messages
+  - Keyboard Behavior
+  - Scroll Behavior
+- Out of scope:
+  - Implementing fixes
+  - Auth/security remediation
+  - Production mobile release approval
+
+## Work Completed
+
+- Reviewed the ISSUE-126 mobile audit plan.
+- Reviewed the ISSUE-127 Login mobile audit and registration-related findings.
+- Reviewed Register/Auth frontend implementation, routing behavior, CSS, i18n files, package scripts, and Playwright setup.
+- Ran the local Vite frontend.
+- Used browser/mobile emulation to measure Register mode across all four required mobile device classes.
+- Tested Hebrew/RTL registration layout.
+- Tested focus behavior for every registration input.
+- Tested browser-native validity state for required fields.
+- Tested simulated server-side registration error layout.
+- Documented all findings in `docs/mobile-registration-screen-audit.md`.
+
+## Files Changed
+
+- `docs/mobile-registration-screen-audit.md` — new Registration screen mobile audit report
+- `docs/product-decisions.md` — ISSUE-128 decision record
+
+## Device Classes Audited
+
+| Device Class | Viewport | Result |
+| :--- | :--- | :--- |
+| Small Android | 360x640 | PASS WITH FINDINGS |
+| Large Android | 412x915 | PASS WITH FINDINGS |
+| Small iPhone | 375x667 | PASS WITH FINDINGS |
+| Large iPhone | 428x926 | PASS WITH FINDINGS |
+
+## Validation Areas Audited
+
+| Area | Result | Summary |
+| :--- | :--- | :--- |
+| Form Layout | PASS WITH FINDINGS | All fields render and no horizontal overflow was found; short devices require scrolling to reach submit. |
+| Validation Messages | PASS WITH FINDINGS | Native validation is available but not app-localized; API errors render globally below the form/auth area. |
+| Keyboard Behavior | PASS WITH FINDINGS | All inputs accept focus; submit remains out of view on short devices until scrolling. |
+| Scroll Behavior | PASS WITH FINDINGS | Vertical scroll works and submit can be reached after scrolling; no scroll trap found. |
+
+## Relationship to ISSUE-127 Findings
+
+- ISSUE-127 finding `ML-LOGIN-001` identified that Register mode submit is below the viewport on short devices. ISSUE-128 documents the same behavior as registration-specific finding `ML-REGISTER-001` with additional form, focus, and scroll evidence.
+- ISSUE-127 finding `ML-LOGIN-002` identified that the shared Login/Register tabs are 41px tall. ISSUE-128 references this as `ML-REGISTER-004` because the same tabs control Register mode access.
+- ISSUE-127 finding `ML-LOGIN-003` about the Google-rendered button was reviewed but not duplicated as a registration finding because the Google button is not part of completing the local registration form.
+
+## Findings Summary
+
+| Finding ID | Severity | Summary | Blocking |
+| :--- | :--- | :--- | :--- |
+| ML-REGISTER-001 | P2 | Register form submit starts below the viewport on Small Android and Small iPhone and remains hidden during field focus until scrolling. | NO |
+| ML-REGISTER-002 | P2 | Registration validation relies partly on browser-native messages, which appeared in English during Hebrew/RTL audit. | NO |
+| ML-REGISTER-003 | P2 | Server/API errors render as a single global message below the form/auth area rather than inline near fields. | NO |
+| ML-REGISTER-004 | P3 | Shared Register tab is slightly below the 44px mobile touch target target. | NO |
+
+## Final Audit Decision
+
+**PASS WITH FINDINGS**
+
+No Registration screen mobile blocker was identified during this audit. The Registration screen is acceptable for mobile planning purposes with the documented non-blocking findings.
+
+## Gate Status
+
+- Mobile production remains blocked by AUTH-001.
+- This audit does not mark EPIC 02 complete.
+- This audit does not authorize mobile production release.
+
+## Next Recommended Issue
+
+Create a focused mobile remediation issue for the Registration screen findings after AUTH-001 remains prioritized:
+
+- Improve short-screen Register mode layout and keyboard ergonomics.
+- Add localized, app-controlled field validation messages.
+- Render field-specific registration errors where possible.
+- Increase shared auth tab touch targets to at least 44px.
+- Verify Register mode on real Android and iPhone devices with native keyboards.
