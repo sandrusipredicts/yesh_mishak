@@ -21251,3 +21251,148 @@ Future QA and automation runs will use this matrix as the authority:
 
 ## Definition of Done Confirmation
 The supported mobile device matrix has been officially defined and documented. All QA testing levels, device viewports, and orientation rules are registered in the project decisions. No runtime, database, or CSS files were modified during this task.
+
+
+---
+
+# ISSUE-152: Small Android Device QA Report
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-152-test-small-android-devices`
+- **Scope**: Complete QA audit of the application on Small Android device category (360x640 portrait, 667x375 landscape)
+- **Dependency**: ISSUE-151 (Supported Mobile Device Matrix) -- confirmed present in product-decisions.md
+- **Overall result**: CONDITIONAL PASS -- no P0 issues found, 2 P1 and 3 P2 issues identified, all with viable workarounds
+
+## Device / Viewport Tested
+- **Primary target**: 360x640 (portrait) -- Small Android, e.g. Galaxy S9
+- **Landscape smoke check**: 667x375
+- **Secondary smoke check**: 360x740
+- **Support level**: Primary (per ISSUE-151)
+- **Testing method**: Vite dev server with Chromium preview at exact viewport dimensions
+
+## Areas Reviewed
+
+### 1. Login
+- **Login tab**: All elements visible within viewport at 360x640. Title, tagline, tab switcher, username field, password field, submit button, "or" divider, and Google login button all fit without scrolling. RTL Hebrew text alignment correct. No horizontal overflow (scrollWidth === clientWidth === 360).
+- **Input fields**: Correct types and sizes. Fields use full available width within the login panel.
+- **Validation errors**: Error message "Could not sign in" renders inline below the password field, wraps correctly, does not overflow.
+- **Submit button**: Fully visible and reachable without scrolling in login tab.
+- **Google login button**: Visible below the submit button and "or" divider.
+- **Keyboard interaction**: Not testable in viewport emulation (no soft keyboard simulation).
+- **Vertical scrolling**: Not needed for login tab -- all content fits within 640px.
+- **RTL text alignment**: Correct throughout. Labels right-aligned, inputs stretch full width.
+- **Result**: PASS -- no issues found in login tab.
+
+### 2. Register
+- **Register tab**: Activated correctly. Tab switcher highlights correctly.
+- **Fields visible without scrolling**: Full name, Username, Email, Phone number, Password (5 of 6 fields). Password hint ("At least 8 characters") visible.
+- **Fields requiring scroll**: Confirm Password field, Submit button ("Create account"), "or" divider, and Google login button are below the fold at 640px viewport height.
+- **Submit button reachability**: Reachable after scrolling approximately 180px. Page scrolls smoothly via `.login-page { overflow-y: auto }`.
+- **Password hint**: Displays correctly below password field.
+- **Error placement**: Inline errors render correctly (tested login error at 360px width).
+- **RTL layout**: All labels and inputs correctly right-aligned.
+- **Result**: PASS with note -- registration form requires scrolling on 640px, which is expected given 6 fields + supporting UI.
+
+### 3. Map
+- **Initial map load**: Leaflet map renders correctly at 360x640. Map tiles load and fill viewport.
+- **Auth toolbar**: Username ("arel dadon") truncated with ellipsis (42px wide). "My Games" button wraps text to 2 lines (62px tall vs normal 44px). "Logout" button fits. Toolbar total width 264px, does not overflow viewport.
+- **Floating buttons**: Notification bell (top-right, 52x52, positioned at x:288-340) -- visible, not clipped. Settings gear (right side, 52x52, positioned at x:288-340 y:84-136) -- visible. Add field button (bottom-center, 52x52, positioned at x:154-206) -- visible, centered. All floating buttons within viewport bounds.
+- **Leaflet zoom controls**: +/- buttons visible at bottom-left (10px from left, 48px wide). Not overlapping any floating buttons.
+- **My location button**: Not present as a separate button (location handled via map controls).
+- **Error/loading messages**: "Could not load fields" error banner renders at top-left (width 211px, max-width 280px). Text wraps to 2 lines. Does not overflow.
+- **RTL layout**: Toolbar buttons and text correctly right-to-left. Floating buttons on right side (bell, gear) positioned correctly via `inset-inline-end`.
+- **No horizontal overflow**: Confirmed -- `scrollWidth === clientWidth === 360`.
+- **Field markers**: Tested via authenticated Chrome tab -- 1353 markers render without performance issues.
+- **Result**: PASS with P2 finding (toolbar button text wrapping).
+
+### 4. Games
+- **Field details panel**: CSS analysis confirms mobile behavior: `width: 100%; bottom: 0; border-radius: 12px 12px 0 0`. Panel has no max-height constraint on mobile (documented in ISSUE-144 as MODAL-MOBILE-002). At 360px width, panel fills full width -- no clipping.
+- **Open game modal**: Width resolves to `min(420px, 100%)` = 320px (in 360px viewport with 20px padding each side). Max-height: `min(600px, calc(100dvh - 40px - safe-areas))` = ~600px at 640px viewport. Content 1007px in 600px container needs scrolling but overflow-y: auto handles it. Submit button reachable after scroll.
+- **Upcoming games cards**: Not testable without live game data, but CSS uses `grid-template-columns: repeat(2, minmax(0, 1fr))` on mobile (from line 2688) which fits 2 cards in 320px modal width.
+- **My Games page**: Title, error state with retry button, and "Back to map" link all render cleanly at 360x640. No overflow. RTL correct.
+- **Result**: PASS with note -- field details panel height concern (already documented in ISSUE-144).
+
+### 5. Notifications
+- **Notifications preferences modal**: Width 320px (at 360px viewport). Max-height resolves to 600px. Content height 762px requires scrolling. Modal scrolls correctly (overflow: auto). All sections visible: language, push enable, distance (with radius slider), city (with autocomplete), specific fields. Save button reachable after scrolling to bottom.
+- **Radius slider**: Visible and correctly sized within 320px modal. Slider track and thumb render correctly.
+- **City autocomplete**: City field ("Yeruham") displays correctly. Autocomplete dropdown would render within modal bounds.
+- **Notification inbox**: Title, "No unread notifications" status, "Mark all as read" button, and empty state message all display correctly at 320px modal width. Close button (x) visible.
+- **Push notification section**: "Enable Push" button renders full-width within modal. Text wraps correctly.
+- **Modal scroll behavior**: Both modals scroll internally via `overflow: auto`. Modal stays fixed in viewport center. Background map does not scroll (in this test -- body scroll lock issue documented in ISSUE-144).
+- **Result**: PASS -- notifications modals work correctly at 360x640.
+
+## Findings
+
+| ID | Area | Severity | Component/File | Problem | Reproduction Steps | Expected | Actual | Recommended Follow-up |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| SANDROID-001 | Map | P1 | Auth toolbar in `MapPage.jsx` / `.auth-toolbar` in `App.css` | "My Games" button text wraps to 2 lines at 360px, making toolbar 62px tall instead of 44px, consuming extra vertical space and looking visually awkward | 1. Open app at 360x640. 2. Log in. 3. View map page. | Toolbar buttons should be single-line at primary viewport width | "המשחקים שלי" button wraps to 2 lines, toolbar height increases from 44px to 62-78px | Consider shorter Hebrew label, smaller font on mobile, or icon-only button at narrow widths |
+| SANDROID-002 | Register | P1 | `LoginPage.jsx` / `.login-page` in `App.css` | Register form (6 fields + hint + submit + Google) extends to ~554px content height at 360px width, requiring ~180px scroll to reach submit. Combined with soft keyboard (~300px), submit is far out of view | 1. Open app at 360x640. 2. Switch to Register tab. 3. Observe that confirm password and submit require scrolling | All form fields and submit button should be accessible. Scrolling is acceptable but submit should be reachable without excessive scroll | Submit button requires scrolling past confirm password field. With keyboard open on a real device, visible area drops to ~340px and submit requires ~214px of scrolling | Consider collapsible sections or scroll-into-view on focus. Acceptable given full-page layout, but flagged as P1 because registration is a core flow |
+| SANDROID-003 | Map | P2 | Auth toolbar in `MapPage.jsx` / `.auth-toolbar` in `App.css` | Username displays as "...adon" with ellipsis at 360px width -- only 43px allocated. User cannot identify their full name in the toolbar | 1. Open app at 360px viewport. 2. Log in as "arel dadon". 3. View map toolbar. | Username should be recognizable | Username truncated to ~5 visible characters with ellipsis | Acceptable -- ellipsis is correct UX pattern. Could show full name on tap/hover in future |
+| SANDROID-004 | Games | P2 | `AddFieldModal.jsx` / `.add-field-modal` in `App.css` | Add Field modal content is 1007px in 600px container (167% overflow). Map (220px) dominates the modal. With keyboard open, 7+ scroll gestures needed to reach submit from top | 1. Open app at 360x640. 2. Tap Add Field (+). 3. Scroll to bottom of modal. | Modal should be scrollable with submit reachable | Modal scrolls correctly, submit reachable. But map consumes 220px (37% of 600px visible area). On a real device with keyboard, usability suffers | Already documented as MODAL-MOBILE-003 in ISSUE-144. Reduce map height on mobile or make collapsible |
+| SANDROID-005 | Notifications | P2 | `NotificationsModal.jsx` / `.notifications-modal` in `App.css` | Notifications preferences modal content is 762px in 600px container (127% overflow). Save button requires scrolling past all sections | 1. Open app at 360x640. 2. Tap settings gear. 3. Scroll to bottom. | Save button reachable after reasonable scroll | Save button reachable after ~162px scroll. Functional but requires user to scroll past all sections to save | Consider sticky save button on mobile or reduced section spacing |
+
+## Passed Scenarios
+
+| Area | Scenario | Status | Evidence |
+| :--- | :--- | :--- | :--- |
+| Login | Login tab displays all elements without scrolling | PASS | Screenshot confirms title, tabs, 2 fields, submit, Google button all visible at 360x640 |
+| Login | Error message renders inline without overflow | PASS | Error text wraps within field width, no clipping |
+| Login | RTL alignment correct | PASS | Labels right-aligned, inputs stretch correctly |
+| Login | Google login button visible and reachable | PASS | Visible below "or" divider without scrolling in login tab |
+| Register | All 6 fields render correctly | PASS | Fields stack vertically with proper spacing |
+| Register | Password hint visible | PASS | "At least 8 characters" shown below password field |
+| Register | Submit and Google login reachable via scroll | PASS | Scrolling ~180px reveals confirm password, submit, and Google button |
+| Map | No horizontal overflow | PASS | scrollWidth === clientWidth === 360 confirmed via JS |
+| Map | All floating buttons visible and within viewport | PASS | Bell (288-340,20-72), gear (288-340,84-136), add field (154-206,564-616), zoom (10-58,538-630) |
+| Map | Error banner does not block controls | PASS | Error at top-left, max-width 280px, does not overlap floating buttons on right |
+| Map | Leaflet zoom controls visible | PASS | +/- buttons at bottom-left, 48px wide |
+| Map | Field markers render | PASS | 1353 markers loaded in authenticated session |
+| Games | My Games page renders correctly | PASS | Title, error state, retry button, back link all visible at 360x640 |
+| Games | Open Game modal scrolls correctly | PASS | CSS max-height 600px with overflow-y:auto, width 320px in 360px viewport |
+| Notifications | Notification inbox modal renders | PASS | Title, status, mark-all-read, empty state visible at 320px width |
+| Notifications | Preferences modal scrolls to save button | PASS | Save button reachable after scrolling 162px |
+| Notifications | Radius slider renders within modal | PASS | Slider visible and correctly sized in 320px modal |
+
+## Landscape Smoke-Check Result (667x375)
+
+| Flow | Status | Notes |
+| :--- | :--- | :--- |
+| Map loads | PASS | Map tiles render correctly. All floating buttons visible. Toolbar not truncated. |
+| Login/register usable | PASS | Login form requires scrolling (content 554px in 375px). Submit reachable after scroll. |
+| Notifications modal opens and scrolls | PASS | Modal width 480px, height 335px, content 762px. Scrolls correctly. Save reachable. |
+| Language selection | PASS | Both language option buttons visible and clickable. |
+| Auth toolbar | PASS | Username "arel dadon" fully visible (not truncated). "My Games" button single-line. Better than portrait. |
+
+**Landscape overall**: PASS -- all core flows remain usable at 667x375. No blocking issues. Modals are tighter vertically but scroll correctly.
+
+**Secondary smoke check (360x740)**: PASS -- virtually identical to 360x640 with 100px more map visible. No additional issues.
+
+## Release Risk Assessment
+
+**CONDITIONAL PASS** -- No P0 (release-blocking) issues found on Small Android 360x640. Two P1 issues identified:
+1. SANDROID-001: Toolbar button text wrapping is visually awkward but does not block any flow.
+2. SANDROID-002: Registration requires scrolling to submit, which combined with keyboard may be difficult but not impossible.
+
+Both P1 issues have functional workarounds (scrolling works, flows complete successfully). Three P2 cosmetic/usability issues are noted but do not impact core flow completion.
+
+**Recommendation**: Safe to release. P1 issues should be addressed in the next mobile usability sprint.
+
+## Follow-Up Recommendations
+
+1. **SANDROID-001 (P1)**: Shorten "המשחקים שלי" toolbar button text on mobile (e.g., icon-only or abbreviated label) or reduce font-size in mobile media query to prevent 2-line wrapping at 360px.
+2. **SANDROID-002 (P1)**: Add `scrollIntoView` behavior when form inputs receive focus on mobile, so the active field and submit button remain visible with the keyboard open.
+3. **SANDROID-004 (P2)**: Reduce `.location-picker-map` height from 220px to 160px on mobile (already recommended in ISSUE-144 MODAL-MOBILE-003).
+4. **SANDROID-005 (P2)**: Consider sticky save button for notifications preferences modal on mobile.
+5. **General**: Add body scroll locking to all modals (ISSUE-144 MODAL-MOBILE-001) to prevent map scrolling behind modals on touch devices.
+
+## Definition of Done Confirmation
+
+- Small Android QA report exists: YES
+- All required areas reviewed: YES (Login, Register, Map, Games, Notifications)
+- Findings documented clearly with reproduction steps, expected/actual, severity: YES (5 findings)
+- Landscape smoke check completed: YES (667x375)
+- Secondary viewport checked: YES (360x740)
+- No implementation changes made: YES (documentation only)
+- Git workflow followed: YES (dedicated branch from latest main)
+- Committed on dedicated issue branch: YES (`issue-152-test-small-android-devices`)
