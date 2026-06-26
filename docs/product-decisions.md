@@ -22212,3 +22212,67 @@ Integrate iPhone Pro Max viewports into Playwright and manual smoke checklists t
 - **`git diff --check`**: Clean
 - **`npm run lint`**: failed due to 2 pre-existing baseline errors unrelated to ISSUE-158.
 - **`npm run build`**: PASS (Successful compilation)
+
+
+---
+
+# ISSUE-161: Fix iPad Compatibility Issues
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-161-fix-ipad-compatibility-issues`
+- **Source audit**: ISSUE-160
+- **Components/CSS changed**: `frontend/src/App.css`, `frontend/tests/ipad-layout.spec.js` (NEW)
+- **Overall result**: PASS — All P1 and P2 iPad findings from ISSUE-160 are resolved. P3 finding (IPAD-005) deferred as best-effort per ISSUE-151 tablet policy.
+
+## Mapping of Audited Findings to Fixes
+
+| ISSUE-160 Finding | Severity | Status | Fix Summary | Files |
+| :--- | :--- | :--- | :--- | :--- |
+| **IPAD-001** | P1 | Fixed | Raised `--z-modal-backdrop` from 1200 to 1250 and updated `.modal-backdrop` to use the CSS variable. Modal backdrop now renders above `--z-auth-toolbar` (1200), preventing auth toolbar from intercepting modal close button hit targets. | `frontend/src/App.css` |
+| **IPAD-002** | P2 | Fixed | Added tablet-landscape media query (`min-width: 641px and max-height: 820px`) that reduces `.login-panel` gap/padding and `.auth-form` gap, making the registration form shorter and fully usable on iPad/iPad Air landscape viewports. | `frontend/src/App.css` |
+| **IPAD-003** | P2 | Fixed | Made `.add-field-modal .field-report-actions` sticky at the modal bottom in the tablet-landscape media query, ensuring the submit/cancel buttons remain visible without scrolling. | `frontend/src/App.css` |
+| **IPAD-004** | P2 | Fixed | Reduced `.location-picker-map` height to `min(160px, 20dvh)` in the tablet-landscape media query, keeping the map and submit button within the visible modal area. | `frontend/src/App.css` |
+| **IPAD-005** | P3 | Deferred | Admin table horizontal scrolling is acceptable best-effort behavior per ISSUE-151 tablet policy. No fix applied. | — |
+
+## CSS Changes
+
+### Z-index fix (IPAD-001)
+- `:root` variable `--z-modal-backdrop` changed from `1200` to `1250`
+- `.modal-backdrop` now uses `z-index: var(--z-modal-backdrop)` instead of hardcoded `1200`
+- This ensures all modals render above the auth toolbar (`--z-auth-toolbar: 1200`) on all viewports
+
+### Tablet landscape media query (IPAD-002, IPAD-003, IPAD-004)
+New media query: `@media (min-width: 641px) and (max-height: 820px)`
+- `.login-panel`: Reduced gap to 10px, padding to 20px
+- `.login-panel h1`: Reduced font-size to 22px
+- `.auth-form`: Reduced gap to 8px
+- `.location-picker-map`: Height reduced to `min(160px, 20dvh)`
+- `.add-field-modal .field-report-actions`: Made `position: sticky` at bottom with white background and shadow
+
+## Testing
+
+### Automated Tests
+- **New test file**: `frontend/tests/ipad-layout.spec.js` — 9 tests covering:
+  - IPAD-001: Modal close button hit-test on iPad landscape (1024x768) and iPad Air landscape (1180x820) for both NotificationsModal and AddFieldModal — 4 tests
+  - IPAD-002: Register form submit reachable on iPad landscape (1024x768) — 1 test
+  - IPAD-003: AddFieldModal submit reachable on iPad portrait (768x1024), iPad landscape (1024x768), iPad Air landscape (1180x820), iPad Pro landscape (1366x1024) — 4 tests
+- **All 9 new iPad tests**: PASS
+- **All 27 layout tests** (floating-buttons + modal-usability + small-android + mobile-scrolling + ipad-layout): PASS
+- **Full Playwright suite**: 68 passed, 1 pre-existing flaky test (field-navigation caching, unrelated)
+
+### Validation
+- `git diff --check`: PASS (clean)
+- `npm run build`: PASS
+- `npm run lint`: Only 2 pre-existing baseline errors (MyGamesPage set-state-in-effect, baseline.spec.js process not defined)
+
+## Viewports Verified
+| Viewport | Device | Orientation | IPAD-001 | IPAD-002 | IPAD-003 | IPAD-004 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 768x1024 | Standard iPad | Portrait | n/a | n/a | PASS | n/a |
+| 1024x768 | Standard iPad | Landscape | PASS | PASS | PASS | PASS |
+| 1180x820 | iPad Air | Landscape | PASS | n/a | PASS | PASS |
+| 1366x1024 | iPad Pro 12.9 | Landscape | n/a | n/a | PASS | n/a |
+
+## Remaining Limitations
+- IPAD-005 (P3): Admin tables wider than wrapper on tablet — deferred as acceptable best-effort per ISSUE-151 tablet policy.
