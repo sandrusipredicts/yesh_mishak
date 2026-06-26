@@ -2434,6 +2434,19 @@ select {
     max-height: min(220px, 40dvh);
   }
 
+  .notifications-modal {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .notifications-modal .primary-panel-button {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: 8px;
+    box-shadow: 0 -4px 8px rgba(255, 255, 255, 0.9);
+  }
+
   .confirm-modal {
     max-height: min(400px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
     overflow-y: auto;
@@ -2481,10 +2494,17 @@ select {
     flex-direction: column;
     justify-content: flex-start;
     align-items: center;
+    padding: 16px;
   }
 
   .login-panel {
     margin: auto 0;
+    padding: 20px;
+    gap: 12px;
+  }
+
+  .login-panel h1 {
+    font-size: 24px;
   }
 
   .onboarding-page {
@@ -2541,7 +2561,19 @@ select {
     min-height: 44px;
   }
 
-  .auth-toolbar button,
+  .auth-toolbar {
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+
+  .auth-toolbar button {
+    min-height: 44px;
+    padding: 10px 10px;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
   .notifications-list-header button,
   .location-picker-header button,
   .admin-back-link {

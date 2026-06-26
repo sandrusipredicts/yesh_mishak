@@ -21396,3 +21396,88 @@ Both P1 issues have functional workarounds (scrolling works, flows complete succ
 - No implementation changes made: YES (documentation only)
 - Git workflow followed: YES (dedicated branch from latest main)
 - Committed on dedicated issue branch: YES (`issue-152-test-small-android-devices`)
+
+---
+
+# ISSUE-153: Fix Small Android Layout Issues
+
+## Overview
+
+This issue addresses the five layout problems documented in ISSUE-152's QA audit of the application on a Small Android device (360×640 viewport). All fixes are CSS-only changes in `frontend/src/App.css` within the existing mobile media query block `@media (max-width: 640px), (max-height: 520px)`.
+
+## Issue-to-Fix Mapping
+
+| Bug ID | Description | Fix Applied | File |
+|--------|-------------|-------------|------|
+| SANDROID-001 | Auth toolbar buttons wrap to two lines at 360px | Reduced gap (6px), padding (10px), font-size (13px), added `white-space: nowrap` | `App.css` mobile section |
+| SANDROID-002 | Register form submit button unreachable without scroll | Reduced `.login-panel` padding (20px), gap (12px), heading font-size (24px), `.login-page` padding (16px) | `App.css` mobile section |
+| SANDROID-003 | Username truncation in auth toolbar | Accepted as-is — existing `text-overflow: ellipsis` is the correct behavior for small screens | N/A |
+| SANDROID-004 | Add-field modal map too tall, submit hidden | Already fixed by existing mobile override: `height: min(160px, 25dvh)` | `App.css` line ~2428 |
+| SANDROID-005 | Notifications save button hidden below fold | Made `.notifications-modal` flex column, save button `position: sticky; bottom: 0` with box-shadow | `App.css` mobile section |
+
+## CSS Changes Detail
+
+### SANDROID-001: Auth Toolbar Compaction
+
+**Problem:** At 360px width, the "המשחקים שלי" (My Games) and "התנתק" (Logout) buttons wrapped to a second line, pushing UI elements down.
+
+**Solution:** Within the mobile media query, the `.auth-toolbar` and its buttons received tighter spacing:
+- `.auth-toolbar`: `gap: 6px`, `padding: 6px 8px`, `font-size: 13px`
+- `.auth-toolbar button`: `padding: 10px 10px`, `white-space: nowrap`, `font-size: 13px`
+
+This keeps all toolbar content on a single line at 360px. The username span already had `text-overflow: ellipsis` from the desktop styles.
+
+### SANDROID-002: Login/Register Form Compaction
+
+**Problem:** On the register form with 6 input fields, the submit button was pushed below the 640px viewport.
+
+**Solution:** Reduced vertical spacing in the mobile media query:
+- `.login-page`: `padding: 16px` (from 24px), `justify-content: flex-start`
+- `.login-panel`: `padding: 20px` (from 28px), `gap: 12px` (from 16px), `margin: auto 0`
+- `.login-panel h1`: `font-size: 24px`
+
+### SANDROID-005: Notifications Save Button Sticky
+
+**Problem:** When multiple notification checkboxes were visible, the save button scrolled below the fold.
+
+**Solution:** Made the notifications modal a flex column container and applied sticky positioning to the save button:
+- `.notifications-modal`: `display: flex; flex-direction: column`
+- `.notifications-modal .primary-panel-button`: `position: sticky; bottom: 0; z-index: 1; margin-top: 8px; box-shadow: 0 -4px 8px rgba(255, 255, 255, 0.9)`
+
+## Verification
+
+### Visual Testing (Claude Preview at 360×640)
+- Auth toolbar: buttons render on single line (button height ≤48px)
+- Register form: submit button reachable after scroll
+- Notifications modal: save button visible via sticky positioning
+- Add-field modal: map height ≤160px, submit reachable
+- No horizontal overflow on any tested page
+
+### Automated Tests
+- **7 new Playwright tests** in `frontend/tests/small-android-layout.spec.js`:
+  - Auth toolbar buttons do not wrap to multiple lines (360×640)
+  - No horizontal overflow on map page (360×640)
+  - Register form submit is reachable after scrolling (360×640)
+  - Notifications modal save button is visible via sticky positioning (360×640)
+  - Add-field modal map height is reduced and submit reachable (360×640)
+  - Map loads and toolbar visible in landscape (667×375)
+  - Login form is usable in landscape (667×375)
+- **All 7 new tests pass**
+- **All 11 existing mobile tests pass** (mobile-scrolling, floating-buttons, modal-usability)
+
+### Build Validation
+- `npm run build`: passes
+- `npm run lint`: only pre-existing warnings (no new issues)
+- No new dependencies added
+- No backend changes
+- No database schema changes
+
+## Checklist
+- [ ] CSS-only changes: YES
+- [ ] All 5 SANDROID issues addressed: YES (3 fixed, 1 accepted, 1 already fixed)
+- [ ] Mobile media query used: YES (`@media (max-width: 640px), (max-height: 520px)`)
+- [ ] Previous mobile work preserved: YES (ISSUE-147, 149, 150, 151)
+- [ ] New Playwright tests added: YES (7 tests)
+- [ ] All tests pass: YES (18 total: 7 new + 11 existing)
+- [ ] No new dependencies: YES
+- [ ] Committed on dedicated issue branch: YES (`issue-153-fix-small-android-layout-issues`)
