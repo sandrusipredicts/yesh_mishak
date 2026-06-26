@@ -20925,6 +20925,123 @@ PASS WITH FINDINGS. Current portrait base-map FAB placement has no undocumented 
 
 ---
 
+# ISSUE-160: Test Application on iPad Devices
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-160-test-ipad-devices`
+- **Task type**: Test/audit only. No frontend, backend, database, CSS, JSX, test, package, or config files were modified.
+- **Dependency**: ISSUE-151 confirmed present. ISSUE-151 classifies tablets as Best-Effort with smoke-check expectations before launch.
+- **Overall result**: PASS WITH FINDINGS. The application is broadly usable at iPad-sized viewports, with no global horizontal page overflow detected in the audited flows. Several iPad landscape and tablet-modal usability issues were found and must be handled in ISSUE-161 if tablet polish is required.
+- **Risk rating**: Medium. No P0 auth/data exposure or completely blocked core flow was found, but one P1 modal-close accessibility issue affects common iPad landscape viewports.
+
+## Scope
+Audited iPad/tablet usability for:
+- Split layout behavior and stretched centered layouts.
+- Map screen, map controls, floating action buttons, location/add-field buttons, auth toolbar, field details panel, and Leaflet controls.
+- Login, registration, onboarding, AddFieldModal, NotificationsModal, NotificationInboxModal, OpenGameModal/navigation child modal, FieldDetailsPanel, GamePanel context, and admin screens.
+- Forms, submit buttons, modal close buttons, RTL Hebrew text wrapping, portrait behavior, and landscape behavior.
+
+Out of scope:
+- Fixing UI issues.
+- Changing CSS, JSX, backend behavior, database behavior, tests, package files, or config.
+- Physical iPad/Safari hardware testing. Evidence was gathered with Playwright viewport emulation and mocked local API data.
+
+## Tested Viewports
+| Viewport | Device Class | Orientation | Result |
+| --- | --- | --- | --- |
+| 768x1024 | Standard iPad | Portrait | PASS WITH FINDINGS |
+| 1024x768 | Standard iPad | Landscape | PASS WITH FINDINGS |
+| 820x1180 | iPad Air | Portrait | PASS |
+| 1180x820 | iPad Air | Landscape | PASS WITH FINDINGS |
+| 1024x1366 | iPad Pro 12.9 | Portrait | PASS |
+| 1366x1024 | iPad Pro 12.9 | Landscape | PASS WITH FINDINGS |
+
+## Screens Tested
+| Screen / Flow | Evidence Summary | Result |
+| --- | --- | --- |
+| Login | Login panel stayed 420px wide, centered, no horizontal overflow on all six viewports. Google button was locally mocked because the test must not depend on live Google script loading. | PASS |
+| Register | Form remained functional and submit was visible/reachable. On 1024x768 and 1180x820 landscape, the 836px-tall register panel exceeded viewport height but page scrolling is available. | PASS WITH FINDING |
+| Onboarding | Centered 420px panel, input visible, no horizontal overflow on all six viewports. | PASS |
+| Map | Map canvas filled tablet viewport using `100dvh`; toolbar, bell, preferences, location, add-field, zoom, and attribution controls stayed within viewport on all six viewports. | PASS |
+| Field details panel / GamePanel context | Panel stayed within viewport and bottom FABs were hidden while selected field panel was open. | PASS |
+| Notifications preferences modal | Modal fit all viewports; save button visible. At 1024x768, close button hit-test was intercepted by auth toolbar. | PASS WITH FINDING |
+| Notification inbox modal | Modal fit all viewports; list visible; mark-all button reachable; close button hit-tests passed in tested viewports. | PASS |
+| AddFieldModal | Modal fit viewport and scrolls internally, but submit and/or map picker start below visible modal area on several tablet viewports. Close button hit-test failed on 1024x768 and 1180x820 landscape due auth toolbar interception. | PASS WITH FINDINGS |
+| OpenGameModal / child modal from FieldDetailsPanel | Modal stayed within viewport in audited field-panel flow. | PASS |
+| Admin | Admin shell stays within viewport. Tables are contained in horizontal scroll wrappers; on narrower tablet widths, table content is wider than the visible wrapper by design. | PASS WITH FINDING |
+
+## Findings
+| Finding ID | Screen | Viewport | Orientation | Severity | Problem | Evidence | User Impact | Recommended Fix | Follow-up |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| IPAD-001 | NotificationsModal / AddFieldModal | 1024x768, 1180x820 | Landscape | P1 | The logged-in auth toolbar can intercept the modal close button hit target in landscape tablet layouts. | Playwright hit-test returned `auth-toolbar` over `.modal-close-button` for NotificationsModal at 1024x768 and AddFieldModal at 1024x768 and 1180x820. | Users may not be able to close a modal using the visible X button. Escape/backdrop may still work, but touch users need the visible close control. | Ensure modal overlays and close buttons sit above the auth toolbar, or hide/reposition the auth toolbar while modal backdrops are open. | ISSUE-161 |
+| IPAD-002 | Register | 1024x768, 1180x820 | Landscape | P2 | The registration panel is taller than the landscape tablet viewport. | Register panel measured 420x836 with bottom at 860 on 1024x768 and 1180x820. Page has no horizontal overflow and submit button remains visible at y=694-739. | Registration remains possible, but the form feels cramped and requires page scrolling on common landscape iPad sizes. | Add tablet-landscape form spacing rules or a scroll-aware auth layout for long register forms. | ISSUE-161 |
+| IPAD-003 | AddFieldModal | 768x1024, 1024x768, 1180x820, 1366x1024 | Portrait and landscape | P2 | Add Field modal content is scrollable, but the submit button starts below the visible modal area on multiple iPad viewports. | Examples: 768x1024 submit bottom 1070; 1024x768 submit bottom 958; 1180x820 submit bottom 968; 1366x1024 submit bottom 1070. Modal scrollHeight 960 and clientHeight 728-760 confirm internal scrolling. | Users can submit after scrolling, but the primary action is not immediately visible, especially after interacting with the location picker. | Consider a sticky action footer or tablet-specific form layout for AddFieldModal. | ISSUE-161 |
+| IPAD-004 | AddFieldModal location picker | 1024x768, 1180x820 | Landscape | P2 | Location picker map starts partly below the visible viewport in landscape tablet layouts. | 1024x768 map rect bottom 828; 1180x820 map rect bottom 838. Modal itself is scrollable. | Users may not realize map/location controls continue below the fold; interaction is more awkward in landscape. | Reduce map picker height for tablet landscape or use a two-column tablet layout with sticky actions. | ISSUE-161 |
+| IPAD-005 | Admin tables | 768x1024, 820x1180, 1024x1366, 1024x768, 1180x820 | Portrait and landscape | P3 | Admin table content is wider than its visible wrapper at several tablet widths and depends on horizontal scrolling. | Users table wrapper examples: 768x1024 wrapper width 426 vs table width 980; 820x1180 wrapper width 478 vs table width 980; 1024x1366 wrapper width 682 vs table width 980. No global page overflow was detected because `.admin-table-wrap` contains scroll. | Admin remains usable, but tablet admins must horizontally scroll tables, which is acceptable for best-effort admin support but not optimized. | Keep as best-effort or add tablet-specific admin table/card layouts if tablet admin usability becomes a product goal. | ISSUE-161 optional |
+
+## Risk Rating
+**Medium**.
+
+Rationale:
+- No P0 issues were found.
+- Core player flows are broadly usable on iPad portrait and landscape.
+- Map controls and field panel behavior passed the tablet viewport checks.
+- One P1 issue affects modal close interaction in landscape tablet viewports.
+- P2 findings are usability/polish issues with scroll workarounds rather than hard blockers.
+- Admin tablet usability is best-effort per ISSUE-151 and remains contained with horizontal table scroll wrappers.
+
+## Recommendation
+Open ISSUE-161 to fix or explicitly defer tablet usability issues discovered here.
+
+Recommended ISSUE-161 scope:
+1. Raise modal close/backdrop stacking above `.auth-toolbar`, or hide the auth toolbar when a modal is open.
+2. Improve AddFieldModal tablet landscape layout with sticky footer or more compact/two-column form structure.
+3. Improve registration landscape tablet spacing/scroll behavior.
+4. Decide whether admin tablet table scrolling is acceptable best-effort behavior or should receive a tablet-specific card/table layout.
+
+Do not block core release solely on iPad tablet polish unless tablet usage is a launch requirement. Do address IPAD-001 before claiming tablet landscape modal usability is production-ready.
+
+## ISSUE-161 Decision
+**ISSUE-161 is required: YES.**
+
+Reason: IPAD-001 is a P1 modal-close accessibility/usability issue on iPad landscape viewports, and IPAD-003/IPAD-004 create avoidable friction in AddFieldModal on tablet screens.
+
+## Validation Results
+- **Branch/status workflow**:
+  - `git branch --show-current` before work: `main`.
+  - `git status --short` before work: clean.
+  - `git pull origin main`: already up to date.
+  - Created branch `issue-160-test-ipad-devices`.
+- **Files inspected**:
+  - `docs/product-decisions.md`
+  - `frontend/package.json`
+  - `frontend/src/App.jsx`
+  - `frontend/src/pages/MapPage.jsx`
+  - `frontend/src/components/LoginPage.jsx`
+  - `frontend/src/pages/OnboardingPage.jsx`
+  - `frontend/src/pages/AdminPage.jsx`
+  - `frontend/src/components/AdminRoute.jsx`
+  - `frontend/src/components/Modal.jsx`
+  - `frontend/src/components/AddFieldModal.jsx`
+  - `frontend/src/components/OpenGameModal.jsx`
+  - `frontend/src/components/NotificationsModal.jsx`
+  - `frontend/src/components/NotificationInboxModal.jsx`
+  - `frontend/src/components/FieldDetailsPanel.jsx`
+  - `frontend/src/components/GamePanel.jsx`
+  - `frontend/src/App.css`
+  - `frontend/src/api/admin.js`
+- **Automated viewport evidence**: Local Vite + Playwright viewport checks with mocked auth/API data for all six required iPad viewports. No production or backend data was touched.
+- **Build/lint validation**:
+  - `git diff --check` -- PASS. Git emitted only the existing LF-to-CRLF warning for `docs/product-decisions.md`.
+  - `npm run build` -- PASS. Vite build completed; existing large chunk warning remains advisory.
+  - `npm run lint` -- FAIL due pre-existing issues outside this documentation branch: `frontend/src/pages/MyGamesPage.jsx` line 129 (`react-hooks/set-state-in-effect`) and `frontend/tests/performance/baseline.spec.js` line 210 (`process` is not defined).
+  - Full Playwright test suite was not run because it writes local `test-results/` artifacts and this task requires documentation-only persistent changes.
+- **Persistent files changed**: `docs/product-decisions.md` only.
+
+
+---
+
 # ISSUE-147: Floating Action Button Improvements
 
 ## Summary
