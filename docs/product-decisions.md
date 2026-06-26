@@ -21745,3 +21745,97 @@ No files changed (documentation-only commit to `docs/product-decisions.md`).
 - Retest confirmation documented: YES (based on ISSUE-154 audit data)
 - Git workflow followed: YES (dedicated branch from latest main)
 - Committed on dedicated issue branch: YES (`issue-155-fix-large-android-layout-issues`)
+
+
+---
+
+# ISSUE-155.2: Galaxy S24 Ultra Map Control Clipping Fix
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-155-2-galaxy-s24-ultra-map-control-clipping`
+- **Scope**: Fix bottom map controls (Leaflet zoom controls and floating add-field button) being clipped on Samsung Galaxy S24 Ultra in Chrome portrait mode.
+- **Priority**: P0
+- **Dependencies**: ISSUE-151, ISSUE-153, ISSUE-154, ISSUE-155
+
+## Why This Issue Exists After ISSUE-154/155
+
+ISSUE-154 and ISSUE-155 tested the Large Android viewport (412x915) using **simulated viewports** in Playwright and Claude Preview. Simulated viewports use a fixed pixel area where `100vh` equals the exact viewport height. On **real mobile browsers**, `100vh` represents the **maximum viewport height** including space occupied by browser chrome (URL bar, navigation bar, system gestures). The actual visible area is smaller, causing bottom-positioned controls to be hidden behind the browser UI.
+
+This is a well-known CSS limitation: `100vh` does not account for dynamic browser chrome on mobile. The CSS unit `100dvh` (dynamic viewport height) was designed specifically to solve this by representing the **currently visible** viewport height.
+
+## Real-Device Evidence
+- **Device**: Samsung Galaxy S24 Ultra
+- **Browser**: Chrome (portrait)
+- **Problem**: Bottom-left Leaflet zoom controls and bottom-center floating add-field button partially clipped by browser bottom area
+- **Keyboard**: Closed
+- **Reported by**: Tester with screenshot evidence
+
+## Root Cause Analysis
+
+Two CSS rules in `frontend/src/App.css` used `100vh` instead of `100dvh`:
+
+1. **`.map-page`** (line 420): `min-height: 100vh` -- the map page container used the maximum viewport height, causing it to extend behind the browser chrome.
+2. **`.map-canvas`** (line 425): `height: 100vh` -- the Leaflet map canvas used the maximum viewport height, pushing bottom-positioned controls (zoom, add-field FAB) behind the browser UI.
+
+The bottom controls themselves were correctly positioned with safe-area-aware offsets:
+- `.map-actions-stack.bottom-center`: `bottom: calc(24px + var(--safe-area-bottom))`
+- `.leaflet-bottom`: `bottom: var(--safe-area-bottom) !important`
+
+But these offsets were relative to the `100vh` container bottom, not the visible viewport bottom. On real mobile browsers, `env(safe-area-inset-bottom)` accounts for device notches/home indicators but **not** for browser chrome height, so the controls remained clipped.
+
+## Files/Components Changed
+
+| File | Change | Lines |
+| :--- | :--- | :--- |
+| `frontend/src/App.css` | `.map-page { min-height: 100vh }` changed to `min-height: 100dvh` | Line 420 |
+| `frontend/src/App.css` | `.map-canvas { height: 100vh }` changed to `height: 100dvh` | Line 425 |
+
+## Fix Summary
+
+| Real-Device Finding | Root Cause | Fix | Validation |
+| --- | --- | --- | --- |
+| Bottom-left zoom and bottom-center map controls clipped on Galaxy S24 Ultra Chrome portrait | `.map-page` and `.map-canvas` used `100vh` which includes browser chrome area on real mobile; bottom controls positioned relative to this oversized container | Changed both to `100dvh` (dynamic viewport height) which represents the actual visible area, excluding browser chrome | Build passes, lint clean (pre-existing only), all 18 Playwright tests pass, Preview confirms controls within viewport |
+
+The fix is minimal (2 CSS value changes) and follows the same `100dvh` pattern already used elsewhere in the codebase (login page line 160, mobile overrides line 2515/2657).
+
+## Regression Tests Run
+
+| Test Suite | Tests | Result |
+| :--- | :--- | :--- |
+| `floating-buttons.spec.js` | 3 | PASS |
+| `mobile-scrolling.spec.js` | 6 | PASS |
+| `small-android-layout.spec.js` | 7 | PASS |
+| `modal-usability.spec.js` | 2 | PASS |
+| **Total** | **18** | **All PASS** |
+
+Additional validation:
+- `npm run build`: passes
+- `npm run lint`: only 2 pre-existing errors (no new issues)
+- Preview at 412x915: map canvas = 915px, add button bottom = 891px, zoom-out bottom = 903px -- all within viewport
+- No horizontal overflow
+- Auth toolbar, floating buttons, zoom controls all correctly positioned
+
+## Galaxy S24 Ultra Real-Device Retest Result
+
+**Pending** -- requires deployment and manual retest on physical Samsung Galaxy S24 Ultra in Chrome portrait. The fix changes `100vh` to `100dvh` which is the standard solution for this class of real-device mobile viewport clipping. Expected result: all bottom controls will be fully visible.
+
+## Remaining Risks
+
+1. **Very old browsers**: `dvh` units are supported in all modern browsers (Chrome 108+, Safari 15.4+, Firefox 94+). Galaxy S24 Ultra ships with Chrome 108+ so this is not a concern for the target device.
+2. **Other pages**: The same `100vh` pattern may exist on other pages, but only the map page has bottom-positioned controls that would be affected. Other pages already use `100dvh` or scroll naturally.
+3. **Keyboard open**: When the virtual keyboard is open, `100dvh` shrinks further. This is correct behavior -- map controls should remain above the keyboard.
+
+## Definition of Done Confirmation
+- Real-device issue identified: YES (Galaxy S24 Ultra bottom control clipping)
+- Root cause analyzed: YES (`100vh` vs `100dvh` on map page/canvas)
+- Fix implemented: YES (2 CSS changes in App.css)
+- Build passes: YES
+- All 18 existing tests pass: YES
+- No new dependencies added: YES
+- No backend changes: YES
+- No database schema changes: YES
+- Previous mobile fixes preserved: YES (ISSUE-147, 149, 150, 151, 153)
+- Documentation complete: YES
+- Real-device retest: PENDING (requires deployment)
+- Committed on dedicated issue branch: YES (`issue-155-2-galaxy-s24-ultra-map-control-clipping`)
