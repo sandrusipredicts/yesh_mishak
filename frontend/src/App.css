@@ -14,7 +14,7 @@
   --z-map-floating-controls: 1000;
   --z-field-details-panel: 1100;
   --z-auth-toolbar: 1200;
-  --z-modal-backdrop: 1200;
+  --z-modal-backdrop: 1250;
   --z-confirm-modal-backdrop: 1300;
   --z-offline-banner: 3000;
 }
@@ -952,7 +952,7 @@ select {
 
 .modal-backdrop {
   position: fixed;
-  z-index: 1200;
+  z-index: var(--z-modal-backdrop);
   inset: 0;
   display: grid;
   place-items: center;
@@ -2696,6 +2696,38 @@ select {
   color: #b42318;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Tablet landscape: viewport height ≤ 820px and width > 640px (iPad/iPad Air landscape) */
+@media (min-width: 641px) and (max-height: 820px) {
+  .login-panel {
+    gap: 10px;
+    padding: 20px;
+  }
+
+  .login-panel h1 {
+    font-size: 22px;
+    margin-bottom: 0;
+  }
+
+  .auth-form {
+    gap: 8px;
+  }
+
+  .location-picker-map {
+    height: min(160px, 20dvh);
+  }
+
+  .add-field-modal .field-report-actions {
+    position: sticky;
+    bottom: -22px;
+    padding: 12px 0;
+    margin: 0 -22px;
+    padding-inline: 22px;
+    background: #ffffff;
+    box-shadow: 0 -4px 8px rgba(255, 255, 255, 0.9);
+    z-index: 1;
+  }
 }
 
 /* Standalone media queries for short landscape/narrow screen scrolling usability */
