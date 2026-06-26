@@ -2402,6 +2402,19 @@ select {
 }
 
 @media (max-width: 640px), (max-height: 520px) {
+  .field-details-panel,
+  .notifications-list,
+  .field-selection-list,
+  .city-autocomplete-suggestions,
+  .city-suggestions,
+  .confirm-modal,
+  .notifications-modal,
+  .add-field-modal,
+  .open-game-modal,
+  .field-report-modal {
+    overscroll-behavior: contain;
+  }
+
   .field-details-panel {
     inset-inline-start: 0;
     bottom: 0;
@@ -2413,7 +2426,8 @@ select {
   }
 
   .location-picker-map {
-    height: 160px;
+    height: min(160px, 25dvh);
+    min-height: 120px;
   }
 
   .notifications-list {
@@ -2463,7 +2477,34 @@ select {
   }
 
   .login-page {
-    align-content: safe center;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+  }
+
+  .login-panel {
+    margin: auto 0;
+  }
+
+  .onboarding-page {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .onboarding-panel {
+    margin: auto 0;
+  }
+
+  .auth-form,
+  .open-game-form,
+  .add-field-form,
+  .field-report-form {
+    gap: 12px;
   }
 
   .auth-form input,
@@ -2481,7 +2522,8 @@ select {
     font-size: 16px;
   }
 
-  .city-autocomplete-suggestions {
+  .city-autocomplete-suggestions,
+  .city-suggestions {
     max-height: min(220px, 40dvh);
   }
 
@@ -2618,4 +2660,31 @@ select {
   color: #b42318;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Standalone media queries for short landscape/narrow screen scrolling usability */
+@media (max-height: 520px) {
+  .notifications-list,
+  .field-selection-list {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+@media (max-width: 350px) {
+  .login-panel,
+  .onboarding-panel,
+  .confirm-modal,
+  .notifications-modal,
+  .add-field-modal,
+  .open-game-modal,
+  .field-report-modal {
+    padding: 16px !important;
+  }
+  .field-details-panel {
+    padding: 16px !important;
+  }
+  .game-time-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 }
