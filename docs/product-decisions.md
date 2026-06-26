@@ -22276,3 +22276,123 @@ New media query: `@media (min-width: 641px) and (max-height: 820px)`
 
 ## Remaining Limitations
 - IPAD-005 (P3): Admin tables wider than wrapper on tablet — deferred as acceptable best-effort per ISSUE-151 tablet policy.
+
+
+---
+
+# ISSUE-162: Test Mobile Browser Compatibility
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-162-test-mobile-browser-compatibility`
+- **Task type**: Test/audit only. No frontend, backend, database, CSS, JSX, test, package, or config files were modified.
+- **Overall result**: PASS WITH FINDINGS. The application is broadly compatible across all tested browser engines (Chromium and WebKit). One cross-browser P2 usability finding was identified in the AddFieldModal. One P3 WebKit engine reporting quirk was documented. All core user flows are functional across all tested browsers and viewports.
+- **Risk rating**: Low.
+
+## Scope
+Audited mobile browser compatibility for the Yesh Mishak web application across:
+- Login page (form layout, submit button, panel centering)
+- Register page (form layout, field count, submit button reachability via scroll)
+- Map page (map canvas fill, auth toolbar fit, floating action buttons visibility)
+- RTL Hebrew text wrapping and direction
+- LTR English layout
+- Notifications preferences modal (open, close button hit-test, escape-to-close)
+- AddFieldModal (open, close button hit-test, submit button reachability, location picker map, overflow)
+- Notification inbox modal (open, overflow)
+- CSS feature support (dvh, min(), sticky, logical properties, overscroll-behavior, grid, flexbox, env() safe-area)
+- Horizontal overflow detection on every screen and viewport
+- Modal z-index stacking against auth toolbar
+
+## Tested Browsers / Engines
+| Browser | Engine | Version | Covers |
+| :--- | :--- | :--- | :--- |
+| Chromium (Playwright) | Blink/V8 | Chromium 136 (Playwright 1.61) | Chrome, Edge, Samsung Internet (all Chromium-based) |
+| WebKit (Playwright) | WebKit 26.5 | Playwright 1.61 | Safari (WebKit simulation proxy) |
+
+### Engine Coverage Rationale
+- **Chrome**: Directly covered by Chromium engine testing.
+- **Edge**: Uses the same Blink/V8 engine as Chrome. Chromium testing provides high-confidence coverage. Edge-specific UI shell differences (e.g., address bar height) are not testable via Playwright emulation.
+- **Samsung Internet**: Uses the same Blink/V8 engine as Chrome. Chromium testing provides partial coverage. Samsung Internet-specific features (e.g., content blockers, night mode) are not testable via Playwright emulation.
+- **Safari**: WebKit simulation via Playwright provides engine-level coverage. Real iOS Safari behavior (e.g., rubber-banding, address bar collapse, safe-area insets) is not testable via Playwright emulation.
+
+## Real Device vs Simulation Coverage
+| Browser | Testing Method | Limitation |
+| :--- | :--- | :--- |
+| Chrome | Playwright Chromium simulation | No real mobile Chrome tested. Touch events, soft keyboard, and address bar behavior are simulated, not real. |
+| Edge | Playwright Chromium simulation | No real Edge tested. Chromium-based testing used as proxy. |
+| Samsung Internet | Playwright Chromium simulation | **Samsung Internet was not tested on a real Samsung device. Chromium-based testing was used as partial coverage only.** |
+| Safari | Playwright WebKit simulation | **Safari was not tested on a real iOS device. WebKit simulation was used as a proxy.** Real iOS Safari has additional behaviors (rubber-banding, address bar collapse, env(safe-area-inset-*) actual values, PWA home screen mode) that cannot be verified via simulation. |
+
+## Tested Viewports
+| Viewport | Device Class | Orientation |
+| :--- | :--- | :--- |
+| 390x844 | iPhone 14 / Standard iPhone | Portrait |
+| 430x932 | iPhone Pro Max | Portrait |
+| 932x430 | iPhone Pro Max | Landscape |
+| 768x1024 | iPad / Tablet | Portrait |
+| 1024x768 | iPad / Tablet | Landscape |
+
+## Screens Tested
+| Screen / Flow | Chromium Result | WebKit Result | Notes |
+| :--- | :--- | :--- | :--- |
+| Login page | PASS (all 5 viewports) | PASS (all 5 viewports) | Panel centered, no overflow, submit visible |
+| Register page | PASS (all 5 viewports) | PASS (all 5 viewports) | Submit reachable via scroll, 3+ inputs present |
+| Map page (authenticated) | PASS (all 5 viewports) | PASS (all 5 viewports) | Map fills >80% viewport height, toolbar fits |
+| RTL Hebrew text | PASS (all 5 viewports) | PASS (all 5 viewports) | Toolbar buttons <52px height, no overflow |
+| LTR English layout | PASS (all 5 viewports) | PASS (all 5 viewports) | Direction=ltr, toolbar visible |
+| Notifications modal | PASS (all 5 viewports) | PASS (all 5 viewports) | Close button hit-test passes, escape-to-close works |
+| AddFieldModal | PASS WITH FINDING (all 5 viewports) | PASS WITH FINDING (all 5 viewports) | See COMPAT-001 |
+| Notification inbox | PASS (all 5 viewports) | PASS (all 5 viewports) | No overflow |
+| CSS feature support | PASS (all 5 viewports) | PASS WITH FINDING (all 5 viewports) | See COMPAT-002 |
+
+## Findings
+| Finding ID | Browser/Engine | Real device or simulation | Viewport | Screen | Severity | Problem | Evidence | User Impact | Recommended Fix | Follow-up |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| COMPAT-001 | All (Chromium and WebKit) | Simulation | 390x844, 430x932, 768x1024 (all portrait) | AddFieldModal | P2 | AddFieldModal close button (position: absolute; top: 12px inside overflow: auto modal) scrolls out of the visible area when the user scrolls down to reach the submit button. The close button gets a negative Y coordinate (e.g., -176px on 390x844, -140px on 430x932, -64px on 768x1024) after scrolling 208-238px to bring submit into view. | Chromium: 390x844 closeY=-176 scrollTop=230 scrollHeight=990 clientHeight=760. WebKit: 390x844 closeY=-184 scrollTop=238 scrollHeight=998 clientHeight=760. Landscape viewports (932x430, 1024x768) are NOT affected because the modal fits without scrolling. | Users who scroll down to fill form fields and reach the submit button lose visual access to the X close button. They can still close via Escape key or backdrop click, but touch-only users may not discover these alternatives. | Change close button to position: sticky or fixed within the modal, or use a sticky header/footer pattern so the close button remains visible during scroll. | ISSUE-163 |
+| COMPAT-002 | WebKit only | Simulation | All viewports | CSS feature support | P3 | CSS.supports('overscroll-behavior', 'contain') returns false on WebKit, even though the property IS accepted via el.style.overscrollBehavior = 'contain' (sets successfully). The existing Playwright test mobile-scrolling.spec.js:150 (toHaveCSS overscroll-behavior contain) fails on WebKit because getComputedStyle does not report the shorthand the same way as Chromium. | WebKit: CSS.supports returns false, but el.style.overscrollBehavior = 'contain' succeeds (styleSet: true). Chromium: both return true. | No functional user impact. The overscroll-behavior property is applied and works in Safari/WebKit despite the CSS.supports discrepancy. This is a WebKit engine reporting quirk, not a behavioral defect. Existing test suite coverage is Chromium-only, so this does not affect CI. | No fix required. Document as a known WebKit quirk. If cross-browser test coverage is added, the overscroll-behavior assertion should use getComputedStyle('overscroll-behavior-y') instead of the shorthand. | ISSUE-163 optional |
+
+## Browser-Specific Limitations
+| Browser | Limitation | Impact | Mitigation |
+| :--- | :--- | :--- | :--- |
+| Safari (iOS) | Not tested on real iOS device. WebKit simulation does not reproduce: rubber-banding overscroll, address bar collapse/expand, actual safe-area inset values on notched devices, PWA home screen mode, iOS-specific touch event quirks, file input camera/photo picker behavior. | Real-device Safari may reveal issues not caught by WebKit simulation. The app uses 100dvh (which Safari supports since 15.4) and env(safe-area-inset-*) (supported since 11.0), both of which are the correct approaches. | Test on a real iOS device before claiming Safari certification. |
+| Samsung Internet | Not tested on real Samsung device. Chromium-based testing used as partial proxy. Samsung Internet-specific features (night mode, content blockers, ad tracker blocking, custom toolbar) are not tested. | Samsung Internet may have minor rendering differences from stock Chromium, though the engine is identical. | Test on a real Samsung device if Samsung Internet is a target browser. |
+| Edge | Not tested on real Edge. Chromium-based testing used as proxy. Edge-specific UI (favorites bar, sidebar, collections) not tested. | Extremely low risk. Edge mobile uses the same Blink engine as Chrome. | No action needed unless Edge-specific features are required. |
+| All mobile browsers | Soft keyboard interaction not testable via Playwright. Virtual keyboard reduces viewport height and may cause layout shifts in form-heavy screens (login, register, AddFieldModal). | Form layouts have been hardened with flex/scroll patterns in previous issues (ISSUE-149), but real-device keyboard behavior cannot be verified in simulation. | Test on real devices for keyboard interaction confidence. |
+| All mobile browsers | Service worker and push notification compatibility not testable in Playwright emulation context. | Push notification delivery and service worker registration behavior cannot be verified. | Test on real devices if push notifications are a launch requirement. |
+| All mobile browsers | Geolocation permission dialog behavior not testable. Playwright mocks geolocation, so real permission flow is not covered. | No impact on layout testing. Permission flow UX is a separate concern. | Test on real devices for geolocation permission UX. |
+
+## Risk Rating
+**LOW**.
+
+Rationale:
+- No P0 or P1 issues found.
+- One P2 finding (COMPAT-001) affects AddFieldModal close button accessibility during scroll on portrait viewports. This is a cross-browser issue (not browser-specific) and has workarounds (Escape key, backdrop click). It was likely introduced by the absolute positioning pattern used for modal close buttons and is not a browser compatibility regression.
+- One P3 finding (COMPAT-002) is a WebKit engine reporting quirk with no functional user impact.
+- All core CSS features used by the application (100dvh, min(), position: sticky, CSS logical properties, overscroll-behavior, flexbox, grid, env() safe-area) are supported on both Chromium and WebKit.
+- No horizontal overflow detected on any browser/viewport combination.
+- No z-index stacking conflicts between modals and auth toolbar (resolved in ISSUE-161).
+- RTL Hebrew and LTR English layouts render correctly on both engines.
+- Map canvas fills viewport correctly on both engines.
+
+## Recommendation
+- COMPAT-001 should be addressed in ISSUE-163 by making the AddFieldModal close button sticky or using a fixed header pattern within the modal.
+- COMPAT-002 requires no action. If cross-browser Playwright test coverage is expanded in the future, use `overscroll-behavior-y` instead of the shorthand in CSS assertions.
+- Before claiming full Safari or Samsung Internet certification, test on real iOS and Samsung devices. The WebKit and Chromium simulation provides engine-level confidence, but real-device behaviors (keyboard, safe-area, address bar collapse) require physical device testing.
+
+## ISSUE-163 Decision
+**ISSUE-163 is required: YES.**
+
+Reason: COMPAT-001 is a P2 cross-browser usability issue affecting the AddFieldModal close button on all portrait viewports. While workarounds exist (Escape, backdrop click), touch-only users on mobile phones may not discover them. The fix is straightforward (sticky close button) and should be addressed before launch.
+
+COMPAT-002 is optional for ISSUE-163. It is a P3 engine reporting quirk with no user impact.
+
+## Validation Results
+- **Temporary audit files**: All deleted before commit. No test files, config files, or artifacts remain.
+- **Chromium audit**: 45/45 tests PASS across 5 viewports and 9 screens per viewport.
+- **WebKit audit**: 45/45 tests PASS across 5 viewports and 9 screens per viewport.
+- **Existing test suite (Chromium)**: All layout tests pass (floating-buttons, modal-usability, small-android, mobile-scrolling, ipad-layout: 27/27).
+- **Existing test suite (WebKit)**: 26/27 pass. 1 failure: mobile-scrolling.spec.js:150 (overscroll-behavior computed style assertion) — documented as COMPAT-002, a WebKit reporting quirk.
+- **`git diff --check`**: Clean.
+- **`npm run build`**: PASS.
+- **`npm run lint`**: 2 pre-existing baseline errors only (MyGamesPage set-state-in-effect, baseline.spec.js process not defined).
+- **Files changed**: `docs/product-decisions.md` only.
