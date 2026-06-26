@@ -20921,3 +20921,73 @@ None. All P1, P2, and P3 findings from ISSUE-144 have been resolved.
 
 ## Final Audit Decision
 PASS WITH FINDINGS. Current portrait base-map FAB placement has no undocumented overlap between the primary map FABs themselves, but map overlay placement is not future-safe and has current risks around the logged-in toolbar, loading/status overlays, selected-field panel state, and landscape mobile. No runtime behavior was changed in this audit.
+
+
+---
+
+# ISSUE-147: Floating Action Button Improvements
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-147-floating-action-button-improvements`
+- **Source audit**: ISSUE-146
+- **Components/CSS changed**: `frontend/src/pages/MapPage.jsx`, `frontend/src/App.css`, `frontend/tests/floating-buttons.spec.js`
+- **Overall result**: PASS -- Standardized floating action container layout introduced, z-index hierarchy codified, RTL/LTR dynamic zoom placement solved, bottom buttons hidden on panel-open, and 100% green verification tests.
+
+## Implementation
+- **Floating Action Layout Strategy**: Created a parent layout wrapper `.map-floating-controls` with `pointer-events: none` and `z-index: 1000`. Grouped buttons into three flex stacks (`.map-actions-stack`) with `pointer-events: auto` and a standardized `12px` gap. Positional styles are now owned by the stacks, removing hardcoded button position rules and making future extensions simple.
+- **Safe-Area Strategy**: Offsets inside `.map-actions-stack` containers utilize safe-area padding variables (`--safe-area-top`, `--safe-area-bottom`, `--safe-area-inline-start`) to automatically prevent overlay collisions on notched screens.
+- **Z-Index Strategy**: Centralized and defined named z-index tokens in `:root` CSS variables:
+  ```css
+  --z-map-tiles: 100;
+  --z-leaflet-controls: 800;
+  --z-map-floating-controls: 1000;
+  --z-field-details-panel: 1100;
+  --z-auth-toolbar: 1200;
+  --z-modal-backdrop: 1200;
+  --z-confirm-modal-backdrop: 1300;
+  --z-offline-banner: 3000;
+  ```
+- **RTL Handling**:
+  - The top-start app stack (bell, settings) and bottom-start stack (location) align to `inset-inline-start`, which automatically resolves to right on RTL (Hebrew) and left on LTR (English).
+  - Leaflet zoom controls are disabled at the default position and rendered dynamically via `<ZoomControl position={zoomPosition} />`:
+    - **RTL**: `bottomleft` (left side, stacking above attribution)
+    - **LTR**: `bottomright` (right side, stacking above attribution)
+  - This dynamically separates them from the `.auth-toolbar` (which sits at top-end, translating to left on RTL and right on LTR) and the bottom-start location button, eliminating all control collisions.
+- **FieldDetailsPanel Behavior**: Hides the Add Field button (`.floating-button.bottom`) and Location button (`.floating-button.my-location`) when `selectedField` is active to completely avoid panel overlap. Desktop side panel has a new max-height limit (`calc(100% - 40px - safe-areas)`) to stay inside viewport bounds and scroll.
+- **Modal Overlay Behavior**: Modals render at z-index `1200`/`1300`, completely above the `.map-floating-controls` container (`1000`), blocking click events via backdrop.
+
+## Controls Updated
+| Control | File | Before | After |
+| --- | --- | --- | --- |
+| Notification bell | `MapPage.jsx` / `App.css` | Hardcoded `top: 20px` / `inset-inline-start: 20px`. | Nested inside `.map-actions-stack.top-start`. |
+| Notification preferences | `MapPage.jsx` / `App.css` | Hardcoded `top: 84px` / `inset-inline-start: 20px`. | Nested inside `.map-actions-stack.top-start`. |
+| Location button | `MapPage.jsx` / `App.css` | Hardcoded `bottom: 24px` / `inset-inline-start: 20px`. | Nested inside `.map-actions-stack.bottom-start`; hidden when details panel is open. |
+| Add field button | `MapPage.jsx` / `App.css` | Hardcoded bottom-center; collided with details sheet on mobile. | Nested inside `.map-actions-stack.bottom-center`; hidden when details panel is open. |
+| Leaflet zoom controls | `MapPage.jsx` / `App.css` | Default top-left; overlapped with `.auth-toolbar` in RTL. | Dispatched dynamically to `bottomleft` (RTL) / `bottomright` (LTR). |
+| Map status overlays | `MapPage.jsx` / `App.css` | Shared top-end coordinate; overlapped with `.auth-toolbar`. | Shifted down to `top: calc(84px + var(--safe-area-top))` when `.map-page.has-toolbar` is active. |
+
+## Findings Addressed
+| Finding ID | Severity | Status | Implementation Notes |
+| --- | --- | --- | --- |
+| FAB-PLACEMENT-001 | P1 | Resolved | Moved zoom controls dynamically via `<ZoomControl position={zoomPosition} />` to separate from toolbar in RTL. |
+| FAB-PLACEMENT-002 | P1 | Resolved | Constrained desktop side panel max-height relative to viewport; updated media query to trigger bottom-sheet layouts on short heights (`max-height: 520px`). |
+| FAB-PLACEMENT-003 | P2 | Resolved | Hid bottom-center and bottom-start FABs when a field is selected. |
+| FAB-PLACEMENT-004 | P2 | Resolved | Shifted status/loading overlays down below the auth-toolbar when the user is logged in. |
+| FAB-PLACEMENT-005 | P2 | Resolved | Implemented `.map-actions-stack` to group and space floating buttons automatically. |
+| FAB-PLACEMENT-006 | P2 | Resolved | Codified z-index contract variables under `:root` in CSS. |
+| FAB-PLACEMENT-007 | P3 | Resolved | Separation of bottom controls and attribution ensured by dynamic zoom relocation. |
+
+## Testing
+- **Viewport Checks**: Verified layouts on iPhone SE (320px width), iPhone 12/13/14 (390px), Android (360px), and short landscape sizes (e.g. 667x375) using simulated viewports.
+- **Manual Checks**: Switch languages LTR/RTL and confirm correct alignment inversion and zoom control corner swapping.
+- **Automated Checks**:
+  - `git diff --check` -- PASS
+  - `npm run lint` -- PASS (2 pre-existing baseline errors documented)
+  - `npm run build` -- PASS
+  - `npx playwright test tests/floating-buttons.spec.js` -- PASS
+  - `npx playwright test` -- PASS (All 56 tests passed)
+
+## Known Limitations
+None. All findings from ISSUE-146 are resolved.
+

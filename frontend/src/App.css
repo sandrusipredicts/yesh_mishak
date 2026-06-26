@@ -7,6 +7,16 @@
   --safe-area-inline-end: var(--safe-area-right);
   --mobile-edge-padding: 16px;
   --mobile-safe-bottom-padding: calc(16px + var(--safe-area-bottom));
+
+  /* Named z-index scale */
+  --z-map-tiles: 100;
+  --z-leaflet-controls: 800;
+  --z-map-floating-controls: 1000;
+  --z-field-details-panel: 1100;
+  --z-auth-toolbar: 1200;
+  --z-modal-backdrop: 1200;
+  --z-confirm-modal-backdrop: 1300;
+  --z-offline-banner: 3000;
 }
 
 [dir='rtl'] {
@@ -374,7 +384,7 @@ select {
 
 .auth-toolbar {
   position: absolute;
-  z-index: 1200;
+  z-index: var(--z-auth-toolbar);
   top: 20px;
   inset-inline-end: 20px;
   display: flex;
@@ -416,9 +426,42 @@ select {
   width: 100%;
 }
 
-.floating-button {
+.map-floating-controls {
   position: absolute;
-  z-index: 1000;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-map-floating-controls);
+}
+
+.map-actions-stack {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.map-actions-stack.top-start {
+  top: calc(20px + var(--safe-area-top));
+  inset-inline-start: calc(20px + var(--safe-area-inline-start));
+}
+
+.map-actions-stack.bottom-start {
+  bottom: calc(24px + var(--safe-area-bottom));
+  inset-inline-start: calc(20px + var(--safe-area-inline-start));
+}
+
+.map-actions-stack.bottom-center {
+  bottom: calc(24px + var(--safe-area-bottom));
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+}
+
+[dir='rtl'] .map-actions-stack.bottom-center {
+  transform: translateX(50%);
+}
+
+.floating-button {
   display: grid;
   width: 52px;
   height: 52px;
@@ -451,33 +494,14 @@ select {
   line-height: 1;
 }
 
-.floating-button.top {
-  top: calc(20px + var(--safe-area-top));
-  inset-inline-start: calc(20px + var(--safe-area-inline-start));
+.floating-button.top,
+.floating-button.preferences,
+.floating-button.my-location {
   font-size: 24px;
 }
 
 .floating-button.preferences {
-  top: calc(84px + var(--safe-area-top));
-  inset-inline-start: calc(20px + var(--safe-area-inline-start));
-  font-size: 24px;
   font-weight: 800;
-}
-
-.floating-button.my-location {
-  inset-inline-start: calc(20px + var(--safe-area-inline-start));
-  bottom: calc(24px + var(--safe-area-bottom));
-  font-size: 24px;
-}
-
-.floating-button.bottom {
-  bottom: calc(24px + var(--safe-area-bottom));
-  inset-inline-start: 50%;
-  transform: translateX(-50%);
-}
-
-[dir='rtl'] .floating-button.bottom {
-  transform: translateX(50%);
 }
 
 /* Leaflet map controls safe area overrides */
@@ -631,7 +655,7 @@ select {
 
 .map-error {
   position: absolute;
-  z-index: 1000;
+  z-index: var(--z-map-floating-controls);
   top: calc(20px + var(--safe-area-top));
   inset-inline-end: calc(20px + var(--safe-area-inline-end));
   max-width: 280px;
@@ -645,7 +669,7 @@ select {
 
 .map-loading {
   position: absolute;
-  z-index: 1000;
+  z-index: var(--z-map-floating-controls);
   top: calc(20px + var(--safe-area-top));
   inset-inline-end: calc(20px + var(--safe-area-inline-end));
   display: inline-flex;
@@ -658,6 +682,12 @@ select {
   color: #475569;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
   font-size: 14px;
+}
+
+.map-page.has-toolbar .map-loading,
+.map-page.has-toolbar .map-error,
+.map-page.has-toolbar .map-success {
+  top: calc(84px + var(--safe-area-top));
 }
 
 .map-loading-spinner {
@@ -678,7 +708,7 @@ select {
 
 .field-details-panel {
   position: absolute;
-  z-index: 1100;
+  z-index: var(--z-field-details-panel);
   inset-inline-start: 20px;
   bottom: 20px;
   width: min(360px, calc(100% - 40px));
@@ -687,6 +717,8 @@ select {
   background: #ffffff;
   color: #172033;
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.24);
+  max-height: calc(100% - 40px - var(--safe-area-top) - var(--safe-area-bottom));
+  overflow-y: auto;
 }
 
 .panel-close-button {
@@ -1561,7 +1593,7 @@ select {
 
 .map-success {
   position: absolute;
-  z-index: 1000;
+  z-index: var(--z-map-floating-controls);
   top: calc(20px + var(--safe-area-top));
   inset-inline-end: calc(20px + var(--safe-area-inline-end));
   max-width: 280px;
@@ -2369,7 +2401,7 @@ select {
   background: #b91c1c;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 520px) {
   .field-details-panel {
     inset-inline-start: 0;
     bottom: 0;

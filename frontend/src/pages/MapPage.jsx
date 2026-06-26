@@ -2,7 +2,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useTranslation } from 'react-i18next'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { Circle, MapContainer, Marker, Popup, TileLayer, ZoomControl, useMap, useMapEvents } from 'react-leaflet'
 import { Bell, LocateFixed, Settings } from 'lucide-react'
 import { getFieldById, getFields } from '../api/fields'
 import AddFieldModal from '../components/AddFieldModal'
@@ -314,7 +314,9 @@ const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectFiel
 })
 
 function MapPage({ currentUserId: authenticatedUserId }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const isRtl = i18n.resolvedLanguage === 'he'
+  const zoomPosition = isRtl ? 'bottomleft' : 'bottomright'
   const [center, setCenter] = useState(DEFAULT_CENTER)
   const [userLocation, setUserLocation] = useState(null)
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
@@ -551,52 +553,75 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     : t('map.notifications')
 
   return (
-    <main className="map-page">
+    <main className={`map-page${currentUserId ? ' has-toolbar' : ''}`}>
       {error ? <div className="map-error">{error}</div> : null}
       {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
 
-      <button
-        className="floating-button top"
-        type="button"
-        aria-label={notificationsLabel}
-        onClick={() => {
-          setIsNotificationsOpen(true)
-          refreshNotifications()
-        }}
-      >
-        <Bell size={22} />
-        {unreadNotificationCount ? (
-          <span className="notification-badge" aria-hidden="true">
-            {unreadNotificationCount}
-          </span>
+      <div className="map-floating-controls">
+        <div className="map-actions-stack top-start">
+          <button
+            className="floating-button top"
+            type="button"
+            aria-label={notificationsLabel}
+            onClick={() => {
+              setIsNotificationsOpen(true)
+              refreshNotifications()
+            }}
+          >
+            <Bell size={22} />
+            {unreadNotificationCount ? (
+              <span className="notification-badge" aria-hidden="true">
+                {unreadNotificationCount}
+              </span>
+            ) : null}
+          </button>
+
+          <button
+            className="floating-button preferences"
+            type="button"
+            aria-label={t('map.notificationPreferences')}
+            onClick={() => setIsNotificationPreferencesOpen(true)}
+          >
+            <Settings size={22} />
+          </button>
+        </div>
+
+        {userLocation && !selectedField ? (
+          <div className="map-actions-stack bottom-start">
+            <button
+              className="floating-button my-location"
+              type="button"
+              aria-label={t('map.myLocation')}
+              onClick={() => setUserLocationRequestId((currentRequestId) => currentRequestId + 1)}
+            >
+              <LocateFixed size={22} />
+            </button>
+          </div>
         ) : null}
-      </button>
 
-      <button
-        className="floating-button preferences"
-        type="button"
-        aria-label={t('map.notificationPreferences')}
-        onClick={() => setIsNotificationPreferencesOpen(true)}
-      >
-        <Settings size={22} />
-      </button>
+        {!selectedField ? (
+          <div className="map-actions-stack bottom-center">
+            <button
+              className="floating-button bottom"
+              type="button"
+              aria-label={t('map.addField')}
+              onClick={() => {
+                setFieldSubmitMessage('')
+                setIsAddFieldOpen(true)
+              }}
+            >
+              +
+            </button>
+          </div>
+        ) : null}
+      </div>
 
-      {userLocation ? (
-        <button
-          className="floating-button my-location"
-          type="button"
-          aria-label={t('map.myLocation')}
-          onClick={() => setUserLocationRequestId((currentRequestId) => currentRequestId + 1)}
-        >
-          <LocateFixed size={22} />
-        </button>
-      ) : null}
-
-      <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas">
+      <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas" zoomControl={false}>
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <ZoomControl position={zoomPosition} key={zoomPosition} />
         <RecenterMap center={center} />
         <UserLocationFlyTo requestId={userLocationRequestId} userLocation={userLocation} />
         <FieldLoader
@@ -640,18 +665,6 @@ function MapPage({ currentUserId: authenticatedUserId }) {
           <span>{t('map.loadingFields')}</span>
         </div>
       ) : null}
-
-      <button
-        className="floating-button bottom"
-        type="button"
-        aria-label={t('map.addField')}
-        onClick={() => {
-          setFieldSubmitMessage('')
-          setIsAddFieldOpen(true)
-        }}
-      >
-        +
-      </button>
 
       <FieldDetailsPanel
         field={selectedField}
