@@ -1,4 +1,4 @@
-# Product Decisions & Specifications
+﻿# Product Decisions & Specifications
 
 This document is the official source of truth for approved product decisions, specifications, catalogs, statuses, dependencies, and scope boundaries in the project.
 
@@ -20991,3 +20991,66 @@ PASS WITH FINDINGS. Current portrait base-map FAB placement has no undocumented 
 ## Known Limitations
 None. All findings from ISSUE-146 are resolved.
 
+---
+
+# ISSUE-148: Mobile Scrolling Behavior Audit
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-148-mobile-scrolling-behavior-audit`
+- **Scope**: Comprehensive audit of mobile scrolling behaviors, modals, panels, notification lists, and admin views under different viewport classes.
+- **Overall result**: PASS WITH FINDINGS -- Most modals, panels, and lists handle scrolling correctly since the improvements in ISSUE-145, but several minor viewport layout issues and scroll boundary problems were identified.
+- **Number of screens/components reviewed**: 12
+- **Number of findings by severity**: P0: 0, P1: 2, P2: 4, P3: 1, Total: 7
+
+## Audit Scope
+The audit examined how layout components adapt to viewport size constraints and how virtual keyboard activation reduces the available layout area. Areas of interest included internal scrolling within modal dialogues, safe-area boundary protection, vertical height calculations using dynamic viewport units (`100dvh` / `80dvh`), and background scroll-leak prevention.
+
+## Files/Components Reviewed
+- `frontend/src/pages/MapPage.jsx`
+- `frontend/src/pages/AdminPage.jsx`
+- `frontend/src/pages/OnboardingPage.jsx`
+- `frontend/src/components/NotificationsModal.jsx`
+- `frontend/src/components/NotificationInboxModal.jsx`
+- `frontend/src/components/AddFieldModal.jsx`
+- `frontend/src/components/OpenGameModal.jsx`
+- `frontend/src/components/FieldDetailsPanel.jsx`
+- `frontend/src/components/GamePanel.jsx`
+- `frontend/src/components/LoginPage.jsx`
+- `frontend/src/App.css`
+- All components under `frontend/src/components/admin/`
+
+## Viewports Tested
+- iPhone SE (320px width)
+- iPhone 12/13/14 (390px width)
+- Android medium size (360px width)
+- Short landscape viewport (667x375)
+- Desktop narrow width (640px)
+- RTL Hebrew mode
+- LTR English mode
+
+## Findings Table
+
+| ID | Area | Component/File | Severity | Problem | Reproduction Steps | Expected Behavior | Actual Behavior | Recommended Follow-up | Future Implementation Required? |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **SCROLL-001** | Login / Register | `frontend/src/components/LoginPage.jsx`, `frontend/src/App.css` | P1 | Top container content cut-off on short screens due to grid centering fallback. | 1. Open the registration form (6+ fields) on a simulated device lacking `align-content: safe center` support (e.g., older mobile browsers).<br>2. Focus an input field to open the soft keyboard.<br>3. Attempt to scroll to the top of the form. | The user should be able to scroll to the top of the form, keeping all inputs and headers reachable. | The top of the form overflows the grid coordinates and is cut off, rendering headers unreachable. | Replace `display: grid; place-items: center` with a flex layout (`flex-direction: column; justify-content: flex-start; align-items: center`) on mobile media queries. | Yes |
+| **SCROLL-002** | Add Field Modal | `frontend/src/components/AddFieldModal.jsx`, `frontend/src/App.css` | P2 | Constrained internal scroll height leaves little room for inputs when the soft keyboard is open. | 1. Open the Add Field modal on an iPhone SE size device.<br>2. Focus an input field to trigger the soft keyboard.<br>3. Try to view the map and inputs together. | The modal content should scroll smoothly with enough contextual area to view the field names and map. | The visible viewport is reduced to ~250px, and the 160px map leaves only ~90px for editing form input. | Implement collapsible headers/maps or convert to a multi-step modal structure for mobile. | Yes |
+| **SCROLL-003** | Onboarding Page | `frontend/src/pages/OnboardingPage.jsx`, `frontend/src/App.css` | P1 | Onboarding content cut off and unscrollable on short screens or keyboard focus. | 1. Open the Onboarding page.<br>2. Simulate a short viewport height or open the soft keyboard.<br>3. Try to scroll to see the "Let's Go" button. | The onboarding screen should be scrollable so that all steps and buttons can be reached. | The screen is not scrollable, and elements are cut off below the viewport fold. | Set `.onboarding-page` to `min-height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-start;` on mobile media queries. | Yes |
+| **SCROLL-004** | Overlay Panels / Lists | `frontend/src/components/FieldDetailsPanel.jsx`, `frontend/src/components/NotificationsModal.jsx` | P2 | Scroll chaining on boundary drag pans the underlying leaflet map. | 1. Open a scrollable overlay panel (e.g. Field Details list).<br>2. Touch-scroll to the top or bottom boundary.<br>3. Keep dragging the container. | Scrolling should terminate at boundaries without interacting with the background page. | The underlying leaflet map pans/zooms when scroll boundaries of overlays are dragged. | Add `overscroll-behavior: contain` to `.field-details-panel`, `.notifications-list`, and `.field-selection-list` scrollable layers. | Yes |
+| **SCROLL-005** | Notification Panels | `frontend/src/components/NotificationInboxModal.jsx`, `frontend/src/App.css` | P2 | Nested scroll containers create confusing dual scroll regions in landscape viewports. | 1. Open the Notifications Inbox modal in mobile landscape mode (667x375).<br>2. Touch-scroll the inbox list. | A single primary scroll context should handle the container list. | The list is capped at `min(220px, 40dvh)` (150px layout), resulting in tiny independent scroll regions. | Remove nested lists' custom max-heights on short landscape viewports, letting the modal body scroll as a single unit. | Yes |
+| **SCROLL-006** | Field Details Panel | `frontend/src/components/FieldDetailsPanel.jsx` | P3 | Narrow viewport (320px SE) causes tight list styling and word wraps. | 1. Open Field Details panel on iPhone SE width (320px).<br>2. Inspect long labels or notes. | Label texts should fit neatly with responsive spacing. | Text elements wrap tightly and feel cluttered, reducing legibility. | Add minor padding/margin reductions and adjust flex wrapping for extremely narrow widths. | Yes |
+| **SCROLL-007** | Onboarding City Selector | `frontend/src/pages/OnboardingPage.jsx`, `frontend/src/App.css` | P2 | Onboarding suggestions list lacks mobile height constraint, blocking form visibility. | 1. Open the Onboarding page.<br>2. Focus the City Input to open the suggestions list.<br>3. Open the soft keyboard. | The suggestions list should be capped in height to keep the primary submit action visible. | The `.city-suggestions` dropdown is capped at 288px, covering the screen and pushing the submit button out of reach. | Apply the mobile override class to the onboarding city suggestions list (e.g. `.city-suggestions { max-height: min(220px, 40dvh); }`). | Yes |
+
+## No-Issue Declarations
+
+### Admin Tables and Dashboard Views
+All admin views (`AdminStats`, `AdminFields`, `AdminGames`, `AdminUsers`, `AdminFieldReports`) were thoroughly reviewed across simulated viewports, and **no scrolling issues were found**.
+- The sidebar correctly wraps into a horizontal scrollable rail (`.admin-sidebar { display: flex; overflow-x: auto; }`).
+- Large tabular data remains readable and fully usable due to horizontal table wrapping (`.admin-table-wrap { overflow-x: auto; }`).
+- Inputs and status dropdowns use mobile-adapted sizes (`font-size: 16px`) and heights, maintaining scrollability and preventing auto-zoom traps.
+
+### Error and Status Overlays
+Map loading, error, and success banner layouts were verified. Because they use shifted absolute positions below the toolbar and do not prevent background/modal scrolls, no scrolling conflicts or overlaps were observed.
+
+## Definition of Done Confirmation
+All mobile viewports, landscape settings, and user scenarios have been audited. The 7 mobile scrolling findings (SCROLL-001 through SCROLL-007) are fully documented. No code, CSS, or runtime changes were performed in compliance with the audit-only requirement.
