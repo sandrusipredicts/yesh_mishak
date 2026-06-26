@@ -20816,3 +20816,108 @@ All 11 modal-like components reviewed. 11 findings documented (MODAL-MOBILE-001 
 
 ## Known Limitations
 None. All P1, P2, and P3 findings from ISSUE-144 have been resolved.
+
+
+---
+
+# ISSUE-146: Floating Action Button Placement Audit
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-146-floating-action-button-placement-audit`
+- **Scope**: Audit-only review of floating action buttons and map overlay controls on the Map screen after ISSUE-145 modal/layout changes.
+- **Overall result**: PASS WITH FINDINGS -- No current base-map overlap was found between the notification, preferences, location, add-field, Leaflet zoom, and attribution controls across audited portrait mobile widths, but several placement risks remain documented below.
+- **Number of floating controls reviewed**: 9 current or related overlay controls.
+- **Number of findings by severity**: P0: 0, P1: 2, P2: 4, P3: 1.
+
+## Floating Control Inventory
+| Control | Component/File | Positioning Strategy | Viewports Affected | Risk |
+| --- | --- | --- | --- | --- |
+| Notification bell | `frontend/src/pages/MapPage.jsx`, `.floating-button.top` in `frontend/src/App.css` | Absolute 52px circular FAB, `z-index: 1000`, `top: calc(20px + safe-area)`, logical inline-start. | 320px, 360px, 375px, 390px, 430px, landscape. | Medium future stacking risk; no current base overlap found. |
+| Notification preferences | `frontend/src/pages/MapPage.jsx`, `.floating-button.preferences` | Absolute 52px circular FAB, `z-index: 1000`, same logical side as bell, fixed vertical offset at 84px. | 320px, 360px, 375px, 390px, 430px, landscape. | Medium future stacking risk; no shared stack capacity rules. |
+| Current location | `frontend/src/pages/MapPage.jsx`, `.floating-button.my-location` | Absolute 52px circular FAB, `z-index: 1000`, bottom logical inline-start, safe-area adjusted. | Logged-in users with available location. | Medium; covered by FieldDetailsPanel and competes with future bottom actions. |
+| Add field | `frontend/src/pages/MapPage.jsx`, `.floating-button.bottom` | Absolute 52px circular FAB, `z-index: 1000`, centered at bottom, safe-area adjusted. | Logged-in users. | Medium; covered by FieldDetailsPanel and no reserved bottom action row. |
+| Leaflet zoom controls | Leaflet generated controls styled by `.leaflet-control-zoom a` | Leaflet top/left control, `z-index: 800`, safe-area adjusted; 44px targets under mobile media query only. | All map views; portrait and landscape. | High in RTL because logged-in toolbar overlaps zoom controls. |
+| Leaflet attribution | Leaflet generated attribution styled through Leaflet bottom override | Bottom edge, `z-index: 800`, safe-area adjusted. | All map views. | Low; no current overlap with add/location controls in audited portrait widths. |
+| Logged-in toolbar | `frontend/src/App.jsx`, `.auth-toolbar` | Absolute overlay, `z-index: 1200`, top logical inline-end, max width based on viewport. | Logged-in map view. | High; overlaps Leaflet zoom in RTL mobile and overlaps map loading/error/success overlay area. |
+| Field details panel | `frontend/src/components/FieldDetailsPanel.jsx`, `.field-details-panel` | Absolute panel, `z-index: 1100`; bottom sheet on <=640px, side/bottom panel above 640px. | Selected field state. | High in landscape; panel can exceed viewport height and covers FABs. |
+| Shared modal overlays | `frontend/src/components/Modal.jsx`, `.modal-backdrop`, `.confirm-modal-backdrop` | Fixed overlay, `z-index: 1200` for app modals and `1300` for confirm modals. | Add field, notifications, preferences, field report, open game, confirms. | Low; modal overlay correctly sits above map controls. |
+
+## Findings
+| ID | Severity | Area | Component/File | Problem | Evidence | Recommendation | Follow-up |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| FAB-PLACEMENT-001 | P1 | Logged-in toolbar / zoom controls | `frontend/src/App.css` `.auth-toolbar`, Leaflet zoom controls | In RTL mobile, the logged-in toolbar overlaps the Leaflet zoom control area. The toolbar has `z-index: 1200`, above Leaflet zoom at `800`, so it can visually and interactively cover zoom buttons. | Headless viewport check showed overlap at Hebrew/RTL 320x667, 360x667, and 667x375. Example 320x667: toolbar rect `20,20,224x78`; zoom rect `10,10,48x92`. | Move the toolbar into a layout area that does not compete with map controls, or reserve a top overlay grid/stack with explicit zones for toolbar and Leaflet controls. | Yes -- create implementation issue for map top-overlay layout. |
+| FAB-PLACEMENT-002 | P1 | Landscape selected-field layout | `frontend/src/components/FieldDetailsPanel.jsx`, `.field-details-panel` | On landscape mobile-width conditions above 640px wide, the panel uses the desktop side-panel sizing and can extend above the viewport. | Headless 667x375 check measured panel rect `x=287, y=-200, w=360, h=555`, meaning the top of the selected-field panel is off-screen. | Add landscape/short-height constraints or use the mobile bottom-sheet rules based on height as well as width. | Yes -- create implementation issue for landscape/short-height panel behavior. |
+| FAB-PLACEMENT-003 | P2 | Bottom FABs / selected field panel | `.floating-button.bottom`, `.floating-button.my-location`, `.field-details-panel` | Add-field and location FABs remain mounted but are geometrically covered by FieldDetailsPanel when a field is selected. The panel has higher z-index (`1100`) than the FABs (`1000`), so the controls sit behind the panel. | Headless checks at 320, 360, 375, 390, and 430 portrait widths showed panel overlap with add-field and location controls. | When a field panel is open, explicitly hide, disable, or reposition bottom FABs into a panel action area so the state is intentional and future-safe. | Yes -- create implementation issue for selected-field FAB behavior. |
+| FAB-PLACEMENT-004 | P2 | Loading/error/success overlays | `.map-loading`, `.map-error`, `.map-success`, `.auth-toolbar` | Map status overlays share the same top logical inline-end area as the logged-in toolbar. During loading, the toolbar overlaps the loading message; error/success messages use the same placement pattern. | Headless checks showed `toolbar-loading` overlap in Hebrew/RTL and English/LTR at 320, 360, and 667x375. CSS places all at top 20px with overlapping logical edge anchors. | Add a top overlay layout model that reserves separate lanes for toolbar, transient status messages, and map controls. | Yes -- include with map overlay layout issue. |
+| FAB-PLACEMENT-005 | P2 | Future floating buttons | `frontend/src/pages/MapPage.jsx`, `frontend/src/App.css` | Floating controls are placed individually with hardcoded offsets rather than a shared stack, cluster, speed-dial, or action rail. Adding future buttons risks collisions with existing controls, panels, attribution, and browser safe areas. | Current offsets are `top: 20px`, `top: 84px`, `bottom: 24px`, and centered bottom; no component owns button spacing/capacity. | Create a shared map floating action control stack with spacing tokens, safe-area variables, and rules for panel/modal states. | Yes -- create implementation issue for shared map FAB layout. |
+| FAB-PLACEMENT-006 | P2 | Z-index strategy | `frontend/src/App.css` | Map overlay z-index values are manually assigned across several unrelated controls (`800`, `1000`, `1100`, `1200`, `1300`, `3000`) without a named z-index scale or ownership model. | Leaflet controls use `800`, FABs/status use `1000`, field panel uses `1100`, toolbar and modals use `1200`, confirm modal uses `1300`, offline banner uses `3000`. | Define named z-index tokens and document intended stacking order for map, Leaflet controls, FABs, panels, toolbar, modals, and global banners. | Yes -- create implementation issue for z-index standardization. |
+| FAB-PLACEMENT-007 | P3 | Leaflet attribution / app bottom controls | Leaflet attribution, `.floating-button.bottom`, `.floating-button.my-location` | No current overlap was found in audited portrait widths, but attribution occupies the bottom edge while app controls sit 24px above it. Dense future bottom controls could collide without a reserved bottom-safe area model. | Headless checks found no base overlap at 320, 360, 375, 390, or 430 portrait widths; attribution remains at the bottom edge and app controls at bottom 24px. | Keep attribution in the reserved map-control layer and avoid adding more bottom controls without a shared bottom action model. | No immediate issue required unless new bottom controls are added. |
+
+## Detailed Review
+
+### Location Button
+- **File**: `frontend/src/pages/MapPage.jsx`; styles in `frontend/src/App.css` `.floating-button.my-location`.
+- **Position**: Bottom logical inline-start, `bottom: calc(24px + var(--safe-area-bottom))`, `inset-inline-start: calc(20px + var(--safe-area-inline-start))`.
+- **Z-index**: `1000`.
+- **Mobile behavior**: 52px by 52px target; no base overlap with add-field, bell, preferences, Leaflet zoom, or attribution in portrait checks at 320, 360, 375, 390, and 430 widths.
+- **Panel interaction**: Covered by FieldDetailsPanel when a field is selected in all audited portrait widths. The panel is higher (`1100`) than the button (`1000`).
+- **Modal interaction**: Shared modal backdrop at `1200` correctly sits above location button when modals are open.
+- **Overlap risks**: Field panel coverage is current behavior; future bottom actions have no reserved stack model.
+- **Recommendation**: Hide, disable, or move the location action into a dedicated panel-safe action area when FieldDetailsPanel is open.
+
+### Add Field Button
+- **File**: `frontend/src/pages/MapPage.jsx`; styles in `frontend/src/App.css` `.floating-button.bottom`.
+- **Position**: Bottom center, `bottom: calc(24px + var(--safe-area-bottom))`, `inset-inline-start: 50%`, transform adjusted for RTL.
+- **Z-index**: `1000`.
+- **Mobile behavior**: 52px by 52px target; no base overlap with location, notification, preferences, Leaflet zoom, or attribution in portrait checks.
+- **Panel interaction**: Covered by FieldDetailsPanel when a field is selected.
+- **Modal interaction**: Add-field modal uses shared `.modal-backdrop` at `1200`, above the button at `1000`; headless check confirmed modal/backdrop/content wins at the add-button center.
+- **Overlap risks**: The button has no documented behavior while a field panel is open, and future center-bottom controls would compete for the same position.
+- **Recommendation**: Move add-field into a shared map action model and define panel-open behavior explicitly.
+
+### Notification / Bell Button
+- **File**: `frontend/src/pages/MapPage.jsx`; styles in `frontend/src/App.css` `.floating-button.top`.
+- **Position**: Top logical inline-start, `top: calc(20px + var(--safe-area-top))`.
+- **Z-index**: `1000`.
+- **Mobile behavior**: 52px by 52px target with badge; no base overlap with preferences, location, add-field, zoom, or attribution in audited portrait checks.
+- **Panel interaction**: Remains visible above the mobile bottom sheet in portrait; in 667x375 landscape the FieldDetailsPanel overlaps the bell because the panel exceeds viewport height.
+- **Modal interaction**: Notification inbox and preferences modals use `.modal-backdrop` at `1200`, above the bell.
+- **Overlap risks**: Shares a manual two-item top stack with preferences; no documented capacity for more top actions.
+- **Recommendation**: Place bell and preferences in a shared vertical action stack with fixed gap tokens and rules for additional actions.
+
+### Future Floating Buttons
+- **Current scalability**: Limited. The map has individual absolute positions instead of an owned overlay layout.
+- **Risks if more buttons are added**: New controls may collide with the toolbar, Leaflet zoom, loading/error/status messages, FieldDetailsPanel, attribution, or bottom browser safe areas.
+- **Recommended placement model**: A shared map overlay component with zones: top-start action stack, top-end toolbar/status lane, bottom-start location stack, bottom-center primary action, Leaflet control reservation, panel-open behavior, and modal suppression rules.
+- **Recommendation**: Do not add new floating buttons directly in `MapPage.jsx` until the shared placement model exists.
+
+## Cross-Cutting Problems
+- Floating controls use hardcoded positions instead of a shared map overlay layout system.
+- The logged-in toolbar is a map overlay but is not coordinated with Leaflet zoom, loading, error, or success overlays.
+- Panel-open behavior for bottom FABs is implicit rather than intentional.
+- Landscape/short-height conditions are not covered by the current mobile panel breakpoint.
+- Z-index values are correct enough for modals to win, but they are not represented by named tokens or a documented stacking contract.
+- Safe-area variables are present and used for primary FABs and modals, but placement still needs reserved layout zones so future controls do not collide.
+
+## Recommended Follow-Up Issues
+1. **ISSUE-TBD -- Create shared map floating action control stack** (P1): Centralize notification, preferences, location, add-field, toolbar, and status-message placement.
+2. **ISSUE-TBD -- Fix RTL toolbar and Leaflet zoom overlap** (P1): Reserve separate top zones for toolbar/status and map controls.
+3. **ISSUE-TBD -- Fix FieldDetailsPanel landscape/short-height overflow** (P1): Apply height-aware panel constraints for 667x375 and similar mobile landscape viewports.
+4. **ISSUE-TBD -- Define panel-open behavior for bottom FABs** (P2): Hide, disable, or reposition add-field/location controls when a selected-field panel is open.
+5. **ISSUE-TBD -- Standardize map z-index and safe-area spacing tokens** (P2): Replace ad hoc values with documented layers.
+6. **ISSUE-TBD -- Add mobile viewport tests for map overlay controls** (P2): Cover 320, 360, 375, 390, 430, and landscape short-height states with overlap assertions.
+
+## Validation
+- **Dependency check**: Confirmed `docs/product-decisions.md` contains `ISSUE-145: Modal Usability Improvements`.
+- **Static review**: Inspected `frontend/src/pages/MapPage.jsx`, `frontend/src/components/FieldDetailsPanel.jsx`, `frontend/src/components/AddFieldModal.jsx`, `frontend/src/components/NotificationInboxModal.jsx`, `frontend/src/components/NotificationsModal.jsx`, `frontend/src/components/Modal.jsx`, `frontend/src/App.css`, `frontend/package.json`, and `frontend/tests/modal-usability.spec.js`.
+- **Searches run**: Searched for `fixed`, `absolute`, `z-index`, `floating`, `location`, `add-field`, `map-control`, `button`, `safe-area`, `bottom`, `right`, `left`, `top`, `inset`, `field-details-panel`, `notification`, `bell`, `modal-backdrop`, `leaflet-control`.
+- **Headless viewport inspection**: Ran a local Vite + Playwright geometry inspection with mocked auth/API data for 320x667, 360x667, 375x667, 390x844, 430x932, and 667x375. No base overlap was found among current FABs, zoom, and attribution in portrait widths. Current overlaps were found for toolbar/zoom in RTL, toolbar/loading/status area, bottom FABs under FieldDetailsPanel, and field panel overflow in landscape.
+- **Modal layering check**: Verified `.modal-backdrop` at `z-index: 1200` sits above FABs at `z-index: 1000`; confirm modals use `z-index: 1300`.
+- **Required validation commands**:
+  - `git diff --check`
+  - `npm run lint`
+  - `npm run build`
+
+## Final Audit Decision
+PASS WITH FINDINGS. Current portrait base-map FAB placement has no undocumented overlap between the primary map FABs themselves, but map overlay placement is not future-safe and has current risks around the logged-in toolbar, loading/status overlays, selected-field panel state, and landscape mobile. No runtime behavior was changed in this audit.
