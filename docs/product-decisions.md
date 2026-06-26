@@ -21097,3 +21097,74 @@ All layouts and scroll containment boundaries were verified using simulated view
 
 ## Remaining Limitations
 None. All 7 scrolling findings from ISSUE-148 are fully resolved.
+
+---
+
+# ISSUE-150: Review Landscape Orientation Support
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-150-review-landscape-orientation-support`
+- **Scope**: Comprehensive policy and usability review of mobile landscape orientation behavior across all primary app modules, modals, panels, forms, and admin layouts.
+- **Overall Decision**: **Option B — Limited Landscape Support**
+  *Yesh Mishak is portrait-first on mobile. Landscape orientation will receive limited support: core player flows must remain usable and must not block completion, but the app will not optimize every secondary/admin screen for landscape before launch.*
+
+## Chosen Policy
+The app will adopt a **Limited Landscape Support** model:
+- **No Orientation Lock**: The app does not force or lock the browser to portrait mode, allowing users to rotate devices naturally.
+- **Core User Flow Usability Guarantee**: Critical player workflows must be completely functional in landscape viewports without clipped forms, unreachable action buttons, or scroll traps. These workflows include:
+  - Map browsing and location search.
+  - Viewing selected field and game details.
+  - Creating, joining, leaving, and closing games.
+  - In-app notification center and inbox.
+  - Account authentication (login/registration) and onboarding city selection.
+- **Best-Effort Admin and Secondary Views**: Admin dashboards, tabular reports, and advanced preferences remain accessible and readable, but layouts will not be fully optimized for landscape phone screens.
+
+## Rejected Alternatives and Tradeoffs
+1. **Option A — Full Landscape Support**:
+   - *Why Rejected*: High development and maintenance costs. Optimizing complex admin panels and list grids for small height views (e.g. 375px) requires extensive custom CSS rules and increases testing debt. This is not strategically justified before product launch.
+2. **Option C — Portrait Only**:
+   - *Why Rejected*: Unnecessarily restrictive. The scrolling improvements implemented in ISSUE-145 and ISSUE-149 already render all core modals, pages, and lists fully usable and scrollable in landscape. Forcing users into portrait mode would downgrade the UX for those who browse the map or join games horizontally.
+
+## Screens Reviewed
+- **LoginPage**: Authenticated access, tabs, login form, registration form, and vertical scroll limits.
+- **OnboardingPage**: Taglines, city search inputs, autocomplete dropdowns, and submission flows.
+- **MapPage**: Leaflet base map, floating location/zoom/add-field FAB actions, logged-in toolbar, offline alerts, and transient loading overlays.
+- **FieldDetailsPanel**: Selected field details, active game summary, upcoming game schedules, navigation menus, and participant listing rails.
+- **GamePanel**: Details view, player counts, closing confirmation prompts.
+- **Modals**: AddFieldModal (location picker, map, hours), OpenGameModal (date/time picker), NotificationsModal (radius, city selection), NotificationInboxModal (notifications scroll).
+- **AdminPage**: Shell layout, sidebar horizontal wrap, stats panels, users grid, games list, and moderation alerts.
+
+## Landscape Viewport Checks
+Usability was evaluated against standard landscape dimensions:
+- **667x375** (Small phone landscape / iPhone SE)
+- **812x375** & **844x390** (Modern bezel-less iOS landscape)
+- **915x412** (Large Android landscape)
+- **1024x768** (Tablet landscape)
+
+## Current Landscape Usability Findings
+- **Map and Panel Layouts**: Following ISSUE-147, the selected field details panel height is capped at `80dvh` and scrolls internally, preventing close buttons from moving off-screen. Location and Add Field FABs are hidden when the panel is open, preventing placement overlaps.
+- **Login/Register and Onboarding**: Flex layout structure (from ISSUE-149) centers forms vertically when screen height permits, and transitions to safe top-aligned scrolling on short heights, preventing header and button clipping.
+- **Nested Lists**: Under height media query `@media (max-height: 520px)`, inner lists expand to `max-height: none` and `overflow: visible`, removing dual-scroll boxes.
+- **Admin Views**: Sidebar flex-wrap (`overflow-x: auto`) and table wrappers (`.admin-table-wrap`) maintain horizontal scrollability, rendering columns readable.
+
+## Landscape Policy Rules
+
+| Area | Landscape Policy | Reason |
+| :--- | :--- | :--- |
+| **Map browsing** | Supported | Core flow; users frequently scroll map in landscape. |
+| **Field details** | Supported | Core flow; details panel uses `80dvh` height constraints. |
+| **Game join/leave** | Supported | Core flow; join, leave, and close game dialogs are reachable. |
+| **Add Field modal** | Limited support | Form is fully scrollable; map height scales to `min(160px, 25dvh)`. |
+| **Notifications** | Supported | Important user flow; list double scroll is disabled on short heights. |
+| **Login/Register** | Supported | Required access flow; utilizes scrollable flex column layout. |
+| **Onboarding** | Supported | Required first-use flow; suggestions list is capped to `220px`. |
+| **Admin** | Best-effort only | Secondary mobile flow; uses horizontal scrolling tables. |
+
+## Future Recommendations and Follow-up Issues
+1. **QA Smokesheet Integration**: Add landscape orientation verification tasks to the pre-release mobile checklist.
+2. **Dedicated E2E Landscape Suite**: Create tests validating that core map operations and join/leave buttons are interactive under `667x375` and `844x390` landscape emulation.
+3. **Portrait Recommendation Warning**: If usage metrics indicate high landscape drop-off rates on admin views post-launch, implement a dismissible portrait-only recommendation banner on path `/admin` when the orientation is landscape.
+
+## Definition of Done Confirmation
+The landscape orientation policy is officially approved and defined as Option B (Limited Landscape Support). The decision, alternatives, reviewed screens, and policy matrix are fully registered in the product records. No codebase runtime or style files were altered during this audit.
