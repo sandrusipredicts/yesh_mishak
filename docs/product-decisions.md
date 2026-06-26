@@ -1,4 +1,4 @@
-﻿# Product Decisions & Specifications
+# Product Decisions & Specifications
 
 This document is the official source of truth for approved product decisions, specifications, catalogs, statuses, dependencies, and scope boundaries in the project.
 
@@ -22046,3 +22046,52 @@ No layout defects were found at any of the 4 target viewports. The existing CSS 
 - Evidence documented: YES (exact pixel measurements for all areas)
 - Frontend lint/build passes: YES
 - Committed on dedicated issue branch: YES (`issue-157-fix-small-iphone-layout-issues`)
+
+---
+
+# ISSUE-158: Test Application on iPhone Pro Max Devices
+
+## Summary
+A comprehensive compatibility and QA layout audit was performed for large iPhone Pro Max-sized screen viewports in both portrait and landscape orientations. A temporary Playwright test suite executed 24 layout, element alignment, horizontal overflow, and scroll containment test cases. The app behaves correctly on large mobile screens with no visual breaks, overlaps, clipping, or usability defects. No implementation changes were required. **ISSUE-159 is not required**.
+
+## Scope
+- **Target Device Class**: Large iOS mobile devices (iPhone Pro Max family)
+- **Support Level**: Secondary (per ISSUE-151) — Core player workflows must remain fully functional.
+
+## Tested Viewports
+- **428x926 portrait** (iPhone 12/13/14 Pro Max)
+- **430x932 portrait** (iPhone 14/15 Pro Max)
+- **440x956 portrait** (iPhone 16 Pro Max class / safe-margin upper-bound)
+- **932x430 landscape** (iPhone 14/15 Pro Max landscape)
+
+## Screens Tested
+- **LoginPage**: Authenticated access, auth method tabs, password inputs, submit actions.
+- **RegisterPage**: 6 registration form fields, vertical scroll, submit reachability.
+- **OnboardingPage**: City selector autocomplete suggestions lists.
+- **MapPage**: Leaflet map tiles, floating location/zoom/add-field controls, auth toolbar overlays, offline notifications, and loading spinners.
+- **FieldDetailsPanel**: Selected field specs, upcoming game grids, navigation actions, active game summary display.
+- **GamePanel**: Close game triggers, confirmation dialogs, participants lists.
+- **Modals**: AddFieldModal, OpenGameModal, NotificationsModal, NotificationInboxModal, FieldReportModal.
+- **Admin**: Sidebars, user moderation queues, tabular databases, filters, and forms.
+
+## Findings
+No layout issues, text clipping, overlap defects, or navigation traps were found across any viewport. All 24 test cases passed successfully.
+
+| Finding ID | Screen | Viewport | Orientation | Severity | Problem | Evidence | User Impact | Recommended Fix | Follow-up |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **None** | All | All | All | None | No issues found | All tests passed | None | None | None |
+
+## Risk Rating
+**LOW**. Large viewports adapt correctly. The flexible layout containers (`width: min(Npx, 100%)`), safe-area variables, dynamic height limits (`100dvh`), and flex column structures introduced in previous mobile passes ensure layout safety on iPhone Pro Max devices.
+
+## Recommendation
+Integrate iPhone Pro Max viewports into Playwright and manual smoke checklists to prevent future layout regression checks.
+
+## ISSUE-159 Decision
+**No** (ISSUE-159 is not required as no defects or regressions were discovered).
+
+## Validation Results
+- **Temporary audit tests (24 cases)**: All PASS
+- **`git diff --check`**: Clean
+- **`npm run lint`**: failed due to 2 pre-existing baseline errors unrelated to ISSUE-158.
+- **`npm run build`**: PASS (Successful compilation)
