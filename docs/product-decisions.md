@@ -5130,7 +5130,7 @@ Perform a comprehensive audit of all 54 issues comprising EPIC 01 and document a
 
 ## Decision
 
-The pre-mobile readiness review has been completed and approved. 
+The pre-mobile readiness review has been completed and approved.
 
 The complete review document is located at: [epic-01-pre-mobile-readiness-review.md](epic-01-pre-mobile-readiness-review.md)
 
@@ -9287,7 +9287,7 @@ Create an official performance baseline report for future comparison.
 ### Frontend:
 - **Command/Tool:** Playwright Test Runner (Chromium headless).
 - **Location:** [baseline.spec.js](file:///c:/Users/orel1/yesh_mishak/frontend/tests/performance/baseline.spec.js).
-- **Method:** 
+- **Method:**
   - **Initial App Load:** Navigate to `/` and measure duration from navigation start to the presence of the `.auth-toolbar` element (with a pre-seeded authenticated user session to direct the load straight to the Map page).
   - **Map Load:** Navigate to `/` and measure duration from navigation start to the rendering of the first `.field-marker-icon` element on the map canvas.
   - **Field Panel Open:** Select a field marker, perform a `.click({ force: true })`, and measure the duration from click start to the presence of the `.field-details-panel` element.
@@ -9297,7 +9297,7 @@ Create an official performance baseline report for future comparison.
 ### Backend:
 - **Command/Tool:** FastAPI `TestClient` benchmark script.
 - **Location:** [benchmark_endpoints.py](file:///c:/Users/orel1/yesh_mishak/backend/scripts/benchmark_endpoints.py).
-- **Method:** 
+- **Method:**
   - **GET /fields:** Repeatedly invoke `GET /fields` with no authorization headers, retrieving a mocked list of 50 fields.
   - **GET /games/active:** Repeatedly invoke `GET /games/active` with no authorization headers, retrieving active games on the mock database.
   - **Login:** Repeatedly invoke `POST /auth/login` with a JSON payload containing `{"username": "benchuser", "password": "password"}`. This triggers a real bcrypt password verification against a pre-hashed password, introducing realistic CPU hashing cost.
@@ -11348,7 +11348,7 @@ ON users(last_login);
 -- P2-3: Notifications type+game_id for dedup checks
 -- Supports: create_game_created_notifications, create_game_closed_notifications, etc.
 -- Impact: Notification generation (every game create/close/extend)
--- Note: The partial unique index idx_notifications_user_type_game_unique 
+-- Note: The partial unique index idx_notifications_user_type_game_unique
 -- partially covers this, but only for specific types and WHERE game_id IS NOT NULL.
 -- A general (type, game_id) index helps the broader dedup queries.
 CREATE INDEX CONCURRENTLY idx_notifications_type_game_id
@@ -21168,3 +21168,86 @@ Usability was evaluated against standard landscape dimensions:
 
 ## Definition of Done Confirmation
 The landscape orientation policy is officially approved and defined as Option B (Limited Landscape Support). The decision, alternatives, reviewed screens, and policy matrix are fully registered in the product records. No codebase runtime or style files were altered during this audit.
+
+---
+
+# ISSUE-151: Supported Mobile Device Matrix
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-151-supported-mobile-device-matrix`
+- **Scope**: Definition and approval of the target mobile device compatibility matrix, viewport dimensions, support level classifications, and manual/automated QA smoke targets for release sanity testing.
+- **Overall Policy Statement**:
+  "Yesh Mishak officially supports a portrait-first mobile matrix. Primary phone targets must pass all core release QA flows. Secondary phone targets must keep core flows usable. Tablets are best-effort before launch. Landscape receives limited support according to ISSUE-150."
+
+## Official Support Levels
+To balance engineering velocity and user experience quality, we define three levels of mobile device support:
+1. **Primary Support**:
+   - *Expectation*: Must pass all core mobile QA flows before every release. Used for recurring manual QA and automated Playwright viewport checks.
+   - *Release Blockers*: Any layout breakage, button clipping, or scrolling malfunction that breaks a core player flow on these devices is considered a release-blocking bug.
+2. **Secondary Support**:
+   - *Expectation*: Must remain completely usable for core player workflows.
+   - *Release Blockers*: Minor visual issues, layout alignment quirks, or non-wrapping margins may be accepted for release, but functional blocking bugs (e.g. inability to click a button) are prioritized for resolution.
+3. **Best-Effort Support**:
+   - *Expectation*: The app must load and remain functional for basic operations, but layouts are not fully optimized and pixel-perfect design is not guaranteed before launch.
+   - *Release Blockers*: Issues are resolved only if they completely freeze or crash the app.
+
+## Supported Device Matrix
+
+| Category | Representative Viewport | Example Device Class | Support Level | Required Before Release |
+| :--- | :--- | :--- | :--- | :--- |
+| **Small Android** | 360x640 | Older/Compact Android (e.g., Galaxy S9) | Primary | Yes |
+| **Medium Android** | 390x844 / 393x873 | Modern Android (e.g., Galaxy S22 / Pixel 7) | Primary | Yes |
+| **Large Android** | 412x915 | Large Android (e.g., Galaxy S23 Ultra / Pixel 8 Pro) | Secondary | Core flows only |
+| **Small iPhone** | 320x568 / 375x667 | iPhone SE (1st & 2nd gen) / older compact iPhones | Primary | Yes |
+| **Standard iPhone** | 390x844 | iPhone 12 / 13 / 14 / 15 standard class | Primary | Yes |
+| **Pro Max iPhone** | 430x932 | iPhone 14 / 15 Pro Max class | Secondary | Core flows only |
+| **Android Tablet** | 800x1280 | Modern Android Tablet | Best-Effort | Smoke check only |
+| **iPad** | 768x1024 / 820x1180 | standard iPad / iPad Air | Best-Effort | Smoke check only |
+
+## Orientation Policy
+- **Primary Orientation**: Portrait is the primary supported mobile orientation across all screens.
+- **Landscape Support**: Landscape orientation receives limited support according to the policy established in ISSUE-150. Core player flows must remain functional and scrollable, but secondary pages and admin dashboards are not optimized for phone landscape views.
+
+### Landscape Smoke Viewports
+
+| Landscape Viewport | Device Class | Support Expectation |
+| :--- | :--- | :--- |
+| **667x375** | Small phone landscape | Core flows must remain usable (scrollable, no button clipping) |
+| **844x390** | Modern iPhone landscape | Core flows must remain usable (scrollable, no button clipping) |
+| **915x412** | Large Android landscape | Core flows must remain usable (scrollable, no button clipping) |
+| **1024x768** | Tablet landscape | Best-effort usability |
+
+## Core QA Flows Covered by the Matrix
+Before any major release, the following core flows must be verified on all **Primary** support devices:
+1. **LoginPage**: Switch between login and registration tabs; input validation error display; successful form submission.
+2. **OnboardingPage**: City input autocomplete suggestions render properly, list items select successfully, and the "Let's Go" button is clickable.
+3. **MapPage**: Leaflet map load, current location centering, toolbar visibility, settings modal triggers.
+4. **FieldDetailsPanel**: Selected field notes, active game summary display, upcoming game cards, participants list toggles.
+5. **Game lifecycle**:
+   - Create game / Open game modal inputs (surface type, time/date, player count).
+   - Joining a game.
+   - Leaving a game.
+   - Closing a game (if organizer).
+6. **AddFieldModal**: Complete form inputs (name, type, map coordinates picker, hours) and click cancel/submit.
+7. **Notifications**: Mark all as read, notification settings radius range adjust, city autocomplete input validation.
+8. **Overlays**: Banners (loading, error, success, offline) render cleanly and do not block scrolling.
+9. **RTL Directionality**: Complete Hebrew translation check to ensure Hebrew RTL directionality does not trigger horizontal overflow or clipped buttons.
+
+## Explicitly Excluded (Not Supported Before Launch)
+- **Pixel-perfect admin view optimization in phone landscape**: Sidebar, users, and games grids are usable (via horizontal scrolling) but not specifically layout-designed for phone landscape heights under 400px.
+- **Dedicated Tablet Grid layouts**: Large tablet layouts are handled by responsive max-widths (e.g. `.login-panel` at 420px, `.field-details-panel` side panel above 640px) but will not receive custom multi-column tablet layout designs before launch.
+- **Physical foldables layout optimization**: Folding screens are categorized as best-effort.
+
+## Compatibility Testing Methodology
+Future QA and automation runs will use this matrix as the authority:
+- Playwright E2E viewports should include `320x568` (SE), `390x844` (Standard iPhone), and `360x640` (Android) as baseline mobile test runners.
+- Manual smoke tests will cover landscape orientations for primary devices on `667x375` and `844x390`.
+
+## Follow-up Recommendations
+1. **QA Smokesheet Registration**: Create a physical QA test script document mapping these viewports to manual testing scenarios.
+2. **Playwright Viewport Expansion**: Extend Playwright configurations to run the mobile-scrolling suite against the representative Primary viewports (`320x568`, `360x640`, `390x844`) on every CI run.
+3. **Analytics Tracking**: Add client-side logging of screen resolutions and orientations to refine the device matrix support priority post-launch.
+
+## Definition of Done Confirmation
+The supported mobile device matrix has been officially defined and documented. All QA testing levels, device viewports, and orientation rules are registered in the project decisions. No runtime, database, or CSS files were modified during this task.
