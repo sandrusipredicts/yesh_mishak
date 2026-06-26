@@ -21054,3 +21054,46 @@ Map loading, error, and success banner layouts were verified. Because they use s
 
 ## Definition of Done Confirmation
 All mobile viewports, landscape settings, and user scenarios have been audited. The 7 mobile scrolling findings (SCROLL-001 through SCROLL-007) are fully documented. No code, CSS, or runtime changes were performed in compliance with the audit-only requirement.
+
+---
+
+# ISSUE-149: Fix Mobile Scrolling Issues
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-149-fix-mobile-scrolling-issues`
+- **Source audit**: ISSUE-148
+- **Components/CSS changed**: `frontend/src/App.css`, `frontend/tests/mobile-scrolling.spec.js`
+- **Overall result**: PASS -- All mobile scrolling issues documented in ISSUE-148 are resolved, with 100% green tests in our new targeted mobile scrolling spec and zero regressions in existing modal or layout tests.
+
+## Mapping of Audited Findings to Fixes
+
+| ISSUE-148 Finding | Status | Fix Summary | Files |
+| :--- | :--- | :--- | :--- |
+| **SCROLL-001** | Fixed | Replaced grid centering with flex centering and vertical scrolling on mobile so login/register form behaves safely on short viewports. Added `margin: auto 0` to center. | `frontend/src/App.css` |
+| **SCROLL-002** | Fixed | Reduced map height dynamically to `min(160px, 25dvh)` and decreased form gaps to `12px` to maximize visible space when the keyboard is open in Add Field modal. | `frontend/src/App.css` |
+| **SCROLL-003** | Fixed | Replaced grid layout in `.onboarding-page` with flexbox layout, adding `overflow-y: auto` and safe centering margins to prevent content clipping on mobile. | `frontend/src/App.css` |
+| **SCROLL-004** | Fixed | Added `overscroll-behavior: contain` to all scrollable layers (field panel, list components, modals) to prevent touch dragging from panning the base map. | `frontend/src/App.css` |
+| **SCROLL-005** | Fixed | Added short height query to set `max-height: none` and `overflow: visible` on nested lists in viewports under `520px` height, merging inner/outer scrolling. | `frontend/src/App.css` |
+| **SCROLL-006** | Fixed | Added media query for `<350px` viewports, reducing panel padding to `16px` and wrapping `.game-time-list` into 2 columns instead of 3. | `frontend/src/App.css` |
+| **SCROLL-007** | Fixed | Added `.city-suggestions` class to the mobile max-height override query, capping onboarding city list suggestion height to `min(220px, 40dvh)`. | `frontend/src/App.css` |
+
+## Files/Components Changed
+- `frontend/src/App.css` — CSS overrides for centering, overscroll containment, suggestions dropdown heights, and landscape/narrow viewports.
+- `frontend/tests/mobile-scrolling.spec.js` — [NEW] Targeted Playwright tests for mobile scrolling behavior.
+
+## Validation Commands and Results
+- `git diff --check` — PASS
+- `npm run lint` — PASS (Only the 2 pre-existing baseline errors remain)
+- `npm run build` — PASS (Compiled successfully)
+- `npx playwright test tests/mobile-scrolling.spec.js` — PASS (All 6 mobile scrolling tests passed)
+- `npx playwright test tests/floating-buttons.spec.js tests/modal-usability.spec.js` — PASS (No regressions)
+
+## Manual Viewport Checks
+All layouts and scroll containment boundaries were verified using simulated viewports across:
+- **iPhone SE (320x568)**: Centered and scrollable login/register and onboarding. No horizontal overflow. Time grid correctly wraps to 2 columns.
+- **Landscape (667x375)**: Inner notification and preferences lists expand naturally and scroll within the unified modal body, removing double-scroll.
+- **RTL Hebrew / LTR English**: Directional and logical properties correctly align and layout without clipping.
+
+## Remaining Limitations
+None. All 7 scrolling findings from ISSUE-148 are fully resolved.
