@@ -92,7 +92,7 @@ select {
 
 .language-selection-page {
   display: grid;
-  min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
   padding: 24px;
   background: #f5f7fb;
@@ -281,7 +281,7 @@ select {
 
 .onboarding-page {
   display: grid;
-  min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
   padding: 24px;
   background: #f5f7fb;
@@ -976,6 +976,8 @@ select {
 .navigation-modal {
   position: relative;
   width: min(340px, 100%);
+  max-height: min(600px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+  overflow-y: auto;
   border-radius: 8px;
   padding: 22px;
   background: #ffffff;
@@ -1606,7 +1608,7 @@ select {
 }
 
 .admin-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 28px;
   background: #f5f7fb;
   color: #172033;
@@ -2141,7 +2143,7 @@ select {
 }
 
 .my-games-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px;
   background: #f5f7fb;
   color: #172033;
@@ -2341,6 +2343,8 @@ select {
 
 .confirm-modal {
   width: min(360px, 100%);
+  max-height: min(600px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+  overflow-y: auto;
   border-radius: 8px;
   padding: 22px;
   background: #ffffff;

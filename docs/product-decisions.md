@@ -21839,3 +21839,103 @@ Additional validation:
 - Documentation complete: YES
 - Real-device retest: PENDING (requires deployment)
 - Committed on dedicated issue branch: YES (`issue-155-2-galaxy-s24-ultra-map-control-clipping`)
+
+
+---
+
+# ISSUE-156: Responsive Layout Hardening Across All Screens
+
+## Summary
+- **Date**: 2026-06-26
+- **Branch**: `issue-156-responsive-layout-hardening`
+- **Scope**: Systematic responsive layout hardening pass to ensure the frontend works correctly across small phones, large phones, tablets, laptops, and desktops. Focused on eliminating unsafe `100vh` usage, standardizing modal viewport behavior, establishing a global responsive baseline, and creating a reusable QA checklist.
+
+## What Was Reviewed
+
+1. **Global CSS baseline** (`index.css`): `html/body/#root` sizing, `box-sizing`, `overflow-x`
+2. **All `100vh` usage** across `App.css`: 4 remaining instances after ISSUE-155.2
+3. **All modal definitions**: `open-game-modal`, `navigation-modal`, `notifications-modal`, `add-field-modal`, `field-report-modal`, `confirm-modal`
+4. **Floating action buttons**: safe-area insets, logical properties, positioning
+5. **Admin page**: table overflow containment, sidebar tab wrapping
+6. **Field details panel**: `min()` width, max-height, overflow-y
+7. **Login/register page**: already using `100dvh` (from ISSUE-153)
+8. **Map page**: already using `100dvh` (from ISSUE-155.2)
+9. **Hebrew/RTL**: text wrapping, logical properties usage
+10. **Viewport meta tag**: confirmed correct in `index.html`
+
+## What Was Changed
+
+### 1. Global Viewport Baseline (`index.css`)
+
+Added `min-height: 100dvh` and `overflow-x: hidden` to `html`, `body`, and `#root` to prevent accidental horizontal overflow and ensure the app shell always fills the dynamic viewport.
+
+### 2. Remaining `100vh` Replacements (`App.css`)
+
+| Selector | Line | Old Value | New Value | Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| `.language-selection-page` | 95 | `min-height: 100vh` | `min-height: 100dvh` | Full-screen page container |
+| `.onboarding-page` | 284 | `min-height: 100vh` | `min-height: 100dvh` | Full-screen page container |
+| `.admin-page` | 1609 | `min-height: 100vh` | `min-height: 100dvh` | Full-screen page container |
+| `.my-games-page` | 2144 | `min-height: 100vh` | `min-height: 100dvh` | Full-screen page container |
+
+After this change, **zero** `100vh` references remain in the frontend source.
+
+### 3. Modal Viewport Safety (`App.css`)
+
+| Modal | Change |
+| :--- | :--- |
+| `.navigation-modal` | Added `max-height: min(600px, calc(100dvh - 40px - safe-areas))` and `overflow-y: auto` |
+| `.confirm-modal` | Added `max-height: min(600px, calc(100dvh - 40px - safe-areas))` and `overflow-y: auto` to base rule (previously only in mobile media query) |
+
+All other modals already had proper `max-height` and `overflow` rules.
+
+### 4. Responsive QA Checklist
+
+Created `docs/responsive-ui-checklist.md` with per-viewport checks covering: layout integrity, login/register, map page, modals, field details panel, my games, notifications, admin page, floating buttons, Hebrew/RTL, and landscape smoke tests.
+
+## What Was Already Correct (No Changes Needed)
+
+- **`box-sizing: border-box`**: Already global via `index.css`
+- **Viewport meta tag**: Correctly set to `width=device-width, initial-scale=1.0`
+- **Map page**: Already uses `100dvh` (from ISSUE-155.2)
+- **Login page**: Already uses `100dvh` (from ISSUE-153)
+- **Modal widths**: All use `width: min(Npx, 100%)` pattern -- safe on 320px screens
+- **Most modals**: Already had `max-height` with `100dvh` and `overflow` rules
+- **Field details panel**: Uses `min()`, safe-area max-height, and `overflow-y: auto`
+- **Admin tables**: Already wrapped in `.admin-table-wrap` with `overflow-x: auto`
+- **Admin sidebar**: Already uses `overflow-x: auto` in mobile media query
+- **Floating buttons**: Already use `var(--safe-area-bottom)`, logical properties (`inset-inline-start`), and RTL-aware transforms
+- **Safe-area CSS variables**: Already defined in `:root` and swapped for RTL in `[dir='rtl']`
+- **Mobile media query**: Comprehensive existing coverage for 640px/520px breakpoint
+
+## Remaining Risks
+
+1. **Real-device testing**: `100dvh` behavior should be verified on physical devices after deployment (as established in ISSUE-155.2).
+2. **Tablet layout optimization**: Tablets are best-effort per ISSUE-151. Modals float centered with max-widths (340-520px) which looks acceptable but not optimized for tablet screens.
+3. **Admin page on small phones**: Admin tables require horizontal scrolling on narrow screens. This is intentional and contained within `.admin-table-wrap`.
+4. **Keyboard interactions**: Virtual keyboard changes `dvh` dynamically. This is correct behavior but may need monitoring for specific form flows.
+
+## Validation Results
+
+| Check | Result |
+| :--- | :--- |
+| `npm run build` | PASS |
+| `npm run lint` | Only 2 pre-existing errors (no new issues) |
+| `floating-buttons.spec.js` (3 tests) | PASS |
+| `mobile-scrolling.spec.js` (6 tests) | PASS |
+| `small-android-layout.spec.js` (7 tests) | PASS |
+| `modal-usability.spec.js` (2 tests) | PASS |
+| `git diff --check` | Clean |
+| Remaining `100vh` in source | 0 |
+
+## Definition of Done Confirmation
+- Global responsive baseline established: YES
+- All `100vh` replaced with `100dvh`: YES (4 replacements + 0 remaining)
+- All modals have viewport-safe max-height and overflow: YES
+- Floating buttons use safe-area insets: YES (already correct)
+- Admin page does not break mobile: YES (table overflow contained)
+- Hebrew/RTL text does not overflow: YES (already correct)
+- Responsive QA checklist created: YES (`docs/responsive-ui-checklist.md`)
+- Build passes: YES
+- All 18 tests pass: YES
+- Committed on dedicated issue branch: YES

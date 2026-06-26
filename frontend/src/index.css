@@ -8,8 +8,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
+html,
+body,
+#root {
   margin: 0;
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 * {
