@@ -22521,3 +22521,56 @@ Prior compatibility work (ISSUE-160 through ISSUE-163) identified and fixed devi
 - Documentation-only change. No application code modified.
 - `git diff --check`: Clean.
 - Checklist sections verified: A through N (14 sections).
+
+---
+
+# ISSUE-165 — Execute device compatibility certification review (2026-06-28)
+
+## Summary
+Executed the formal device compatibility certification review using the ISSUE-164 checklist as the source of truth.
+
+## Dependency
+- ISSUE-164 (device compatibility certification checklist) — merged to main, confirmed present.
+
+## Certification Checklist Used
+`docs/device-compatibility-certification-checklist.md`
+
+## Device Categories Reviewed
+- Android Small (360x640) — **Pass**
+- Android Large (412x915) — **Pass**
+- iPhone Small (375x667) — **Pass**
+- iPhone Large (390x844, 430x932) — **Pass**
+- Tablet / iPad (768x1024, 1024x768, 1180x820, 1366x1024) — **Pass**
+- Desktop Browser (1280x800) — **Pass**
+
+## Browser Categories Reviewed
+- Chrome / Chromium — **Pass** (82/82 automated tests)
+- Safari / WebKit — **Pass With Notes** (33/34 tests; 1 known P3 COMPAT-002 quirk)
+- Edge / Chromium — **Pass** (Chromium proxy)
+- Samsung Internet / Chromium — **Pass With Notes** (Chromium proxy; real device not tested)
+- Firefox — **Not Tested** (optional per checklist)
+
+## Automated Validations Run
+- Chromium: 82/82 tests pass (34 layout + 48 functional)
+- WebKit: 33/34 layout tests pass (1 known P3 failure: COMPAT-002)
+- Test files: ipad-layout, modal-usability, small-android-layout, mobile-scrolling, floating-buttons, i18n-rtl-ltr, admin-panel, field-navigation, game-close, notification-matching, notifications, user-location
+
+## Manual Validations Run
+- Visual preview validation across 7 viewport sizes (360x640, 412x915, 375x667, 430x932, 844x390, 768x1024, 1280x800)
+- AddFieldModal close button sticky behavior verified at each viewport
+- Login screen layout verified on Android Small
+- No horizontal overflow detected on any viewport
+
+## Critical Issue Status
+- No critical device compatibility issues remain open.
+- AUTH-001 (P0 security) is open but does not affect device compatibility.
+- COMPAT-001 (P2) resolved in ISSUE-163.
+- COMPAT-002 (P3) documented, no fix needed.
+
+## Section 3 Completion
+No pre-existing "Section 3" marker for device compatibility was found in the repository. The certification review document (`docs/device-compatibility-certification-review.md`) serves as the completion marker.
+
+**Device Compatibility Certification Status: COMPLETE**
+
+## Final Decision
+**PASS WITH NOTES** — All required device categories and browser engines pass. Notes document that testing was simulation-only (no real devices) and Firefox was not tested (optional). No critical issues remain.
