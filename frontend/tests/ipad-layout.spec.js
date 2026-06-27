@@ -264,6 +264,35 @@ test.describe('Phone regression coverage', () => {
   })
 })
 
+test.describe('COMPAT-001: AddFieldModal close button stays visible after scroll', () => {
+  for (const [label, viewport] of [
+    ['iPhone 14 (390x844)', PHONE_PORTRAIT],
+    ['iPad portrait (768x1024)', IPAD_PORTRAIT],
+  ]) {
+    test(`close button is clickable after scrolling to submit on ${label}`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport })
+      const page = await context.newPage()
+      await seedAuth(page, 'en')
+      await mockRoutes(page)
+      await page.goto('/')
+      await page.waitForSelector('.auth-toolbar')
+
+      await page.locator('.floating-button.bottom').click()
+
+      const modal = page.locator('.add-field-modal')
+      await expect(modal).toBeVisible()
+
+      const submitButton = modal.locator('button[type="submit"]')
+      await submitButton.scrollIntoViewIfNeeded()
+      await expect(submitButton).toBeVisible()
+
+      await expectModalCloseToWork(page, '.add-field-modal')
+
+      await context.close()
+    })
+  }
+})
+
 test.describe('IPAD-002: Register form usable on tablet landscape', () => {
   test('register submit is reachable on iPad landscape (1024x768)', async ({ browser }) => {
     const context = await browser.newContext({ viewport: IPAD_LANDSCAPE })

@@ -46,9 +46,11 @@ export function Modal({
         aria-labelledby={ariaLabelledBy}
       >
         {!isConfirm && onClose && (
-          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
-            x
-          </button>
+          <div className="modal-sticky-close">
+            <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close">
+              x
+            </button>
+          </div>
         )}
         {children}
       </section>
