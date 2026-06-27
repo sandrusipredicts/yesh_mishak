@@ -22476,3 +22476,48 @@ COMPAT-002 is optional for ISSUE-163. It is a P3 engine reporting quirk with no 
 - **`npm run build`**: PASS.
 - **`npm run lint`**: 2 pre-existing baseline errors only (MyGamesPage set-state-in-effect, baseline.spec.js process not defined).
 - **Files changed**: `docs/product-decisions.md` only.
+
+---
+
+# ISSUE-164 — Create device compatibility certification checklist (2026-06-28)
+
+## Summary
+Created a formal device compatibility certification checklist to standardize how device/browser compatibility is evaluated and approved for the Yesh Mishak application.
+
+## Why
+Prior compatibility work (ISSUE-160 through ISSUE-163) identified and fixed device-specific issues but lacked a repeatable, structured process for certifying new device/browser combinations. Before finishing the compatibility epic, a formal definition of "passed compatibility" is needed so that:
+- Testers can follow a consistent process across devices
+- Pass/fail decisions are evidence-based and auditable
+- Re-certification triggers are defined to prevent regressions
+- Automated and manual test coverage is clearly mapped
+
+## File Created
+`docs/device-compatibility-certification-checklist.md`
+
+## Device Categories Included
+- Android Small (360x640)
+- Android Large (412x915)
+- iPhone Small (375x667)
+- iPhone Large (390x844, 430x932)
+- Tablet / iPad (768x1024, 1024x768, 1180x820, 1366x1024)
+- Desktop Browser (1280x800+)
+
+## Browser Categories Included
+- Chrome / Chromium (required)
+- Safari / WebKit (required)
+- Edge / Chromium (required)
+- Samsung Internet / Chromium proxy (required)
+- Firefox / Gecko (optional)
+
+## How This Supports QA and Release Readiness
+- Provides a single source of truth for what "device compatible" means
+- Maps 12 existing Playwright test files to specific certification items
+- Identifies which items still require manual real-device testing
+- Defines evidence requirements (screenshots, test output, tester initials)
+- Defines approval rules and re-certification triggers
+- Incorporates lessons learned from ISSUE-161 (z-index stacking), ISSUE-162 (browser quirks), and ISSUE-163 (sticky close button)
+
+## Validation
+- Documentation-only change. No application code modified.
+- `git diff --check`: Clean.
+- Checklist sections verified: A through N (14 sections).
