@@ -22578,3 +22578,46 @@ Section 3 completion decision: **Complete**
 
 ## Final Decision
 **PASS WITH NOTES** — All required device categories and browser engines pass. Notes document that testing was simulation-only (no real devices) and Firefox was not tested (optional). No critical issues remain.
+
+---
+
+# ISSUE-166 — Create mobile regression testing plan (2026-06-28)
+
+## Summary
+Created a structured, repeatable mobile regression testing plan to ensure core user flows are not broken by mobile/layout/auth/game/notification/map changes.
+
+## Why
+After extensive mobile compatibility work (ISSUE-149 through ISSUE-163), the application has undergone many layout and CSS changes. A formal regression plan is needed to verify that all core flows remain functional before any release, and to define clear pass/fail criteria and release gate rules.
+
+## File Created
+`docs/mobile-regression-testing-plan.md`
+
+## Core Flows Covered
+- **Authentication**: Login, logout, registration (12 checks)
+- **Games**: Create, join, leave, extend, close (16 checks)
+- **Fields**: Open field details, add field, report field (17 checks)
+- **Navigation**: Map, controls, RTL/LTR, portrait/landscape (14 checks)
+- **Notifications**: Open, read, read all, preferences, badge (12 checks)
+- **Cross-flow scenarios**: 7 end-to-end mobile usage paths
+
+## Mobile Risks Covered
+- Viewport clipping and hidden controls
+- Keyboard hiding submit buttons
+- Modal scrolling and close button visibility (COMPAT-001 regression)
+- Touch target sizing (44px minimum)
+- Map usability and floating button layout
+- Hebrew RTL text overlap
+- Browser chrome hiding critical actions
+- Horizontal overflow
+- Z-index stacking between modals and toolbar
+
+## Connection to ISSUE-164 and ISSUE-165
+- ISSUE-164 defined the device compatibility certification checklist (device categories, browser coverage, pass/fail criteria)
+- ISSUE-165 executed the certification review and confirmed all categories pass
+- ISSUE-166 builds on this foundation by adding a regression testing plan for ongoing verification after code changes
+
+## Validation
+- Documentation-only change. No application code modified.
+- `git diff --check`: Clean.
+- All required Must Include items verified present: Login, Logout, Registration, Create game, Join game, Leave game, Extend game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All.
+- Plan sections verified: A through Q (17 sections).
