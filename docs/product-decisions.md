@@ -22277,6 +22277,41 @@ New media query: `@media (min-width: 641px) and (max-height: 820px)`
 ## Remaining Limitations
 - IPAD-005 (P3): Admin tables wider than wrapper on tablet — deferred as acceptable best-effort per ISSUE-151 tablet policy.
 
+## ISSUE-161 Hardening Validation (2026-06-27)
+
+### Implementation Decision
+- Retained the existing named z-index relationship: `--z-auth-toolbar: 1200`, `--z-modal-backdrop: 1250`, and `--z-confirm-modal-backdrop: 1300`. This is a scoped modal-layer fix rather than a broad global z-index escalation.
+- Retained the existing tablet-landscape query (`@media (min-width: 641px) and (max-height: 820px)`) for the AddFieldModal map cap and sticky action group. The phone rules remain separate under the existing mobile breakpoints.
+- No additional production CSS change was necessary after regression testing. Temporarily reverting the modal layer, map cap, and sticky actions made the hardened tests fail; restoring the ISSUE-161 CSS made them pass.
+- Strengthened Playwright coverage to verify behavior rather than presence:
+  - NotificationsModal and AddFieldModal close buttons are visible, are the actual center-point hit target, are not covered by `.auth-toolbar`, can be clicked, and dismiss their modal.
+  - AddFieldModal tablet-landscape map height is capped at 160px; action, cancel, and submit controls are visible and inside modal/viewport bounds; the modal has no horizontal overflow.
+  - A 390x844 phone regression keeps the compact map, single-column actions, and scroll-reachable submit control.
+
+### Changed Files
+- `frontend/tests/ipad-layout.spec.js` — hardened iPad interaction/layout checks and added phone regression coverage.
+- `docs/product-decisions.md` — recorded the hardening decision and validation evidence.
+- `docs/superpowers/plans/2026-06-27-issue-161-ipad-hardening.md` — implementation and validation plan.
+
+### Branch Verification
+- Started on `main` with a clean tree, then created the local `issue-161-fix-ipad-compatibility-issues` branch tracking the existing remote-tracking ref at `4b046f6`.
+- `git pull --ff-only` could not fetch the configured branch because the remote branch had already been deleted after merge.
+- `git ls-remote --heads origin issue-161-fix-ipad-compatibility-issues` returned no remote head. The local branch and stale remote-tracking ref both resolve to the original ISSUE-161 commit `4b046f6bc583cd3239c34c05835c0a0b1ae91dd7`.
+
+### Commands and Results
+- `git status --short --branch` — PASS; clean before edits.
+- `git switch --track origin/issue-161-fix-ipad-compatibility-issues` — PASS.
+- `git pull --ff-only` — NOT RUN TO COMPLETION; remote head no longer exists.
+- `git ls-remote --heads origin issue-161-fix-ipad-compatibility-issues` — PASS; confirmed the remote head is absent.
+- Regression proof after temporarily reverting the ISSUE-161 CSS: `npx playwright test tests/ipad-layout.spec.js` — expected failures in AddFieldModal close-hit and tablet-layout tests; phone regression passed. The Windows Playwright web-server wrapper then remained open until command timeout.
+- Restored implementation, direct local-server run: `node node_modules/@playwright/test/cli.js test tests/ipad-layout.spec.js --config=playwright.local.config.js --workers=4` — PASS, 12/12.
+- Relevant layout suite using the same temporary no-web-server config: `node node_modules/@playwright/test/cli.js test tests/ipad-layout.spec.js tests/modal-usability.spec.js tests/small-android-layout.spec.js tests/mobile-scrolling.spec.js --config=playwright.local.config.js --workers=4` — PASS, 27/27.
+- `npm run lint` — baseline failure only: 2 existing errors in `src/pages/MyGamesPage.jsx:129` and `tests/performance/baseline.spec.js:210`.
+- `npm run build` — PASS.
+
+### Intentionally Deferred
+- IPAD-005 remains deferred: admin-table horizontal scrolling is acceptable best-effort behavior under the ISSUE-151 tablet policy.
+- Real-device iPad Safari and virtual-keyboard behavior remain manual validation items; Playwright viewport simulation cannot reproduce all Safari chrome and soft-keyboard effects.
 
 ---
 
