@@ -22419,6 +22419,51 @@ Rationale:
 
 Reason: COMPAT-001 is a P2 cross-browser usability issue affecting the AddFieldModal close button on all portrait viewports. While workarounds exist (Escape, backdrop click), touch-only users on mobile phones may not discover them. The fix is straightforward (sticky close button) and should be addressed before launch.
 
+---
+
+# ISSUE-163 — Fix browser compatibility issues (2026-06-27)
+
+## Scope
+Fix browser compatibility issues documented in ISSUE-162. Only COMPAT-001 required a fix; COMPAT-002 (WebKit CSS.supports quirk) has no user impact and requires no action.
+
+## COMPAT-001 Fix: Sticky modal close button
+
+### Problem
+The `.modal-close-button` used `position: absolute` inside the scrollable `.add-field-modal` container (`overflow: auto`). When users scrolled down to reach the submit button on portrait viewports (390x844, 430x932, 768x1024), the close button scrolled out of view, reaching negative Y coordinates (e.g., -176px on 390x844).
+
+### Solution
+Wrapped the close button in a zero-height sticky container (`.modal-sticky-close`):
+
+- **`Modal.jsx`**: Added a `<div className="modal-sticky-close">` wrapper around the close button.
+- **`App.css`**: Replaced `position: absolute` on `.modal-close-button` with a new `.modal-sticky-close` rule using `position: sticky; top: 0; height: 0; display: flex; justify-content: flex-end; pointer-events: none`. The close button itself uses `pointer-events: auto`.
+
+The sticky container has zero height so it does not affect layout of sibling content (title, form). It sticks to the top of the scroll container, keeping the close button visible at all scroll positions. `justify-content: flex-end` correctly positions the button at `inset-inline-end` in both LTR and RTL layouts.
+
+### Why not other approaches
+- **`position: sticky` directly on the button**: Sticky elements remain in flow. Without a zero-height wrapper, the button would add vertical space before the title, shifting the entire modal layout.
+- **Moving the close button outside the scrollable section**: Would require restructuring the Modal component's DOM hierarchy, affecting all modals (notifications, field-report, confirm dialogs).
+- **`position: fixed`**: Would position relative to the viewport, not the modal, causing issues with modal centering and z-index stacking.
+
+### Files changed
+| File | Change |
+| :--- | :--- |
+| `frontend/src/components/Modal.jsx` | Wrapped close button in `<div className="modal-sticky-close">` |
+| `frontend/src/App.css` | Added `.modal-sticky-close` rule; removed `position: absolute` from `.modal-close-button` |
+| `frontend/tests/ipad-layout.spec.js` | Added COMPAT-001 validation tests (2 tests: iPhone 14 390x844, iPad portrait 768x1024) |
+
+### Validation
+| Engine | Tests | Result |
+| :--- | :--- | :--- |
+| Chromium | 14 tests (ipad-layout.spec.js) | All pass |
+| WebKit | 14 tests (ipad-layout.spec.js) | All pass |
+| Chromium | 2 tests (modal-usability.spec.js) | All pass |
+| WebKit | 2 tests (modal-usability.spec.js) | All pass |
+
+COMPAT-001 specific validation: after scrolling to submit on 390x844 viewport, close button Y coordinate is now +64px (visible) instead of -176px (off-screen). Close button is hit-testable and clicking it closes the modal.
+
+### COMPAT-002 Status
+No fix applied. Documented as a known WebKit quirk with no user impact. If cross-browser Playwright test coverage is expanded, use `overscroll-behavior-y` longhand instead of the shorthand in CSS assertions.
+
 COMPAT-002 is optional for ISSUE-163. It is a P3 engine reporting quirk with no user impact.
 
 ## Validation Results
