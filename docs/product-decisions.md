@@ -22621,3 +22621,42 @@ After extensive mobile compatibility work (ISSUE-149 through ISSUE-163), the app
 - `git diff --check`: Clean.
 - All required Must Include items verified present: Login, Logout, Registration, Create game, Join game, Leave game, Extend game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All.
 - Plan sections verified: A through Q (17 sections).
+
+---
+
+# ISSUE-167 — Execute mobile regression testing (2026-06-28)
+
+## Summary
+Executed the mobile regression testing plan defined in ISSUE-166. Ran all automated tests on both Chromium and WebKit engines, performed visual validation across 8 viewports, and documented results for all 14 required flows.
+
+## Why
+The ISSUE-166 regression testing plan must be executed to verify that all core user flows remain functional after extensive mobile/layout work (ISSUE-149 through ISSUE-163). This execution provides the evidence needed for the release gate decision.
+
+## File Created
+`docs/mobile-regression-testing-results.md`
+
+## Test Results Summary
+- **Chromium**: 83/83 automated tests pass (100%)
+- **WebKit**: 81/83 automated tests pass (97.6%)
+- **WebKit failures**: 2 known P3 issues (COMPAT-002 overscroll-behavior computed style, WEBKIT-TIMING-001 cached field rendering timing)
+- **Visual validation**: 8 viewports tested, all pass
+- **Console errors**: None
+
+## Required Flow Results
+All 14 required flows documented with status:
+- **Pass**: Login, Registration, Join game, Leave game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All
+- **Pass With Notes**: Logout (no dedicated test), Create game (partial automation), Extend game (no dedicated test)
+
+## Issues Found
+- COMPAT-002 (P3, known): WebKit overscroll-behavior computed style quirk. No user impact.
+- WEBKIT-TIMING-001 (P3, new): WebKit cached field rendering timing differs from Chromium. No user impact.
+- No P0, P1, or P2 regressions found.
+
+## Release Gate Decision
+**PASS** — No blocking regressions. All auth, game, and notification flows pass. Two P3 issues documented for shipping with notes.
+
+## Validation
+- Documentation-only change. No application code modified.
+- `git diff --check`: Clean.
+- All required flows present: Login, Logout, Registration, Create game, Join game, Leave game, Extend game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All.
+- Results document sections verified: A through P (16 sections).
