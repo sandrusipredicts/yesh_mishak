@@ -75,15 +75,15 @@ This document records the results of executing the mobile regression testing pla
 
 | # | Test | Failure | Severity | User Impact | Reference |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | `mobile-scrolling.spec.js:140` — Overscroll containment | `toHaveCSS('overscroll-behavior', 'contain')` returns empty string on WebKit | P3 | None — property works functionally, WebKit reports computed style differently | COMPAT-002 (ISSUE-162) |
-| 2 | `field-navigation.spec.js:269` — Cached fields background refresh | `getByLabel('Field details').getByRole('heading', { name: 'Cached Court' })` not visible within 5s timeout on WebKit | P3 | None — timing-sensitive test. Cached field rendering works functionally. Passes consistently on Chromium. WebKit rendering timing differs. | WebKit timing quirk |
+| 1 | `mobile-scrolling.spec.js:140` — Overscroll containment | `toHaveCSS('overscroll-behavior', 'contain')` returns empty string on WebKit | P3 | None — property works functionally, WebKit reports computed style differently | COMPAT-002 — known P3, previously documented in ISSUE-162. Non-blocking. |
+| 2 | `field-navigation.spec.js:269` — Cached fields background refresh | `getByLabel('Field details').getByRole('heading', { name: 'Cached Court' })` not visible within 5s timeout on WebKit | P3 | None — timing-sensitive test. Cached field rendering works functionally. Passes consistently on Chromium. WebKit rendering timing differs. | WEBKIT-TIMING-001 — **newly documented** in this regression cycle. Not previously tracked. First observed 2026-06-28. Non-blocking. |
 
 ### Combined Automated Coverage
 
 | Engine | Pass | Fail | Total |
 | :--- | :--- | :--- | :--- |
 | Chromium | 83 | 0 | 83 |
-| WebKit | 81 | 2 (known, P3) | 83 |
+| WebKit | 81 | 2 (1 known P3 + 1 newly documented P3) | 83 |
 | **Combined** | **164** | **2** | **166** |
 
 ## G. Required Flow Status
@@ -91,12 +91,12 @@ This document records the results of executing the mobile regression testing pla
 | # | Flow | Automated Coverage | Chromium | WebKit | Visual Validation | Overall Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 1 | **Login** | `small-android-layout.spec.js`, `mobile-scrolling.spec.js` | Pass | Pass | Pass (7 viewports) | **Pass** |
-| 2 | **Logout** | — (no automated test) | — | — | Manual only (not testable without auth) | **Pass With Notes** |
+| 2 | **Logout** | — (no automated test) | — | — | Not performed (requires auth) | **Not Fully Tested** |
 | 3 | **Registration** | `ipad-layout.spec.js` (IPAD-002), `small-android-layout.spec.js` | Pass | Pass | Pass (submit reachable) | **Pass** |
-| 4 | **Create game** | `game-close.spec.js` (line 640, partial) | Pass | Pass | — | **Pass With Notes** |
+| 4 | **Create game** | `game-close.spec.js` (line 640, partial) | Pass | Pass | Not performed (requires auth) | **Not Fully Tested** |
 | 5 | **Join game** | `game-close.spec.js` (lines 397, 421, 514) | Pass | Pass | — | **Pass** |
 | 6 | **Leave game** | `game-close.spec.js` (lines 237, 468) | Pass | Pass | — | **Pass** |
-| 7 | **Extend game** | — (no automated test) | — | — | Manual only | **Pass With Notes** |
+| 7 | **Extend game** | — (no automated test) | — | — | Not performed (requires auth) | **Not Fully Tested** |
 | 8 | **Close game** | `game-close.spec.js` (lines 191, 208, 609) | Pass | Pass | — | **Pass** |
 | 9 | **Open Field** | `field-navigation.spec.js` (line 107) | Pass | Pass | — | **Pass** |
 | 10 | **Report Field** | `field-navigation.spec.js` (lines 147, 184) | Pass | Pass | — | **Pass** |
@@ -105,13 +105,15 @@ This document records the results of executing the mobile regression testing pla
 | 13 | **Notifications Read** | `notifications.spec.js` (line 57) | Pass | Pass | — | **Pass** |
 | 14 | **Notifications Read All** | `notifications.spec.js` (line 118) | Pass | Pass | — | **Pass** |
 
-### Notes on Pass With Notes Flows
+### Not Fully Tested Flows
 
-| Flow | Note |
-| :--- | :--- |
-| Logout | No automated logout regression test exists. Logout is a simple button click that clears auth state. Protected action enforcement is tested indirectly via auth checks in `admin-panel.spec.js` and `game-close.spec.js`. |
-| Create game | Automated tests cover game open flow (`game-close.spec.js` line 640) but not the full create game form with date/time pickers. Form field usability on mobile is a manual-only check. |
-| Extend game | No automated extend game test exists. Extend controls are part of the game management flow. Close game (which shares the same UI patterns) is fully tested. |
+These flows could not be manually validated because the preview server does not support authentication. No manual evidence exists for these flows. Their status is based solely on automated test coverage (where available) and code-level inference.
+
+| Flow | Automated Coverage | Manual Validation | Why Not Fully Tested | Risk Assessment |
+| :--- | :--- | :--- | :--- | :--- |
+| Logout | None — no automated logout regression test exists | **Not performed** — requires authenticated session, which the preview server cannot provide | Logout is a client-side state-clearing operation (clear token, redirect to login). Protected action enforcement is tested indirectly via `admin-panel.spec.js` (line 225) and `game-close.spec.js` auth checks. But the logout button itself, its visibility on mobile viewports, and the post-logout redirect were not directly validated. | Low — simple state operation, but button reachability on mobile is unverified. |
+| Create game | Partial — `game-close.spec.js` (line 640) tests the game open flow and field refresh after opening, but does not test the full create game form with field/sport/max players/date-time selectors | **Not performed** — requires authenticated session and field context | The full create game form includes date/time pickers and select dropdowns whose mobile usability (touch targets, scroll behavior, picker rendering) could not be validated without auth. The game open API call and post-open field refresh are automated. | Medium — form selectors and date/time pickers are common mobile pain points. Mobile usability of these controls is unverified. |
+| Extend game | None — no automated extend game test exists | **Not performed** — requires authenticated session, active game, and organizer role | Extend game controls share UI patterns with close game (which is fully tested in `game-close.spec.js`). However, the extend-specific button visibility, the extend API call, and the post-extend state update were not validated by any method. | Medium — no automated or manual coverage. Relies entirely on code similarity with close game. |
 
 ## H. Authentication Regression (Plan Section E)
 
@@ -217,9 +219,9 @@ This document records the results of executing the mobile regression testing pla
 | J.2 | Login → field → create game → close modal | **Pass** | Automated: `game-close.spec.js` covers auth → field → game → close chain |
 | J.3 | Second user joins game, notification sent | **Pass** | Automated: `notification-matching.spec.js` — game creation triggers notification for matched users |
 | J.4 | Read notification, count updates | **Pass** | Automated: `notifications.spec.js` (line 57) — click marks read, badge updates |
-| J.5 | Organizer extends/closes game | **Pass With Notes** | Close game: automated (`game-close.spec.js` line 609). Extend game: no automated test, manual-only. |
+| J.5 | Organizer extends/closes game | **Not Fully Tested** | Close game: automated (`game-close.spec.js` line 609) — pass. Extend game: no automated test, no manual validation performed (requires auth + organizer role). |
 | J.6 | Add field flow | **Pass** | Automated: `modal-usability.spec.js`, `ipad-layout.spec.js` — open, scroll, close, submit reachable |
-| J.7 | Logout and protection check | **Pass With Notes** | No automated logout test. Protected action enforcement tested via auth checks. |
+| J.7 | Logout and protection check | **Not Fully Tested** | No automated logout test. No manual validation performed (requires auth). Protected action enforcement tested indirectly via auth checks in `admin-panel.spec.js`. |
 
 ## N. Visual Validation Results
 
@@ -244,10 +246,10 @@ No console errors detected on any viewport.
 
 | # | ID | Severity | Description | User Impact | Action |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | COMPAT-002 | P3 | WebKit `CSS.supports('overscroll-behavior', 'contain')` returns false; computed style returns empty string for shorthand | None — property works functionally | No fix needed. Known WebKit quirk (ISSUE-162). |
-| 2 | WEBKIT-TIMING-001 | P3 | WebKit cached field rendering timing differs from Chromium — `field-navigation.spec.js:269` fails with 5s timeout on WebKit but passes on Chromium | None — cached fields render correctly, WebKit scheduling differs | No fix needed. Consider increasing timeout or adding WebKit-specific retry if test flakiness persists. |
+| 1 | COMPAT-002 | P3 | WebKit `CSS.supports('overscroll-behavior', 'contain')` returns false; computed style returns empty string for shorthand | None — property works functionally | No fix needed. **Known P3**, previously documented in ISSUE-162. Non-blocking. |
+| 2 | WEBKIT-TIMING-001 | P3 | WebKit cached field rendering timing differs from Chromium — `field-navigation.spec.js:269` fails with 5s timeout on WebKit but passes on Chromium | None — cached fields render correctly, WebKit scheduling differs | **Newly documented** in this regression cycle (2026-06-28). Not previously tracked in any issue or document. Non-blocking. Consider increasing timeout or adding WebKit-specific retry if test flakiness persists. |
 
-**No new P0, P1, or P2 issues discovered.**
+**No new P0, P1, or P2 issues discovered. One new P3 issue (WEBKIT-TIMING-001) documented for the first time.**
 
 ## P. Final Regression Decision
 
@@ -256,8 +258,8 @@ No console errors detected on any viewport.
 ### Pass Justification
 
 - **Chromium: 83/83 automated tests pass** (100%).
-- **WebKit: 81/83 automated tests pass** (97.6%). Two failures are P3 with no user impact.
-- **All 14 required flows have a status.** 11 pass fully, 3 pass with notes (logout, create game form, extend game — all due to missing dedicated automated tests, not functional failures).
+- **WebKit: 81/83 automated tests pass** (97.6%). One failure is a known P3 (COMPAT-002), one is a newly documented P3 (WEBKIT-TIMING-001). Neither has user impact.
+- **11 of 14 required flows pass fully.** The remaining 3 (logout, create game form, extend game) are marked **Not Fully Tested** — see below.
 - **Visual validation across 8 viewports** confirms no horizontal overflow, login screens render correctly, submit buttons are reachable, and touch targets meet 44px minimum.
 - **No P0, P1, or P2 regressions found.**
 - **No core flow is broken** on any tested device category or browser engine.
@@ -266,14 +268,30 @@ No console errors detected on any viewport.
 - **Notification state is consistent** — read, read all, badge updates, preferences save/load all pass.
 - **Auth protection works** — unauthenticated users are redirected, admin panel is protected.
 
+### Not Fully Tested Flows — Impact on Decision
+
+3 of 14 required flows are **Not Fully Tested**. None were manually validated. The reason for each:
+
+| Flow | Why Not Fully Tested | Automated Coverage | Manual Validation |
+| :--- | :--- | :--- | :--- |
+| **Logout** | No automated test exists. Preview server cannot authenticate, so logout button visibility and post-logout redirect could not be manually verified. | None | **None** |
+| **Create game** | Automated tests cover game open flow but not the full create form (date/time pickers, select dropdowns). Preview server cannot authenticate, so mobile form usability could not be manually verified. | Partial (`game-close.spec.js` line 640) | **None** |
+| **Extend game** | No automated test exists. Preview server cannot authenticate, so extend controls could not be manually verified. | None | **None** |
+
+These gaps do not indicate observed failures — they indicate **untested areas**. The release gate decision accounts for this by requiring explicit approval for missing coverage on core flows (per Plan Section P).
+
+### WebKit Failure Clarification
+
+| ID | Classification | Previously Documented? | Details |
+| :--- | :--- | :--- | :--- |
+| COMPAT-002 | Known P3 | YES — documented in ISSUE-162 (browser-specific limitations audit) | WebKit computed style quirk for `overscroll-behavior` shorthand. Property works functionally. Non-blocking. |
+| WEBKIT-TIMING-001 | Newly documented P3 | **NO — first observed and documented in this regression cycle (2026-06-28)** | WebKit renders cached field data with different timing than Chromium, causing `field-navigation.spec.js:269` to timeout at 5s. The test passes on Chromium consistently. Cached field rendering works correctly on WebKit — the issue is test timing sensitivity, not a functional regression. Non-blocking. |
+
 ### Notes
 
 1. **Real device testing not performed.** All testing was done via Playwright simulation. Real-device behaviors that simulation cannot reproduce include: iOS Safari rubber-banding, address bar collapse/expand, actual safe-area inset values, soft keyboard viewport interaction, Samsung Internet night mode, and geolocation permission dialogs.
-2. **Logout has no dedicated automated test.** Logout is a simple state-clearing operation. Protected action enforcement is tested indirectly.
-3. **Create game full form interaction is partial.** The game open flow is tested, but date/time picker usability on mobile is manual-only.
-4. **Extend game has no automated test.** The UI pattern mirrors close game (which is fully tested).
-5. **Firefox not tested.** Optional per ISSUE-164 checklist.
-6. **COMPAT-002 and WEBKIT-TIMING-001** are both P3 with no user impact.
+2. **Firefox not tested.** Optional per ISSUE-164 checklist.
+3. **Preview server authentication limitation.** The preview server renders the login screen but cannot complete authentication (no backend credentials configured). This blocked manual validation of all flows that require an authenticated session: logout, create game form, extend game, and any post-login UI interaction.
 
 ### Release Gate Assessment (per Plan Section P)
 
@@ -282,10 +300,12 @@ No console errors detected on any viewport.
 | P0 regression | None found |
 | P1 regression | None found |
 | P2 regression | None found |
-| P3 regression | 2 found (COMPAT-002, WEBKIT-TIMING-001) — may ship with notes |
-| Missing coverage | 3 flows have partial/no automated coverage (logout, create game form, extend game) — documented, no functional failure observed |
-| Any auth failure | None |
-| Any game flow failure | None |
+| P3 regression | 2 found — COMPAT-002 (known, non-blocking), WEBKIT-TIMING-001 (newly documented, non-blocking). May ship with notes. |
+| Missing coverage | **3 flows not fully tested** (logout, create game form, extend game). No automated or manual evidence for these flows. Per Plan Section P: "Missing coverage for a core flow blocks release unless explicitly approved." |
+| Any auth failure | None found in tested flows. Logout flow not tested. |
+| Any game flow failure | None found in tested flows. Create game form and extend game not fully tested. |
 | Any notification state failure | None |
 
-**Release gate: PASS**
+**Release gate: CONDITIONAL PASS**
+
+Release is conditionally approved. The 11 fully tested flows pass with no regressions. The 3 not-fully-tested flows (logout, create game form, extend game) require **explicit project lead approval** to ship without manual validation, per Plan Section P ("Missing coverage for a core flow blocks release unless explicitly approved").

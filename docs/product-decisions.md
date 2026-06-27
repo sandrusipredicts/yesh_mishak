@@ -22638,22 +22638,23 @@ The ISSUE-166 regression testing plan must be executed to verify that all core u
 ## Test Results Summary
 - **Chromium**: 83/83 automated tests pass (100%)
 - **WebKit**: 81/83 automated tests pass (97.6%)
-- **WebKit failures**: 2 known P3 issues (COMPAT-002 overscroll-behavior computed style, WEBKIT-TIMING-001 cached field rendering timing)
+- **WebKit failures**: COMPAT-002 (known P3, previously documented in ISSUE-162) and WEBKIT-TIMING-001 (newly documented P3, first observed 2026-06-28). Neither has user impact.
 - **Visual validation**: 8 viewports tested, all pass
 - **Console errors**: None
 
 ## Required Flow Results
 All 14 required flows documented with status:
-- **Pass**: Login, Registration, Join game, Leave game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All
-- **Pass With Notes**: Logout (no dedicated test), Create game (partial automation), Extend game (no dedicated test)
+- **Pass** (11 flows): Login, Registration, Join game, Leave game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All
+- **Not Fully Tested** (3 flows): Logout (no automated test, no manual validation), Create game (partial automation, no manual validation), Extend game (no automated test, no manual validation)
+- None of the 3 not-fully-tested flows were manually validated. The preview server cannot authenticate, blocking all post-login manual testing.
 
 ## Issues Found
-- COMPAT-002 (P3, known): WebKit overscroll-behavior computed style quirk. No user impact.
-- WEBKIT-TIMING-001 (P3, new): WebKit cached field rendering timing differs from Chromium. No user impact.
+- COMPAT-002 (P3, known): WebKit overscroll-behavior computed style quirk. Previously documented in ISSUE-162. Non-blocking.
+- WEBKIT-TIMING-001 (P3, **newly documented**): WebKit cached field rendering timing differs from Chromium. First observed and documented in this regression cycle. Not previously tracked. Non-blocking.
 - No P0, P1, or P2 regressions found.
 
 ## Release Gate Decision
-**PASS** — No blocking regressions. All auth, game, and notification flows pass. Two P3 issues documented for shipping with notes.
+**CONDITIONAL PASS** — 11 of 14 required flows pass with no regressions. 3 flows (logout, create game form, extend game) are not fully tested due to preview server authentication limitation. Per Plan Section P, missing coverage for core flows requires explicit project lead approval to ship.
 
 ## Validation
 - Documentation-only change. No application code modified.
