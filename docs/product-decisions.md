@@ -22998,3 +22998,178 @@ The app's GPS JavaScript behavior passes the executed Chromium and WebKit simula
 - `docs/product-decisions.md`
 
 No application code or permanent test code changed. All temporary ISSUE-171 files were removed before commit.
+
+---
+
+# ISSUE-172 — Execute mobile map interaction validation (2026-06-28)
+
+## Summary
+
+Executed the available automated and simulated mobile map interaction coverage after ISSUE-171. No application code or permanent test code was changed. A temporary two-engine map interaction suite was created for gesture investigation and removed before documentation handoff.
+
+**Final decision: BLOCKED**
+
+The stable automated baseline passed, and no crash or critical product defect was demonstrated in the interactions that completed. However, the P0 acceptance gate cannot honestly pass because native mobile double-tap, WebKit pinch, smoothness, repeated marker reliability, gesture conflict behavior, and physical-device manual validation remain incomplete. The corrected temporary-suite rerun was prevented by the execution environment's tool-usage limit before tests started.
+
+## Dependency
+
+- ISSUE-171 execution report is present on `main`.
+- ISSUE-171 simulated GPS result: PASS WITH NOTES.
+- User location, "My location", recentering, granted/denied/timeout/unsupported handling, and AddFieldModal GPS behavior were already validated in Chromium/WebKit simulation.
+
+## Environment
+
+| Component | Value |
+| :--- | :--- |
+| Date | 2026-06-28 |
+| Branch | `issue-172-execute-mobile-map-interaction-validation` |
+| Base | Latest `main` including ISSUE-171 |
+| OS | Windows NT 10.0.26200.0 |
+| Frontend | Local Vite development server at `http://127.0.0.1:5173` |
+| Authentication/data | Mocked localStorage user session; mocked fields, notifications, tiles, and GPS |
+| Browser engines | Playwright Chromium; temporary Chromium-mobile and WebKit-mobile projects |
+| Simulated devices | Pixel 7 / Chromium and iPhone 14 / WebKit descriptors; existing 360x640, 390x844, iPad portrait/landscape, and short-landscape test viewports |
+| Physical devices | Not available |
+
+## Implementation and Existing Coverage Reviewed
+
+- `frontend/src/pages/MapPage.jsx`
+- `frontend/tests/user-location.spec.js`
+- `frontend/tests/floating-buttons.spec.js`
+- `frontend/tests/small-android-layout.spec.js`
+- `frontend/tests/mobile-scrolling.spec.js`
+- `frontend/tests/modal-usability.spec.js`
+- `frontend/tests/ipad-layout.spec.js`
+- `frontend/tests/field-navigation.spec.js`
+- `frontend/tests/performance/baseline.spec.js`
+- `docs/mobile-map-screen-audit.md`
+- ISSUE-171 GPS plan and execution report
+
+## Automated Results
+
+### Stable existing Chromium suite
+
+Command:
+
+`npx playwright test tests/user-location.spec.js tests/floating-buttons.spec.js tests/small-android-layout.spec.js tests/mobile-scrolling.spec.js tests/modal-usability.spec.js tests/ipad-layout.spec.js --project=chromium --reporter=line`
+
+Result: **36 passed, 0 failed**
+
+Covered:
+
+- Map canvas loading
+- User marker and accuracy circle
+- Map pan-away and "My location" recenter
+- GPS failure fallback
+- Field marker selection and field-details panel opening/closing
+- Floating-control visibility and overlap
+- Zoom-control visibility
+- No horizontal overflow
+- Portrait and landscape layouts
+- Modal and nested-panel scrolling
+- iPad portrait/landscape clipping and hit targets
+- Add-field modal layout
+
+### Temporary mobile gesture suite
+
+Command:
+
+`npx playwright test tests/issue172-map-interactions.spec.js --config=playwright.issue172.config.js --reporter=line`
+
+Result: **3 passed, 1 skipped, 4 failed**
+
+| Temporary scenario | Chromium-mobile | WebKit-mobile | Interpretation |
+| :--- | :--- | :--- | :--- |
+| Delayed field loading clears without crash | Pass | Pass | Loading indicator/state recovery validated. |
+| Pinch-to-zoom | Pass | Skipped | Chromium CDP pinch requested a higher tile zoom. CDP touch injection is not available for WebKit. |
+| Marker tap → field details | Partial | Partial | Touch tap opened the field-details panel on both engines. Test then failed because an unscoped heading locator matched both the Leaflet popup and panel heading. Product opening behavior succeeded before the harness failure. |
+| Pan, close, orientation sequence | Not reached | Not reached | The preceding strict-locator failure stopped the combined scenario. Existing tests provide separate coverage, but this temporary sequence did not complete. |
+| Two touchscreen taps as double-tap | Fail to simulate | Fail to simulate | Two Playwright `touchscreen.tap` calls did not cause Leaflet to request a higher zoom. This does not prove a product defect because Playwright did not synthesize a native browser double-tap gesture. |
+
+The temporary test was corrected to scope the field-details heading and to use Leaflet double-click zoom as an automation proxy. The corrected rerun was rejected by the execution environment before tests started because the tool-usage limit was reached. No corrected result is claimed.
+
+## Scope Result Matrix
+
+| Scope item | Status | Evidence / limitation |
+| :--- | :--- | :--- |
+| Map loading | Pass | Stable suite and both temporary engines rendered the map. |
+| Map drag / pan | Pass With Notes | Existing user-location test dragged the map and verified marker displacement. Physical touch smoothness not measured. |
+| Pinch-to-zoom | Pass With Notes | Chromium mobile simulation passed. WebKit/native Safari not tested. |
+| Double tap zoom | Blocked | Playwright taps did not synthesize native double-tap; proxy rerun could not execute. Requires real-device confirmation. |
+| Marker rendering | Pass | Stable marker/layout tests passed; temporary suite rendered three markers on both engines. |
+| Marker selection | Pass With Notes | Temporary touchscreen taps opened details on both engines; "always registers" under repeated physical taps not established. |
+| Field details opening | Pass | Opened in existing and temporary tests. |
+| Closing field details | Pass | Existing floating-button and modal suites passed. Temporary combined close step was not reached. |
+| User location | Pass With Notes | ISSUE-171 and stable GPS suite passed in simulation. |
+| My Location button | Pass With Notes | Existing suite verified pan and fly-back. |
+| Map recentering | Pass With Notes | Existing suite verified simulated recentering. |
+| Loading indicators | Pass | Delayed fields response cleared on Chromium and WebKit without crash. |
+| Gesture conflicts with page scrolling | Pass With Notes | Existing overflow/scroll containment tests passed; physical touch conflict testing remains manual. |
+| Landscape / portrait | Pass | Existing Android/iPad orientation and overflow tests passed. |
+| Visual clipping / UI overlap | Pass | Stable 36-test suite passed phone/tablet layout and control-overlap checks. |
+| Console errors | Pass With Notes | No blocking errors in completed assertions. Development server emitted non-blocking foreground-push setup warnings, not console errors. |
+| Crashes | Pass | None observed in completed automated scenarios. |
+
+## Manual Validation Status
+
+**Not completed on physical devices.**
+
+Still required:
+
+- Android Chrome drag smoothness, pinch, double-tap, rapid repeated marker taps, and page-scroll conflict.
+- iPhone Safari drag, pinch, double-tap, marker taps near browser chrome, and orientation changes.
+- iPad Safari portrait/landscape gestures.
+- Direct Samsung Internet gesture behavior or an explicitly accepted Chromium proxy.
+- Repeated marker-tap reliability under slow rendering/network conditions.
+- Browser address-bar collapse/expand and safe-area interaction.
+- Visual assessment of animation smoothness and accidental gesture capture.
+
+## Findings and Follow-Up Recommendations
+
+### Product bugs
+
+No confirmed map-interaction product bug was found.
+
+### Test/infrastructure findings
+
+1. Native mobile double-tap is not faithfully represented by two Playwright `touchscreen.tap` calls. Use physical-device testing or a documented double-click automation proxy plus manual confirmation.
+2. WebKit pinch cannot be injected through Chromium CDP. Use a real iOS device/simulator automation system or manual testing.
+3. Scope duplicate marker/panel headings in future tests to the field-details panel; the temporary selector ambiguity was a harness defect.
+4. `field-navigation.spec.js` marker timing/detachment instability documented in ISSUE-171 remains a recommended follow-up.
+5. Add a permanent dedicated map-interaction suite once the gesture strategy is agreed; temporary ISSUE-172 files were intentionally removed.
+
+## Critical Issues
+
+- Confirmed P0 product issues: **None**
+- Confirmed crashes: **None**
+- P0 validation gap: native double-tap behavior
+- P0 validation gap: multiple physical mobile devices/manual gesture testing
+- P1 validation gap: WebKit pinch behavior
+- P1 validation gap: repeated marker-tap reliability and perceived smoothness
+
+## Acceptance Criteria Assessment
+
+| Criterion | Decision |
+| :--- | :--- |
+| Map loads successfully | Met in automation |
+| Dragging is smooth | Functional drag verified; smoothness requires human confirmation |
+| Zoom behaves correctly | Zoom controls and Chromium pinch pass; native double-tap/WebKit pinch incomplete |
+| Marker taps always register | Taps registered in executed tests; "always" requires repetition/manual device testing |
+| Field details open correctly | Met |
+| My Location behaves correctly | Met in simulation |
+| No accidental gesture conflicts | Automated layout/scroll evidence passes; real touch confirmation outstanding |
+| No visual clipping or UI overlap | Met in automated mobile/tablet layouts |
+| No console errors | No blocking errors; non-blocking push setup warnings observed |
+| No crashes | Met in completed execution |
+
+## Final Decision
+
+**BLOCKED**
+
+The automated baseline is healthy and no critical defect is confirmed, but the P0 mobile map interaction gate is not complete. Native double-tap, WebKit pinch, repeated tap reliability, physical-device smoothness, and manual multi-device validation must be completed before ISSUE-172 can satisfy its Definition of Done.
+
+## Files Changed
+
+- `docs/product-decisions.md`
+
+No application code or permanent test code changed. Temporary ISSUE-172 test and configuration files were removed.
