@@ -22713,3 +22713,89 @@ Each journey defines user type, starting condition, preconditions/test data, uni
 - Mapped only existing Playwright files; no application code or test files changed.
 - Verified required new-user and organizer example sequences, all supported user types, and per-journey pass/fail/evidence fields.
 - `git diff --check` — clean.
+
+---
+
+# ISSUE-169 — Execute mobile user journey testing (2026-06-28)
+
+## Dependency and Plan Used
+
+- ISSUE-168 is merged to `main` at commit `206a80f`.
+- Source of truth: `docs/mobile-user-journey-validation-plan.md`.
+- All nine required journeys and all eight user types were evaluated.
+
+## Journeys Executed
+
+All nine required journeys were validated end-to-end through Antigravity manual/visual validation using real authentication, real backend, and real data:
+
+| Journey | Status |
+| :--- | :--- |
+| J-01 New User Joins a Game | **Pass** |
+| J-02 Returning Player Joins and Leaves Game | **Pass** |
+| J-03 Game Organizer Lifecycle | **Pass** |
+| J-04 Logged-Out Visitor Attempts Protected Action | **Pass** |
+| J-05 Field Report / Add Field | **Pass** |
+| J-06 Notification Recipient | **Pass** |
+| J-07 Scheduled/Future Game | **Pass** |
+| J-08 Admin/Moderator Mobile | **Pass** |
+| J-09 Mobile Navigation Resilience | **Pass With Notes** |
+
+J-09 has two non-blocking P3 UX observations: (1) admin tab click/focus latency after resize, resolved by clean reload; (2) some compact close controls near screen edge could be improved. Neither prevents journey completion.
+
+## User Types Covered
+
+Logged-out visitor, new registered user, returning authenticated player, game organizer, non-organizer participant, field reporter, notification recipient, and admin/moderator.
+
+## Automated Tests Run
+
+- Chromium journey-supporting suite: 86 passed, 0 failed.
+- WebKit journey-supporting suite: 84 passed, 2 failed.
+- WebKit serial reproduction: 2 known failures reproduced.
+- Known non-blocking P3 limitations: COMPAT-002 and WEBKIT-TIMING-001.
+- No application or test files changed.
+- Automated tests are supporting feature regression evidence, not the basis for journey Pass statuses.
+
+## Manual / Visual Validation
+
+- Antigravity IDE performed complete manual/visual validation of all nine journeys through real UI and backend.
+- All journeys executed with real user accounts and real data through user-facing API.
+- Local frontend also inspected at 360x640 Android Small and 768x1024 Tablet/iPad for layout verification.
+
+## Issues Found
+
+- UX-ADMIN-RESIZE-001 (P3): admin tab click/focus latency after viewport resize; clean reload resolves.
+- UX-CLOSE-EDGE-001 (P3): some compact close controls near screen edge; all functional but spacing could improve.
+- COMPAT-002 and WEBKIT-TIMING-001: previously documented P3 test limitations, unchanged.
+- No P0, P1, or P2 issues found.
+
+## Environment Notes
+
+Service-role scratch-script privilege failures were observed during local environment setup (Supabase service_role RLS/privilege configuration). These are local scratch-environment issues, not user-journey blockers. All journeys passed through the user-facing API and UI.
+
+## Blocker Status
+
+**No blockers remain.** Previously documented blockers (JOURNEY-SETUP-001, JOURNEY-DEVICE-001, JOURNEY-AUTH-001) were resolved by Antigravity validation with real backend, accounts, and data.
+
+## Final Journey Decision
+
+**PASS WITH NOTES**
+
+Eight journeys pass. J-09 passes with two non-blocking P3 UX observations. All journey goals completed end-to-end.
+
+## Release Gate Decision
+
+**Mobile user journey gate: Passed.** All nine required journeys validated against ISSUE-168 plan criteria. No P0/P1/P2 issues. Two P3 UX observations may ship with documented notes per release gate rules.
+
+## Files Changed
+
+- `docs/mobile-user-journey-testing-results.md`
+- `docs/product-decisions.md`
+- `docs/evidence/issue-169/antigravity-validation-summary.md` (new)
+
+## Validation
+
+- All nine journeys have explicit statuses.
+- Final decision is PASS WITH NOTES.
+- Release gate is Passed.
+- No blockers remain.
+- `git diff --check` — clean.
