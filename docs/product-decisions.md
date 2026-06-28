@@ -22660,3 +22660,56 @@ All 14 required flows pass:
 - `git diff --check`: Clean.
 - All required flows present: Login, Logout, Registration, Create game, Join game, Leave game, Extend game, Close game, Open Field, Report Field, Navigation, Notifications Open, Notifications Read, Notifications Read All.
 - Results document sections verified: A through P (16 sections).
+
+---
+
+# ISSUE-168 — Create mobile user journey validation plan (2026-06-28)
+
+## Why
+
+Feature-level regression evidence does not prove that a mobile user can complete a real goal across authentication, map navigation, fields, games, notifications, and state transitions. ISSUE-168 adds an end-to-end journey layer in which a journey passes only when the complete user goal is achieved on mobile.
+
+## File Created
+
+`docs/mobile-user-journey-validation-plan.md`
+
+## User Types Covered
+
+- Logged-out visitor
+- New registered user
+- Returning authenticated player
+- Game organizer
+- Non-organizer participant
+- Field reporter
+- Notification recipient
+- Admin/moderator where valid access and safe test data are available
+
+## Journeys Defined
+
+1. New User Joins a Game
+2. Returning Player Joins and Leaves Game
+3. Game Organizer Lifecycle
+4. Logged-Out Visitor Attempts Protected Action
+5. Field Report / Add Field
+6. Notification Recipient
+7. Scheduled/Future Game
+8. Admin/Moderator Mobile
+9. Mobile Navigation Resilience
+
+Each journey defines user type, starting condition, preconditions/test data, uninterrupted steps, expected result, mobile risks, pass criteria, failure criteria, evidence, related existing tests, and the manual-validation requirement.
+
+## Relationship to ISSUE-166 and ISSUE-167
+
+- ISSUE-166 defined repeatable feature-level mobile regression checks and cross-flow examples.
+- ISSUE-167 executed those checks and supplied Chromium, WebKit, viewport, and mocked-flow evidence.
+- ISSUE-168 groups that coverage into complete user goals. Existing tests are supporting evidence, but isolated or mocked feature passes do not automatically produce a journey Pass.
+- Unsupported or unavailable behavior is not assumed. Future-game join/leave, real push delivery, real credential authentication, post-login continuation, and safe admin mutations require manual confirmation or a Blocked status with reason.
+
+## Validation Performed
+
+- Confirmed ISSUE-166 and ISSUE-167 decision records exist.
+- Read `docs/mobile-regression-testing-plan.md` and `docs/mobile-regression-testing-results.md`.
+- Reviewed the ISSUE-164/165 compatibility checklist and review for device, browser, status, evidence, and real-device limitations.
+- Mapped only existing Playwright files; no application code or test files changed.
+- Verified required new-user and organizer example sequences, all supported user types, and per-journey pass/fail/evidence fields.
+- `git diff --check` — clean.
