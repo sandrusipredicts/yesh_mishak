@@ -22713,3 +22713,79 @@ Each journey defines user type, starting condition, preconditions/test data, uni
 - Mapped only existing Playwright files; no application code or test files changed.
 - Verified required new-user and organizer example sequences, all supported user types, and per-journey pass/fail/evidence fields.
 - `git diff --check` — clean.
+
+---
+
+# ISSUE-169 — Execute mobile user journey testing (2026-06-28)
+
+## Dependency and Plan Used
+
+- ISSUE-168 is merged to `main` at commit `206a80f`.
+- Source of truth: `docs/mobile-user-journey-validation-plan.md`.
+- All nine required journeys and all eight user types were evaluated.
+
+## Journeys Executed
+
+Supporting automated and visual evidence was executed for:
+
+1. New User Joins a Game
+2. Returning Player Joins and Leaves Game
+3. Game Organizer Lifecycle
+4. Logged-Out Visitor Attempts Protected Action
+5. Field Report / Add Field
+6. Notification Recipient
+7. Scheduled/Future Game
+8. Admin/Moderator Mobile
+9. Mobile Navigation Resilience
+
+Complete journey status: all nine **Blocked**. Existing mocked tests are supporting evidence only and do not satisfy ISSUE-168's complete-goal Pass rule.
+
+## User Types Covered
+
+Logged-out visitor, new registered user, returning authenticated player, game organizer, non-organizer participant, field reporter, notification recipient, and admin/moderator.
+
+## Automated Tests Run
+
+- Chromium journey-supporting suite: 86 passed, 0 failed.
+- WebKit journey-supporting suite: 84 passed, 2 failed.
+- WebKit serial reproduction: 2 known failures reproduced.
+- Known non-blocking P3 limitations: COMPAT-002 and WEBKIT-TIMING-001.
+- No application or test files changed.
+
+## Manual / Visual Validation
+
+- Local frontend inspected at 360x640 Android Small and 768x1024 Tablet/iPad.
+- Login and registration surfaces rendered without visible clipping or horizontal overflow.
+- The local environment could not continue beyond authentication because no backend/test credentials were supplied; Google Sign-In rejected the localhost origin.
+- No physical devices were available for required keyboard, browser chrome, touch, rotation, safe-area, or direct Samsung Internet checks.
+
+## Issues Found
+
+- JOURNEY-SETUP-001 (P1 coverage blocker): missing backend, role accounts, and safe mutable data.
+- JOURNEY-DEVICE-001 (P1 coverage blocker): missing required physical-device coverage.
+- JOURNEY-AUTH-001 (P2 environment): Google Sign-In localhost origin rejected.
+- COMPAT-002 and WEBKIT-TIMING-001: previously documented P3 test limitations, unchanged.
+- No new P0/P1 product defect demonstrated.
+
+## Blocker Status
+
+**Blockers remain. ISSUE-169 cannot be closed.**
+
+## Final Journey Decision
+
+**BLOCKED**
+
+## Release Gate Decision
+
+**Mobile user journey gate: Blocked.** Partial automation is healthy but no complete required journey met all ISSUE-168 criteria.
+
+## Files Changed
+
+- `docs/mobile-user-journey-testing-results.md`
+- `docs/product-decisions.md`
+
+## Validation
+
+- All nine journeys have explicit statuses.
+- Blockers and final decision are explicit.
+- `git diff --check` — clean.
