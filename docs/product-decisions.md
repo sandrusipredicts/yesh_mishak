@@ -22859,3 +22859,142 @@ The app requests browser geolocation to center the map on the user's position an
 - Reviewed ISSUE-166/167 regression plan and results.
 - Reviewed ISSUE-168/169 journey plan and results.
 - `git diff --check` — clean.
+
+---
+
+# ISSUE-171 — Execute mobile GPS testing (2026-06-28)
+
+## Summary
+
+Executed the mobile GPS test plan from `docs/mobile-gps-testing-plan.md` without changing application code or permanent test code. Automated GPS behavior was validated with the existing Playwright suite plus a temporary ISSUE-171 scenario suite that was removed before commit.
+
+**Final decision: PASS WITH NOTES (simulated browser coverage).**
+
+No critical GPS product issue was found. Real-device permission prompts, browser-settings revocation/re-grant, physical GPS loss/recovery, background/resume behavior, and mobile browser chrome still require human confirmation.
+
+## Environment
+
+| Component | Value |
+| :--- | :--- |
+| Date | 2026-06-28 |
+| Branch | `issue-171-execute-mobile-gps-testing` |
+| Commit tested | `da2ae2b0037ac53dd3f756b2c6ffa89e78cc6477` |
+| OS | Windows NT 10.0.26200.0 |
+| Node.js | 24.14.1 |
+| npm | 11.11.0 |
+| Playwright | 1.61.0 |
+| Frontend | Local Vite development server at `http://127.0.0.1:5173` |
+| Authentication/data | Mocked localStorage session; mocked fields and notifications APIs |
+| Browser engines | Playwright Chromium and WebKit |
+| Simulated mobile viewports | 360x640 and 390x844 in the temporary scenario suite; existing GPS suite used its configured browser context |
+| Real devices | Not available |
+| Samsung Internet | Direct device not tested; Chromium provides proxy engine evidence only |
+
+## Implementation Reviewed
+
+- `docs/mobile-gps-testing-plan.md`
+- `frontend/src/pages/MapPage.jsx`
+- `frontend/src/components/AddFieldModal.jsx`
+- `frontend/tests/user-location.spec.js`
+- GPS mocks in field navigation, floating-button, modal-usability, and performance tests
+- Playwright configuration and existing API/auth seeding patterns
+
+Confirmed implementation behavior:
+
+- Map geolocation uses one-shot `getCurrentPosition`.
+- Options are `enableHighAccuracy: true`, `timeout: 10000`, and `maximumAge: 60000`.
+- Failure or unavailable API leaves the map on `DEFAULT_CENTER [30.9872, 34.9314]`.
+- Finite accuracy renders an accuracy circle.
+- "My location" is shown only when a user position exists and no field is selected.
+- AddFieldModal makes a separate geolocation call and displays explicit unavailable/failure messages.
+
+## Automated Validation Results
+
+| Validation | Command | Result | Notes |
+| :--- | :--- | :--- | :--- |
+| Frontend lint | `npm run lint` | **Fail — baseline** | Two pre-existing unrelated errors: `MyGamesPage.jsx:129` (`react-hooks/set-state-in-effect`) and `tests/performance/baseline.spec.js:210` (`process` undefined). No GPS file implicated. |
+| Frontend build | `npm run build` | **Pass** | 1,916 modules transformed. Non-blocking chunk-size warning for the 612.88 kB JS bundle. |
+| Existing GPS suite — Chromium | `npx playwright test tests/user-location.spec.js --project=chromium --reporter=line` | **Pass: 4/4** | Granted, denied, timeout, and unsupported. |
+| Existing GPS suite — WebKit | `npx playwright test tests/user-location.spec.js --config=playwright.issue171.config.js --project=webkit --reporter=line` | **Pass: 4/4** | Temporary two-engine config removed after execution. |
+| Temporary extended GPS suite | `npx playwright test tests/issue171-gps-scenarios.spec.js --config=playwright.issue171.config.js --reporter=line` | **Pass: 8/8** | Four scenarios on each engine. Temporary spec/config removed. |
+| GPS-adjacent map suite — Chromium | `npx playwright test tests/user-location.spec.js tests/field-navigation.spec.js tests/floating-buttons.spec.js tests/modal-usability.spec.js --project=chromium --reporter=line` | **10 passed, 7 failed** | All failures were in `field-navigation.spec.js` marker timing/detachment; GPS, floating-button, and modal tests passed. |
+| Field-navigation isolation | `npx playwright test tests/field-navigation.spec.js --project=chromium --workers=1 --reporter=line` | **Timed out twice** | Follow-up test-stability investigation recommended. Not classified as a GPS product failure. |
+| Backend tests | Not run | **Not relevant** | GPS handling is frontend browser/API behavior; no backend GPS implementation exists. |
+
+The temporary suite initially failed because of test-only selector assumptions and intentionally aborted tile requests. After narrowing the accuracy-circle selector, matching localized coordinates by numeric value, and fulfilling map tiles with a transparent image, the final unchanged product behavior passed 8/8. These initial harness failures are not product defects.
+
+## Simulated Browser Results
+
+| Scenario | Chromium | WebKit | Status | Evidence / notes |
+| :--- | :--- | :--- | :--- | :--- |
+| Permission granted | Pass | Pass | **Pass With Notes** | Marker, accuracy circle, map, and "My location" visible. Real browser permission prompt not exercised. |
+| My Location button | Pass | Pass | **Pass With Notes** | Existing suite verified pan-away and fly-back. Temporary suite verified the button hides with field details and returns after close. |
+| Permission denied (code 1) | Pass | Pass | **Pass With Notes** | Map and fallback field remained usable; no marker/button; no loading trap. Real denial prompt not exercised. |
+| Location unavailable (code 2) | Pass | Pass | **Pass With Notes** | Default-area field remained usable; no marker/button; AddField error visible. Physical GPS-off recovery not exercised. |
+| Timeout (code 3) | Pass | Pass | **Pass With Notes** | Failure callback path remained usable with no marker/button or loading trap. Mock fired immediately rather than after 10 real seconds. |
+| Geolocation unsupported | Pass | Pass | **Pass** | Existing suite verified map remains usable when `navigator.geolocation` is unavailable. |
+| AddFieldModal — granted | Pass | Pass | **Pass With Notes** | "Use current location" updated displayed coordinates to `30.990000, 34.920000`. |
+| AddFieldModal — denied/unavailable/timeout | Pass | Pass | **Pass With Notes** | Error `Could not get current location.` displayed; picker retained manual default coordinates. |
+| Fallback center/usability | Pass | Pass | **Pass With Notes** | Field at the configured default location remained rendered and tappable after codes 1/2/3; exact Leaflet center value was not directly introspected. |
+| No infinite loading | Pass | Pass | **Pass** | Loading status cleared in all temporary scenarios. |
+| Blocking console/page errors | None | None | **Pass** | Final temporary suite used fulfilled mock tiles and asserted no console errors or page errors. |
+| Permission revoked/re-granted | Proxy only | Proxy only | **Not Tested on real browser** | Fresh denied state validates fallback logic, but browser site-settings transition requires human testing. |
+
+## Real-Device Tests Requiring Human Confirmation
+
+- Android Chrome: grant, deny, persistent permission, revoke/re-grant, GPS disabled, airplane mode, and true 10-second timeout.
+- iPhone Safari: grant, deny, Settings revocation/re-grant, unavailable behavior, and Safari-specific error-code reporting.
+- Tablet/iPad: marker/control layout in portrait and landscape.
+- Samsung Internet: direct grant/deny behavior; current evidence is Chromium proxy only.
+- Permission prompt overlay and browser chrome interaction.
+- Prompt dismissal/ignored state.
+- Incognito/private permission lifecycle.
+- Background/resume behavior.
+- Physical movement while the one-shot location remains cached.
+- Real low-accuracy GPS and large accuracy-circle usability.
+
+## Bugs and Follow-Up Recommendations
+
+### GPS product bugs
+
+None found in simulated Chromium or WebKit coverage.
+
+### Follow-up recommendations
+
+1. Create a follow-up QA/test issue to stabilize `field-navigation.spec.js`; marker elements detached or failed to appear in the combined run, and the isolated run hung twice.
+2. Add permanent coverage for geolocation error code 2 and AddFieldModal granted/failure behavior. ISSUE-171 proved these paths with a temporary removed suite.
+3. Add an explicit fallback-center assertion through a test-visible Leaflet map handle or stable marker-at-default fixture.
+4. Execute the real-device matrix before claiming physical GPS and browser-permission certification.
+5. Track the two unrelated lint baseline failures separately; they were not introduced or changed by ISSUE-171.
+
+## Critical Issues
+
+- P0 GPS issues: **None found in simulation**
+- P1 GPS issues: **None found in simulation**
+- P2 GPS issues: **None found in simulation**
+- Test infrastructure issue: `field-navigation.spec.js` instability, non-GPS and follow-up recommended
+- Real-device coverage gap: documented as a note according to the GPS plan
+
+## Release Gate Assessment
+
+| Gate | Result |
+| :--- | :--- |
+| Granted location produces centering/marker | Pass in Chromium and WebKit simulation |
+| Permission denial preserves map usability | Pass in Chromium and WebKit simulation |
+| Location unavailable preserves map usability | Pass in Chromium and WebKit simulation |
+| Permission revoked does not trap user | Fresh-denial proxy passes; real settings transition not tested |
+| My Location button works | Pass in Chromium and WebKit simulation |
+| AddFieldModal reports location failure | Pass in Chromium and WebKit simulation |
+| Blocking GPS console/runtime errors | None in final simulated suite |
+
+## Final Decision
+
+**PASS WITH NOTES**
+
+The app's GPS JavaScript behavior passes the executed Chromium and WebKit simulations. No critical GPS defect was found. The decision carries notes for unavailable real-device permission/GPS validation, permission revocation/re-grant, true timeout timing, direct Samsung Internet coverage, unrelated baseline lint errors, and unstable `field-navigation.spec.js` execution.
+
+## Files Changed
+
+- `docs/product-decisions.md`
+
+No application code or permanent test code changed. All temporary ISSUE-171 files were removed before commit.
