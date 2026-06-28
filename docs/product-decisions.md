@@ -22799,3 +22799,63 @@ Eight journeys pass. J-09 passes with two non-blocking P3 UX observations. All j
 - Release gate is Passed.
 - No blockers remain.
 - `git diff --check` — clean.
+
+---
+
+# ISSUE-170 — Create mobile GPS testing plan (2026-06-28)
+
+## Summary
+
+Created a structured, repeatable GPS/location testing plan for mobile. The map is the primary interface and correct handling of geolocation permission states, failure modes, and fallback behavior is critical for mobile usability.
+
+## Why
+
+The app requests browser geolocation to center the map on the user's position and display a location marker. If permission handling or failure states are broken, users may see a miscentered map, get trapped in loading, or lose access to core flows. No formal GPS testing plan existed despite geolocation being central to map usage.
+
+## File Created
+
+`docs/mobile-gps-testing-plan.md`
+
+## Scenarios Covered
+
+1. **Permission Granted** — map centers on user, marker visible, "My Location" button works, AddFieldModal "Use current location" works.
+2. **Permission Denied** — fallback to default center, no marker, map remains usable, AddFieldModal shows error.
+3. **Permission Revoked** — no stale location data, fallback on reload, recovery when re-granted.
+4. **Location Unavailable** — GPS disabled/airplane mode, fallback after timeout (≤10s), map usable.
+5. **Additional edge cases** — slow prompt, prompt dismissed, low accuracy, stale location, insecure origin, incognito, backgrounding, page refresh, browser chrome overlay.
+
+## Mobile Risks Covered
+
+- Permission prompt hiding critical controls.
+- Infinite loading state when GPS fails.
+- Stale location data after permission revocation.
+- "My Location" button appearing when location is unavailable.
+- User location marker appearing when geolocation was denied.
+- AddFieldModal "Use current location" failing silently.
+- Accuracy circle covering entire viewport on low accuracy.
+- 10-second timeout causing perceived freeze.
+- Browser differences in permission prompt behavior.
+
+## Manual vs Automated Coverage
+
+- **Automated (Playwright)**: 4 existing tests in `user-location.spec.js` cover granted, denied (code 1), timeout (code 3), and unsupported states via geolocation API mocking. These validate JavaScript logic but not real browser permission prompts.
+- **Manual required**: Real permission prompt interaction, permission revocation via browser settings, real GPS behavior, AddFieldModal geolocation, incognito behavior, browser chrome overlay.
+- **Real-device recommended**: Physical GPS on/off, airplane mode, iOS Safari permission flow, Samsung Internet.
+
+## Relationship to Mobile Regression/Journey Testing
+
+- ISSUE-166/167 (regression testing) covers map loading, controls, and navigation but not geolocation permission states.
+- ISSUE-168/169 (journey testing) covers end-to-end user goals but geolocation was a supporting dependency, not a dedicated test surface.
+- ISSUE-170 adds focused coverage for the GPS/location layer that underpins the map experience.
+- Existing `user-location.spec.js` is listed as supporting automated evidence in the journey and regression plans.
+
+## Validation Performed
+
+- Read `MapPage.jsx` geolocation implementation: `getCurrentPosition` with `enableHighAccuracy: true`, `timeout: 10000`, `maximumAge: 60000`, fallback to `DEFAULT_CENTER [30.9872, 34.9314]`.
+- Read `AddFieldModal.jsx` "Use current location" implementation: separate `getCurrentPosition` call with `locationUnavailable` / `locationFailed` error messages.
+- Read existing `user-location.spec.js` tests: 4 tests covering granted, denied, timeout, and unsupported.
+- Read localization strings for location error messages.
+- Reviewed ISSUE-164/165 device compatibility checklist and review.
+- Reviewed ISSUE-166/167 regression plan and results.
+- Reviewed ISSUE-168/169 journey plan and results.
+- `git diff --check` — clean.
