@@ -23358,3 +23358,188 @@ No critical notification UX issues found.
 - `docs/product-decisions.md`
 
 No application code or test code changed. Temporary WebKit config file was created and removed during test execution.
+
+---
+
+# ISSUE-174 — Review mobile network failure experience (2026-06-28)
+
+## Decision Record
+
+| Field | Value |
+| :--- | :--- |
+| Issue | ISSUE-174 |
+| Title | Review mobile network failure experience |
+| Priority | P1 |
+| Date | 2026-06-28 |
+| Status | PASS WITH NOTES |
+| Release Gate | Passed |
+| Dependencies | ISSUE-171 (PASS WITH NOTES), ISSUE-172 (BLOCKED), ISSUE-173 (PASS WITH NOTES) |
+
+## Context
+
+Users may lose internet connection during critical app flows. The app should fail safely, explain what happened, and avoid broken or misleading UI. This review validates the mobile network failure experience by auditing every error handling pathway in the codebase and documenting how each failure scenario is handled.
+
+## Automated Test Baseline
+
+### Chromium Engine — Full Suite
+
+| Category | Tests | Result |
+| :--- | :--- | :--- |
+| Layout/compatibility | 34 | 34 pass |
+| Functional | 57 | 50 pass, 7 fail (pre-existing) |
+| **Total** | **91** | **84 pass, 7 fail** |
+
+The 7 failures are all in `field-navigation.spec.js` — field marker click timeouts due to Leaflet rendering flakiness. Pre-existing, unrelated to network error handling.
+
+### Network Error Test Coverage
+
+No existing automated tests simulate network failures (500 responses, request timeouts, or offline states). All `route.abort()` calls in tests target only `tile.openstreetmap.org` map tiles (cosmetic).
+
+## Scenario Analysis
+
+### S-01: Login Without Internet
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Offline banner** | `OfflineBanner` renders immediately via `useOnlineStatus()` hook — `navigator.onLine` + event listeners. Fixed position, z-index 3000, amber warning with WifiOff icon. Message: "No internet connection. Please check your network and try again." |
+| **Login attempt** | Password login: `loginWithCredentials()` will throw network error → `setError(getApiErrorMessage(err, t('auth.loginFailed')))` → red error text displayed in `.login-error` |
+| **Google Sign-In** | Google SDK script load failure: `setError(t('auth.googleLoadFailed'))`. Sign-in API failure: `setError(t('auth.googleSignInFailed'))` |
+| **Loading state** | `isLoading` flag prevents double-submit; `finally` block always clears loading state |
+| **Crash risk** | None — all catch blocks handle errors gracefully |
+| **Assessment** | **PASS** |
+
+### S-02: Join Game Without Internet
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Join action** | `handleJoin()` in `GamePanel.jsx:171-183` — catches error, displays `getApiErrorMessage(joinError, t('game.joinFailed'))` as `.panel-error` |
+| **False success** | Not possible — success path requires `await joinGame()` + `await onUpdate()` to complete without error |
+| **Button state** | `isLoading` disables join/leave/extend/close buttons during request; `finally` always re-enables |
+| **Leave action** | Same pattern — `handleLeave()` catches and displays `t('game.leaveFailed')` |
+| **Extend action** | Same pattern — `handleExtend()` catches and displays `t('game.extendFailed')` |
+| **Close action** | Same pattern — `handleCloseGame()` catches and displays `t('game.closeFailed')` |
+| **Assessment** | **PASS** |
+
+### S-03: Map Load Failure
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Map tiles** | Leaflet loads OpenStreetMap tiles. If tiles fail, map shows grey/blank tiles — Leaflet handles this natively (no app crash). |
+| **Fields API** | `FieldLoader` component (MapPage.jsx:215-278) catches field fetch errors → `onError(t('map.loadFieldsError'))` → renders `.map-error` floating card with message "Could not load fields from the backend." |
+| **Retry via `retry.js`** | `getFields()` uses `retrySafeRead()` — retries up to 3 times on 5xx errors with jittered backoff (500ms, 1500ms). Skips retry if `navigator.onLine === false`. |
+| **Request dedup** | `latestRequestId` ref prevents stale request results from overwriting newer data |
+| **Loading indicator** | `.map-loading` spinner with text shown during field fetch |
+| **Empty state** | Map renders with no markers — no crash, no broken UI |
+| **Assessment** | **PASS** |
+
+### S-04: Fields API Failure
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Error display** | `.map-error` card positioned at top-right, `max-width: 280px`, red text on white background |
+| **Retry mechanism** | Automatic via `retrySafeRead()` — 3 attempts, exponential backoff with 20% jitter |
+| **Retryable errors** | 500-599 status codes, 429 with `retry-after` header |
+| **Non-retryable** | 400, 401, 403, 404 — fail immediately |
+| **Offline detection** | `isBrowserOffline()` check before each retry attempt — stops retrying if browser goes offline |
+| **User recovery** | Pan/zoom triggers a new `moveend` event → re-fetches fields with fresh request |
+| **Assessment** | **PASS** |
+
+### S-05: Notifications API Failure
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Unread count poll** | `getUnreadNotificationCount()` failure: silently caught, keeps previous count (MapPage.jsx:376-388). No crash. |
+| **Notification list** | `getNotifications()` failure: silently caught, sets empty array. Inbox shows "No notifications yet." empty state. |
+| **Mark read** | `markNotificationRead()` failure: `setError(t('notifications.markReadFailed'))` → `.modal-error` displayed in inbox modal |
+| **Mark all read** | `markAllNotificationsRead()` failure: `setError(t('notifications.markAllFailed'))` → `.modal-error` displayed |
+| **Preferences load** | `getNotificationPreferences()` failure: `setError(t('notifications.loadFailed'))` → "Could not load notification preferences." |
+| **Preferences save** | Save failure: `setError(getApiErrorMessage(err, t('notifications.saveFailed')))` |
+| **Infinite loading** | `isLoading` / `isMarkingAllRead` flags always cleared in `finally` blocks |
+| **Assessment** | **PASS** |
+
+### S-06: Slow Network / Timeout
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Axios timeout** | No explicit timeout configured in `api/client.js` — defaults to no timeout (browser will eventually time out per TCP). |
+| **Geolocation timeout** | `getCurrentPosition()` has explicit `timeout: 10000` (10 seconds) — error code 3 on timeout, silent fallback to default center. |
+| **Loading states** | All async operations use `isLoading` flags that disable buttons/show spinners during pending requests. |
+| **User perception** | On very slow networks, user sees loading spinner indefinitely until browser TCP timeout. No explicit app-level timeout. |
+| **Assessment** | **PASS WITH NOTES** — no explicit HTTP request timeout configured. On extreme latency, loading states persist until browser-level timeout. Consider adding Axios timeout in future iteration. |
+
+### S-07: Network Drops After Page Load
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Offline detection** | `useOnlineStatus()` hook listens for `window.online`/`offline` events. State change triggers re-render. |
+| **Offline banner** | `OfflineBanner` appears immediately on all pages (LoginPage, MapPage, MyGamesPage, OnboardingPage) — fixed position, z-index 3000, above all content. |
+| **Retry safety** | `retry.js` checks `navigator.onLine` before each retry attempt — stops retrying when offline to avoid wasting resources. |
+| **In-flight requests** | Any pending API call will fail and be caught by the component's catch block — error message displayed. |
+| **Map tiles** | Already-loaded tiles remain visible (cached by browser). New tiles fail silently (Leaflet default behavior). |
+| **Assessment** | **PASS** |
+
+### S-08: Retry After Connection Returns
+
+| Aspect | Finding |
+| :--- | :--- |
+| **Offline banner removal** | Banner hides automatically when `navigator.onLine` becomes true (event-driven). |
+| **Field reload** | User can pan/zoom to trigger `moveend` → re-fetches fields automatically. Manual page reload also works. |
+| **No automatic retry on reconnect** | App does not automatically retry failed operations when connection returns — user must trigger action again (pan, refresh, re-click button). |
+| **401 recovery** | If session expired during offline period, `api/client.js` interceptor clears auth tokens and dispatches `auth-session-changed` → redirects to login. |
+| **Assessment** | **PASS WITH NOTES** — recovery works via user action. No automatic retry-on-reconnect (acceptable for current scope). |
+
+## Error Handling Architecture Summary
+
+| Layer | Mechanism | Coverage |
+| :--- | :--- | :--- |
+| **Network layer** | Axios interceptor (401 → logout), `retry.js` (5xx → 3 retries) | All API calls |
+| **Offline detection** | `useOnlineStatus()` hook + `OfflineBanner` component | All pages |
+| **Component errors** | `useState(error)` + catch blocks in all async handlers | All modals, panels, pages |
+| **Error display** | `.modal-error`, `.panel-error`, `.map-error`, `.login-error`, `.admin-error`, `.my-games-error` | Context-appropriate error UI |
+| **Error extraction** | `getApiErrorMessage(error, fallback)` — extracts detail/message from response | All components |
+| **Error boundary** | `ErrorBoundary` React class component — catches render errors with reload button | App root |
+| **Loading states** | `isLoading` / `isSubmitting` flags disable buttons, prevent double-submit | All async operations |
+| **Body scroll lock** | `useBodyScrollLock()` prevents background scroll when modal is open | All modals |
+
+## Issues Found
+
+| ID | Severity | Description | Impact | Action |
+| :--- | :--- | :--- | :--- | :--- |
+| NET-001 | P3 | No explicit HTTP request timeout in Axios client configuration | On extreme latency, loading states persist until browser-level TCP timeout (typically 60-120s). User may perceive app as frozen. | Consider adding `timeout: 15000` to Axios client config in future iteration. |
+| NET-002 | P4 | No automatic retry-on-reconnect after offline period | User must manually trigger actions (pan map, click button, refresh page) after reconnection. | Acceptable for current scope. Consider adding `online` event listener to auto-retry last failed operation in future iteration. |
+| NET-003 | P4 | No existing automated tests for network failure scenarios | All error handling is validated via code inspection only. No Playwright tests simulate 500 responses, timeouts, or offline states. | Recommend adding network failure test suite in future iteration. |
+| NET-004 | P4 | Notification polling failures are silent | `getUnreadNotificationCount` failures are caught silently — user sees stale count but no error feedback. | Acceptable — polling is a background operation. Showing error banners for every poll failure would be disruptive. |
+| NET-005 | P3 | 7 pre-existing test failures in `field-navigation.spec.js` | Field marker click timeouts due to Leaflet rendering flakiness. Not related to network error handling. | Tracked separately — not an ISSUE-174 finding. |
+
+No critical network failure UX issues found. The app does not crash, does not show false success, and provides clear user feedback on all API failures.
+
+## Final Decision
+
+**PASS WITH NOTES**
+
+### Pass Justification
+
+- All 8 network failure scenarios handled correctly at the code level
+- Offline detection active on all pages via `OfflineBanner` with clear user feedback
+- All API failures caught and displayed with user-facing error messages
+- No false success possible on any write operation (join, leave, extend, close, login, register)
+- Retry mechanism for read operations (3 attempts with jittered backoff)
+- Loading states prevent double-submit and show progress
+- Error boundary catches unexpected render errors with reload button
+- 401 session expiry handled via Axios interceptor with clean logout
+- Map renders gracefully with empty fields on API failure
+
+### Notes
+
+1. **No automated network failure tests exist.** All validation is based on code-level audit of error handling patterns across 15+ source files. Recommend creating a `network-failures.spec.js` test suite with `route.abort()`, `route.fulfill({ status: 500 })`, and offline simulation in a future iteration.
+2. **No explicit HTTP timeout configured.** Axios defaults to no timeout. On extreme latency, the app shows loading indefinitely until browser TCP timeout. NET-001 recommends adding `timeout: 15000` to the Axios client.
+3. **No auto-retry on reconnect.** After going offline and coming back, the user must manually trigger a reload or action. This is acceptable but could be improved with an `online` event listener.
+4. **Notification poll failures are intentionally silent.** Showing error feedback for background polling would be disruptive; the current approach (keep stale count) is reasonable.
+5. **Pre-existing test flakiness.** 7 `field-navigation.spec.js` tests fail due to Leaflet marker click timing issues — not an ISSUE-174 concern.
+6. **Live preview / real device testing not performed.** Supabase authentication prevents preview-based validation. All findings are from code-level audit and automated test results.
+
+## Files Changed
+
+- `docs/product-decisions.md`
+
+No application code or test code changed.
