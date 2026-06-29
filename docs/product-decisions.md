@@ -24053,3 +24053,43 @@ No critical error state issues found. All errors produce clear, localized messag
 - `docs/product-decisions.md`
 
 No application code or test code changed.
+
+---
+
+# ISSUE-179 — Create final mobile launch readiness checklist (2026-06-29)
+
+## Decision
+
+Created `docs/mobile-launch-readiness-checklist.md` as an evidence-backed launch gate before Capacitor packaging. The checklist consolidates ISSUE-169 and ISSUE-171 through ISSUE-178 and covers UX, compatibility, GPS/location, accessibility, QA/validation, minimum physical-device/browser coverage, exact manual steps, validation commands, and Capacitor prerequisites.
+
+Every gate item records its current status (`Ready`, `Needs Verification`, `Blocker`, or `Not applicable`), evidence, source issue/PR/document, final revalidation checkbox, and owner where action remains.
+
+## Current Launch Decision
+
+**NO-GO**
+
+Current blockers:
+
+1. ISSUE-172 remains BLOCKED pending native map gestures and physical multi-device validation.
+2. ISSUE-177 P2 contrast and city-suggestion touch-target findings remain unresolved; ISSUE-178 fixed the seven P1 findings.
+3. Android release-signing readiness has no recorded evidence.
+4. Production Capacitor environment values and secure injection are not yet defined or verified.
+5. `npm run lint` fails on an existing `no-undef` error in `frontend/tests/performance/baseline.spec.js:210`.
+
+ISSUE-169 is not a blocker: its updated result is PASS WITH NOTES, all nine journeys were completed, and no P0/P1/P2 journey issue remains.
+
+## Files Changed
+
+- `docs/mobile-launch-readiness-checklist.md`
+- `docs/product-decisions.md`
+
+## Validation
+
+- `npm run lint` — FAIL: one existing `no-undef` error in `tests/performance/baseline.spec.js:210`.
+- `npx eslint src --max-warnings 0` — PASS.
+- `npm run build` — PASS with a non-blocking bundle-size warning.
+- Full Chromium Playwright — 91/91 tests displayed `ok`, but the process timed out without a clean exit code.
+- Targeted mobile Chromium suite — 44/44 tests displayed `ok`, but the process timed out without a clean exit code.
+- `git diff --check` — PASS.
+
+The checklist requires the lint failure and Playwright shutdown problem to be resolved or rerun successfully, plus physical-device, native-toolchain, signing, and environment evidence, before the decision may change to GO.
