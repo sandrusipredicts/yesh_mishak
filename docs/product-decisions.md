@@ -24189,3 +24189,49 @@ GO criteria: Criterion 1 (Android Chrome) met. Criterion 2 (iPhone Safari) docum
 - `npm run lint` — PASS (0 errors on `src/`)
 - `npm run build` — PASS (non-blocking chunk-size warning)
 - `git diff --check` — PASS
+
+# ISSUE-111 / AUTH-001 — Enforce Google email_verified check (2026-06-29)
+
+## Decision
+
+Added enforcement of `email_verified` claim in the Google OAuth login flow. The backend now rejects Google ID tokens where `email_verified` is not strictly `true`, returning HTTP 403 with message "Google email address is not verified".
+
+This resolves AUTH-001, a P0 security blocker identified in the production readiness checklist (`docs/production-readiness-checklist.md`). The vulnerability allowed account takeover: an attacker with an unverified Google account matching an existing user's email could log in as that user.
+
+## Change
+
+**`backend/app/auth/google.py`** — `verify_google_token()`:
+- After validating `email` and `sub` are present, added a check: `if email_verified is not True`.
+- Uses strict identity check (`is not True`) to reject both `False` and missing/`None` values.
+- Returns 403 FORBIDDEN with a clear error message and structured logging.
+- The check runs before any database lookup, so unverified tokens never reach `find_or_create_google_user()`.
+
+## Tests
+
+**`backend/tests/test_google_auth.py`** — 4 new tests, 3 existing tests updated:
+- `test_google_login_rejects_unverified_email` — `email_verified: False` → 403
+- `test_google_login_rejects_missing_email_verified` — no `email_verified` field → 403
+- `test_google_login_rejects_unverified_email_for_existing_user` — existing account with unverified token → 403, no `last_login` update
+- `test_google_login_accepts_verified_email` — `email_verified: True` → 200, user created
+- Existing tests updated to include `email_verified: True` in their token claims
+
+## Security Impact
+
+| Before | After |
+| :--- | :--- |
+| Any Google token with valid `email` + `sub` was accepted | Only tokens with `email_verified: true` are accepted |
+| Unverified Google accounts could link to existing users by email | Unverified accounts are rejected before any DB operation |
+| Account takeover via unverified email match was possible | Attack vector is closed |
+
+## Status
+
+**RESOLVED** — AUTH-001 is fixed. The production readiness checklist's P0 security blocker is cleared.
+
+## Files Changed
+- `backend/app/auth/google.py` (email_verified enforcement)
+- `backend/tests/test_google_auth.py` (4 new tests, 3 updated)
+- `docs/product-decisions.md` (this entry)
+
+## Validation
+- `pytest tests/test_google_auth.py` — 7/7 PASS
+- `git diff --check` — PASS
