@@ -186,7 +186,7 @@ function MyGamesPage({ onBack }) {
 
       {loading && <p className="my-games-loading">{t('myGames.loading')}</p>}
       {error && (
-        <div className="my-games-error">
+        <div className="my-games-error" role="alert">
           <p>{error}</p>
           <button type="button" onClick={loadGames}>{t('admin.retry')}</button>
         </div>

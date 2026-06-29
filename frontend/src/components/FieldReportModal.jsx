@@ -122,7 +122,7 @@ function FieldReportModal({ field, onClose }) {
             />
           </label>
 
-          {error ? <p className="modal-error">{error}</p> : null}
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
           {successMessage ? <p className="modal-success">{successMessage}</p> : null}
 
           <div className="field-report-actions">

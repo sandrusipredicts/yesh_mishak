@@ -67,7 +67,7 @@ test('first launch requires language choice once and persists it', async ({ page
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
-  await expect(page.getByRole('button', { name: 'Login' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible()
   await expect(page.getByLabel('Language')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => localStorage.getItem('app_language'))).toBe('en')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('language_selected'))).toBe('true')
@@ -75,7 +75,7 @@ test('first launch requires language choice once and persists it', async ({ page
   await page.reload()
 
   await expect(page.getByRole('heading', { name: 'Choose your language' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Login' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible()
 })
 
 test('settings language selector updates direction and saves preference', async ({ page }) => {

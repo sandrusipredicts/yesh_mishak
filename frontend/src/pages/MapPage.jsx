@@ -554,7 +554,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   return (
     <main className={`map-page${currentUserId ? ' has-toolbar' : ''}`}>
-      {error ? <div className="map-error">{error}</div> : null}
+      {error ? <div className="map-error" role="alert">{error}</div> : null}
       {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
 
       <div className="map-floating-controls">

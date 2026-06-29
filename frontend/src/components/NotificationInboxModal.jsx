@@ -129,7 +129,7 @@ function NotificationInboxModal({
             </button>
           </div>
 
-          {error ? <p className="modal-error">{error}</p> : null}
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
 
           <div className="notifications-list">
             {notifications.length ? (

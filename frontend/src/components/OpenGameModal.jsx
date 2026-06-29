@@ -159,7 +159,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
                   required
                 />
               </label>
-              {fieldErrors.schedule ? <p className="form-field-error">{fieldErrors.schedule}</p> : null}
+              {fieldErrors.schedule ? <p className="form-field-error" id="error-schedule">{fieldErrors.schedule}</p> : null}
             </div>
           ) : null}
 
@@ -169,6 +169,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
               value={sportType}
               onChange={(event) => setSportType(event.target.value)}
               required
+              aria-describedby={fieldErrors.sportType ? 'error-sportType' : undefined}
             >
               {fieldSportType === 'both' ? <option value="">{t('openGame.chooseSport')}</option> : null}
               {(fieldSportType === 'football' || fieldSportType === 'both') ? (
@@ -178,7 +179,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
                 <option value="basketball">{t('openGame.basketball')}</option>
               ) : null}
             </select>
-            {fieldErrors.sportType ? <span className="form-field-error">{fieldErrors.sportType}</span> : null}
+            {fieldErrors.sportType ? <span className="form-field-error" id="error-sportType">{fieldErrors.sportType}</span> : null}
           </label>
 
           <label>
@@ -191,8 +192,9 @@ function OpenGameModal({ field, onClose, onCreated }) {
               value={playersPresent}
               onChange={(event) => setPlayersPresent(event.target.value)}
               required
+              aria-describedby={fieldErrors.playersPresent ? 'error-playersPresent' : undefined}
             />
-            {fieldErrors.playersPresent ? <span className="form-field-error">{fieldErrors.playersPresent}</span> : null}
+            {fieldErrors.playersPresent ? <span className="form-field-error" id="error-playersPresent">{fieldErrors.playersPresent}</span> : null}
           </label>
 
           <label>
@@ -205,8 +207,9 @@ function OpenGameModal({ field, onClose, onCreated }) {
               value={maxPlayers}
               onChange={(event) => setMaxPlayers(event.target.value)}
               required
+              aria-describedby={fieldErrors.maxPlayers ? 'error-maxPlayers' : undefined}
             />
-            {fieldErrors.maxPlayers ? <span className="form-field-error">{fieldErrors.maxPlayers}</span> : null}
+            {fieldErrors.maxPlayers ? <span className="form-field-error" id="error-maxPlayers">{fieldErrors.maxPlayers}</span> : null}
           </label>
 
           <label>
@@ -219,7 +222,7 @@ function OpenGameModal({ field, onClose, onCreated }) {
             />
           </label>
 
-          {error ? <p className="modal-error">{error}</p> : null}
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
 
           <button className="primary-panel-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? t('openGame.opening') : t('openGame.title')}

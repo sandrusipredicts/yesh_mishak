@@ -193,13 +193,13 @@ function AdminFields() {
         </button>
       </div>
 
-      {actionError ? <p className="admin-error">{actionError}</p> : null}
+      {actionError ? <p className="admin-error" role="alert">{actionError}</p> : null}
 
       {activeTab === 'pending' ? (
         <section className="admin-fields-panel" aria-label={t('admin.pendingFields')}>
           {isPendingLoading ? <p className="admin-loading">{t('admin.loadingPendingFields')}</p> : null}
           {pendingError ? (
-            <div className="admin-error">
+            <div className="admin-error" role="alert">
               <p>{pendingError}</p>
               <button type="button" onClick={() => setRetryKey((k) => k + 1)}>{t('admin.retry')}</button>
             </div>
@@ -261,7 +261,7 @@ function AdminFields() {
         <section className="admin-fields-panel" aria-label={t('admin.allFieldsLabel')}>
           {isAllFieldsLoading ? <p className="admin-loading">{t('admin.loadingFields')}</p> : null}
           {allFieldsError ? (
-            <div className="admin-error">
+            <div className="admin-error" role="alert">
               <p>{allFieldsError}</p>
               <button type="button" onClick={loadAllFields}>{t('admin.retry')}</button>
             </div>
@@ -295,6 +295,7 @@ function AdminFields() {
                           value={field.status ?? 'open'}
                           onChange={(event) => handleStatusChange(field, event.target.value)}
                           disabled={workingFieldId === field.id}
+                          aria-label={t('admin.fieldStatusLabel', { name: field.name || field.id })}
                         >
                           {FIELD_STATUSES.map((status) => (
                             <option key={status} value={status}>

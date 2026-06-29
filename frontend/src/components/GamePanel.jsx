@@ -288,7 +288,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
               isOpen: state.gameId === gameId ? !state.isOpen : true,
             }))}
           aria-expanded={areParticipantsOpen}
-          aria-controls="game-participants-list"
+          aria-controls={`game-participants-list-${gameId}`}
         >
           <span>{t('game.participants', { count: participantCount })}</span>
           <span className="participants-toggle-icon" aria-hidden="true">▾</span>
@@ -297,7 +297,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
         {areParticipantsOpen && hasParticipants ? (
           <ul
             className="participants-list"
-            id="game-participants-list"
+            id={`game-participants-list-${gameId}`}
             aria-label={t('game.participantsLabel')}
           >
             {participants.map((participant, index) => {
@@ -383,7 +383,7 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       </Modal>
 
       {successMessage ? <p className="panel-success">{successMessage}</p> : null}
-      {error ? <p className="panel-error">{error}</p> : null}
+      {error ? <p className="panel-error" role="alert">{error}</p> : null}
     </div>
   )
 }

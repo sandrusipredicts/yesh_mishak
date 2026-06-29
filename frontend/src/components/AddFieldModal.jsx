@@ -234,7 +234,7 @@ function AddFieldModal({ onClose, onCreated }) {
 
           <p className="form-hint">{t('addField.locationHint')}</p>
 
-          {error ? <p className="modal-error">{error}</p> : null}
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
 
           <div className="field-report-actions">
             <button className="secondary-modal-button" type="button" onClick={onClose} disabled={isSubmitting}>

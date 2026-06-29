@@ -205,12 +205,12 @@ function AdminUsers() {
 
       {isLoading ? <p className="admin-loading">{t('admin.loadingUsers')}</p> : null}
       {error ? (
-        <div className="admin-error">
+        <div className="admin-error" role="alert">
           <p>{error}</p>
           <button type="button" onClick={loadUsers}>{t('admin.retry')}</button>
         </div>
       ) : null}
-      {actionError ? <p className="admin-error">{actionError}</p> : null}
+      {actionError ? <p className="admin-error" role="alert">{actionError}</p> : null}
 
       {!isLoading && !error && users.length === 0 ? (
         <p className="admin-empty-state">{t('admin.noUsers')}</p>

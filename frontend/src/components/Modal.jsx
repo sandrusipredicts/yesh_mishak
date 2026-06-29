@@ -1,5 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function Modal({
   isOpen = true,
@@ -9,7 +12,32 @@ export function Modal({
   isConfirm = false,
   children,
 }) {
+  const dialogRef = useRef(null)
+  const previousFocusRef = useRef(null)
+
   useBodyScrollLock(isOpen)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    previousFocusRef.current = document.activeElement
+
+    const timer = window.setTimeout(() => {
+      const dialog = dialogRef.current
+      if (!dialog) return
+      const first = dialog.querySelector(FOCUSABLE_SELECTOR)
+      if (first) {
+        first.focus()
+      } else {
+        dialog.focus()
+      }
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timer)
+      previousFocusRef.current?.focus()
+    }
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -17,6 +45,29 @@ export function Modal({
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
         onClose?.()
+        return
+      }
+
+      if (event.key !== 'Tab') return
+
+      const dialog = dialogRef.current
+      if (!dialog) return
+
+      const focusable = [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)]
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
       }
     }
 
@@ -40,10 +91,12 @@ export function Modal({
   return (
     <div className={backdropClass} role="presentation" onClick={handleBackdropClick}>
       <section
+        ref={dialogRef}
         className={containerClass}
         role={isConfirm ? 'alertdialog' : 'dialog'}
         aria-modal="true"
         aria-labelledby={ariaLabelledBy}
+        tabIndex={-1}
       >
         {!isConfirm && onClose && (
           <div className="modal-sticky-close">
