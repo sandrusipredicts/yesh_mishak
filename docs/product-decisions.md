@@ -23543,3 +23543,241 @@ No critical network failure UX issues found. The app does not crash, does not sh
 - `docs/product-decisions.md`
 
 No application code or test code changed.
+
+---
+
+# ISSUE-175 — Validate mobile loading states (2026-06-29)
+
+## Decision Record
+
+| Field | Value |
+| :--- | :--- |
+| Issue | ISSUE-175 |
+| Title | Validate mobile loading states |
+| Priority | P1 |
+| Date | 2026-06-29 |
+| Status | PASS WITH NOTES |
+| Release Gate | Passed |
+| Dependencies | ISSUE-171, ISSUE-172, ISSUE-173 |
+
+## Context
+
+Loading states must provide visible feedback, clear after success or failure, avoid infinite spinners, prevent duplicate submissions, and keep the mobile layout usable. This review audits every loading state across all app flows.
+
+## Build / Lint / Test Baseline
+
+| Check | Result |
+| :--- | :--- |
+| `npm run build` | PASS |
+| `npx eslint src/ --max-warnings 0` | 1 pre-existing error: `MyGamesPage.jsx:129` — `setState` in `useEffect` (`react-hooks/set-state-in-effect`). Not introduced by this issue. |
+| Playwright tests (91 total) | 84 pass, 7 fail (pre-existing `field-navigation.spec.js` marker click timeouts) |
+
+## Loading State Audit
+
+### LS-01: Login (`LoginPage.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | `<p className="login-status">{t('auth.signingIn')}</p>` shown during auth (line 356) |
+| Clears on success | PASS | `finally { setIsLoading(false) }` — `handlePasswordLogin` (line 183), `handleRegister` (line 204), Google callback (line 113) |
+| Clears on failure | PASS | Same `finally` blocks |
+| Duplicate prevention | PASS | `disabled={isLoading}` on login submit (line 262), `disabled={isLoading \|\| passwordMismatch}` on register (line 344) |
+
+### LS-02: Initial Map Load (`MapPage.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | `.map-loading` card with animated `.map-loading-spinner` (800ms CSS keyframe). `role="status"`, `aria-live="polite"` (line 662-666) |
+| Loading condition | PASS | Only shown when `isFieldsLoading && !fields.length` — suppressed when cached fields exist |
+| Clears on success/failure | PASS | `FieldLoader` sets `onLoadingChange(false)` in `finally` (line 241-243) |
+| Mobile fit | PASS | `max-width: min(280px, calc(100% - 40px))`, safe-area-aware positioning |
+| Request dedup | PASS | `latestRequestId` ref prevents stale results |
+
+### LS-03: Fields Load (retry layer)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Retry mechanism | PASS | `retrySafeRead()` — 3 attempts, jittered backoff (500ms, 1500ms) on 5xx/429 |
+| Offline short-circuit | PASS | `isBrowserOffline()` check before retry |
+| Error display | PASS | `.map-error` card: red text, max-width 280px |
+| Debounce | PASS | `FIELD_LOAD_DEBOUNCE_MS = 250` prevents rapid re-fetching |
+
+### LS-04: Games Load (`MyGamesPage.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | `<p className="my-games-loading">{t('myGames.loading')}</p>` (line 167) |
+| Clears on success/failure | PASS | `finally { setLoading(false) }` (line 124) |
+| Empty vs loading | PASS | Empty state `{!loading && !error && !hasAnyGames}` — shown only after load completes (line 175) |
+| Retry button | PASS | Error state shows `<button onClick={loadGames}>` (line 171) |
+
+### LS-05: Join Game (`GamePanel.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Clears on success/failure | PASS | `finally { setIsLoading(false) }` in `handleJoin` (182), `handleLeave` (196), `handleExtend` (210), `handleCloseGame` (226) |
+| Duplicate prevention | PASS | `cannotJoinOrLeave = isLoading \|\| !gameId \|\| !normalizedCurrentUserId \|\| !isActionableGame` — disables join/leave (lines 327, 338). `cannotUseActiveControls` disables extend/close (lines 349, 360) |
+| False success prevention | PASS | Success message only after `await closeGame()` + `await onUpdate()` complete |
+
+### LS-06: Create Game (`OpenGameModal.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | Button text changes: `{isSubmitting ? t('openGame.opening') : t('openGame.title')}` (line 225) |
+| Clears on success/failure | PASS | `finally { setIsSubmitting(false) }` (line 104) |
+| Duplicate prevention | PASS | `disabled={isSubmitting}` (line 224) |
+| Validation guard | PASS | Validation runs before `setIsSubmitting(true)` — invalid forms don't enter loading |
+
+### LS-07: Create Field (`AddFieldModal.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | `{isSubmitting ? t('addField.submitting') : t('addField.submit')}` (line 244) |
+| Clears on success/failure | PASS | `finally { setIsSubmitting(false) }` (line 128) |
+| Duplicate prevention | PASS | Submit `disabled={isSubmitting}` (line 243), cancel `disabled={isSubmitting}` (line 240) |
+
+### LS-08: Notifications — Mark Read (`NotificationInboxModal.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Mark single read | PASS | `readingNotificationId` tracks active item. `disabled={readingNotificationId === notification.id}` (lines 148, 160) |
+| Mark all read | PASS | `isMarkingAllRead` flag. Button: `disabled={!unreadCount \|\| isMarkingAllRead}` (line 126). Text: `t('notifications.marking')` during operation |
+| Clears on success/failure | PASS | `finally { setReadingNotificationId('') }` (line 81), `finally { setIsMarkingAllRead(false) }` (line 108) |
+| Re-entry guard | PASS | `if (!isNotificationUnread(notification) \|\| readingNotificationId) { return }` (line 58) |
+
+### LS-09: Notifications — Preferences (`NotificationsModal.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Initial load | PASS | `isLoading` starts `true`. `{isLoading ? (loading view) : (form view)}` (line 375) |
+| Clears on success/failure | PASS | `finally { if (isMounted) setIsLoading(false) }` (line 152) |
+| Save guard (ref-based) | PASS | `isSavingRef.current` prevents concurrent saves (line 232). Cleared in `finally` (line 291). More robust than state — synchronous update. |
+| Push save guard | PASS | `isPushSavingRef.current` prevents concurrent push operations (lines 297, 321, 344). All have `finally` cleanup. |
+| Save button | PASS | `disabled={isSaving}`, text changes to `t('notifications.saving')` (lines 492-493) |
+| Push buttons | PASS | `disabled={isPushSaving}` on enable/disable/test buttons (lines 395, 404) |
+
+### LS-10: User Location (`MapPage.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Timeout | PASS | `timeout: 10000` (10s) prevents indefinite wait (line 367) |
+| Failure handling | PASS | Error callback: `setUserLocation(null)` — map remains usable, location button hidden |
+| isMounted guard | PASS | Prevents state update after unmount (lines 343, 347, 360, 372) |
+| No loading indicator | NOTE | No visible "locating..." feedback — user sees default center until location resolves |
+
+### LS-11: Field Report (`FieldReportModal.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Visible feedback | PASS | `{isSubmitting ? t('fieldReport.submitting') : t('fieldReport.submit')}` (line 133) |
+| Clears on success/failure | PASS | `finally { setIsSubmitting(false) }` (line 81). Success: message shown 700ms, then modal closes. |
+| Duplicate prevention | PASS | `disabled={isSubmitting}` on submit (132), cancel (129), category select (101), description textarea (120). Guard: `if (isSubmitting) { return }` (line 47) |
+
+### LS-12: Backend Status (`BackendStatusPage.jsx`)
+
+| Check | Result | Detail |
+| :--- | :--- | :--- |
+| Clears on success/failure | PASS | `finally { if (isMounted) setLoading(false) }` (line 27) |
+| isMounted guard | PASS | Prevents state update after unmount |
+
+### LS-13: Admin Panel (4 sub-components)
+
+| Component | Loading Var | Clears (finally) | Duplicate Prevention |
+| :--- | :--- | :--- | :--- |
+| AdminStats | `isLoading` | PASS (line 39) | N/A (read-only) |
+| AdminUsers | `isLoading` + `actionLoading` | PASS (lines 62, 77, 117) | `disabled={actionLoading === user.id}` per-user |
+| AdminFields | `isPendingLoading` + `isAllFieldsLoading` + `workingFieldId` | PASS (lines 73, 92, 129, 146, 169) | `disabled={workingFieldId === field.id}` per-field |
+| AdminGames | `isLoading` + `workingGameId` | PASS (lines 120, 140) | `disabled={workingGameId === game.id}` per-game |
+| AdminFieldReports | `isLoading` | PASS (line 43) | N/A (read-only view) |
+
+## Loading State Summary
+
+### All 21 Loading Variables — Finally Block Verification
+
+| # | Variable | File | Finally Clears? |
+| :--- | :--- | :--- | :--- |
+| 1 | `isFieldsLoading` | MapPage.jsx | YES (line 242) |
+| 2 | `isLoading` | LoginPage.jsx | YES (lines 113, 183, 204) |
+| 3 | `isLoading` | GamePanel.jsx | YES (lines 182, 196, 210, 226) |
+| 4 | `isLoading` | NotificationsModal.jsx | YES (line 152) |
+| 5 | `isSaving` | NotificationsModal.jsx | YES (line 292) |
+| 6 | `isPushSaving` | NotificationsModal.jsx | YES (lines 316, 339, 362) |
+| 7 | `isSubmitting` | AddFieldModal.jsx | YES (line 128) |
+| 8 | `isSubmitting` | OpenGameModal.jsx | YES (line 104) |
+| 9 | `isSubmitting` | FieldReportModal.jsx | YES (line 81) |
+| 10 | `readingNotificationId` | NotificationInboxModal.jsx | YES (line 81) |
+| 11 | `isMarkingAllRead` | NotificationInboxModal.jsx | YES (line 108) |
+| 12 | `loading` | MyGamesPage.jsx | YES (line 124) |
+| 13 | `loading` | BackendStatusPage.jsx | YES (line 27) |
+| 14 | `isLoading` | AdminStats.jsx | YES (line 39) |
+| 15 | `isLoading` | AdminUsers.jsx | YES (lines 62, 77) |
+| 16 | `actionLoading` | AdminUsers.jsx | YES (line 117) |
+| 17 | `isPendingLoading` | AdminFields.jsx | YES (line 92) |
+| 18 | `isAllFieldsLoading` | AdminFields.jsx | YES (line 73) |
+| 19 | `workingFieldId` | AdminFields.jsx | YES (lines 129, 146, 169) |
+| 20 | `isLoading` | AdminGames.jsx | YES (lines 120, 140) |
+| 21 | `isLoading` | AdminFieldReports.jsx | YES (line 43) |
+
+**Result: 21/21 loading variables clear in `finally` blocks on both success and failure paths.**
+
+## Empty State vs Loading State
+
+| Component | Loading Shown | Empty Shown | Correctly Distinguished |
+| :--- | :--- | :--- | :--- |
+| MapPage fields | `isFieldsLoading && !fields.length` → spinner | No fields → empty map (no markers) | YES |
+| MyGamesPage | `loading` → loading text | `!loading && !error && !hasAnyGames` → empty text | YES |
+| Notification inbox | No explicit loading | `notifications.length === 0` → "No notifications yet." | YES |
+| Notification prefs | `isLoading` → loading view | Fields empty → "No fields" text | YES |
+| Admin users | `isLoading` → loading | `!isLoading && !error && users.length === 0` → empty text | YES |
+| Admin fields | `isPendingLoading` / `isAllFieldsLoading` → loading | Empty arrays → "No pending fields" / "No fields found" | YES |
+| Admin field reports | `isLoading` → loading | `!isLoading && !error && reports.length === 0` → empty text | YES |
+| Backend status | `loading` → passed to StatusCard | Error → StatusCard error view | YES |
+
+## Mobile Layout During Loading
+
+| Indicator | Class | Mobile Safe | Detail |
+| :--- | :--- | :--- | :--- |
+| Map spinner | `.map-loading` | YES | `max-width: min(280px, calc(100% - 40px))`, safe-area-aware, toolbar offset |
+| Login status | `.login-status` | YES | Inline text below form |
+| MyGames loading | `.my-games-loading` | YES | Inline paragraph, page padding |
+| Offline banner | `.offline-banner` | YES | `max-width: min(92vw, 560px)`, centered, z-3000, safe-area-aware |
+| Button text swap | Various | YES | In-place text update, no layout shift |
+| Error messages | `.modal-error` / `.panel-error` / `.map-error` | YES | Container-constrained |
+
+## Issues Found
+
+| ID | Severity | Description | Impact | Action |
+| :--- | :--- | :--- | :--- | :--- |
+| LOAD-001 | P4 | No visible indicator during geolocation acquisition (up to 10s) | User sees default map center without feedback. | Consistent with ISSUE-171 approach. Consider adding indicator in future. |
+| LOAD-002 | P4 | Pre-existing lint error: `MyGamesPage.jsx:129` — `setState` in `useEffect` | Functions correctly but violates lint rule. | Not an ISSUE-175 concern. |
+| LOAD-003 | P3 | 7 pre-existing test failures in `field-navigation.spec.js` | Leaflet marker click timeouts. Not related to loading states. | Not an ISSUE-175 concern. |
+
+No critical loading state issues found.
+
+## Final Decision
+
+**PASS WITH NOTES**
+
+### Pass Justification
+
+- All 21 loading state variables audited across 14 components — every one clears in `finally` blocks on both success and failure paths
+- No infinite spinner possible — all loading flags guaranteed to clear
+- No frozen screen — UI remains responsive, only active button disabled during operations
+- All submit/action buttons have `disabled` props referencing loading flags — duplicate clicks prevented everywhere
+- Empty state correctly distinguished from loading state in all components
+- Mobile layout stays usable during all loading states — indicators respect viewport and safe areas
+- Retry mechanisms present: explicit retry buttons (MyGamesPage), auto-retry via `retrySafeRead` (fields), natural retry via user action (map pan, form resubmit)
+- Build passes clean
+
+### Notes
+
+1. **No geolocation acquisition indicator** (LOAD-001, P4). Map shows default center for up to 10s. Consistent with ISSUE-171.
+2. **Pre-existing lint error** (LOAD-002, P4). `MyGamesPage.jsx:129`. Not introduced by ISSUE-175.
+3. **No explicit HTTP timeout** — per NET-001 from ISSUE-174. Loading persists until browser-level timeout on extreme latency.
+4. **Live preview not performed.** Supabase auth prevents preview-based validation.
+
+## Files Changed
+
+- `docs/product-decisions.md`
+
+No application code or test code changed.
