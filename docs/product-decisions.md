@@ -24302,3 +24302,52 @@ Created a comprehensive production configuration readiness audit (`docs/producti
 - `npm run lint` — PASS
 - `npm run build` — PASS
 - `git diff --check` — PASS
+
+---
+
+# EPIC 03 — Production Console Verification Follow-Up
+
+**Date:** 2026-06-29
+**Author:** Claude (automated)
+**Scope:** EPIC 03 mobile launch readiness — verify production config items from `docs/production-config-readiness.md` using live site evidence
+**Branch:** `issue-epic03-console-verification`
+
+## Decision
+
+Verify the 10 production configuration items (CFG-01 through CFG-10) identified in the EPIC 03 config audit by inspecting the live production site at `https://yesh-mishak.vercel.app` and its API at `https://yeshmishak-production.up.railway.app`.
+
+## Method
+
+1. Inspected production JS bundle for baked-in `VITE_*` env var values (Firebase keys, API URL, Google client ID, VAPID key).
+2. Verified cross-origin requests from Vercel frontend to Railway backend (CORS).
+3. Confirmed Google OAuth Sign-In works end-to-end for external users (GCP console settings functional).
+4. Confirmed backend is operational with working Supabase DB queries and Firebase initialization.
+
+## Results
+
+| # | Item | Status |
+| :--- | :--- | :--- |
+| CFG-01 | Frontend env vars in Vercel | **Verified** — all 10 VITE_ vars in production bundle |
+| CFG-02 | Backend env vars in Railway | **Verified (functional)** — backend operational |
+| CFG-03 | VITE_API_URL → Railway | **Verified** — points to `yeshmishak-production.up.railway.app` |
+| CFG-04 | CORS includes Vercel URL | **Verified** — cross-origin HTTP 200 |
+| CFG-05 | GOOGLE_CLIENT_ID match | **Verified (functional)** — Google Sign-In works end-to-end |
+| CFG-06 | GCP consent screen published | **Verified (functional)** — external user authenticated |
+| CFG-07 | GCP authorized JS origins | **Verified (functional)** — Google Sign-In loads on production |
+| CFG-08 | Firebase client keys | **Verified** — all 7 Firebase vars in bundle |
+| CFG-09 | Firebase service account | **Verified (functional)** — backend starts without errors |
+| CFG-10 | JWT_SECRET strength | **Not Accessible** — cannot inspect Railway env var |
+| CFG-11 | AUTH-001 resolved | **Resolved** — PR #737 merged |
+
+## Updated Decision
+
+**Web: CONDITIONAL GO** — 9/10 verified, 1 Not Accessible (JWT_SECRET strength audit requires Railway dashboard access).
+**Capacitor: NO-GO** — unchanged, native config entirely missing.
+
+## Files Changed
+- `docs/production-config-readiness.md` (updated with verification evidence)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-launch-readiness-checklist.md` (ENV-BLOCKER and production config row updated)
+
+## Validation
+- `git diff --check`
