@@ -24166,18 +24166,24 @@ Created a comprehensive physical mobile map gesture validation document (`docs/m
 
 ## Current Status
 
-**BLOCKED — awaiting physical device testing**
+**CONDITIONAL GO — Android Chrome PASS; iPhone Safari NOT TESTED**
 
-The code audit confirms the implementation is correctly configured for mobile touch interaction. No code changes are needed. The gate remains blocked until the 27-case test matrix is executed on at least one Android Chrome device and results are recorded.
+Physical device testing executed on 2026-06-29 by Orel on Samsung Galaxy S24 Ultra (Android 16, Chrome) against https://yesh-mishak.vercel.app/.
+
+**Android Chrome results:** 23/27 PASS, 2 NT (orientation G-23/G-24), 1 N/A (iPhone home indicator G-27), 0 issues found. Performance: fast tile loading, smooth panning and zoom, instant marker taps, smooth modal animations.
+
+**iPhone Safari:** NOT TESTED — no physical iOS device available. Automated WebKit simulation from prior ISSUE-172 provides partial coverage but does not replace physical Safari testing.
+
+GO criteria: Criterion 1 (Android Chrome) met. Criterion 2 (iPhone Safari) documented as missing — product owner acceptance required. Criteria 3–5 met.
 
 ## Dependencies
-- ISSUE-172 (2026-06-28) automation-only validation: BLOCKED
+- ISSUE-172 (2026-06-28) automation-only validation: BLOCKED → superseded by physical validation
 - ISSUE-171 GPS simulation: PASS WITH NOTES
 
 ## Files Changed
-- `docs/mobile-map-gesture-validation.md` (new — physical device test protocol and code audit)
-- `docs/product-decisions.md` (this entry appended)
-- `docs/mobile-launch-readiness-checklist.md` (ISSUE-172 row updated)
+- `docs/mobile-map-gesture-validation.md` (updated with D-01 device evidence)
+- `docs/product-decisions.md` (this entry updated)
+- `docs/mobile-launch-readiness-checklist.md` (ISSUE-172 rows updated)
 
 ## Validation
 - `npm run lint` — PASS (0 errors on `src/`)
