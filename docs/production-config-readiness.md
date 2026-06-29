@@ -214,19 +214,22 @@ The existing production readiness checklist (`docs/production-readiness-checklis
 
 ## 11. Capacitor-Specific Configuration Gaps
 
-No Capacitor configuration files exist in the repository. The following must be created before packaging:
+Capacitor native setup was initialized on 2026-06-29. The following table reflects current status:
 
 | Item | File | Status |
 | :--- | :--- | :--- |
-| Capacitor config | `capacitor.config.ts` | **Missing** |
-| Android project | `android/` directory | **Missing** |
-| iOS project | `ios/` directory (if targeting iOS) | **Missing** |
-| App ID / bundle identifier | e.g., `com.yeshmishak.app` | **Missing** — needs decision |
-| App scheme | `server.androidScheme` (default: `https`) | **Missing** — affects CORS and OAuth |
+| Capacitor config | `frontend/capacitor.config.ts` | **Ready** — created with `appId: com.yeshmishak.app`, `webDir: dist`, `androidScheme: https` |
+| Android project | `frontend/android/` directory | **Ready** — generated via `npx cap add android`, synced |
+| iOS project | `ios/` directory (if targeting iOS) | **Missing** — not in scope for initial launch |
+| App ID / bundle identifier | `com.yeshmishak.app` | **Ready** — decided and configured |
+| App scheme | `server.androidScheme: "https"` | **Ready** — configured; origin will be `https://localhost` |
 | Deep links / universal links | URL scheme and associated domains | **Missing** — needs decision |
-| Splash screen / icons | Native asset generation | **Missing** |
-| Min SDK version | Android `minSdkVersion` | **Missing** — needs decision |
-| Permissions | Location, notifications, camera (if needed) | **Missing** — needs audit |
+| Splash screen / icons | Native asset generation | **Missing** — default Capacitor icons in place |
+| Min SDK version | Android `minSdkVersion: 24` (Android 7.0) | **Ready** — Capacitor 8 default |
+| Permissions | `INTERNET`, `POST_NOTIFICATIONS` | **Ready** — added to AndroidManifest.xml |
+| Native push plugin | `@capacitor/push-notifications@8.1.1` | **Ready** — installed and synced |
+| Native Google Sign-In plugin | Not installed | **Blocked** — `@codetrix-studio/capacitor-google-auth` requires Capacitor 6, incompatible with Capacitor 8. Needs alternative plugin or Credential Manager implementation |
+| `google-services.json` | `frontend/android/app/google-services.json` | **Missing** — must be downloaded from Firebase Console |
 
 ### 11.1 WebView origin assumptions
 
@@ -257,13 +260,13 @@ When Capacitor serves the web app, the origin seen by JavaScript depends on the 
 | CFG-09 | Firebase service account set in Railway | Needs Manual Verification | Same backend | Check Railway dashboard |
 | CFG-10 | `JWT_SECRET` is strong production value | Needs Manual Verification | Same backend | Check Railway env var |
 | CFG-11 | AUTH-001 resolved | **Blocked** | **Blocked** | ISSUE-111 |
-| CFG-12 | Capacitor config created | N/A | **Missing** | No `capacitor.config.ts` |
-| CFG-13 | App ID / bundle ID decided | N/A | **Missing** | Needs product decision |
-| CFG-14 | Native Google Sign-In plugin | N/A | **Missing** | Web flow won't work in WebView |
-| CFG-15 | Native push notifications plugin | N/A | **Missing** | Web Push API unavailable in WebView |
-| CFG-16 | `google-services.json` for Android | N/A | **Missing** | Required for native FCM |
+| CFG-12 | Capacitor config created | N/A | **Ready** | `frontend/capacitor.config.ts` created |
+| CFG-13 | App ID / bundle ID decided | N/A | **Ready** | `com.yeshmishak.app` |
+| CFG-14 | Native Google Sign-In plugin | N/A | **Blocked** | `@codetrix-studio/capacitor-google-auth` incompatible with Capacitor 8; needs alternative |
+| CFG-15 | Native push notifications plugin | N/A | **Ready** | `@capacitor/push-notifications@8.1.1` installed |
+| CFG-16 | `google-services.json` for Android | N/A | **Missing** | Must download from Firebase Console |
 | CFG-17 | Android signing key | N/A | **Blocked** | SIGNING-BLOCKER |
-| CFG-18 | CORS includes Capacitor origin | N/A | **Missing** | Depends on CFG-12 scheme choice |
+| CFG-18 | CORS includes Capacitor origin (`https://localhost`) | N/A | **Missing** | Must add to Railway `CORS_ORIGINS` |
 
 ---
 
@@ -275,44 +278,50 @@ When Capacitor serves the web app, the origin seen by JavaScript depends on the 
 
 ### Capacitor packaging readiness
 
-**NO-GO** — 7 items are Missing and 2 are Blocked:
+**CONDITIONAL NO-GO** — Capacitor foundation is in place (config, Android project, push plugin), but 4 items remain before a debug APK can be built:
 
-1. No `capacitor.config.ts` or native projects exist.
-2. Google Sign-In web flow will not work inside a Capacitor WebView — native plugin required.
-3. Web Push API (Firebase Messaging) is not supported in Capacitor WebViews — native push plugin required.
-4. CORS origins do not include Capacitor WebView origins.
+1. ~~No `capacitor.config.ts` or native projects exist.~~ **DONE** — created and synced.
+2. Google Sign-In web flow will not work inside a Capacitor WebView — native plugin required. **Blocked** — no Capacitor 8-compatible Google Sign-In plugin available; needs Credential Manager approach or plugin fork.
+3. ~~Web Push API (Firebase Messaging) is not supported in Capacitor WebViews — native push plugin required.~~ **DONE** — `@capacitor/push-notifications@8.1.1` installed.
+4. CORS origins do not include Capacitor WebView origin (`https://localhost`). **Missing** — must add to Railway `CORS_ORIGINS`.
 5. Android signing key is not established (SIGNING-BLOCKER).
-6. App ID, min SDK, and permissions are undecided.
-7. AUTH-001 security blocker remains open.
+6. ~~App ID, min SDK, and permissions are undecided.~~ **DONE** — `com.yeshmishak.app`, minSdk 24, `POST_NOTIFICATIONS` permission added.
+7. `google-services.json` not present — must download from Firebase Console.
 
 ### Blockers summary
 
-| Blocker | Owner | Dependency |
-| :--- | :--- | :--- |
-| AUTH-001 (account takeover risk) | Backend owner | ISSUE-111 |
-| SIGNING-BLOCKER (no Android signing key) | DevOps owner | Android Studio setup |
-| No Capacitor config | Frontend/mobile owner | Product decision on app ID, scheme |
-| No native Google Sign-In | Frontend/mobile owner | Capacitor plugin + GCP Android client |
-| No native push notifications | Frontend/mobile owner | Capacitor plugin + `google-services.json` |
-| Console verification (10 items) | DevOps owner | Access to Vercel, Railway, GCP dashboards |
+| Blocker | Owner | Dependency | Status |
+| :--- | :--- | :--- | :--- |
+| AUTH-001 (account takeover risk) | Backend owner | ISSUE-111 | **Resolved** (PR #737) |
+| SIGNING-BLOCKER (no Android signing key) | DevOps owner | Android Studio setup | **Blocked** |
+| ~~No Capacitor config~~ | ~~Frontend/mobile owner~~ | ~~Product decision on app ID, scheme~~ | **Done** |
+| Native Google Sign-In | Frontend/mobile owner | Capacitor 8-compatible plugin or Credential Manager | **Blocked** |
+| ~~No native push notifications~~ | ~~Frontend/mobile owner~~ | ~~Capacitor plugin~~ | **Done** |
+| `google-services.json` | DevOps owner | Firebase Console download | **Missing** |
+| CORS for `https://localhost` | DevOps owner | Railway `CORS_ORIGINS` update | **Missing** |
 
 ---
 
 ## 14. Recommended Next Steps
 
-1. **Manual console verification (CFG-01 through CFG-10):** DevOps owner checks Vercel, Railway, and GCP dashboards to confirm all env vars are set with production values. Record results back in this document.
-2. **Resolve AUTH-001 (ISSUE-111):** Harden Google OAuth account linking before any production traffic.
-3. **Decide Capacitor app identity:** App ID, bundle identifier, min SDK version, target SDK.
-4. **Initialize Capacitor:** `npx cap init`, generate Android project, configure `capacitor.config.ts`.
-5. **Add native Google Sign-In:** Install Capacitor Google Auth plugin, create Android OAuth client in GCP with SHA-1 fingerprint.
-6. **Add native push notifications:** Install `@capacitor/push-notifications`, add `google-services.json`, update backend token registration if needed.
-7. **Update CORS:** Add Capacitor WebView origin to `CORS_ORIGINS`.
+1. ~~**Manual console verification (CFG-01 through CFG-10):**~~ Pending — DevOps owner checks Vercel, Railway, and GCP dashboards.
+2. ~~**Resolve AUTH-001 (ISSUE-111):**~~ **DONE** — merged in PR #737.
+3. ~~**Decide Capacitor app identity:**~~ **DONE** — `com.yeshmishak.app`, minSdk 24, targetSdk 36.
+4. ~~**Initialize Capacitor:**~~ **DONE** — `capacitor.config.ts` created, Android project generated, `npx cap sync` successful.
+5. **Resolve native Google Sign-In:** `@codetrix-studio/capacitor-google-auth` is incompatible with Capacitor 8 (requires `^6.0.0`). Options: (a) use Android Credential Manager API directly, (b) find/fork a Capacitor 8-compatible plugin, (c) use WebView-compatible OAuth approach.
+6. **Add `google-services.json`:** Download from Firebase Console and place in `frontend/android/app/`. Required for native FCM push.
+7. **Update CORS:** Add `https://localhost` to Railway `CORS_ORIGINS` for Capacitor WebView requests.
 8. **Establish Android signing:** Generate release keystore, document key management.
+9. **Generate splash screen / icons:** Replace default Capacitor assets with Yesh Mishak branding.
 
 ---
 
 ## 15. Files Changed
 
-- `docs/production-config-readiness.md` (this document — new)
-- `docs/product-decisions.md` (production config readiness entry appended)
-- `docs/mobile-launch-readiness-checklist.md` (ENV-BLOCKER updated)
+- `docs/production-config-readiness.md` (this document — created in PR #736, updated with Capacitor setup status)
+- `docs/product-decisions.md` (production config readiness entry appended; Capacitor setup entry appended)
+- `docs/mobile-launch-readiness-checklist.md` (ENV-BLOCKER updated, Capacitor setup status updated)
+- `frontend/capacitor.config.ts` (new — Capacitor project configuration)
+- `frontend/android/` (new — generated Android native project)
+- `frontend/package.json` (updated — Capacitor dependencies added)
+- `frontend/eslint.config.js` (updated — `android/` added to global ignores)

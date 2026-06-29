@@ -24302,3 +24302,70 @@ Created a comprehensive production configuration readiness audit (`docs/producti
 - `npm run lint` — PASS
 - `npm run build` — PASS
 - `git diff --check` — PASS
+
+---
+
+# EPIC 03 — Capacitor Native Setup Readiness
+
+**Date:** 2026-06-29
+**Author:** Claude (automated)
+**Scope:** EPIC 03 mobile launch readiness — initialize Capacitor config, Android project, and native plugins
+**Branch:** `issue-epic03-capacitor-native-setup`
+
+## Decision
+
+Create the Capacitor native project foundation to unblock Android packaging evaluation. This is an infrastructure step — it does not complete Capacitor readiness or mark EPIC 03 done.
+
+## What Was Done
+
+1. **Capacitor dependencies installed:**
+   - `@capacitor/core@8.4.1` (runtime)
+   - `@capacitor/cli@8.4.1` (devDependency)
+   - `@capacitor/android@8.4.1` (Android platform)
+   - `@capacitor/push-notifications@8.1.1` (native push)
+   - `typescript` (devDependency — required by Capacitor CLI for `.ts` config)
+
+2. **`frontend/capacitor.config.ts` created:**
+   - `appId: "com.yeshmishak.app"`
+   - `appName: "Yesh Mishak"`
+   - `webDir: "dist"` (Vite output)
+   - `server.androidScheme: "https"` — WebView origin will be `https://localhost`
+   - `PushNotifications` plugin configured with `presentationOptions: ["badge", "sound", "alert"]`
+
+3. **Android project generated:** `npx cap add android` + `npx cap sync android` successful.
+   - Application ID: `com.yeshmishak.app`
+   - minSdk: 24 (Android 7.0), targetSdk/compileSdk: 36
+   - `POST_NOTIFICATIONS` permission added to AndroidManifest.xml
+   - `@capacitor/push-notifications` synced as Android plugin
+
+4. **ESLint config updated:** Added `android` to `globalIgnores` in `frontend/eslint.config.js` to prevent linting generated native Java/Gradle files.
+
+## What Is Blocked
+
+1. **Native Google Sign-In (CFG-14):** `@codetrix-studio/capacitor-google-auth` requires `@capacitor/core ^6.0.0` — incompatible with our Capacitor 8. Options:
+   - Use Android Credential Manager API directly via a custom Capacitor plugin
+   - Find or fork a Capacitor 8-compatible Google Auth plugin
+   - Use a WebView-compatible OAuth redirect flow instead of the Google Identity Services button
+2. **`google-services.json` (CFG-16):** Must be downloaded from Firebase Console and placed in `frontend/android/app/`.
+3. **CORS for Capacitor origin (CFG-18):** `https://localhost` must be added to Railway `CORS_ORIGINS`.
+4. **SIGNING-BLOCKER (CFG-17):** Android release keystore not established.
+
+## Capacitor Readiness Decision
+
+**CONDITIONAL NO-GO** — Foundation is in place (config, Android project, push plugin, permissions). 4 blockers remain before a debug APK can be built and tested. The most critical is the Google Sign-In plugin incompatibility.
+
+## Files Changed
+- `frontend/capacitor.config.ts` (new)
+- `frontend/android/` (new — generated Android project)
+- `frontend/package.json` + `frontend/package-lock.json` (Capacitor deps added)
+- `frontend/eslint.config.js` (`android` added to globalIgnores)
+- `frontend/android/app/src/main/AndroidManifest.xml` (`POST_NOTIFICATIONS` permission)
+- `docs/production-config-readiness.md` (sections 11–15 updated)
+- `docs/mobile-launch-readiness-checklist.md` (evidence snapshot + ENV-BLOCKER updated)
+- `docs/product-decisions.md` (this entry appended)
+
+## Validation
+- `npm run lint` — PASS
+- `npm run build` — PASS
+- `npx cap sync android` — PASS
+- `git diff --check` — PASS
