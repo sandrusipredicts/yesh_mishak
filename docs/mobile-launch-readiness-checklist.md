@@ -97,8 +97,8 @@ The **Revalidate** column is intentionally unchecked. The release owner checks i
 | A11Y-02 | Modal focus enters, remains trapped, and restores on close | Ready | Shared Modal focus management implemented | ISSUE-178 / PR #729; commit `f547803` | [ ] | Release owner |
 | A11Y-03 | Form errors, auth tabs, unique IDs, admin select, and city autocomplete expose correct semantics | Ready | All seven ISSUE-177 P1 findings fixed | ISSUE-178 / PR #729 | [ ] | Release owner |
 | A11Y-04 | Text remains readable and mobile inputs avoid iOS auto-zoom | Ready | Font audit passed; inputs use 16px mobile sizing | ISSUE-177 / PR #728; `docs/mobile-accessibility-review.md` | [ ] | Release owner |
-| A11Y-05 | Amber status/action text meets WCAG contrast | **Blocker** | Two P2 contrast failures remain (`CC-01`, `CC-02`) | ISSUE-177 / PR #728; `docs/mobile-accessibility-review.md` | [ ] | Frontend owner |
-| A11Y-06 | City suggestion targets meet 44×44px minimum | **Blocker** | P2 touch-target gap `TT-01` remains | ISSUE-177 / PR #728; `docs/mobile-accessibility-review.md` | [ ] | Frontend owner |
+| A11Y-05 | Amber status/action text meets WCAG contrast | Ready | Darkened #d97706 to #b45309; contrast ratio is 5.50:1 on #fffbeb and 5.70:1 on white | ISSUE-177 P2 fix, 2026-06-29 | [ ] | Release owner |
+| A11Y-06 | City suggestion targets meet 44×44px minimum | Ready | Added min-height: 44px to city suggestions button on mobile viewports | ISSUE-177 P2 fix, 2026-06-29 | [ ] | Release owner |
 | A11Y-07 | Focus indicators are clearly visible on all controls | Needs Verification | Two custom focus outlines were assessed as too faint (P2) | ISSUE-177 / PR #728 | [ ] | Frontend owner |
 | A11Y-08 | Reduced-motion preference is respected | Needs Verification | Infinite marker/loading animations lack confirmed reduced-motion handling (P2) | ISSUE-177 / PR #728 | [ ] | Frontend owner |
 | A11Y-09 | VoiceOver and TalkBack complete critical journeys | Needs Verification | Code-level audit exists; physical screen-reader execution is not recorded | ISSUE-177, ISSUE-178 | [ ] | Accessibility QA |
@@ -234,10 +234,9 @@ The decision remains NO-GO if any of the following is true:
 ### Remaining Blockers
 
 1. **MAP-BLOCKER:** ISSUE-172 remains BLOCKED. Native double-tap, WebKit pinch, repeated marker-tap reliability, perceived smoothness, gesture conflicts, and multi-device physical validation are incomplete.
-2. **A11Y-BLOCKER:** ISSUE-177 identified unresolved P2 contrast failures (`CC-01`, `CC-02`) and the P2 city-suggestion touch-target failure (`TT-01`). ISSUE-178 fixed the seven P1 findings, not these P2 items.
-3. **SIGNING-BLOCKER:** Android release signing readiness has no evidence.
-4. **ENV-BLOCKER:** Production Capacitor environment values and their secure injection path have not been defined or verified.
-5. **LINT-BLOCKER:** `npm run lint` currently fails on `frontend/tests/performance/baseline.spec.js:210` because `process` is not defined by the ESLint environment.
+2. **SIGNING-BLOCKER:** Android release signing readiness has no evidence.
+3. **ENV-BLOCKER:** Production Capacitor environment values and their secure injection path have not been defined or verified.
+4. **LINT-BLOCKER:** `npm run lint` currently fails on `frontend/tests/performance/baseline.spec.js:210` because `process` is not defined by the ESLint environment.
 
 ### Recommended Next Steps Before Starting Capacitor
 

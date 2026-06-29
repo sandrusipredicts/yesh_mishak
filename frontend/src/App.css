@@ -2094,7 +2094,7 @@ select {
 }
 
 .admin-user-status.suspended {
-  color: #d97706;
+  color: #b45309;
 }
 
 .admin-user-status.unknown {
@@ -2133,7 +2133,7 @@ select {
 
 .admin-action-button.suspend {
   background: #fffbeb;
-  color: #d97706;
+  color: #b45309;
 }
 
 .admin-action-button.suspend:hover:not(:disabled) {
@@ -2310,7 +2310,7 @@ select {
 }
 
 .my-games-status-full {
-  color: #d97706;
+  color: #b45309;
 }
 
 .my-games-status-finished {
@@ -2558,6 +2558,13 @@ select {
   .city-autocomplete-suggestions,
   .city-suggestions {
     max-height: min(220px, 40dvh);
+  }
+
+  .city-suggestions button,
+  .city-autocomplete-option {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
   }
 
   .modal-close-button,
