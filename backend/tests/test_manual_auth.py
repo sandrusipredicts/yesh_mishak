@@ -207,6 +207,60 @@ def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
     assert "strongpass123" not in caplog.text
 
 
+def test_login_accepts_valid_email_and_password(monkeypatch, caplog) -> None:
+    configure_test_settings(monkeypatch)
+    register_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
+    TestClient(app).post("/auth/register", json=register_payload())
+
+    with caplog.at_level(logging.INFO, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual@example.com", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["email"] == "manual@example.com"
+    assert body["user"]["username"] == "manual-user"
+    success_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.login.success"
+    ]
+    assert success_records
+
+
+def test_login_email_is_case_insensitive(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    register_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
+    TestClient(app).post("/auth/register", json=register_payload())
+
+    response = TestClient(app).post(
+        "/auth/login",
+        json={"username": "  Manual@Example.COM  ", "password": "strongpass123"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "manual@example.com"
+
+
+def test_login_rejects_unknown_identifier(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+
+    response = TestClient(app).post(
+        "/auth/login",
+        json={"username": "nonexistent@example.com", "password": "pass123"},
+    )
+
+    assert response.status_code == 401
+    err = response.json()
+    assert err["code"] == "AUTH_INVALID"
+
+
 def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()

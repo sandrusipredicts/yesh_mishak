@@ -57,16 +57,16 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=40)
+    username: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
 
     @field_validator("username")
     @classmethod
-    def normalize_username(cls, value: str) -> str:
-        username = value.strip().lower()
-        if not username:
-            raise ValueError("Username is required")
-        return username
+    def normalize_identifier(cls, value: str) -> str:
+        identifier = value.strip().lower()
+        if not identifier:
+            raise ValueError("Username or email is required")
+        return identifier
 
 
 class UsernameCheckRequest(BaseModel):
