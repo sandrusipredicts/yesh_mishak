@@ -24235,3 +24235,70 @@ This resolves AUTH-001, a P0 security blocker identified in the production readi
 ## Validation
 - `pytest tests/test_google_auth.py` — 7/7 PASS
 - `git diff --check` — PASS
+
+# EPIC 03 — Production & Capacitor Configuration Readiness Audit (2026-06-29)
+
+## Decision
+
+Created a comprehensive production configuration readiness audit (`docs/production-config-readiness.md`) covering all environment variables, external service credentials, URL/origin assumptions, and Capacitor-specific gaps.
+
+## Key Findings
+
+### Web Production (CONDITIONAL GO)
+- All 10 frontend `VITE_*` env vars are documented with correct code references.
+- All 12 backend env vars are documented; secret/non-secret classification is clear.
+- `VITE_API_URL` vs `VITE_API_BASE_URL` naming inconsistency found (code accepts either).
+- `VITE_GOOGLE_CLIENT_ID` is missing from `frontend/.env.example`.
+- 10 items require manual verification in Vercel, Railway, and GCP console dashboards.
+- AUTH-001 (Google account linking without `email_verified` check) remains a P0 security blocker (ISSUE-111).
+
+### Capacitor Packaging (NO-GO)
+- No `capacitor.config.ts` or native project directories exist.
+- Google Sign-In web flow (`accounts.google.com/gsi/client`) will not work in Capacitor WebView — native plugin required.
+- Web Push API (Firebase Messaging + service worker) is not available in Capacitor WebView — native push plugin required.
+- CORS origins do not include Capacitor WebView origins (`capacitor://localhost`, `https://localhost`, or `http://localhost`).
+- No `google-services.json` (Android) or `GoogleService-Info.plist` (iOS) for native FCM.
+- App ID, bundle identifier, min SDK, and permissions are undecided.
+- Android signing key is not established (SIGNING-BLOCKER).
+
+### CORS Analysis
+- Backend builds CORS list from `CORS_ORIGINS` env var + hardcoded localhost fallbacks.
+- Production must include `https://yesh-mishak.vercel.app`.
+- Capacitor must include the WebView origin (depends on `server.androidScheme` config choice).
+
+### Google OAuth Analysis
+- Client-side flow (Google Identity Services) — no server-side redirect.
+- GCP console must have `https://yesh-mishak.vercel.app` as authorized JavaScript origin.
+- OAuth consent screen must be published (not "Testing" mode) for external users.
+- For Capacitor: separate Android OAuth client ID needed with SHA-1 fingerprint.
+
+### Firebase/FCM Analysis
+- Frontend uses Firebase Web Messaging SDK with service worker (`firebase-messaging-sw.js`).
+- Service worker receives config via URL search params — correct pattern.
+- Backend uses FCM HTTP v1 API via service account credentials — compatible with both web and native push tokens.
+- For Capacitor: must switch to `@capacitor/push-notifications` native plugin.
+
+## Current Status
+
+**NO-GO for Capacitor packaging.** Web production is CONDITIONAL GO pending 10 manual console verifications and AUTH-001 resolution.
+
+## Blockers
+1. AUTH-001 — Google account linking account-takeover risk (ISSUE-111)
+2. SIGNING-BLOCKER — No Android signing key
+3. No Capacitor config, native OAuth, or native push plugins
+4. 10 console verification items pending
+
+## Dependencies
+- ISSUE-111 (AUTH-001 fix)
+- ISSUE-172 (map gesture validation — Android PASS, iPhone NOT TESTED)
+- Android Studio / JDK tooling setup
+
+## Files Changed
+- `docs/production-config-readiness.md` (new — comprehensive config audit)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-launch-readiness-checklist.md` (ENV-BLOCKER updated, evidence snapshot updated)
+
+## Validation
+- `npm run lint` — PASS
+- `npm run build` — PASS
+- `git diff --check` — PASS
