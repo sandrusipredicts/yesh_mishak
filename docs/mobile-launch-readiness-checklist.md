@@ -30,7 +30,7 @@ The **Revalidate** column is intentionally unchecked. The release owner checks i
 | Error states | Ready — PASS WITH NOTES | ISSUE-176 / PR #726; `docs/product-decisions.md` |
 | Accessibility audit | **Blocker** — P1 findings fixed, unresolved P2 findings remain | ISSUE-177 / PR #728; ISSUE-178 / PR #729; `docs/mobile-accessibility-review.md` |
 | Browser/device simulation | Ready with physical-device verification outstanding | ISSUE-166; `docs/device-compatibility-certification-review.md` |
-| Production config | **Blocker** — web config documented, 10 items need console verification; Capacitor config missing entirely | `docs/production-config-readiness.md` |
+| Production config | **Conditional NO-GO (Capacitor)** — Capacitor config + Android project + push plugin ready; Google Sign-In plugin blocked (Capacitor 8 incompatibility); `google-services.json` missing; CORS for `https://localhost` missing; signing key missing. Web console verification pending. | `docs/production-config-readiness.md` |
 
 ## 4. UX Launch Gate
 
@@ -236,7 +236,7 @@ The decision remains NO-GO if any of the following is true:
 
 1. **MAP-BLOCKER (partially resolved):** ISSUE-172 Android Chrome PASS on Samsung Galaxy S24 Ultra (2026-06-29). iPhone Safari NOT TESTED — physical iOS device evidence still required if available.
 2. **SIGNING-BLOCKER:** Android release signing readiness has no evidence.
-3. **ENV-BLOCKER (partially resolved):** Web production env vars documented and audited; 10 items need manual console verification (Vercel, Railway, GCP). Capacitor-specific config (native OAuth, native push, WebView origins, `capacitor.config.ts`) is entirely missing. See `docs/production-config-readiness.md`.
+3. **ENV-BLOCKER (partially resolved):** Web production env vars documented and audited; 10 items need manual console verification (Vercel, Railway, GCP). Capacitor foundation established: `capacitor.config.ts`, Android project, and `@capacitor/push-notifications` ready. Remaining Capacitor blockers: native Google Sign-In (no Capacitor 8-compatible plugin), `google-services.json` (missing), CORS for `https://localhost` (missing). See `docs/production-config-readiness.md`.
 4. **LINT-BLOCKER:** `npm run lint` currently fails on `frontend/tests/performance/baseline.spec.js:210` because `process` is not defined by the ESLint environment.
 
 ### Recommended Next Steps Before Starting Capacitor
