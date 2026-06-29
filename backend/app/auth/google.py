@@ -128,6 +128,7 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
 
     email = token_info.get("email")
     google_sub = token_info.get("sub")
+    email_verified = token_info.get("email_verified")
 
     if not email or not google_sub:
         logger.warning(
@@ -147,6 +148,24 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token",
+        )
+
+    if email_verified is not True:
+        logger.warning(
+            "google token email not verified",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "status_code": status.HTTP_403_FORBIDDEN,
+                "error_code": "EMAIL_NOT_VERIFIED",
+                "email_verified_value": email_verified,
+                "result": "failure",
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Google email address is not verified",
         )
 
     name = token_info.get("name") or email.split("@", maxsplit=1)[0]
