@@ -126,11 +126,13 @@ def test_google_login_create_logout_and_login_again_without_phone_or_username(mo
             "first-login-token": {
                 "sub": "google-sub-1",
                 "email": "google@example.com",
+                "email_verified": True,
                 "name": "Google User",
             },
             "second-login-token": {
                 "sub": "google-sub-1",
                 "email": "google@example.com",
+                "email_verified": True,
             },
         },
     )
@@ -169,6 +171,7 @@ def test_google_login_allows_existing_user_without_phone_username_or_google_sub(
             "valid-google-token": {
                 "sub": "google-sub-1",
                 "email": "google@example.com",
+                "email_verified": True,
             },
         },
     )
@@ -209,6 +212,7 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
             "valid-google-token": {
                 "sub": "google-sub-1",
                 "email": "google@example.com",
+                "email_verified": True,
             },
         },
     )
@@ -218,3 +222,106 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
     assert response.status_code == 200
     assert response.json()["user"]["id"] == existing_user["id"]
     assert "last_login" not in existing_user
+
+
+def test_google_login_rejects_unverified_email(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "unverified-token": {
+                "sub": "google-sub-1",
+                "email": "unverified@example.com",
+                "email_verified": False,
+                "name": "Unverified User",
+            },
+        },
+    )
+
+    response = TestClient(app).post("/auth/google", json={"token": "unverified-token"})
+
+    assert response.status_code == 403
+    assert response.json()["message"] == "Google email address is not verified"
+    assert len(fake_client.users) == 0
+
+
+def test_google_login_rejects_missing_email_verified(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "no-verified-claim-token": {
+                "sub": "google-sub-1",
+                "email": "nofield@example.com",
+                "name": "No Verified Field",
+            },
+        },
+    )
+
+    response = TestClient(app).post("/auth/google", json={"token": "no-verified-claim-token"})
+
+    assert response.status_code == 403
+    assert response.json()["message"] == "Google email address is not verified"
+    assert len(fake_client.users) == 0
+
+
+def test_google_login_rejects_unverified_email_for_existing_user(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    existing_user = {
+        "id": "00000000-0000-0000-0000-000000000404",
+        "email": "existing@example.com",
+        "name": "Existing User",
+        "google_sub": "google-sub-existing",
+        "username": "existinguser",
+        "phone_number": "+1234567890",
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient([existing_user])
+    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "unverified-existing-token": {
+                "sub": "google-sub-existing",
+                "email": "existing@example.com",
+                "email_verified": False,
+            },
+        },
+    )
+
+    response = TestClient(app).post("/auth/google", json={"token": "unverified-existing-token"})
+
+    assert response.status_code == 403
+    assert response.json()["message"] == "Google email address is not verified"
+    assert "last_login" not in existing_user
+
+
+def test_google_login_accepts_verified_email(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "verified-token": {
+                "sub": "google-sub-verified",
+                "email": "verified@example.com",
+                "email_verified": True,
+                "name": "Verified User",
+            },
+        },
+    )
+
+    response = TestClient(app).post("/auth/google", json={"token": "verified-token"})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "verified@example.com"
+    assert len(fake_client.users) == 1
