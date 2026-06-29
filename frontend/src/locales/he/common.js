@@ -271,6 +271,7 @@ const he = {
     allFields: 'כל המגרשים',
     pendingFields: 'מגרשים ממתינים',
     allFieldsLabel: 'כל המגרשים',
+    fieldStatusLabel: 'סטטוס עבור {{name}}',
     loadingPendingFields: 'טוען מגרשים ממתינים...',
     loadingFields: 'טוען מגרשים...',
     failedLoadFields: 'טעינת המגרשים נכשלה.',

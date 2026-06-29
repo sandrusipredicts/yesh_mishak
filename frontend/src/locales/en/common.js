@@ -271,6 +271,7 @@ const en = {
     allFields: 'All Fields',
     pendingFields: 'Pending fields',
     allFieldsLabel: 'All fields',
+    fieldStatusLabel: 'Status for {{name}}',
     loadingPendingFields: 'Loading pending fields...',
     loadingFields: 'Loading fields...',
     failedLoadFields: 'Failed to load fields.',

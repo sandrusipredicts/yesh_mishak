@@ -214,6 +214,10 @@ function LoginPage({ onLogin }) {
         <div className="auth-mode-tabs" role="tablist" aria-label={t('auth.method')}>
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'login'}
+            aria-controls="login-tabpanel"
+            id="login-tab"
             className={mode === 'login' ? 'active' : ''}
             onClick={() => {
               setMode('login')
@@ -224,6 +228,10 @@ function LoginPage({ onLogin }) {
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
+            aria-controls="register-tabpanel"
+            id="register-tab"
             className={mode === 'register' ? 'active' : ''}
             onClick={() => {
               setMode('register')
@@ -235,7 +243,7 @@ function LoginPage({ onLogin }) {
         </div>
 
         {mode === 'login' ? (
-          <form className="auth-form" onSubmit={handlePasswordLogin}>
+          <form className="auth-form" role="tabpanel" id="login-tabpanel" aria-labelledby="login-tab" onSubmit={handlePasswordLogin}>
             <label>
               <span>{t('auth.username')}</span>
               <input
@@ -258,13 +266,13 @@ function LoginPage({ onLogin }) {
                 value={loginForm.password}
               />
             </label>
-            {error ? <p className="login-error">{error}</p> : null}
+            {error ? <p className="login-error" role="alert">{error}</p> : null}
             <button className="auth-submit" disabled={isLoading} type="submit">
               {t('auth.signIn')}
             </button>
           </form>
         ) : (
-          <form className="auth-form" onSubmit={handleRegister}>
+          <form className="auth-form" role="tabpanel" id="register-tabpanel" aria-labelledby="register-tab" onSubmit={handleRegister}>
             <label>
               <span>{t('auth.fullName')}</span>
               <input
@@ -335,12 +343,13 @@ function LoginPage({ onLogin }) {
                 required
                 type="password"
                 value={registerForm.password_confirm}
+                aria-describedby={passwordMismatch ? 'error-password-confirm' : undefined}
               />
               {passwordMismatch ? (
-                <span className="form-field-error">{t('auth.passwordMismatch')}</span>
+                <span className="form-field-error" id="error-password-confirm">{t('auth.passwordMismatch')}</span>
               ) : null}
             </label>
-            {error ? <p className="login-error">{error}</p> : null}
+            {error ? <p className="login-error" role="alert">{error}</p> : null}
             <button className="auth-submit" disabled={isLoading || passwordMismatch} type="submit">
               {t('auth.createAccount')}
             </button>

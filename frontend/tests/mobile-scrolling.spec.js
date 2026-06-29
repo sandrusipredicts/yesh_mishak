@@ -83,7 +83,7 @@ test.describe('Mobile Scrolling Behavior', () => {
     await page.goto('/')
 
     // Switch to Register Mode (more fields)
-    await page.getByRole('button', { name: 'Register' }).click()
+    await page.getByRole('tab', { name: 'Register' }).click()
 
     const submitBtn = page.getByRole('button', { name: 'Create Account' })
     await expect(submitBtn).toBeAttached()

@@ -450,9 +450,10 @@ function NotificationsModal({
                     onChange={setCityName}
                     disabled={!cityEnabled}
                     cities={israelCities}
+                    aria-describedby={cityEnabled && cityName.trim() && !israelCities.includes(cityName.trim()) ? 'error-notifications-city' : undefined}
                   />
                   {cityEnabled && cityName.trim() && !israelCities.includes(cityName.trim()) ? (
-                    <span className="form-field-error">{t('notifications.cityInvalid')}</span>
+                    <span className="form-field-error" id="error-notifications-city">{t('notifications.cityInvalid')}</span>
                   ) : null}
                 </div>
               </section>
@@ -486,7 +487,7 @@ function NotificationsModal({
                 </div>
               </section>
 
-              {error ? <p className="modal-error">{error}</p> : null}
+              {error ? <p className="modal-error" role="alert">{error}</p> : null}
               {savedMessage ? <p className="modal-success">{savedMessage}</p> : null}
 
               <button className="primary-panel-button" type="submit" disabled={isSaving}>

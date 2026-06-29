@@ -137,9 +137,11 @@ function OnboardingPage({ onComplete }) {
               }}
               onKeyDown={handleInputKeyDown}
               autoComplete="off"
+              role="combobox"
               aria-autocomplete="list"
               aria-expanded={isDropdownOpen}
               aria-controls="city-suggestions"
+              aria-activedescendant={isDropdownOpen && suggestions.length > 0 ? `city-option-${highlightedIndex}` : undefined}
               placeholder={t('onboarding.cityPlaceholder')}
             />
 
@@ -147,12 +149,19 @@ function OnboardingPage({ onComplete }) {
               <ul
                 id="city-suggestions"
                 className="city-suggestions"
+                role="listbox"
                 aria-label={t('onboarding.citySuggestions')}
               >
                 {suggestions.map((cityName, index) => (
-                  <li key={cityName}>
+                  <li
+                    key={cityName}
+                    id={`city-option-${index}`}
+                    role="option"
+                    aria-selected={index === highlightedIndex}
+                  >
                     <button
                       type="button"
+                      tabIndex={-1}
                       className={index === highlightedIndex ? 'is-highlighted' : ''}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => handleSuggestionClick(cityName)}
@@ -165,7 +174,7 @@ function OnboardingPage({ onComplete }) {
             ) : null}
           </div>
 
-          {error ? <p className="onboarding-error">{error}</p> : null}
+          {error ? <p className="onboarding-error" role="alert">{error}</p> : null}
 
           <button className="primary-panel-button" type="submit">
             {t('onboarding.letsGo')}

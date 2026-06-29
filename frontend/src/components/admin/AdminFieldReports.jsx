@@ -117,7 +117,7 @@ function AdminFieldReports() {
 
       {isLoading ? <p className="admin-loading">{t('admin.loadingFieldReports')}</p> : null}
       {error ? (
-        <div className="admin-error">
+        <div className="admin-error" role="alert">
           <p>{error}</p>
           <button type="button" onClick={() => setRetryKey((k) => k + 1)}>{t('admin.retry')}</button>
         </div>
