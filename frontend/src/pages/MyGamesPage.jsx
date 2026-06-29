@@ -126,8 +126,28 @@ function MyGamesPage({ onBack }) {
   }, [t])
 
   useEffect(() => {
-    loadGames()
-  }, [loadGames])
+    let active = true
+
+    getMyGames()
+      .then((result) => {
+        if (active) {
+          setData(result)
+          setError(null)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setError(t('myGames.loadError'))
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false)
+        }
+      })
+
+    return () => { active = false }
+  }, [t])
 
   const displayData = organizerOnly && data
     ? {

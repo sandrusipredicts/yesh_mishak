@@ -86,7 +86,13 @@ async function trackOpenedUrls(page) {
 
 async function mockMapPageRequests(page, fields) {
   await page.route(/\/fields\/?(\?.*)?$/, (route) => fulfillJson(route, fields))
-  await page.route(/\/notifications\/?(\?.*)?$/, (route) => fulfillJson(route, []))
+  await page.route(/\/notifications(\/.*)?(\?.*)?$/, (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/unread-count')) {
+      return fulfillJson(route, { unread_count: 0 })
+    }
+    return fulfillJson(route, [])
+  })
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
@@ -281,7 +287,13 @@ test('shows cached fields immediately while refreshing fields in the background'
 
     return fulfillJson(route, [navigableField])
   })
-  await page.route(/\/notifications\/?(\?.*)?$/, (route) => fulfillJson(route, []))
+  await page.route(/\/notifications(\/.*)?(\?.*)?$/, (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/unread-count')) {
+      return fulfillJson(route, { unread_count: 0 })
+    }
+    return fulfillJson(route, [])
+  })
   await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 
   await page.goto('/')
