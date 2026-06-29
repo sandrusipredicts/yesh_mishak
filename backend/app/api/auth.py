@@ -261,6 +261,8 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
         return rate_limit_hit
 
     user = _get_user_by_column("username", payload.username)
+    if not user and "@" in payload.username:
+        user = _get_user_by_column("email", payload.username)
     if not user or not verify_password(payload.password, user.get("password_hash")):
         delay_seconds = record_failed_login_and_delay(request, payload.username)
         if delay_seconds > 0:
