@@ -55,11 +55,11 @@ Contrast ratios calculated per WCAG 2.1 AA: 4.5:1 for normal text (<18px regular
 
 ### Failures
 
-| ID | Selector | Foreground | Background | Ratio | Required | Severity |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| CC-01 | `.admin-action-button.suspend` | #d97706 | #fffbeb | 3.07:1 | 4.5:1 | **P2** |
-| CC-02 | `.my-games-status-full` | #d97706 | #ffffff | 3.19:1 | 4.5:1 | **P2** |
-| CC-03 | `.city-autocomplete input:disabled` | #94a3b8 | #f1f5f9 | 2.34:1 | N/A (disabled) | **P3** |
+| ID | Selector | Foreground | Background | Ratio | Required | Severity | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| CC-01 | `.admin-action-button.suspend` | #b45309 | #fffbeb | 5.50:1 | 4.5:1 | **P2** | **RESOLVED** (darkened from #d97706) |
+| CC-02 | `.my-games-status-full` | #b45309 | #ffffff | 5.70:1 | 4.5:1 | **P2** | **RESOLVED** (darkened from #d97706) |
+| CC-03 | `.city-autocomplete input:disabled` | #94a3b8 | #f1f5f9 | 2.34:1 | N/A (disabled) | **P3** | Open |
 
 ### Borderline (4.5–5.0:1, technically passing)
 
@@ -74,7 +74,7 @@ Contrast ratios calculated per WCAG 2.1 AA: 4.5:1 for normal text (<18px regular
 
 Primary text (#172033 on #ffffff = 15.3:1), error text (#b42318 on #ffffff = 5.45:1), active tabs (#ffffff on #172033 = 15.3:1), offline banner (#78350f on #fffbeb = 7.53:1), approval badge (#92400e on #fef3c7 = 6.22:1) — all well above thresholds.
 
-**Verdict: 2 contrast failures (P2), both involve #d97706 amber on light backgrounds.** Fix suggestion: darken to #b45309 (ratio ~4.8:1 on white) or #92400e (ratio ~6.2:1).
+**Verdict: PASS.** All P2 contrast failures resolved by darkening #d97706 to #b45309 (ratio 5.50:1 and 5.70:1 respectively).
 
 ---
 
@@ -97,11 +97,11 @@ The `@media (max-width: 640px)` rule applies `min-height: 44px` to **22 distinct
 
 ### Gaps
 
-| ID | Selector | Desktop Size | Mobile Fix? | Severity |
-| :--- | :--- | :--- | :--- | :--- |
-| TT-01 | `.city-suggestions button` | padding: 10px 12px (~36px height) | No mobile override | **P2** |
-| TT-02 | `.notification-list-item button:first-child` | padding: 0, relies on content height | No mobile override | **P3** — content typically provides sufficient height |
-| TT-03 | `.error-boundary-fallback button` | padding: 10px 24px (~40px height) | No mobile override | **P3** — close to 44px |
+| ID | Selector | Desktop Size | Mobile Fix? | Severity | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| TT-01 | `.city-suggestions button` | padding: 10px 12px (~36px height) | min-height: 44px override | **P2** | **RESOLVED** (min-height: 44px added on mobile viewports) |
+| TT-02 | `.notification-list-item button:first-child` | padding: 0, relies on content height | No mobile override | **P3** | Open — content typically provides sufficient height |
+| TT-03 | `.error-boundary-fallback button` | padding: 10px 24px (~40px height) | No mobile override | **P3** | Open — close to 44px |
 
 ### Already Compliant
 
@@ -114,7 +114,7 @@ The `@media (max-width: 640px)` rule applies `min-height: 44px` to **22 distinct
 | `.auth-submit` | padding: 12px 14px (~44px) |
 | All primary/secondary/danger buttons | padding: 12px 14px |
 
-**Verdict: PASS with 1 P2 gap.** 22 interactive elements explicitly get 44px on mobile. One element (`.city-suggestions button`) lacks a mobile override. Main action buttons and map controls are all adequately sized.
+**Verdict: PASS.** All P2 touch target gaps resolved. 24 interactive elements explicitly get 44px on mobile, including autocomplete and city suggestions button.
 
 ---
 

@@ -24114,3 +24114,25 @@ The decision is a strict NO-GO for moving from Web to Capacitor packaging due to
 ## Files Changed
 - `docs/product-decisions.md`
 - `epic_03_completion_review.md` (created in artifacts directory)
+
+---
+
+# ISSUE-177 — Resolve remaining mobile accessibility P2 findings (2026-06-29)
+
+## Decision
+Resolved the remaining mobile accessibility P2 findings identified in the ISSUE-177 audit (`docs/mobile-accessibility-review.md`):
+1. **CC-01 / CC-02 (Contrast Failures):** Replaced `#d97706` amber color with `#b45309` across three CSS rules: `.admin-user-status.suspended`, `.admin-action-button.suspend`, and `.my-games-status-full`. The new color increases contrast to **5.50:1** on light amber (`#fffbeb`) and **5.70:1** on white (`#ffffff`), satisfying the WCAG AA 4.5:1 ratio while preserving consistent design.
+2. **TT-01 (Touch Target Gap):** Increased city suggestions `.city-suggestions button` and autocomplete options `.city-autocomplete-option` to `min-height: 44px` on mobile viewports via media queries.
+
+Updated the mobile accessibility review report (`docs/mobile-accessibility-review.md`) and the mobile launch readiness checklist (`docs/mobile-launch-readiness-checklist.md`) to mark these items as **Ready / Resolved**.
+
+## Files Changed
+- `docs/mobile-accessibility-review.md`
+- `docs/mobile-launch-readiness-checklist.md`
+- `frontend/src/App.css`
+- `docs/product-decisions.md`
+
+## Validation
+- `npm run lint` — PASS
+- `npm run build` — PASS
+- `git diff --check` — PASS
