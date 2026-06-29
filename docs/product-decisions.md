@@ -24136,3 +24136,50 @@ Updated the mobile accessibility review report (`docs/mobile-accessibility-revie
 - `npm run lint` — PASS
 - `npm run build` — PASS
 - `git diff --check` — PASS
+
+---
+
+# ISSUE-172 — Physical Mobile Map Gesture Validation (2026-06-29)
+
+## Decision
+
+Created a comprehensive physical mobile map gesture validation document (`docs/mobile-map-gesture-validation.md`) containing:
+
+1. **Code-level audit** of Leaflet MapContainer configuration, CSS touch handling, floating control pointer-event isolation, modal touch barrier implementation, viewport meta tag, safe-area support, and marker sizing. No configuration defects or high-risk patterns found.
+2. **27-case physical device test matrix** covering: map panning and scroll conflict (G-01 to G-03), pinch zoom and browser zoom isolation (G-04 to G-06), double-tap zoom (G-07 to G-08), zoom control tappability (G-09 to G-10), marker tap reliability (G-11 to G-13), floating button interaction and gesture isolation (G-14 to G-18), panel and modal touch isolation (G-19 to G-22), orientation changes (G-23 to G-24), browser chrome interaction (G-25), and safe area validation (G-26 to G-27).
+3. **Device evidence template** for Android Chrome (required), iPhone Safari (required if available), and optional tablet coverage.
+4. **Risk summary** with 6 identified risks, all rated Low or Very Low severity/likelihood.
+5. **GO/NO-GO criteria** requiring at least Android Chrome to pass all 27 cases with no P0/P1 issues.
+
+## Code-Level Audit Summary
+
+| Area | Finding | Risk |
+| :--- | :--- | :--- |
+| Leaflet defaults | All touch gesture options at correct defaults (dragging, touchZoom, doubleClickZoom, tap, inertia all enabled) | None |
+| Map canvas CSS | `overflow: hidden` on `.map-page` prevents scroll conflicts; `100dvh` handles browser chrome | None |
+| Floating controls | `pointer-events: none` container + `auto` on buttons; correct pattern | None |
+| Safe areas | `env(safe-area-inset-*)` applied to all control positions and Leaflet native controls | None |
+| Modal isolation | Fixed backdrop at z-index 1250 + `body.overflow: hidden`; backdrop click handler does not propagate | Low risk on iOS Safari |
+| Viewport | No zoom restriction (accessibility correct); Leaflet `touch-action: none` isolates map area | Low risk at map edge |
+| Markers | 54×54px exceeds 44px minimum; 15px tap tolerance; no clustering needed at target density | None |
+| Overscroll | `overscroll-behavior: contain` on mobile panels prevents scroll chaining to map | None |
+
+## Current Status
+
+**BLOCKED — awaiting physical device testing**
+
+The code audit confirms the implementation is correctly configured for mobile touch interaction. No code changes are needed. The gate remains blocked until the 27-case test matrix is executed on at least one Android Chrome device and results are recorded.
+
+## Dependencies
+- ISSUE-172 (2026-06-28) automation-only validation: BLOCKED
+- ISSUE-171 GPS simulation: PASS WITH NOTES
+
+## Files Changed
+- `docs/mobile-map-gesture-validation.md` (new — physical device test protocol and code audit)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-launch-readiness-checklist.md` (ISSUE-172 row updated)
+
+## Validation
+- `npm run lint` — PASS (0 errors on `src/`)
+- `npm run build` — PASS (non-blocking chunk-size warning)
+- `git diff --check` — PASS
