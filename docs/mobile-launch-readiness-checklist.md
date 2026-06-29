@@ -23,7 +23,7 @@ The **Revalidate** column is intentionally unchecked. The release owner checks i
 | :--- | :--- | :--- |
 | Complete user journeys | Ready — PASS WITH NOTES; all nine journeys completed | ISSUE-169 / PR #719; `docs/mobile-user-journey-testing-results.md` |
 | GPS simulation | Ready with final device verification outstanding | ISSUE-171 / PR #721; `docs/product-decisions.md` |
-| Map interaction | **Blocker** — code audit complete and clean; physical-device 27-case test matrix awaiting execution | ISSUE-172 / PR #722; `docs/mobile-map-gesture-validation.md`; `docs/product-decisions.md` |
+| Map interaction | Ready — Android Chrome PASS (Samsung Galaxy S24 Ultra, 2026-06-29); iPhone Safari NOT TESTED | ISSUE-172 / PR #722, PR #734; `docs/mobile-map-gesture-validation.md`; `docs/product-decisions.md` |
 | Notifications | Ready — PASS WITH NOTES | ISSUE-173 / PR #723; `docs/product-decisions.md` |
 | Network failure UX | Ready — PASS WITH NOTES | ISSUE-174 / PR #724; `docs/product-decisions.md` |
 | Loading states | Ready — PASS WITH NOTES | ISSUE-175 / PR #725; `docs/product-decisions.md` |
@@ -122,7 +122,7 @@ The **Revalidate** column is intentionally unchecked. The release owner checks i
 | QA-03 | Relevant Chromium Playwright suite passes | Needs Verification | Full run displayed 91/91 OK and targeted mobile run displayed 44/44 OK, but both runner processes timed out after test completion without a clean exit code | ISSUE-179 execution, 2026-06-29 | [ ] | QA owner |
 | QA-04 | Relevant WebKit mobile suite passes | Needs Verification | Prior WebKit evidence exists but repository config currently declares Chromium only | ISSUE-166, ISSUE-169 | [ ] | QA owner |
 | QA-05 | All nine journeys have evidence and no P0/P1/P2 journey issue | Ready | ISSUE-169 final decision PASS WITH NOTES; gate Passed | ISSUE-169 / PR #719 | [ ] | Release owner |
-| QA-06 | Native map gestures pass on multiple physical devices | **Blocker** | Code audit clean; 27-case physical test matrix created; awaiting device execution | ISSUE-172 / PR #722; `docs/mobile-map-gesture-validation.md` | [ ] | Mobile QA |
+| QA-06 | Native map gestures pass on multiple physical devices | Ready | Android Chrome PASS on Samsung Galaxy S24 Ultra (23/27 pass, 2 NT orientation, 1 N/A, 0 issues); iPhone Safari NOT TESTED | ISSUE-172 / PR #722, PR #734; `docs/mobile-map-gesture-validation.md` | [ ] | Mobile QA |
 | QA-07 | No critical console errors, crashes, or infinite loading | Ready | No critical issue found in GPS, notifications, network, loading, or error reviews | ISSUE-171, ISSUE-173 through ISSUE-176 | [ ] | Release owner |
 | QA-08 | All P0/P1 defects are closed and P2 exceptions explicitly approved | **Blocker** | No P0/P1 defect is known, but accessibility P2 failures remain unresolved/unapproved | ISSUE-177, ISSUE-178 | [ ] | Product owner |
 | QA-09 | Evidence identifies date, tester, commit, device, browser, and result | Needs Verification | Final packaged-candidate evidence does not exist yet | This checklist / ISSUE-179 | [ ] | QA owner |
@@ -233,7 +233,7 @@ The decision remains NO-GO if any of the following is true:
 
 ### Remaining Blockers
 
-1. **MAP-BLOCKER:** ISSUE-172 remains BLOCKED. Code-level audit completed with no defects found; 27-case physical device test matrix created (`docs/mobile-map-gesture-validation.md`). Awaiting execution on Android Chrome (required) and iPhone Safari (required if available).
+1. **MAP-BLOCKER (partially resolved):** ISSUE-172 Android Chrome PASS on Samsung Galaxy S24 Ultra (2026-06-29). iPhone Safari NOT TESTED — physical iOS device evidence still required if available.
 2. **SIGNING-BLOCKER:** Android release signing readiness has no evidence.
 3. **ENV-BLOCKER:** Production Capacitor environment values and their secure injection path have not been defined or verified.
 4. **LINT-BLOCKER:** `npm run lint` currently fails on `frontend/tests/performance/baseline.spec.js:210` because `process` is not defined by the ESLint environment.

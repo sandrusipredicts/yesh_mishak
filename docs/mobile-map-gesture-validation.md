@@ -220,33 +220,35 @@ Record device model, OS version, browser name/version, and screen dimensions for
 
 | ID | Test case | Steps | Expected result | D-01 | D-02 | D-03 | D-04 |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| G-01 | Map panning (single finger) | Place one finger on the map, drag in all four directions | Map pans smoothly, no page scroll, tiles load as new area appears | | | | |
-| G-02 | Pan does not scroll page | While panning the map, verify the browser address bar does not collapse/expand and the page does not scroll vertically | Map pans without triggering page scroll | | | | |
-| G-03 | Pan inertia | Flick the map quickly and release | Map continues moving with momentum, gradually decelerating | | | | |
-| G-04 | Pinch zoom in | Place two fingers on the map, spread apart | Map zooms in smoothly, centered between fingers, tile detail increases | | | | |
-| G-05 | Pinch zoom out | Place two fingers on the map, pinch together | Map zooms out smoothly, more area visible | | | | |
-| G-06 | Pinch does not trigger browser zoom | Pinch on the map area | Only the map zooms; the browser zoom indicator does not appear; page layout is unchanged | | | | |
-| G-07 | Double-tap zoom in | Double-tap on an empty area of the map | Map zooms in one level centered on the tap point | | | | |
-| G-08 | Double-tap zoom does not conflict with marker tap | Double-tap on a map area without markers, then single-tap a marker | Double-tap zooms; single-tap opens field details; no confusion between the two | | | | |
-| G-09 | Zoom control tappable | Tap the + and − zoom controls | Map zooms in/out; controls are not blocked by browser chrome or safe area | | | | |
-| G-10 | Zoom controls not blocked by address bar | With the browser address bar expanded, tap the top-most control | Control is responsive; no tap is captured by the address bar | | | | |
-| G-11 | Marker tap opens details | Tap a field marker icon | Field details panel slides up; marker is visually highlighted or popup appears | | | | |
-| G-12 | Repeated marker taps | Tap the same marker 5 times rapidly, then different markers in succession | Each tap opens/updates the details panel; no missed taps, no crash, no UI freeze | | | | |
-| G-13 | Marker tap near edge | Tap a marker that is near the edge of the visible map area | Tap registers; panel opens; map may auto-pan to center the marker | | | | |
-| G-14 | Floating button — notifications | Tap the bell icon (top-start) | Notification inbox modal opens; map interaction stops | | | | |
-| G-15 | Floating button — preferences | Tap the settings icon (top-start) | Notification preferences modal opens | | | | |
-| G-16 | Floating button — my location | Tap the crosshair icon (bottom-start) | Map flies to user location (or shows permission prompt) | | | | |
-| G-17 | Floating button — add field | Tap the + button (bottom-center) | Add field modal opens | | | | |
-| G-18 | Floating buttons do not block map pan | Start a pan gesture on the map, dragging through the area near (but not on) floating buttons | Map pans smoothly; floating buttons do not intercept the gesture | | | | |
-| G-19 | Field details panel scroll | Open a field with a long details panel; scroll within the panel | Panel scrolls vertically; map does not pan underneath | | | | |
-| G-20 | Close field details, resume map gestures | Close the field details panel; immediately try panning and pinching the map | Map gestures resume immediately without delay or dead zone | | | | |
-| G-21 | Modal does not leak touches | Open any modal (add field, notifications, preferences); try panning where the map would be behind the backdrop | Backdrop captures the touch; map does not pan or zoom | | | | |
-| G-22 | Modal close resumes map | Close the modal; try panning and zooming | Map gestures resume immediately | | | | |
-| G-23 | Landscape orientation | Rotate device to landscape; pan and zoom the map | Map fills the landscape viewport; gestures work; floating controls remain accessible and not overlapping | | | | |
-| G-24 | Portrait to landscape transition | While viewing the map, rotate from portrait to landscape and back | Map resizes without crash; tiles reload; controls reposition | | | | |
-| G-25 | Browser chrome interaction | Scroll the address bar area (top of screen) while on the map page | Browser chrome collapses/expands normally; map resizes via `100dvh`; no stuck state | | | | |
-| G-26 | Safe area — notch/island | On devices with notch/Dynamic Island, verify floating controls and zoom controls are not hidden behind the notch | All controls are visible and tappable in the safe area | | | | |
-| G-27 | Safe area — home indicator | On iPhones with home indicator, verify bottom controls (+ button, My Location) are above the indicator | Controls are tappable without conflicting with the swipe-home gesture | | | | |
+| G-01 | Map panning (single finger) | Place one finger on the map, drag in all four directions | Map pans smoothly, no page scroll, tiles load as new area appears | PASS | — | — | — |
+| G-02 | Pan does not scroll page | While panning the map, verify the browser address bar does not collapse/expand and the page does not scroll vertically | Map pans without triggering page scroll | PASS | — | — | — |
+| G-03 | Pan inertia | Flick the map quickly and release | Map continues moving with momentum, gradually decelerating | PASS | — | — | — |
+| G-04 | Pinch zoom in | Place two fingers on the map, spread apart | Map zooms in smoothly, centered between fingers, tile detail increases | PASS | — | — | — |
+| G-05 | Pinch zoom out | Place two fingers on the map, pinch together | Map zooms out smoothly, more area visible | PASS | — | — | — |
+| G-06 | Pinch does not trigger browser zoom | Pinch on the map area | Only the map zooms; the browser zoom indicator does not appear; page layout is unchanged | PASS | — | — | — |
+| G-07 | Double-tap zoom in | Double-tap on an empty area of the map | Map zooms in one level centered on the tap point | PASS | — | — | — |
+| G-08 | Double-tap zoom does not conflict with marker tap | Double-tap on a map area without markers, then single-tap a marker | Double-tap zooms; single-tap opens field details; no confusion between the two | PASS | — | — | — |
+| G-09 | Zoom control tappable | Tap the + and − zoom controls | Map zooms in/out; controls are not blocked by browser chrome or safe area | PASS | — | — | — |
+| G-10 | Zoom controls not blocked by address bar | With the browser address bar expanded, tap the top-most control | Control is responsive; no tap is captured by the address bar | PASS | — | — | — |
+| G-11 | Marker tap opens details | Tap a field marker icon | Field details panel slides up; marker is visually highlighted or popup appears | PASS | — | — | — |
+| G-12 | Repeated marker taps | Tap the same marker 5 times rapidly, then different markers in succession | Each tap opens/updates the details panel; no missed taps, no crash, no UI freeze | PASS | — | — | — |
+| G-13 | Marker tap near edge | Tap a marker that is near the edge of the visible map area | Tap registers; panel opens; map may auto-pan to center the marker | PASS | — | — | — |
+| G-14 | Floating button — notifications | Tap the bell icon (top-start) | Notification inbox modal opens; map interaction stops | PASS | — | — | — |
+| G-15 | Floating button — preferences | Tap the settings icon (top-start) | Notification preferences modal opens | PASS | — | — | — |
+| G-16 | Floating button — my location | Tap the crosshair icon (bottom-start) | Map flies to user location (or shows permission prompt) | PASS | — | — | — |
+| G-17 | Floating button — add field | Tap the + button (bottom-center) | Add field modal opens | PASS | — | — | — |
+| G-18 | Floating buttons do not block map pan | Start a pan gesture on the map, dragging through the area near (but not on) floating buttons | Map pans smoothly; floating buttons do not intercept the gesture | PASS | — | — | — |
+| G-19 | Field details panel scroll | Open a field with a long details panel; scroll within the panel | Panel scrolls vertically; map does not pan underneath | PASS | — | — | — |
+| G-20 | Close field details, resume map gestures | Close the field details panel; immediately try panning and pinching the map | Map gestures resume immediately without delay or dead zone | PASS | — | — | — |
+| G-21 | Modal does not leak touches | Open any modal (add field, notifications, preferences); try panning where the map would be behind the backdrop | Backdrop captures the touch; map does not pan or zoom | PASS | — | — | — |
+| G-22 | Modal close resumes map | Close the modal; try panning and zooming | Map gestures resume immediately | PASS | — | — | — |
+| G-23 | Landscape orientation | Rotate device to landscape; pan and zoom the map | Map fills the landscape viewport; gestures work; floating controls remain accessible and not overlapping | NT | — | — | — |
+| G-24 | Portrait to landscape transition | While viewing the map, rotate from portrait to landscape and back | Map resizes without crash; tiles reload; controls reposition | NT | — | — | — |
+| G-25 | Browser chrome interaction | Scroll the address bar area (top of screen) while on the map page | Browser chrome collapses/expands normally; map resizes via `100dvh`; no stuck state | PASS | — | — | — |
+| G-26 | Safe area — notch/island | On devices with notch/Dynamic Island, verify floating controls and zoom controls are not hidden behind the notch | All controls are visible and tappable in the safe area | PASS | — | — | — |
+| G-27 | Safe area — home indicator | On iPhones with home indicator, verify bottom controls (+ button, My Location) are above the indicator | Controls are tappable without conflicting with the swipe-home gesture | N/A | — | — | — |
+
+Legend: PASS = passed, NT = not tested, N/A = not applicable to this device, — = device not tested
 
 ### 4.4 Performance Observations
 
@@ -254,11 +256,11 @@ For each device, record subjective observations:
 
 | Observation | D-01 | D-02 | D-03 | D-04 |
 | :--- | :--- | :--- | :--- | :--- |
-| Map tile loading speed (fast/acceptable/slow) | | | | |
-| Pan smoothness (smooth/minor jank/unacceptable) | | | | |
-| Pinch zoom smoothness (smooth/minor jank/unacceptable) | | | | |
-| Marker tap responsiveness (instant/slight delay/unresponsive) | | | | |
-| Modal open/close animation (smooth/janky) | | | | |
+| Map tile loading speed (fast/acceptable/slow) | fast | — | — | — |
+| Pan smoothness (smooth/minor jank/unacceptable) | smooth | — | — | — |
+| Pinch zoom smoothness (smooth/minor jank/unacceptable) | smooth | — | — | — |
+| Marker tap responsiveness (instant/slight delay/unresponsive) | instant | — | — | — |
+| Modal open/close animation (smooth/janky) | smooth | — | — | — |
 
 ## 5. Code-Level Risk Summary
 
@@ -286,16 +288,17 @@ The following automated evidence was established in the 2026-06-28 ISSUE-172 exe
 
 | Field | Value |
 | :--- | :--- |
-| Device model | |
-| OS version | |
-| Browser name and version | |
-| Screen dimensions | |
-| Test date | |
-| Tester | |
+| Device model | Samsung Galaxy S24 Ultra |
+| OS version | Android 16 |
+| Browser name and version | Chrome (latest) |
+| Screen dimensions | 412px logical width |
+| Test date | 2026-06-29 |
+| Tester | Orel |
+| Test URL | https://yesh-mishak.vercel.app/ |
 
-**Results:** _(Fill G-01 through G-27 in the matrix above)_
+**Results:** 23/27 PASS, 2 NT (orientation G-23/G-24), 1 N/A (G-27 iPhone home indicator), 1 N/A (G-27). See test matrix Section 4.3.
 
-**Issues found:** _(List any issues with ID, description, severity, and reproduction steps)_
+**Issues found:** None.
 
 ### Device D-02: iPhone (if available)
 
@@ -326,7 +329,7 @@ _(Same template as above)_
 
 | ID | Device | Test case | Severity | Description | Reproduction | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| _(none yet — populate during physical testing)_ | | | | | | |
+| _(none)_ | — | — | — | — | — | — |
 
 ## 9. GO / NO-GO Decision for ISSUE-172
 
@@ -342,11 +345,13 @@ ISSUE-172 becomes GO when:
 
 ### Current Decision
 
-**BLOCKED — awaiting physical device testing**
+**CONDITIONAL GO — Android Chrome PASS; iPhone Safari NOT TESTED**
+
+- **D-01 Android Chrome (Samsung Galaxy S24 Ultra, Android 16):** PASS — 23/27 cases passed, 2 not tested (orientation), 1 N/A (iPhone home indicator), 0 issues found. Performance rated smooth/fast/instant across all categories.
+- **D-02 iPhone Safari:** NOT TESTED — no iOS device available. The automated WebKit simulation from ISSUE-172 (2026-06-28) provides partial coverage but does not replace physical Safari gesture, safe-area, and home indicator testing.
+- **GO criteria assessment:** Criterion 1 (Android Chrome) is met. Criterion 2 (iPhone Safari) is documented as missing coverage — product owner acceptance required. Criteria 3–5 are met (no unacceptable ratings, no open issues).
 
 The code-level audit found no configuration defects or high-risk patterns. Leaflet defaults are correct for mobile touch. CSS layout uses proper safe-area handling, pointer-event isolation, overscroll containment, and dynamic viewport units. The automated baseline from the prior ISSUE-172 is healthy.
-
-The gate cannot become GO until the physical device test matrix (Section 4.3) is executed and recorded in Section 7.
 
 ## 10. Files Changed
 
