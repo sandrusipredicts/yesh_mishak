@@ -475,6 +475,12 @@ Development, staging, and production environments use separate backends, Supabas
 
 See `docs/mobile-environment-strategy.md` for the full environment strategy (ISSUE-184).
 
+### 8.5 Configuration Management
+
+API URLs, Firebase config, Supabase credentials, and feature flags are managed through environment variables. Secrets never appear in frontend/mobile code. A hardcoded configuration audit confirmed compliance.
+
+See `docs/mobile-configuration-strategy.md` for the full configuration strategy (ISSUE-185).
+
 ---
 
 ## 9. Out of Scope
