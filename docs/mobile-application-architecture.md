@@ -505,6 +505,10 @@ The project targets Capacitor 8.x. All official Capacitor packages must remain o
 
 See `docs/capacitor-version-strategy.md` for the full version strategy (ISSUE-190).
 
+### 8.10 Capacitor Core Dependency Checkpoint
+
+ISSUE-191 verified that `@capacitor/core` and `@capacitor/cli` are already installed at 8.4.1; no package or native project changes were required. See `docs/product-decisions.md` for the verification record.
+
 ---
 
 ## 9. Out of Scope

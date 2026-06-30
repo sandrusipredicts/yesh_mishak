@@ -24857,3 +24857,40 @@ Full strategy is documented in `docs/capacitor-version-strategy.md`.
 - `docs/capacitor-version-strategy.md` (new - version strategy reference)
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (cross-reference added)
+
+---
+
+# ISSUE-191 - Install Capacitor Core Dependencies
+
+## Type
+
+Dependency verification / no-op implementation.
+
+## Date
+
+2026-06-30
+
+## Decision
+
+The existing frontend dependency state already satisfies the Capacitor 8.x strategy from ISSUE-190:
+
+| Package | Result | Final version |
+| :--- | :--- | :--- |
+| `@capacitor/core` | Already installed as a runtime dependency; not reinstalled | 8.4.1 |
+| `@capacitor/cli` | Already installed as a development dependency; not reinstalled | 8.4.1 |
+
+No package installation was needed. `frontend/package.json` and `frontend/package-lock.json` were not changed.
+
+Validation:
+
+- `npm ls @capacitor/core @capacitor/cli` — PASS; both resolve to 8.4.1.
+- `npm run build` — PASS with Vite 8.0.16.
+- Android and iOS project creation was not performed.
+- No native files, environment files, source files, or `frontend/capacitor.config.ts` were changed.
+
+**Final decision: GO.** The ISSUE-191 acceptance criteria are already satisfied, with documentation as the only implementation change.
+
+## Files Changed
+
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (short status cross-reference)
