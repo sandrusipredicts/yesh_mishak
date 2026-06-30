@@ -24412,3 +24412,69 @@ See `docs/mobile-application-architecture.md` Section 11 for details.
 
 - `docs/mobile-application-architecture.md` (new - architecture reference)
 - `docs/product-decisions.md` (this entry appended)
+
+---
+
+# ISSUE-182 - Define Android Application Identity
+
+## Type
+
+Product decision / architecture.
+
+## Date
+
+2026-06-30
+
+## Background
+
+Android requires a stable package identifier (applicationId) before publication. This identifier is permanent - changing it after Google Play publication causes Android and Google Play to treat the app as a different application. Users would lose updates, reviews, and install history. The identifier must be chosen carefully and treated as final.
+
+## Decision
+
+The final Android package name is:
+
+**`com.yeshmishak.app`**
+
+This identifier is already configured in `frontend/capacitor.config.ts`, `frontend/android/app/build.gradle`, and `frontend/android/app/src/main/res/values/strings.xml`. No configuration changes are required.
+
+This package name must not be changed after Android publication.
+
+## Rationale
+
+- **Stable product-owned namespace:** `com.yeshmishak` belongs to the product, not to a person or a specific feature.
+- **Not tied to a personal name:** The identifier does not reference any individual developer or founder.
+- **Not tied to a single feature:** The name does not restrict the app to football, games, or any other single domain.
+- **Broad enough for future apps:** The `com.yeshmishak` root namespace allows future applications under the same organization.
+- **Conventional format:** Lowercase reverse-domain notation following Android and Google Play conventions.
+
+## Future Namespace Examples
+
+The `com.yeshmishak` root namespace supports future expansion:
+
+| Application | Package Name |
+| :--- | :--- |
+| Main user app | `com.yeshmishak.app` |
+| Admin dashboard (if native) | `com.yeshmishak.admin` |
+| Business/venue management | `com.yeshmishak.business` |
+| Referee tools | `com.yeshmishak.referee` |
+
+## Rejected Alternatives
+
+| Alternative | Reason for Rejection |
+| :--- | :--- |
+| `com.yeshmishak.mobile` | "mobile" is an implementation detail, not a product identity. All Android apps are mobile. |
+| `com.yeshmishak.games` | Narrows the product scope too much. The app includes fields, locations, notifications, and community features beyond games. |
+| `com.orel.yeshmishak` | The identifier should belong to the product, not a personal namespace. Personal namespaces create confusion if ownership or team structure changes. |
+| `app.yeshmishak` | Less conventional than `com.yeshmishak.app`. The `com.` prefix is the standard reverse-domain convention for Android. |
+
+## Existing Configuration
+
+The package name is already set in these files (no changes needed):
+
+- `frontend/capacitor.config.ts` - `appId: 'com.yeshmishak.app'`
+- `frontend/android/app/build.gradle` - `namespace` and `applicationId`
+- `frontend/android/app/src/main/res/values/strings.xml` - `package_name` and `custom_url_scheme`
+
+## Files Changed
+
+- `docs/product-decisions.md` (this entry appended)
