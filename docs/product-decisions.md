@@ -24478,3 +24478,71 @@ The package name is already set in these files (no changes needed):
 ## Files Changed
 
 - `docs/product-decisions.md` (this entry appended)
+
+---
+
+# ISSUE-183 - Define iOS Bundle Identifier
+
+## Type
+
+Product decision / architecture.
+
+## Date
+
+2026-06-30
+
+## Background
+
+iOS requires a stable Bundle Identifier before App Store publication. Like Android's `applicationId`, the iOS Bundle Identifier is permanent - changing it after App Store publication creates a new app listing. Users would lose updates, reviews, and purchase history. ISSUE-182 already established `com.yeshmishak.app` as the Android package name. The iOS Bundle Identifier should align with the Android identifier to maintain a consistent cross-platform identity.
+
+## Decision
+
+The final iOS Bundle Identifier is:
+
+**`com.yeshmishak.app`**
+
+This matches the Android `applicationId` established in ISSUE-182. The shared `appId` in `frontend/capacitor.config.ts` already uses this value, so when the iOS project is generated via `npx cap add ios`, Capacitor will apply `com.yeshmishak.app` as the Bundle Identifier automatically.
+
+No iOS project files exist yet. This issue does not create them.
+
+This Bundle Identifier must not be changed after App Store publication.
+
+## Rationale
+
+- **Cross-platform alignment:** Using the same identifier on Android and iOS keeps app identity consistent across platforms and simplifies configuration management.
+- **Stable product-owned namespace:** `com.yeshmishak` belongs to the product, not to a person or a specific feature.
+- **Not tied to a personal name:** The identifier does not reference any individual developer or founder.
+- **Not platform-specific:** The identifier does not include `.ios` or any other platform marker. Platform names should not define product identity.
+- **Not tied to a single feature:** The name does not restrict the app to football, games, or any other single domain.
+- **Suitable for App Store publication:** Lowercase reverse-domain notation following Apple's Bundle Identifier conventions.
+
+## Future Namespace Examples
+
+The `com.yeshmishak` root namespace supports future iOS apps:
+
+| Application | Bundle Identifier |
+| :--- | :--- |
+| Main user app | `com.yeshmishak.app` |
+| Admin dashboard (if native) | `com.yeshmishak.admin` |
+| Business/venue management | `com.yeshmishak.business` |
+| Referee tools | `com.yeshmishak.referee` |
+
+## Rejected Alternatives
+
+| Alternative | Reason for Rejection |
+| :--- | :--- |
+| `com.yeshmishak.ios` | Platform names should not define product identity. The Bundle Identifier persists across the app's lifetime regardless of platform. |
+| `com.yeshmishak.mobile` | "mobile" is an implementation detail, not a product identity. All iOS apps are mobile. |
+| `com.orel.yeshmishak` | The identifier should belong to the product, not a personal namespace. Personal namespaces create confusion if ownership or team structure changes. |
+| Any sport-specific identifier | The product may expand beyond a single sport. A sport name in the identifier would limit future scope. |
+
+## Existing Configuration
+
+- `frontend/capacitor.config.ts` - `appId: 'com.yeshmishak.app'` (shared across Android and iOS)
+- No iOS project files exist yet (`frontend/ios/` does not exist)
+- When `npx cap add ios` is run in the future, Capacitor will use the `appId` from `capacitor.config.ts`
+
+## Files Changed
+
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (iOS Bundle Identifier note added)
