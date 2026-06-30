@@ -24589,3 +24589,40 @@ Full strategy is documented in `docs/mobile-environment-strategy.md`.
 - `docs/mobile-environment-strategy.md` (new - environment strategy reference)
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (cross-reference added)
+
+---
+
+# ISSUE-185 - Define Mobile Configuration Management Strategy
+
+## Type
+
+Architecture decision / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+The mobile app uses environment variables for API URLs, Firebase config, and feature flags. Without a documented strategy, configuration could drift into hardcoded values, secrets could leak into frontend builds, or production builds could accidentally point to staging services. This issue documents the configuration management approach and audits the current codebase for compliance.
+
+## Decision
+
+Mobile configuration management follows these rules:
+
+1. **Environment variables are the source of truth.** API URLs, Firebase config, Supabase credentials, and feature flags come from `.env` files or CI/CD variables, not hardcoded source code.
+2. **Build-time selection only.** Each build is locked to one environment. No runtime environment switch.
+3. **Secrets stay on the backend.** `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `FIREBASE_SERVICE_ACCOUNT_JSON`, and signing credentials must never appear in frontend/mobile code or use the `VITE_` prefix.
+4. **Feature flags are environment-aware.** Production-dangerous flags (debug tools, test controls) default to `false`. Vite's `import.meta.env.DEV` is the primary dev-mode gate.
+5. **Only placeholder templates are committed.** `.env.example` and `.env.staging.example` contain placeholder values. Real `.env` files are gitignored.
+6. **Centralized API client.** All backend calls go through `frontend/src/api/client.js`, which reads the URL from `VITE_API_URL`.
+
+Hardcoded configuration audit: PASS. No risky hardcoded values found in frontend source. Backend localhost CORS defaults are development fallbacks overridden by `CORS_ORIGINS` env var in staging/production.
+
+Full strategy is documented in `docs/mobile-configuration-strategy.md`.
+
+## Files Changed
+
+- `docs/mobile-configuration-strategy.md` (new - configuration strategy reference)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)
