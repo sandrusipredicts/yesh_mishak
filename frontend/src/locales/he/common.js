@@ -20,6 +20,7 @@ const he = {
     login: 'התחברות',
     register: 'הרשמה',
     username: 'שם משתמש',
+    usernameOrEmail: 'אימייל או שם משתמש',
     password: 'סיסמה',
     signIn: 'התחברות',
     fullName: 'שם מלא',

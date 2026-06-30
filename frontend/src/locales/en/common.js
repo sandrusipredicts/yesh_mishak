@@ -20,6 +20,7 @@ const en = {
     login: 'Login',
     register: 'Register',
     username: 'Username',
+    usernameOrEmail: 'Username or Email',
     password: 'Password',
     signIn: 'Sign in',
     fullName: 'Full name',
