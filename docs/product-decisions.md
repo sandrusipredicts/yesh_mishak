@@ -24807,3 +24807,53 @@ Full report is documented in `docs/react-vite-capacitor-compatibility-report.md`
 - `docs/react-vite-capacitor-compatibility-report.md` (new - compatibility audit report)
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (cross-reference added)
+
+---
+
+# ISSUE-190 - Define Capacitor Version Strategy
+
+## Type
+
+Version strategy / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+With the React + Vite + Capacitor compatibility audit complete (ISSUE-189), the project needs an official Capacitor target version strategy before deeper mobile packaging work. This defines which Capacitor major version the project targets, how packages must be aligned, and how upgrades and downgrades are handled.
+
+## Decision
+
+**Target: Capacitor 8.x.**
+
+Current installed versions:
+
+| Package | Version |
+| :--- | :--- |
+| `@capacitor/core` | 8.4.1 |
+| `@capacitor/cli` | 8.4.1 |
+| `@capacitor/android` | 8.4.1 |
+| `@capacitor/push-notifications` | 8.1.1 |
+| `@capacitor/ios` | Not installed (deferred) |
+
+All packages are aligned on Capacitor major version 8. No version conflicts.
+
+Key policies:
+
+1. **Alignment:** All official Capacitor packages and plugins must use the same major version (8.x).
+2. **Upgrade:** Major upgrades require a dedicated issue with migration guide review, plugin audit, build validation, and rollback plan. No casual `npm update`.
+3. **Downgrade:** Forbidden by default. Allowed only if the current major blocks required functionality with no alternative, and only through a dedicated issue with owner approval.
+4. **Plugins:** Future plugins must declare Capacitor 8 peer compatibility before approval (per ISSUE-186 governance).
+5. **Toolchain:** Android Studio, SDK, Gradle, and JDK requirements need external verification before production builds.
+
+No upgrades, downgrades, or package changes were performed in ISSUE-190.
+
+Full strategy is documented in `docs/capacitor-version-strategy.md`.
+
+## Files Changed
+
+- `docs/capacitor-version-strategy.md` (new - version strategy reference)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)

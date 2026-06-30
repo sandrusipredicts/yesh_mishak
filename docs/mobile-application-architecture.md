@@ -499,6 +499,12 @@ The React 19 + Vite 8 frontend has been audited for Capacitor WebView compatibil
 
 See `docs/react-vite-capacitor-compatibility-report.md` for the full compatibility audit (ISSUE-189).
 
+### 8.9 Capacitor Version Strategy
+
+The project targets Capacitor 8.x. All official Capacitor packages must remain on the same major version. Upgrades require a dedicated issue with migration guide review, plugin audit, and build validation.
+
+See `docs/capacitor-version-strategy.md` for the full version strategy (ISSUE-190).
+
 ---
 
 ## 9. Out of Scope
