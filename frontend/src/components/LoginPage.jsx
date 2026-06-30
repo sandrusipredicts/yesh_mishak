@@ -245,7 +245,7 @@ function LoginPage({ onLogin }) {
         {mode === 'login' ? (
           <form className="auth-form" role="tabpanel" id="login-tabpanel" aria-labelledby="login-tab" onSubmit={handlePasswordLogin}>
             <label>
-              <span>{t('auth.username')}</span>
+              <span>{t('auth.usernameOrEmail')}</span>
               <input
                 autoComplete="username"
                 name="username"
