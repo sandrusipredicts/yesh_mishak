@@ -24546,3 +24546,46 @@ The `com.yeshmishak` root namespace supports future iOS apps:
 
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (iOS Bundle Identifier note added)
+
+---
+
+# ISSUE-184 - Define Mobile Environment Strategy
+
+## Type
+
+Architecture decision / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+The web app currently operates in a single production environment. Mobile app builds introduce a higher risk of environment contamination - an Android or iOS binary that accidentally points to the wrong backend, Supabase project, or Firebase project could expose test data to real users or corrupt production data with test operations. A formal environment strategy is required before mobile builds are distributed.
+
+## Decision
+
+The mobile application uses three isolated environments with build-time selection:
+
+| Environment | App Identifier | Backend | Supabase | Firebase |
+| :--- | :--- | :--- | :--- | :--- |
+| Development | `com.yeshmishak.app.dev` | Local or dev deployment | Dev project | Dev project |
+| Staging | `com.yeshmishak.app.staging` | Staging deployment | Staging project | Staging project |
+| Production | `com.yeshmishak.app` | Production deployment | Production project | Production project |
+
+Key rules:
+
+1. Environment selection is build-time only. No runtime environment switch for users.
+2. Each environment uses separate databases, Supabase projects, and Firebase projects.
+3. Production builds must never point to staging or dev services.
+4. Dev/staging builds must never point to production services.
+5. Secrets are never committed. Only `.env.example` templates with placeholders are in version control.
+6. Suffixed app identifiers (`.dev`, `.staging`) allow side-by-side installation for testing.
+
+Full strategy is documented in `docs/mobile-environment-strategy.md`.
+
+## Files Changed
+
+- `docs/mobile-environment-strategy.md` (new - environment strategy reference)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)
