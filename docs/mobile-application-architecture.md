@@ -469,6 +469,12 @@ The shared `appId` in `frontend/capacitor.config.ts` is the source of truth. Whe
 
 These identifiers are permanent - changing them after publication on Google Play or the App Store creates a new app listing. See ISSUE-182 (Android) and ISSUE-183 (iOS) in `docs/product-decisions.md` for full rationale.
 
+### 8.4 Environment Strategy
+
+Development, staging, and production environments use separate backends, Supabase projects, Firebase projects, and suffixed app identifiers (`.dev`, `.staging`) for non-production builds. Environment selection is build-time only.
+
+See `docs/mobile-environment-strategy.md` for the full environment strategy (ISSUE-184).
+
 ---
 
 ## 9. Out of Scope
