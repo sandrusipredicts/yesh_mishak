@@ -24626,3 +24626,41 @@ Full strategy is documented in `docs/mobile-configuration-strategy.md`.
 - `docs/mobile-configuration-strategy.md` (new - configuration strategy reference)
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (cross-reference added)
+
+---
+
+# ISSUE-186 - Define Native Plugin Governance Policy
+
+## Type
+
+Architecture decision / policy documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+Capacitor allows adding many native plugins, but uncontrolled plugin adoption creates dependency risk, permission bloat, platform bugs, maintenance burden, security/privacy exposure, and release instability. Before the project adds more native capabilities (Google Sign-In, secure storage, deep links), it needs an official governance policy.
+
+## Decision
+
+A native plugin governance policy is established with these key rules:
+
+1. **Default: do not add a plugin.** Prefer web APIs, existing architecture, or backend solutions.
+2. **Allowed when justified.** The feature requires native capability, web APIs are insufficient, and the plugin is actively maintained with acceptable permissions and license.
+3. **Rejected when risky.** Poor maintenance, excessive permissions, duplicates web functionality, or introduces security/privacy risk.
+4. **Custom native code as alternative.** When no reliable plugin exists and the scope is small enough to maintain.
+5. **Owner approval required.** Every new plugin needs explicit approval with a completed proposal template documenting permissions, security impact, maintenance status, and alternatives.
+6. **Permissions are minimal.** Every permission must be tied to a visible feature and reviewed before release.
+7. **Security/privacy enforced.** Privacy review required for plugins accessing location, camera, microphone, contacts, files, or identifiers.
+
+Current plugin audit: PASS. Only official Capacitor packages installed. `@capacitor/push-notifications` is justified and uses minimal permissions (`INTERNET`, `POST_NOTIFICATIONS`).
+
+Full policy is documented in `docs/native-plugin-governance-policy.md`.
+
+## Files Changed
+
+- `docs/native-plugin-governance-policy.md` (new - governance policy reference)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)
