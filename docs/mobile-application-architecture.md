@@ -455,6 +455,20 @@ The FastAPI backend (`backend/app/`) is the authoritative system for:
 4. **Do not call Supabase directly from the frontend.** All data access goes through the FastAPI backend. The frontend does not have Supabase credentials.
 5. **Do not duplicate notification targeting.** The backend decides who receives notifications based on stored preferences. The frontend submits preferences and tokens; it does not decide delivery.
 
+### 8.3 Platform Identity
+
+Both Android and iOS use the same application identifier:
+
+| Platform | Identifier Type | Value |
+| :--- | :--- | :--- |
+| Capacitor (shared) | `appId` | `com.yeshmishak.app` |
+| Android | `applicationId` | `com.yeshmishak.app` |
+| iOS | Bundle Identifier | `com.yeshmishak.app` |
+
+The shared `appId` in `frontend/capacitor.config.ts` is the source of truth. When Capacitor generates platform projects (`npx cap add android`, `npx cap add ios`), it applies this value as the Android `applicationId` and iOS Bundle Identifier respectively.
+
+These identifiers are permanent - changing them after publication on Google Play or the App Store creates a new app listing. See ISSUE-182 (Android) and ISSUE-183 (iOS) in `docs/product-decisions.md` for full rationale.
+
 ---
 
 ## 9. Out of Scope
