@@ -481,6 +481,12 @@ API URLs, Firebase config, Supabase credentials, and feature flags are managed t
 
 See `docs/mobile-configuration-strategy.md` for the full configuration strategy (ISSUE-185).
 
+### 8.6 Plugin Governance
+
+Native plugin adoption follows a governance policy requiring explicit owner approval, a completed proposal template, minimal permissions, and security/privacy review. The default rule is to prefer web APIs over native plugins.
+
+See `docs/native-plugin-governance-policy.md` for the full governance policy (ISSUE-186).
+
 ---
 
 ## 9. Out of Scope
