@@ -24758,3 +24758,52 @@ Full review is documented in `docs/mobile-architecture-review.md`.
 
 - `docs/mobile-architecture-review.md` (new - cross-document review)
 - `docs/product-decisions.md` (this entry appended)
+
+---
+
+# ISSUE-189 - Audit React and Vite Compatibility with Capacitor
+
+## Type
+
+Compatibility audit / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+With the mobile architecture documentation complete (Section 1, ISSUE-181 through ISSUE-188), the project needs a concrete compatibility audit of the existing React + Vite frontend before deeper Capacitor packaging work. This audit checks whether the current codebase can be packaged into a Capacitor WebView without code changes.
+
+## Decision
+
+A compatibility audit was performed covering React version, Vite build output, Capacitor config alignment, routing, assets, environment variables, browser APIs, Firebase/push, Google Sign-In, auth storage, and CSS/viewport.
+
+**Verdict: GO WITH RISKS for basic Capacitor debug packaging. NO-GO for production mobile release.**
+
+Key findings:
+
+| Area | Result |
+| :--- | :--- |
+| React 19.2.7 + Vite 8.0.16 | Compatible |
+| Build output (`dist/`) | Passes, aligns with Capacitor `webDir` |
+| Routing (manual History API) | Compatible - no React Router dependency |
+| Asset paths | Compatible with `androidScheme: 'https'` |
+| Environment/API config | Clean - `VITE_API_URL` canonical, no secrets |
+| Browser APIs (23 of 25) | Compatible in WebView |
+| Service worker + Notification API | Not available in WebView (web push path) |
+| Google Sign-In (GIS script) | May not work in embedded WebView |
+| localStorage auth storage | Works but not secure for production |
+| CSS safe-area support | Already implemented; missing `viewport-fit=cover` for iOS |
+
+Risks documented: 8 (R-01 through R-08). None block debug builds. Six block production release.
+
+No code, config, package, native, or environment file changes were made.
+
+Full report is documented in `docs/react-vite-capacitor-compatibility-report.md`.
+
+## Files Changed
+
+- `docs/react-vite-capacitor-compatibility-report.md` (new - compatibility audit report)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)
