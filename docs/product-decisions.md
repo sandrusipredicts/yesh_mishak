@@ -24369,3 +24369,46 @@ Create the Capacitor native project foundation to unblock Android packaging eval
 - `npm run build` — PASS
 - `npx cap sync android` — PASS
 - `git diff --check` — PASS
+
+---
+
+# ISSUE-181 - Mobile Application Architecture
+
+## Type
+
+Architecture decision / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+EPIC 03 mobile readiness work established Capacitor configuration, Android project scaffolding, and production config audits. Before implementation of native features (secure storage, native Google Sign-In, native push, deep links), the project needed an official architecture reference defining layer boundaries, data flow ownership, and integration responsibilities.
+
+## Decision
+
+The mobile application architecture is documented in `docs/mobile-application-architecture.md`. Key architectural decisions:
+
+1. React frontend is the primary application layer - all UI and state management.
+2. Capacitor is a bridge/adaptation layer - no business logic.
+3. Android and iOS native layers are thin - only OS capability integration.
+4. FastAPI backend is the source of truth for auth, games, fields, notifications, and permissions.
+5. Native secure storage (Android Keystore / iOS Keychain) must replace localStorage for JWT tokens on native platforms.
+6. GPS and push notifications are accessed through Capacitor plugins but interpreted by React/backend logic.
+7. Deep links enter through native routing but resolve into React app state.
+8. No business rules are duplicated in native code.
+
+## Open Decisions
+
+- Secure storage plugin selection (OD-01)
+- Google Sign-In strategy for Capacitor 8 (OD-02)
+- Deep link URL scheme (OD-03)
+- Platform detection strategy for push notifications (OD-04)
+
+See `docs/mobile-application-architecture.md` Section 11 for details.
+
+## Files Changed
+
+- `docs/mobile-application-architecture.md` (new - architecture reference)
+- `docs/product-decisions.md` (this entry appended)
