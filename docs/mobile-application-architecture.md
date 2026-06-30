@@ -493,6 +493,12 @@ Four build types (Debug, Internal Testing, Beta, Release) map to isolated enviro
 
 See `docs/mobile-build-strategy.md` for the full build strategy (ISSUE-187).
 
+### 8.8 React/Vite/Capacitor Compatibility
+
+The React 19 + Vite 8 frontend has been audited for Capacitor WebView compatibility. Build output aligns with Capacitor `webDir`, routing is compatible, and most browser APIs work in WebView. Web push and Google Sign-In require native code paths.
+
+See `docs/react-vite-capacitor-compatibility-report.md` for the full compatibility audit (ISSUE-189).
+
 ---
 
 ## 9. Out of Scope
