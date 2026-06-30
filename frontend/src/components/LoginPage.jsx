@@ -1,50 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
-  loginWithGoogle,
   loginWithPassword,
   registerWithPassword,
   saveAuthSession,
 } from '../api/auth'
-
-const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
-let googleScriptPromise
-
-function loadGoogleScript() {
-  if (window.google?.accounts?.id) {
-    return Promise.resolve()
-  }
-
-  if (googleScriptPromise) {
-    return googleScriptPromise
-  }
-
-  const existingScript = document.querySelector(`script[src="${GOOGLE_SCRIPT_SRC}"]`)
-  if (existingScript) {
-    googleScriptPromise = new Promise((resolve, reject) => {
-      existingScript.addEventListener('load', resolve, { once: true })
-      existingScript.addEventListener('error', reject, { once: true })
-    })
-    return googleScriptPromise
-  }
-
-  googleScriptPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = GOOGLE_SCRIPT_SRC
-    script.async = true
-    script.defer = true
-    script.onload = resolve
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-
-  return googleScriptPromise
-}
+import { startGoogleOAuth } from '../oauth'
 
 function LoginPage({ onLogin }) {
   const { t } = useTranslation()
-  const buttonRef = useRef(null)
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -60,86 +25,35 @@ function LoginPage({ onLogin }) {
     password: '',
     password_confirm: '',
   })
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-
   const handleAuthSuccess = useCallback((authData) => {
     const sessionUser = saveAuthSession(authData)
     onLogin?.(sessionUser)
   }, [onLogin])
 
   useEffect(() => {
-    let isMounted = true
-
-    async function initializeGoogleLogin() {
-      if (!googleClientId) {
-        setError(t('auth.googleMissingClient'))
-        return
-      }
-
-      try {
-        await loadGoogleScript()
-
-        if (!isMounted) {
-          return
-        }
-
-        if (!window.google?.accounts?.id) {
-          setError(t('auth.googleNotReady'))
-          return
-        }
-
-        if (!buttonRef.current) {
-          setError(t('auth.googleButtonMountFailed'))
-          return
-        }
-
-        window.google.accounts.id.initialize({
-          client_id: googleClientId,
-          callback: async (response) => {
-            if (!response.credential) {
-              setError(t('auth.googleNoCredential'))
-              return
-            }
-
-            setIsLoading(true)
-            setError('')
-
-            try {
-              const authData = await loginWithGoogle(response.credential)
-              handleAuthSuccess(authData)
-            } catch {
-              setError(t('auth.googleSignInFailed'))
-            } finally {
-              setIsLoading(false)
-            }
-          },
-        })
-
-        buttonRef.current.innerHTML = ''
-        window.google.accounts.id.renderButton(buttonRef.current, {
-          theme: 'outline',
-          size: 'large',
-          width: 280,
-        })
-
-        window.setTimeout(() => {
-          if (isMounted && buttonRef.current && buttonRef.current.childElementCount === 0) {
-            setError(t('auth.googleRenderFailed'))
-          }
-        }, 0)
-      } catch {
-        if (isMounted) {
-          setError(t('auth.googleLoadFailed'))
-        }
-      }
+    function handleOAuthError() {
+      setIsLoading(false)
+      setError(t('auth.googleSignInFailed'))
     }
 
-    initializeGoogleLogin()
+    window.addEventListener('auth-oauth-error', handleOAuthError)
 
     return () => {
-      isMounted = false
+      window.removeEventListener('auth-oauth-error', handleOAuthError)
     }
-  }, [googleClientId, handleAuthSuccess, t])
+  }, [t])
+
+  async function handleGoogleLogin() {
+    setIsLoading(true)
+    setError('')
+
+    try {
+      await startGoogleOAuth()
+    } catch {
+      setIsLoading(false)
+      setError(t('auth.googleSignInFailed'))
+    }
+  }
 
   function updateLoginForm(event) {
     const { name, value } = event.target
@@ -361,7 +275,14 @@ function LoginPage({ onLogin }) {
           <strong>{t('auth.or')}</strong>
           <span />
         </div>
-        <div ref={buttonRef} className="google-login-button" />
+        <button
+          type="button"
+          className="google-login-button"
+          disabled={isLoading}
+          onClick={handleGoogleLogin}
+        >
+          Google
+        </button>
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
       </section>
     </main>

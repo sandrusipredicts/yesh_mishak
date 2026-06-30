@@ -186,6 +186,40 @@ def test_google_login_allows_existing_user_without_phone_username_or_google_sub(
         "username": None,
         "phone_number": None,
     }
+
+
+def test_supabase_google_login_exchanges_verified_session_for_internal_jwt(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    existing_user = {
+        "id": "00000000-0000-0000-0000-000000000303",
+        "email": "mobile@example.com",
+        "name": "Mobile User",
+        "google_sub": "google-mobile-sub",
+        "username": None,
+        "phone_number": None,
+        "role": "user",
+    }
+    fake_client = FakeSupabaseClient([existing_user])
+    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.auth.verify_supabase_google_session",
+        lambda token: {
+            "google_sub": "google-mobile-sub",
+            "email": "mobile@example.com",
+            "name": "Mobile User",
+        },
+    )
+
+    response = TestClient(app).post(
+        "/auth/supabase-google",
+        json={"token": "verified-supabase-access-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+    assert response.json()["access_token"] != "verified-supabase-access-token"
+    assert response.json()["user"]["id"] == existing_user["id"]
     assert existing_user["last_login"]
 
 

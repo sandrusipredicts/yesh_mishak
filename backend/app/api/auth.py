@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from postgrest.exceptions import APIError
 
 from app.auth.dependencies import invalidate_cached_user, require_active_user
-from app.auth.google import find_or_create_google_user, verify_google_token
+from app.auth.google import (
+    find_or_create_google_user,
+    verify_google_token,
+    verify_supabase_google_session,
+)
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
@@ -171,6 +175,20 @@ def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
         },
     )
     return token_response
+
+
+@router.post("/supabase-google", response_model=TokenResponse)
+def supabase_google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_google", [(10, 60), (50, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    google_user = verify_supabase_google_session(payload.token)
+    user = find_or_create_google_user(google_user, attempt_id="supabase-google")
+    _update_last_login(str(user["id"]), attempt_id="supabase-google")
+    return _create_token_response(user)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)

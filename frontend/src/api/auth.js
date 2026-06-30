@@ -57,6 +57,14 @@ export async function loginWithGoogle(googleIdToken) {
   return response.data
 }
 
+export async function loginWithSupabase(accessToken) {
+  const response = await api.post('/auth/supabase-google', {
+    token: accessToken,
+  })
+
+  return response.data
+}
+
 export async function registerWithPassword(payload) {
   const response = await api.post('/auth/register', payload)
 

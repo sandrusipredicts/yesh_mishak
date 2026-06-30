@@ -12,8 +12,11 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
     "@capacitor/core": "^8.4.1",
     "@capacitor/push-notifications": "^8.1.1",
+    "@supabase/supabase-js": "^2.110.0",
     "axios": "^1.17.0",
     "firebase": "^12.15.0",
     "i18next": "^26.3.1",

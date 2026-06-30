@@ -189,6 +189,51 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
     }
 
 
+def verify_supabase_google_session(token: str) -> dict[str, Any]:
+    try:
+        response = get_supabase_client().auth.get_user(token)
+        user = response.user
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Supabase session",
+        ) from exc
+
+    if not user or not user.email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Supabase session",
+        )
+
+    identities = user.identities or []
+    google_identity = next(
+        (identity for identity in identities if identity.provider == "google"),
+        None,
+    )
+    if google_identity is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supabase session is not authenticated with Google",
+        )
+
+    identity_data = google_identity.identity_data or {}
+    google_sub = identity_data.get("sub") or identity_data.get("provider_id") or google_identity.id
+    name = (
+        identity_data.get("full_name")
+        or identity_data.get("name")
+        or user.user_metadata.get("full_name")
+        or user.user_metadata.get("name")
+        or user.email.split("@", maxsplit=1)[0]
+    )
+
+    return {
+        "google_sub": str(google_sub),
+        "email": user.email,
+        "name": name,
+        "picture": identity_data.get("avatar_url") or identity_data.get("picture"),
+    }
+
+
 def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "unknown") -> dict[str, Any]:
     supabase = get_supabase_client()
     email = google_user["email"]
