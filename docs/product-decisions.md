@@ -24664,3 +24664,49 @@ Full policy is documented in `docs/native-plugin-governance-policy.md`.
 - `docs/native-plugin-governance-policy.md` (new - governance policy reference)
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (cross-reference added)
+
+---
+
+# ISSUE-187 - Define Mobile Build Strategy
+
+## Type
+
+Architecture decision / documentation.
+
+## Date
+
+2026-06-30
+
+## Background
+
+Before producing real Android/iOS builds, the project needs an official build strategy that maps build types to environments, defines signing and distribution expectations, and establishes release safety gates. Without this, builds could accidentally point to wrong services, use wrong identifiers, or ship debug features to real users.
+
+## Decision
+
+Four build types are defined with strict environment isolation:
+
+| Build Type | Environment | Identifier | Distribution |
+| :--- | :--- | :--- | :--- |
+| Debug | Development | `com.yeshmishak.app.dev` | Local only |
+| Internal Testing | Staging | `com.yeshmishak.app.staging` | Internal testers |
+| Beta | Staging (default) | `com.yeshmishak.app.staging` | Invited testers |
+| Release | Production | `com.yeshmishak.app` | Public stores |
+
+Key rules:
+
+1. Environment is selected at build time. No runtime switching.
+2. Debug/staging builds must never connect to production services.
+3. Release builds require a 21-point safety checklist before distribution.
+4. Beta builds default to staging. A Release Candidate using production identity requires explicit approval.
+5. Every distributed build must be traceable to a git commit SHA.
+6. Production signing keys must exist before the first release (blocker B-02).
+
+Build readiness audit: NOT YET READY for production release. Debug builds possible. Production signing and Firebase config are missing.
+
+Full strategy is documented in `docs/mobile-build-strategy.md`.
+
+## Files Changed
+
+- `docs/mobile-build-strategy.md` (new - build strategy reference)
+- `docs/product-decisions.md` (this entry appended)
+- `docs/mobile-application-architecture.md` (cross-reference added)

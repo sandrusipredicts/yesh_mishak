@@ -487,6 +487,12 @@ Native plugin adoption follows a governance policy requiring explicit owner appr
 
 See `docs/native-plugin-governance-policy.md` for the full governance policy (ISSUE-186).
 
+### 8.7 Build Strategy
+
+Four build types (Debug, Internal Testing, Beta, Release) map to isolated environments with distinct identifiers, signing, and distribution channels. A 21-point release safety checklist gates production builds.
+
+See `docs/mobile-build-strategy.md` for the full build strategy (ISSUE-187).
+
 ---
 
 ## 9. Out of Scope
