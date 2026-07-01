@@ -56,6 +56,11 @@ jobs:
       - name: Show Capacitor config
         run: npx cap config
 
+      - name: Verify approved Bundle Identifier in committed configuration
+        run: |
+          grep -F "appId: 'com.yeshmishak.app'" capacitor.config.ts
+          test "$(grep -c 'PRODUCT_BUNDLE_IDENTIFIER = com.yeshmishak.app;' ios/App/App.xcodeproj/project.pbxproj)" -eq 2
+
       - name: Sync iOS project
         run: npx cap sync ios
 
@@ -66,6 +71,17 @@ jobs:
         run: |
           cd ios/App
           xcodebuild -list -project App.xcodeproj
+
+      - name: Verify Xcode resolves the approved Bundle Identifier
+        run: |
+          cd ios/App
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            -showBuildSettings |
+            grep -F "PRODUCT_BUNDLE_IDENTIFIER = com.yeshmishak.app"
 
       - name: Try unsigned iOS build
         run: |
