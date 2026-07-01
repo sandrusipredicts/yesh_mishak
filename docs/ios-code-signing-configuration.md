@@ -1,9 +1,22 @@
 # iOS Code Signing Configuration
 
 **Issue:** ISSUE-210
-**Status:** BLOCKED — prerequisites not met
+**Final status: BLOCKED, not COMPLETE.**
 **Date:** 2026-07-01
 **Approved Bundle Identifier (from ISSUE-208/209):** `com.yeshmishak.app`
+
+## Summary Status Table
+
+| Item | Status |
+| --- | --- |
+| iOS project exists | **PASS** |
+| Bundle Identifier applied | **PASS** — `com.yeshmishak.app` |
+| Unsigned macOS/Xcode CI build | **PASS** |
+| Development signing | **BLOCKED** |
+| Physical iPhone install | **BLOCKED** |
+| TestFlight / App Store signing | **FUTURE WORK** |
+
+**Why:** physical-device signing cannot be completed without macOS/Xcode, Apple Developer team access, and a trusted physical iPhone, none of which are available in this environment (details below). GitHub Actions' `macos-latest` runner can validate that the Xcode project compiles unsigned, and could in the future validate simulator startup — but it **cannot** satisfy the physical-device install Definition of Done, because that requires real Apple signing credentials (a Team, a development certificate, and a provisioning profile tied to a specific device UDID) that no CI runner can substitute for or fabricate.
 
 ## 1. Current Signing Status
 

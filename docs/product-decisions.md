@@ -25067,9 +25067,20 @@ The remaining six prerequisites passed: clean `main`/branch setup; the approved 
 
 **No Xcode project file, signing setting, certificate, provisioning profile, entitlement, or CI workflow was changed.** `frontend/ios/App/App.xcodeproj/project.pbxproj` has zero diff versus `main`. A required git/filesystem scan for signing assets and secrets (`.p12`, `.mobileprovision`, `.cer`, `AuthKey_*.p8`, `.xcuserstate`, etc.) found none, confirming the repository remains clean of any signing material.
 
+GitHub Actions' `macos-latest` runner can validate that the Xcode project compiles unsigned, and could in the future validate simulator startup — but it cannot satisfy the physical-device install Definition of Done, since that requires real Apple signing credentials (Team, development certificate, device-specific provisioning profile) that no CI runner can substitute for.
+
+| Item | Status |
+| --- | --- |
+| iOS project exists | PASS |
+| Bundle Identifier applied | PASS — `com.yeshmishak.app` |
+| Unsigned macOS/Xcode CI build | PASS |
+| Development signing | BLOCKED |
+| Physical iPhone install | BLOCKED |
+| TestFlight / App Store signing | FUTURE WORK |
+
 ## Completion Status
 
-**BLOCKED.** Per this issue's decision rules ("If Xcode/macOS is missing: BLOCKED", "If Apple Developer access is missing: BLOCKED", "Never mark COMPLETE unless the physical iPhone install Definition of Done is actually met"), this cannot be marked COMPLETE or PARTIAL — no signing configuration was applied and no device validation was attempted. Re-attempt requires a macOS session with Xcode, confirmed organization Apple Developer access (itself future work per ISSUE-209 §11), and a connected, trusted physical iPhone.
+**BLOCKED, not COMPLETE.** Per this issue's decision rules ("If Xcode/macOS is missing: BLOCKED", "If Apple Developer access is missing: BLOCKED", "Never mark COMPLETE unless the physical iPhone install Definition of Done is actually met"), this cannot be marked COMPLETE or PARTIAL — no signing configuration was applied and no device validation was attempted. Re-attempt requires a macOS session with Xcode, confirmed organization Apple Developer access (itself future work per ISSUE-209 §11), and a connected, trusted physical iPhone.
 
 ## Files Changed
 
