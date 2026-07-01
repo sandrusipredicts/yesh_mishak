@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import L from 'leaflet'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 
 import Modal from './Modal'
+import CityAutocomplete from './CityAutocomplete'
 
 import { createField } from '../api/fields'
 import { getApiErrorMessage } from '../api/errors'
+import { israelCities } from '../data/israelCities'
 
-const DEFAULT_POSITION = [30.9872, 34.9314]
+// Display-only fallback so the map has something to render before the user
+// has chosen a real field location. This must never be submitted as a
+// field's actual coordinates or used to infer a city.
+const MAP_DISPLAY_FALLBACK_CENTER = [31.4, 35.0]
+const MAP_DISPLAY_FALLBACK_ZOOM = 7
+const SELECTED_LOCATION_ZOOM = 15
+
 const locationPinIcon = L.divIcon({
   className: 'location-picker-pin-icon',
   html: '<div class="location-picker-pin"></div>',
@@ -16,7 +24,7 @@ const locationPinIcon = L.divIcon({
   iconAnchor: [11, 11],
 })
 
-function LocationPicker({ position, onPositionChange }) {
+function LocationClickHandler({ onPositionChange }) {
   const map = useMap()
 
   useMapEvents({
@@ -27,6 +35,10 @@ function LocationPicker({ position, onPositionChange }) {
     },
   })
 
+  return null
+}
+
+function LocationPicker({ position, onPositionChange }) {
   return (
     <Marker
       draggable
@@ -44,10 +56,21 @@ function LocationPicker({ position, onPositionChange }) {
 
 function LocationMapSync({ position }) {
   const map = useMap()
+  const hadPositionRef = useRef(false)
 
   useEffect(() => {
-    map.setView(position)
     map.invalidateSize()
+
+    if (!position) {
+      return
+    }
+
+    if (!hadPositionRef.current) {
+      map.setView(position, SELECTED_LOCATION_ZOOM)
+      hadPositionRef.current = true
+    } else {
+      map.setView(position)
+    }
   }, [map, position])
 
   return null
@@ -70,9 +93,17 @@ function AddFieldModal({ onClose, onCreated }) {
   const [hasWater, setHasWater] = useState(false)
   const [openingHours, setOpeningHours] = useState('')
   const [notes, setNotes] = useState('')
-  const [position, setPosition] = useState(DEFAULT_POSITION)
+  const [city, setCity] = useState('')
+  // No location is selected until the user explicitly provides one, either
+  // via device geolocation or by tapping/dragging a pin on the map. This
+  // must never be pre-filled with a fallback/display-only coordinate.
+  const [position, setPosition] = useState(null)
+  const [locationSource, setLocationSource] = useState(null)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const trimmedCity = city.trim()
+  const isCityKnown = israelCities.includes(trimmedCity)
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
@@ -83,11 +114,29 @@ function AddFieldModal({ onClose, onCreated }) {
     navigator.geolocation.getCurrentPosition(
       (location) => {
         setPosition([location.coords.latitude, location.coords.longitude])
+        setLocationSource('gps')
         setError('')
       },
       () => {
+        // Permission denied or unavailable: leave any existing manual
+        // selection untouched so the user can still place a pin by hand.
         setError(t('addField.locationFailed'))
       },
+    )
+  }
+
+  function handleManualPositionChange(nextPosition) {
+    setPosition(nextPosition)
+    setLocationSource('manual')
+    setError('')
+  }
+
+  function hasConfirmedLocation() {
+    return (
+      Boolean(locationSource) &&
+      Array.isArray(position) &&
+      Number.isFinite(position[0]) &&
+      Number.isFinite(position[1])
     )
   }
 
@@ -99,7 +148,12 @@ function AddFieldModal({ onClose, onCreated }) {
       return
     }
 
-    if (!Number.isFinite(position[0]) || !Number.isFinite(position[1])) {
+    if (!trimmedCity || !isCityKnown) {
+      setError(t('addField.cityRequired'))
+      return
+    }
+
+    if (!hasConfirmedLocation()) {
       setError(t('addField.locationRequired'))
       return
     }
@@ -117,7 +171,7 @@ function AddFieldModal({ onClose, onCreated }) {
         has_nets: hasNets,
         has_water: hasWater,
         opening_hours: openingHours.trim(),
-        city: localStorage.getItem('userCity') || '',
+        city: trimmedCity,
         notes: notes.trim(),
       })
       onCreated?.()
@@ -209,6 +263,23 @@ function AddFieldModal({ onClose, onCreated }) {
             />
           </label>
 
+          <div className="settings-input">
+            <label htmlFor="add-field-city-input">{t('addField.city')}</label>
+            <CityAutocomplete
+              id="add-field-city-input"
+              value={city}
+              onChange={setCity}
+              cities={israelCities}
+              placeholder={t('addField.cityPlaceholder')}
+              aria-describedby={trimmedCity && !isCityKnown ? 'error-add-field-city' : undefined}
+            />
+            {trimmedCity && !isCityKnown ? (
+              <span className="form-field-error" id="error-add-field-city">
+                {t('addField.cityInvalid')}
+              </span>
+            ) : null}
+          </div>
+
           <div className="location-picker">
             <div className="location-picker-header">
               <span>{t('addField.location')}</span>
@@ -216,20 +287,35 @@ function AddFieldModal({ onClose, onCreated }) {
                 {t('addField.useCurrentLocation')}
               </button>
             </div>
-            <MapContainer center={position} zoom={15} className="location-picker-map">
+            <MapContainer
+              center={position || MAP_DISPLAY_FALLBACK_CENTER}
+              zoom={position ? SELECTED_LOCATION_ZOOM : MAP_DISPLAY_FALLBACK_ZOOM}
+              className="location-picker-map"
+            >
               <TileLayer
                 attribution="&copy; OpenStreetMap contributors"
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               <LocationMapSync position={position} />
-              <LocationPicker position={position} onPositionChange={setPosition} />
+              <LocationClickHandler onPositionChange={handleManualPositionChange} />
+              {position ? (
+                <LocationPicker position={position} onPositionChange={handleManualPositionChange} />
+              ) : null}
             </MapContainer>
-            <p>
-              {t('addField.coordinates', {
-                lat: position[0].toFixed(6),
-                lng: position[1].toFixed(6),
-              })}
-            </p>
+            {position ? (
+              <p>
+                {t('addField.coordinates', {
+                  // Note: interpolation keys must avoid i18next's reserved
+                  // `lng`/`lngs` option names (used to force a translation
+                  // language), or the string silently falls back to
+                  // fallbackLng regardless of the active app language.
+                  latitude: position[0].toFixed(6),
+                  longitude: position[1].toFixed(6),
+                })}
+              </p>
+            ) : (
+              <p className="form-hint">{t('addField.locationNotSet')}</p>
+            )}
           </div>
 
           <p className="form-hint">{t('addField.locationHint')}</p>
