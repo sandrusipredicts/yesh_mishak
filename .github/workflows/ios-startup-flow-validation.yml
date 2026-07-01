@@ -39,6 +39,10 @@ on:
       - "frontend/capacitor.config.ts"
       - "frontend/src/**"
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   ios-startup-flow-validation:
     name: Validate iOS startup flow on Simulator
