@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:android": "vite build --mode android",
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "preview": "vite preview"

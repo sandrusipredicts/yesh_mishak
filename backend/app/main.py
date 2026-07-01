@@ -98,6 +98,15 @@ for local_origin in (
     if local_origin not in cors_origins:
         cors_origins.append(local_origin)
 
+# The Capacitor Android WebView always loads the bundled app from this fixed
+# origin (Capacitor's default androidScheme is "https"), in every build
+# variant including release. Browsers set the Origin header from the actual
+# page origin, so only the app's own WebView can send this Origin - it is
+# not a wildcard and does not expose the API to arbitrary websites.
+for mobile_app_origin in ("https://localhost",):
+    if mobile_app_origin not in cors_origins:
+        cors_origins.append(mobile_app_origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

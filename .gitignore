@@ -1,4 +1,5 @@
 .env
+.env.android
 .venv/
 __pycache__/
 *.pyc
