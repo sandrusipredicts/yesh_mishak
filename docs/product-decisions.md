@@ -24860,6 +24860,59 @@ Full strategy is documented in `docs/capacitor-version-strategy.md`.
 
 ---
 
+# ISSUE-207 - Finalize Android Foundation Completion
+
+## Type
+
+Readiness re-validation / documentation update (no code changes).
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Re-ran all Android Foundation readiness gates from ISSUE-205 after ISSUE-206's CORS and HTTPS API-target fixes, with fresh commands and real physical-device evidence against the app's **actual, permanent, live production backend** (not a temporary tunnel), and marked **Android Foundation COMPLETE**.
+
+ISSUE-205 had marked Android Foundation NO-GO because API Communication failed: backend CORS rejected the Capacitor origin `https://localhost`, and the Android build's plain-HTTP API target caused Mixed Content blocking against the HTTPS WebView. ISSUE-206 fixed both. This issue independently re-verified the fix on a Samsung SM-S928B physical device, specifically against a real permanent backend:
+
+- Neither documented backend URL was actually live: `frontend/.env.staging.example`'s staging URL and the guessed production URL in `docs/production-config-readiness.md` both resolve only to Railway's default "no active deployment" placeholder page.
+- The real production API URL, `https://yeshmishak-production.up.railway.app`, was recovered by downloading the live `https://yesh-mishak.vercel.app` web app's own JS bundle and extracting the Railway URL it actually calls. This returned `{"status":"ok"}`, confirming it is genuinely live.
+- Fresh CORS preflight against this real backend returned `200 OK` with `Access-Control-Allow-Origin: https://localhost` for all 6 endpoints in the ISSUE-201 matrix — Railway auto-deploys from `main`, so the ISSUE-206 fix was already live in production with no manual deployment step needed.
+- `npm run build:android` pointed at this real backend produced a bundle with zero LAN-IP or `http://` occurrences; `gradlew assembleDebug` succeeded under the required Android Studio JBR Java 21.
+- A fresh device install rendered **live production field markers** on the map from a genuine `GET /fields/` call (a public, unauthenticated endpoint, so this is unambiguous proof the request reached and was answered by real production, not a cache or fallback). The notifications inbox also opened successfully.
+- Full-session logcat (10,946 lines) contained zero `FATAL EXCEPTION`, zero CORS errors, zero Mixed Content errors.
+- No production data was written or mutated — only read-only requests were exercised.
+- Backend test suite (631 tests) and frontend lint both passed.
+
+All four required gates — Android Project, Debug Build, Startup Flow, API Communication — now PASS with evidence against a real permanent backend. `docs/android-project-readiness-review.md` was updated in place with the ISSUE-207 re-validation evidence and a final **COMPLETE** decision, superseding its original ISSUE-205 NO-GO (preserved in the document for traceability, not deleted). `docs/android-api-configuration.md` and `frontend/.env.android.example` were updated to reference the confirmed-live production URL instead of the non-live staging placeholder.
+
+No Android native file, Gradle file, Capacitor config, package ID, or application code was changed in this issue — this was a review/re-validation only, as no new blocker was discovered.
+
+## Completion Status
+
+**COMPLETE (GO)** — Android Foundation is ready to move on to iOS foundation work. Recommend standing up a real, dedicated staging backend deployment so future Android/iOS development doesn't need to target production directly, and recommend applying the same CORS-origin-plus-HTTPS-target pattern used here when the iOS Capacitor WebView origin is established.
+
+## Files Changed
+
+- `docs/android-project-readiness-review.md` (updated in place with ISSUE-207 re-validation evidence and final COMPLETE decision)
+- `docs/android-api-configuration.md` (validation-confirmation update, real production URL noted)
+- `frontend/.env.android.example` (URL updated from a non-live staging placeholder to the confirmed-live production URL)
+- `docs/product-decisions.md` (this entry appended)
+
+## Validation
+
+- Backend URL discovery: extracted real production API URL from the live web app's own JS bundle; confirmed live (`{"status":"ok"}`)
+- CORS preflight (6 endpoints) against real production — PASS, all `200`
+- `cd backend && python -m pytest -q` — 631 passed
+- `npm run build:android` (pointed at real production) — PASS, no LAN IP/HTTP in bundle
+- `npx cap sync android` / `npx cap doctor` — PASS
+- `npx eslint .` — PASS
+- `gradlew assembleDebug` (JBR Java 21) — `BUILD SUCCESSFUL`
+- Physical device install/launch/API validation against real production (Samsung SM-S928B) — PASS, live field markers rendered, zero fatal/CORS/Mixed Content errors in logcat, no production data mutated
+
+---
+
 # ISSUE-191 - Install Capacitor Core Dependencies
 
 ## Type

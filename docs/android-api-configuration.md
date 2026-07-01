@@ -9,6 +9,8 @@ This document describes how Android (Capacitor) builds are configured to talk to
 
 Both were validated end-to-end on a physical device: CORS preflight now returns `200` with `Access-Control-Allow-Origin: https://localhost` for every previously-failing endpoint, and a real login submitted through the installed app's UI succeeded (the app transitioned from the login screen to onboarding after receiving a real JWT), with no Mixed Content or CORS errors in logcat.
 
+**ISSUE-207 update:** independently re-validated on `main` after ISSUE-206 merged, this time against the app's real, permanent, live production backend rather than a temporary tunnel. Neither `frontend/.env.staging.example`'s staging URL nor the guessed production URL in `docs/production-config-readiness.md` are actually live (both resolve only to Railway's placeholder page); the real production API URL, `https://yeshmishak-production.up.railway.app`, was recovered from the live `https://yesh-mishak.vercel.app` web app's own JS bundle and confirmed reachable (`{"status":"ok"}`). CORS preflight against this real backend already passes for all 6 endpoints — Railway auto-deploys from `main`, so no manual deployment step was needed. A fresh device install pointed at this real backend rendered live production field markers on the map from a genuine `GET /fields/` call, with zero CORS/Mixed Content/fatal errors in the full-session logcat. No production data was written during this validation. `frontend/.env.android.example` was updated to reference this confirmed-live URL. See `docs/android-project-readiness-review.md` for the complete evidence and the final Android Foundation COMPLETE decision.
+
 ## What Changed
 
 ### 1. Backend CORS (`backend/app/main.py`)
@@ -91,5 +93,6 @@ Because the app's own build-time API target for this validation pass was the loc
 
 ## Follow-up
 
-- Point `frontend/.env.android`'s `VITE_API_URL` at the team's real staging or production HTTPS backend for day-to-day Android development, once that deployment is confirmed live (at the time of this fix, the `.env.staging.example` and guessed production Railway URLs both resolved to Railway's default "no active deployment" placeholder rather than the real API — that is a separate infrastructure/deployment issue, not an application code issue, and is out of scope here).
+- `frontend/.env.android.example` now points at the confirmed-live production backend (`https://yeshmishak-production.up.railway.app`, discovered and verified in ISSUE-207). `frontend/.env.staging.example`'s URL still does not resolve to an active deployment — standing up a real, dedicated staging backend is recommended so routine Android development doesn't need to target production directly.
 - Consider adding an automated check (CI or a pre-build script) that fails the Android build if `VITE_API_URL` in the active environment does not start with `https://`, to prevent this regression from recurring.
+- Consider updating `docs/production-config-readiness.md`'s guessed production URL to the confirmed real one, since they currently disagree (the guessed URL is not live; the real one is `https://yeshmishak-production.up.railway.app`) — out of scope for this document, flagged for a documentation-cleanup follow-up.
