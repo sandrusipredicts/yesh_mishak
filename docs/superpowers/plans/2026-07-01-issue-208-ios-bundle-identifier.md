@@ -30,7 +30,7 @@
 
 - [x] Assert the committed Capacitor and Xcode values before sync.
 - [x] Resolve Xcode build settings and assert `PRODUCT_BUNDLE_IDENTIFIER` before the unsigned build.
-- [ ] Open the pull request and confirm the macOS job passes.
+- [x] Open pull request #773 and confirm macOS workflow run 28529063997 passes.
 
 ### Task 3: Validate and document
 
@@ -42,4 +42,4 @@
 - [x] Document generated config behavior and unsigned CI validation.
 - [x] Ignore local tool/runtime artifacts without deleting them.
 - [x] Run `npm run build`, `npx cap config`, `npx cap sync ios`, and `npx eslint .`.
-- [ ] Commit, push, open a draft pull request, and record the CI result.
+- [x] Commit, push, open draft pull request #773, and record the passing CI result.

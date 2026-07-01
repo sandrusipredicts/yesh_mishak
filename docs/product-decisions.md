@@ -24545,6 +24545,8 @@ The `com.yeshmishak` root namespace supports future iOS apps:
 
 ISSUE-208 verified the generated iOS project against this decision after ISSUE-206 created it. The macOS validation workflow checks both the committed settings and Xcode's resolved `PRODUCT_BUNDLE_IDENTIFIER`, then performs an unsigned iOS build. No signing identity, certificate, or provisioning profile is required for this validation.
 
+Validation evidence: [PR #773, iOS Xcode Validation run 28529063997](https://github.com/sandrusipredicts/yesh_mishak/actions/runs/28529063997) passed on 2026-07-01. Xcode recognized `App.xcodeproj`, resolved `PRODUCT_BUNDLE_IDENTIFIER = com.yeshmishak.app`, and completed the unsigned generic iOS build.
+
 ## Files Changed
 
 - `docs/product-decisions.md` (this entry appended)
