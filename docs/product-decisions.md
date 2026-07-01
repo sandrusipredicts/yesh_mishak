@@ -25128,3 +25128,35 @@ Both are recorded with recommended follow-up issues rather than fixed here, per 
 - `docs/product-decisions.md` (this entry appended)
 
 No native iOS file, Xcode project file, workflow file, or Android file was changed.
+
+---
+
+# ISSUE-212 - Create First iOS Debug Build
+
+## Type
+
+Build/CI validation (documentation + new CI workflow; no signing, no native features).
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Created and validated the first iOS debug build as far as possible in this environment: a new `.github/workflows/ios-debug-build-validation.yml` builds the app for the iOS Simulator SDK on a real `macos-latest` runner, installs it into a dynamically-selected booted simulator (never a hardcoded device name), launches it by bundle ID `com.yeshmishak.app`, and confirms the process is still running 5+ seconds after launch (no immediate crash).
+
+**Real, observed evidence, not asserted:** run [28536538364](https://github.com/sandrusipredicts/yesh_mishak/actions/runs/28536538364), triggered via the `pull_request` event on PR #777, `completed success` in 4m21s with all 18 steps green. Build ended in `** BUILD SUCCEEDED **`. The runner had many iPhone simulators available; dynamic selection picked `iPhone 16 Pro` — notably not the "iPhone 16" example named in the issue's suggested workflow, even though that device was also available, confirming the selection logic is genuinely dynamic rather than coincidentally matching a hardcoded name. `simctl launch` returned a real PID (`com.yeshmishak.app: 18135`); `launchctl list` after a 5s wait confirmed that PID still running (`18135 0 UIKitApplication:com.yeshmishak.app[...]`). The captured simulator log (uploaded as a build artifact) shows real WebKit/WebCore initialization, confirming the Capacitor WebView bridge started loading web content, not just an empty native shell.
+
+**Physical iPhone installation remains BLOCKED**, unchanged from ISSUE-210/211: no macOS/Xcode, no organization Apple Developer team, and no physical iPhone are available in this environment. This was not attempted, and the result was not faked, per this issue's explicit truth rule ("Never mark COMPLETE without real physical iPhone installation evidence"). Unsigned Simulator success does not imply physical-device readiness — the Simulator does not exercise code signing, device-specific provisioning, or real hardware.
+
+## Completion Status
+
+**PARTIAL PASS / BLOCKED FOR DEVICE INSTALLATION.** Simulator build/install/launch all passed with real evidence (rules out NO-GO). Physical iPhone installation was correctly not attempted since ISSUE-210's blockers are unchanged (rules out COMPLETE). Full DoD still requires: an organization Apple Developer team, signing certificates/provisioning for `com.yeshmishak.app`, a real Mac/Xcode signing environment, and a trusted physical iPhone in the same session.
+
+## Files Changed
+
+- `.github/workflows/ios-debug-build-validation.yml` (new — Simulator build/install/launch CI workflow)
+- `docs/ios-debug-build-validation.md` (new — full validation report with real CI evidence)
+- `docs/product-decisions.md` (this entry appended)
+
+No native iOS project file, signing configuration, or Android file was changed.

@@ -1,0 +1,151 @@
+name: iOS Debug Build Validation
+
+# Builds the Capacitor iOS app for the iOS Simulator on a real macOS runner,
+# installs it into a booted simulator, and launches it by bundle ID
+# (com.yeshmishak.app), confirming no immediate crash on launch.
+#
+# This validates Simulator install/launch only. It does NOT validate or
+# prove physical iPhone installation, which requires real Apple signing
+# credentials (Team, development certificate, device-specific provisioning
+# profile) that this workflow deliberately does not configure - see
+# docs/ios-debug-build-validation.md and docs/ios-code-signing-configuration.md
+# (ISSUE-210, BLOCKED) for why physical-device installation is out of reach
+# in this environment today.
+#
+# The target simulator is never hardcoded: it is selected dynamically from
+# whatever iPhone simulators are actually available on the runner, since a
+# specific named device (e.g. "iPhone 16") is not guaranteed to exist on
+# every macos-latest image.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-debug-build-validation.yml"
+      - ".github/workflows/ios-xcode-validation.yml"
+      - "frontend/ios/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/capacitor.config.ts"
+
+jobs:
+  ios-debug-build-validation:
+    name: Build, install, and launch iOS debug app in Simulator
+    runs-on: macos-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync iOS project
+        run: npx cap sync ios
+
+      - name: Show available simulators
+        run: xcrun simctl list devices available
+
+      - name: Select an available iPhone simulator
+        id: select_sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | select(.isAvailable == true and (.name | startswith("iPhone")))][0].udid // empty')
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found on this runner" >&2
+            exit 1
+          fi
+          NAME=$(xcrun simctl list devices available -j \
+            | jq -r --arg udid "$UDID" '[.devices[][] | select(.udid == $udid)][0].name')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Selected simulator: $NAME ($UDID)"
+
+      - name: Build for iOS Simulator
+        run: |
+          cd ios/App
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'id=${{ steps.select_sim.outputs.udid }}' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Locate built .app
+        id: locate_app
+        run: |
+          cd ios/App
+          APP_PATH=$(find DerivedData -name "App.app" -path "*iphonesimulator*" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Could not locate built App.app under DerivedData" >&2
+            find DerivedData -maxdepth 6 -type d >&2 || true
+            exit 1
+          fi
+          echo "app_path=$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")" >> "$GITHUB_OUTPUT"
+          echo "Found app at: $APP_PATH"
+
+      - name: Boot simulator
+        run: |
+          xcrun simctl boot "${{ steps.select_sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.select_sim.outputs.udid }}" -b
+
+      - name: Install app on simulator
+        run: |
+          xcrun simctl install "${{ steps.select_sim.outputs.udid }}" "${{ steps.locate_app.outputs.app_path }}"
+
+      - name: Start simulator log capture
+        run: |
+          cd ios/App
+          nohup xcrun simctl spawn "${{ steps.select_sim.outputs.udid }}" log stream \
+            --predicate 'process == "App"' --style compact > ios_sim_log.txt 2>&1 &
+          echo $! > log_pid.txt
+          sleep 2
+
+      - name: Launch app by bundle ID
+        run: |
+          xcrun simctl launch "${{ steps.select_sim.outputs.udid }}" com.yeshmishak.app
+
+      - name: Confirm app process is running after launch (no immediate crash)
+        run: |
+          sleep 5
+          xcrun simctl spawn "${{ steps.select_sim.outputs.udid }}" launchctl list \
+            | grep -F "com.yeshmishak.app" || {
+              echo "App process not found running after launch - possible immediate crash" >&2
+              exit 1
+            }
+
+      - name: Stop log capture and print captured logs
+        if: always()
+        run: |
+          cd ios/App
+          if [ -f log_pid.txt ]; then kill "$(cat log_pid.txt)" 2>/dev/null || true; fi
+          sleep 1
+          echo "----- Simulator log (App process) -----"
+          cat ios_sim_log.txt 2>/dev/null || echo "(no log captured)"
+
+      - name: Upload simulator log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-log
+          path: frontend/ios/App/ios_sim_log.txt
+          if-no-files-found: ignore
