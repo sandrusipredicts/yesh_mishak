@@ -156,7 +156,7 @@ Result: confirmed only real source/project files would be staged (19 files) — 
 | iOS project exists | PASS — `frontend/ios/App/App.xcodeproj` and full native project structure generated |
 | Capacitor iOS generation has no errors | PASS — `npx cap add ios` completed with `[success] ios platform added!` |
 | Capacitor sync succeeds | PASS — `npx cap sync ios` completed with no errors |
-| Xcode validation | See "macOS CI Validation (ISSUE-207)" below — now automated via GitHub Actions since this machine cannot run Xcode locally. |
+| Xcode validation | **PASS** — see "macOS CI Validation (ISSUE-207)" below. Confirmed on a real `macos-latest` GitHub Actions runner (Xcode 16.4): project recognized, SPM dependencies resolved, unsigned build completed with `** BUILD SUCCEEDED **`. |
 
 ## macOS CI Validation (ISSUE-207)
 
@@ -174,18 +174,24 @@ Since there is no local Mac or iPhone available, `.github/workflows/ios-xcode-va
 - Real iPhone/Simulator runtime behavior — a `generic/platform=iOS` build compiles code but never boots a simulator or device.
 - App Store or TestFlight readiness — no code signing, certificates, or provisioning profiles are configured; the build explicitly disables signing.
 - APNs, Firebase, push notifications, or native login — none of these are wired up yet, per this issue's and ISSUE-206's scope.
-- That the Windows-generated `Package.swift` backslash-path issue (noted above) is resolved — the CI runner does its own `npx cap sync ios` on macOS/Linux-style paths as part of the workflow, which independently regenerates `Package.swift` with correct POSIX separators before the build step runs, so a passing CI run also resolves that specific risk. If CI fails at the SPM resolution step, that would confirm the risk is real; if it passes, that risk is retired.
 
-**CI run evidence:** this branch was pushed and a pull request opened specifically to trigger this workflow and observe a real run (not just assert it should work). See the PR's Actions tab / the commit message on `main` after merge for the actual run outcome.
+**CI run evidence (real, observed — not asserted):** this branch was pushed and PR [#771](https://github.com/sandrusipredicts/yesh_mishak/pull/771) opened specifically to trigger this workflow on a real macOS runner. Run [28526407797](https://github.com/sandrusipredicts/yesh_mishak/actions/runs/28526407797) completed in 1m12s with every step green, including the build step itself:
+
+- `xcodebuild -list -project App.xcodeproj` ran on `/Applications/Xcode_16.4.app`, resolved the Swift Package Manager graph (fetched `capacitor-swift-pm` from GitHub, resolved the local `CapApp-SPM` and `CapacitorPushNotifications` packages via their macOS-runner paths under `frontend/node_modules`/`frontend/ios/App/CapApp-SPM`), and listed:
+  - Targets: `App`
+  - Schemes: `App`, `CapacitorPushNotifications`, `CapApp-SPM`
+- `xcodebuild -project App.xcodeproj -scheme App -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build` finished with the literal output `** BUILD SUCCEEDED **`.
+
+This also **retires** the Windows-generated `Package.swift` backslash-path risk noted above: the CI runner's own `npx cap sync ios` step (running on macOS, before the build) regenerated `Package.swift` with correct paths for that environment, and SPM resolution succeeded — confirming the earlier concern was specific to the Windows-generated file, not a structural project problem, and that a fresh `cap sync ios` on the target OS is the correct mitigation if it's ever seen again.
 
 ## Final Decision
 
-**Generation/Sync: PASS. Xcode validation: automated via GitHub Actions (ISSUE-207) — see the linked PR's Actions run for the actual pass/fail result.**
+**Generation/Sync: PASS. Xcode validation: PASS — confirmed on a real macOS runner via GitHub Actions (ISSUE-207).**
 
-The Capacitor iOS platform was successfully added and synced with the existing React/Vite app, with no errors at any step, and with zero changes to any Android file. This machine cannot run Xcode locally (Windows), so a GitHub Actions workflow was added to perform real macOS/Xcode validation instead of leaving it indefinitely pending. No APNs, Firebase, native login, push notification, TestFlight, App Store, or icon/splash customization work was performed, per this issue's scope. No code signing, certificates, or secrets were added — the CI build is intentionally unsigned.
+The Capacitor iOS platform was successfully added and synced with the existing React/Vite app, with no errors at any step, and with zero changes to any Android file. This machine cannot run Xcode locally (Windows), so a GitHub Actions workflow was added and actually executed on a real `macos-latest` runner (Xcode 16.4) rather than leaving validation as an unverified assumption. The real, observed result: Xcode recognized the project, resolved all Swift Package Manager dependencies, and an unsigned generic-iOS build completed with `** BUILD SUCCEEDED **`. No APNs, Firebase, native login, push notification, TestFlight, App Store, or icon/splash customization work was performed, per this issue's scope. No code signing, certificates, or secrets were added — the build is intentionally unsigned, and this result does not extend to real-device, simulator, or App Store/TestFlight readiness.
 
 ## Next Steps (follow-up, out of scope for this issue)
 
-1. Review the ISSUE-207 PR's Actions run to confirm the unsigned build actually passed on macOS; if it failed specifically on SPM package resolution, investigate whether it's the Windows-generated backslash path or a genuine project issue.
-2. Attempt a debug build/run in the iOS Simulator (requires a macOS environment with the simulator runtime; GitHub's `macos-latest` runner can technically boot simulators, but that is out of scope for this issue's minimal validation).
+1. Attempt a debug build/run in the iOS Simulator (requires booting an actual simulator, not just a `generic/platform=iOS` compile; out of scope for this issue's minimal validation, but technically feasible on `macos-latest` runners in a follow-up).
+2. Consider making this workflow a required check on `frontend/ios/**` PRs going forward, now that it has a confirmed real passing baseline to compare against.
 3. Only after the above: begin the explicitly out-of-scope items (APNs, Firebase, native login, push, TestFlight, App Store, icon/splash customization) as their own dedicated issues.
