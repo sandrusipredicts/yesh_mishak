@@ -24996,3 +24996,46 @@ Validation:
 
 - `docs/product-decisions.md` (this entry appended)
 - `docs/mobile-application-architecture.md` (short status cross-reference)
+
+---
+
+# ISSUE-209 - Define iOS Code Signing Strategy
+
+## Type
+
+Product decision / security and release strategy.
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Approved `docs/ios-code-signing-strategy.md` as the official iOS signing policy. This issue is documentation only and does not configure real signing.
+
+The strategy makes the following decisions:
+
+1. **Current validation remains unsigned.** The existing macOS/Xcode workflow continues to use `CODE_SIGNING_ALLOWED=NO`. It proves compilation and Xcode project validity, not physical-device or distribution readiness.
+2. **Simulator development requires no Apple signing.** Any contributor with a supported Mac/Xcode environment may use the simulator.
+3. **Official physical-device signing will use an organization team.** Developers use individual Apple IDs invited to the organization team; shared Apple IDs are prohibited. Xcode automatic signing is allowed locally after the team exists, but Team IDs and machine-specific signing settings are not committed.
+4. **TestFlight and production signing are future, protected operations.** GitHub Actions is the preferred first CI platform, using separate signed workflow files and protected `ios-testflight` / `ios-production` environments. Signed credentials are never exposed to pull requests or forks.
+5. **Apple/App Store assets belong to the organization.** The future setup must name an Account Holder, at least two Apple Admins, a Release Manager and backup, a Security/DevOps Owner and backup, iOS Maintainers, and a Product Release Approver.
+6. **Distribution secrets live outside Git.** Certificates/private keys, provisioning profiles, App Store Connect API keys, passwords, and recovery material are stored in an organization secret manager/password manager and protected CI environments.
+7. **Renewal and incident handling are mandatory.** The credential inventory is reviewed monthly with 90/60/30-day and weekly reminders; expiry or compromise pauses signed distribution until replacement, rotation, and TestFlight validation complete.
+8. **Production submission requires explicit approvals.** The Release Manager, Security/DevOps Owner, and Product Release Approver must approve the exact release candidate and record non-secret evidence.
+
+No organization Apple Developer Program account, Team ID, App Store Connect app record, signing certificate, provisioning profile, or signing secret is documented as configured today. Therefore physical iPhone, TestFlight, and App Store signing remain blocked pending dedicated implementation issues.
+
+## Security Boundary
+
+Files such as `.p12`, `.mobileprovision`, `.p8`, private keys, exported Keychains, Apple passwords, App Store Connect API private keys, recovery codes, Xcode user data, and Base64-encoded equivalents must never be committed. The proposed future GitHub secret names are documented but were not created.
+
+## Files Changed
+
+- `docs/ios-code-signing-strategy.md` (new official strategy)
+- `docs/product-decisions.md` (this decision entry)
+- `docs/superpowers/plans/2026-07-01-issue-209-ios-code-signing-strategy.md` (execution record)
+
+## Completion Status
+
+**STRATEGY COMPLETE; SIGNING IMPLEMENTATION NOT STARTED.** ISSUE-209 removes policy ambiguity while preserving the current unsigned build boundary. Every operation involving a real Apple account, physical device, TestFlight, App Store Connect, certificate, provisioning profile, or CI secret requires a future approved issue.
