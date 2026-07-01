@@ -75,16 +75,13 @@ jobs:
       - name: Verify Xcode resolves the approved Bundle Identifier
         run: |
           cd ios/App
-          bundle_id="$(
-            xcodebuild \
-              -project App.xcodeproj \
-              -scheme App \
-              -destination 'generic/platform=iOS' \
-              CODE_SIGNING_ALLOWED=NO \
-              -showBuildSettings |
-              awk '/PRODUCT_BUNDLE_IDENTIFIER =/ { print $3; exit }'
-          )"
-          test "$bundle_id" = "com.yeshmishak.app"
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            -showBuildSettings |
+            grep -F "PRODUCT_BUNDLE_IDENTIFIER = com.yeshmishak.app"
 
       - name: Try unsigned iOS build
         run: |
