@@ -25088,3 +25088,43 @@ GitHub Actions' `macos-latest` runner can validate that the Xcode project compil
 - `docs/product-decisions.md` (this entry appended)
 
 No Xcode project files, workflow files, or Android files were changed.
+
+---
+
+# ISSUE-211 - Validate iOS Project Structure
+
+## Type
+
+Structural audit (documentation only; no native features, no signing changes).
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Performed a full audit of `frontend/ios/` before any native iOS feature work begins, covering project structure, assets, Capacitor integration, build settings, and git/repo hygiene.
+
+**Structure, integration, and build settings are all correctly formed:**
+- All 19 tracked files under `frontend/ios/` are exactly the expected Capacitor 8/SPM source/project files — no generated artifacts, no user-specific Xcode files, no build output committed.
+- Confirmed (again, independently) this project correctly has no standalone `App.xcworkspace` — it uses `App.xcodeproj` directly, with the local `CapApp-SPM` Swift package wired in via `project.pbxproj`.
+- `PRODUCT_BUNDLE_IDENTIFIER = com.yeshmishak.app` is consistent everywhere and matches `capacitor.config.ts`'s `appId`.
+- `CODE_SIGN_STYLE = Automatic` with **no** `DEVELOPMENT_TEAM` and **no** `PROVISIONING_PROFILE` anywhere — development signing is correctly not falsely represented as complete, consistent with ISSUE-209/210's documented BLOCKED status.
+- A `workflow_dispatch` run of `iOS Xcode Validation` was triggered fresh against `main` during this audit (run [28535451568](https://github.com/sandrusipredicts/yesh_mishak/actions/runs/28535451568)) rather than relying on older PR-run history: `completed success`, ending in `** BUILD SUCCEEDED **` for the unsigned build. This also re-confirmed the known Windows-generated `Package.swift` backslash path self-heals via CI's own `cap sync ios` step on macOS.
+
+**Two real risks are now explicitly documented, neither fixed in this audit:**
+1. The app icon and splash screen are still Capacitor's stock default placeholder graphics (a generic blue "X" logo), not "Yesh Mishak" branding — visually confirmed by opening the committed image files. Blocks release-facing milestones (TestFlight/App Store), not continued development.
+2. `Info.plist` has no `NSLocationWhenInUseUsageDescription` (or related) key, while the web app already calls `navigator.geolocation` in three places (`AddFieldModal.jsx`, `NotificationsModal.jsx`, `MapPage.jsx`). iOS terminates an app outright if it requests a protected permission without the matching usage-description string — this will crash the app the first time native/WebView geolocation is wired up on iOS unless added first.
+
+Both are recorded with recommended follow-up issues rather than fixed here, per this issue's audit-only scope.
+
+## Completion Status
+
+**PASS WITH RISKS.** The iOS project structure is safe for continued native-work planning; no security, git-hygiene, or configuration-mismatch issue was found. The two documented risks (placeholder branding assets; missing location usage description) must be tracked and resolved before, respectively, any release-facing milestone and any geolocation-triggering native work.
+
+## Files Changed
+
+- `docs/ios-project-structure-audit.md` (new — full audit report)
+- `docs/product-decisions.md` (this entry appended)
+
+No native iOS file, Xcode project file, workflow file, or Android file was changed.
