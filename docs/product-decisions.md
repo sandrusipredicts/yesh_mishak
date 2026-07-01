@@ -25039,3 +25039,52 @@ Files such as `.p12`, `.mobileprovision`, `.p8`, private keys, exported Keychain
 ## Completion Status
 
 **STRATEGY COMPLETE; SIGNING IMPLEMENTATION NOT STARTED.** ISSUE-209 removes policy ambiguity while preserving the current unsigned build boundary. Every operation involving a real Apple account, physical device, TestFlight, App Store Connect, certificate, provisioning profile, or CI secret requires a future approved issue.
+
+---
+
+# ISSUE-210 - Configure iOS Code Signing
+
+## Type
+
+Blocked prerequisite check (documentation only; no signing implemented).
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Attempted to configure iOS development signing per `docs/ios-code-signing-strategy.md` and validate install/launch on a physical iPhone. **Blocked at the prerequisite check, before any signing configuration was attempted**, per this issue's own explicit rule to stop and produce a BLOCKED report rather than fake completion.
+
+Three of nine required prerequisites failed, two of them hard blockers per this issue's own decision rules:
+
+1. **macOS unavailable.** This session runs on Windows (`MINGW64`); Xcode cannot run here.
+2. **Xcode unavailable.** Direct consequence of #1 — `xcodebuild` is not installed/available.
+3. **Apple Developer account/team access unavailable.** Independently confirmed by `docs/ios-code-signing-strategy.md` itself (§1.1, §10): no organization Apple Developer Program account, Team ID, Account Holder, or Apple Admin is documented anywhere. This is the organization's actual current state, not a local-machine gap.
+4. **No physical iPhone connected.** Cannot be evaluated meaningfully without #1/#2 in any case.
+
+The remaining six prerequisites passed: clean `main`/branch setup; the approved Bundle Identifier `com.yeshmishak.app` confirmed matching in both `frontend/capacitor.config.ts` and `frontend/ios/App/App.xcodeproj/project.pbxproj` (unchanged, not guessed); the ISSUE-209 signing strategy exists and was read in full; and the existing unsigned `ios-xcode-validation.yml` workflow is present and its recent runs are `completed success`.
+
+**No Xcode project file, signing setting, certificate, provisioning profile, entitlement, or CI workflow was changed.** `frontend/ios/App/App.xcodeproj/project.pbxproj` has zero diff versus `main`. A required git/filesystem scan for signing assets and secrets (`.p12`, `.mobileprovision`, `.cer`, `AuthKey_*.p8`, `.xcuserstate`, etc.) found none, confirming the repository remains clean of any signing material.
+
+GitHub Actions' `macos-latest` runner can validate that the Xcode project compiles unsigned, and could in the future validate simulator startup — but it cannot satisfy the physical-device install Definition of Done, since that requires real Apple signing credentials (Team, development certificate, device-specific provisioning profile) that no CI runner can substitute for.
+
+| Item | Status |
+| --- | --- |
+| iOS project exists | PASS |
+| Bundle Identifier applied | PASS — `com.yeshmishak.app` |
+| Unsigned macOS/Xcode CI build | PASS |
+| Development signing | BLOCKED |
+| Physical iPhone install | BLOCKED |
+| TestFlight / App Store signing | FUTURE WORK |
+
+## Completion Status
+
+**BLOCKED, not COMPLETE.** Per this issue's decision rules ("If Xcode/macOS is missing: BLOCKED", "If Apple Developer access is missing: BLOCKED", "Never mark COMPLETE unless the physical iPhone install Definition of Done is actually met"), this cannot be marked COMPLETE or PARTIAL — no signing configuration was applied and no device validation was attempted. Re-attempt requires a macOS session with Xcode, confirmed organization Apple Developer access (itself future work per ISSUE-209 §11), and a connected, trusted physical iPhone.
+
+## Files Changed
+
+- `docs/ios-code-signing-configuration.md` (new — full BLOCKED readiness report)
+- `docs/product-decisions.md` (this entry appended)
+
+No Xcode project files, workflow files, or Android files were changed.
