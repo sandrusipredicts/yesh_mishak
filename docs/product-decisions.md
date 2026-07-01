@@ -24913,6 +24913,50 @@ No Android native file, Gradle file, Capacitor config, package ID, or applicatio
 
 ---
 
+# ISSUE-207 - Configure iOS Development Environment
+
+## Type
+
+Documentation only.
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Created `docs/ios-development-environment.md`, the official setup guide for developing the Capacitor iOS app, covering prerequisites, repository setup, opening the project in Xcode, Simulator setup, Apple Developer configuration concepts, certificate/provisioning-profile concepts, the existing GitHub Actions macOS validation workflow, troubleshooting, a new-developer checklist, and a final readiness status table.
+
+Confirmed before writing: `main` has both ISSUE-206 ("Create iOS project using Capacitor," PR #770) and the follow-up macOS CI validation work ("Validate iOS project using GitHub Actions macOS runner," PR #771) merged, and `.github/workflows/ios-xcode-validation.yml`'s two runs to date are both `completed success` on real `macos-latest` runners.
+
+Key point documented explicitly and re-verified directly against the repo: this project uses Capacitor 8 with Swift Package Manager, not CocoaPods, so there is no standalone `frontend/ios/App/App.xcworkspace` with a committed `contents.xcworkspacedata`. The guide tells developers to open `frontend/ios/App/App.xcodeproj` directly and explains why, rather than assuming a workspace file that does not exist.
+
+All documented repo-setup commands (`npm ci`, `npm run build`, `npx cap config`, `npx cap sync ios`) were run locally to confirm they work exactly as described. A `Package.swift` diff produced by re-running `cap sync ios` locally was confirmed to be a pure CRLF/`core.autocrlf` line-ending artifact (no real content change, verified via `git diff --stat`) and was reverted rather than committed, since it was not a real, needed change.
+
+No native iOS project file was modified, no Android file was modified, and no secret, certificate, provisioning profile, or `.env` file was added — Apple Developer signing and TestFlight/App Store work are explicitly documented as future issues, not configured here.
+
+## Completion Status
+
+**COMPLETE.** iOS Environment Setup Guide exists at `docs/ios-development-environment.md`, clearly separating what requires a Mac/Xcode, what GitHub Actions already validates, what requires an Apple Developer account, and what remains future work (physical iPhone validation; Apple signing/TestFlight/App Store).
+
+## Files Changed
+
+- `docs/ios-development-environment.md` (new)
+- `docs/product-decisions.md` (this entry appended)
+
+## Validation
+
+- `git status` / `git checkout main` / `git pull origin main` — clean, up to date, before branching
+- Confirmed `frontend/ios/App/App.xcodeproj/project.pbxproj` exists on `main`
+- Confirmed `.github/workflows/ios-xcode-validation.yml` exists and its last 2 runs are `completed success`
+- `npm ci` — PASS
+- `npm run build` — PASS
+- `npx cap config` — PASS, confirmed `appId`/`appName`/`webDir`
+- `npx cap sync ios` — PASS
+- Confirmed no Android files touched, no native iOS project files modified, no secrets/certificates/profiles added
+
+---
+
 # ISSUE-191 - Install Capacitor Core Dependencies
 
 ## Type
