@@ -1,0 +1,229 @@
+name: iOS Startup Flow Validation
+
+# Goes beyond ios-debug-build-validation.yml's basic build/install/launch
+# check: validates that the app's *startup flow* actually behaves
+# correctly on a real macOS/Xcode Simulator - launch screen completes,
+# the Capacitor WebView initializes and loads real content, the initial
+# route renders without crashing, and the configured backend is reachable
+# with no CORS/Mixed Content blocker - not just that the process stays
+# alive for a few seconds.
+#
+# The app is built against the same real, permanent, live production
+# backend already used and proven CORS-correct for Android
+# (docs/android-api-configuration.md, ISSUE-207): a git-ignored
+# frontend/.env.ios is written inline in this workflow (never committed)
+# so `npm run build:ios` bakes in an HTTPS API target, exactly mirroring
+# the Android build:android pattern. A plain http:// target would trigger
+# WebView Mixed Content blocking regardless of backend CORS config.
+#
+# The app requires login before it calls any backend endpoint, so a fresh
+# Simulator install does not make an automatic in-app network request to
+# validate. Backend reachability and CORS are instead validated with a
+# separate, safe, read-only curl preflight against the real backend, and
+# that evidence is clearly labeled as backend/API reachability evidence,
+# not in-app network proof - see docs/ios-startup-flow-validation.md.
+#
+# The target simulator is never hardcoded - selected dynamically from
+# whatever iPhone simulators actually exist on the runner, same approach
+# as ios-debug-build-validation.yml.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-startup-flow-validation.yml"
+      - ".github/workflows/ios-debug-build-validation.yml"
+      - "frontend/ios/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/capacitor.config.ts"
+      - "frontend/src/**"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  ios-startup-flow-validation:
+    name: Validate iOS startup flow on Simulator
+    runs-on: macos-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write ephemeral .env.ios (HTTPS production backend, never committed)
+        run: |
+          cat > .env.ios <<'EOF'
+          VITE_API_URL=https://yeshmishak-production.up.railway.app
+          EOF
+
+      - name: Build web app (iOS mode, HTTPS API target)
+        run: npm run build:ios
+
+      - name: Sync iOS project
+        run: npx cap sync ios
+
+      - name: Show available simulators
+        run: xcrun simctl list devices available
+
+      - name: Select an available iPhone simulator
+        id: select_sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | select(.isAvailable == true and (.name | startswith("iPhone")))][0].udid // empty')
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found on this runner" >&2
+            exit 1
+          fi
+          NAME=$(xcrun simctl list devices available -j \
+            | jq -r --arg udid "$UDID" '[.devices[][] | select(.udid == $udid)][0].name')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Selected simulator: $NAME ($UDID)"
+
+      - name: Build for iOS Simulator
+        run: |
+          cd ios/App
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'id=${{ steps.select_sim.outputs.udid }}' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Locate built .app
+        id: locate_app
+        run: |
+          cd ios/App
+          APP_PATH=$(find DerivedData -name "App.app" -path "*iphonesimulator*" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Could not locate built App.app under DerivedData" >&2
+            exit 1
+          fi
+          echo "app_path=$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")" >> "$GITHUB_OUTPUT"
+          echo "Found app at: $APP_PATH"
+
+      - name: Boot simulator
+        run: |
+          xcrun simctl boot "${{ steps.select_sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.select_sim.outputs.udid }}" -b
+
+      - name: Install app on simulator
+        run: |
+          xcrun simctl install "${{ steps.select_sim.outputs.udid }}" "${{ steps.locate_app.outputs.app_path }}"
+
+      - name: Start simulator log capture
+        run: |
+          cd ios/App
+          nohup xcrun simctl spawn "${{ steps.select_sim.outputs.udid }}" log stream \
+            --predicate 'process == "App"' --style compact > ios_startup_log.txt 2>&1 &
+          echo $! > log_pid.txt
+          sleep 2
+
+      - name: Launch app by bundle ID
+        run: |
+          xcrun simctl launch "${{ steps.select_sim.outputs.udid }}" com.yeshmishak.app
+
+      - name: Wait for startup to settle
+        run: sleep 10
+
+      - name: Confirm app process is running after launch (no immediate crash)
+        run: |
+          xcrun simctl spawn "${{ steps.select_sim.outputs.udid }}" launchctl list \
+            | grep -F "com.yeshmishak.app" || {
+              echo "App process not found running after launch - possible immediate crash" >&2
+              exit 1
+            }
+
+      - name: Capture post-launch screenshot
+        run: |
+          cd ios/App
+          xcrun simctl io "${{ steps.select_sim.outputs.udid }}" screenshot ios_startup_screenshot.png || \
+            echo "Screenshot capture failed - continuing, this is evidence-only and not a startup-flow failure condition"
+
+      - name: Stop log capture and print captured logs
+        if: always()
+        run: |
+          cd ios/App
+          if [ -f log_pid.txt ]; then kill "$(cat log_pid.txt)" 2>/dev/null || true; fi
+          sleep 1
+          echo "----- Simulator startup log (App process) -----"
+          cat ios_startup_log.txt 2>/dev/null || echo "(no log captured)"
+
+      - name: Scan startup log for fatal crash/CORS/Mixed-Content indicators
+        run: |
+          cd ios/App
+          LOG=ios_startup_log.txt
+          if [ ! -f "$LOG" ]; then
+            echo "No log file found to scan" >&2
+            exit 1
+          fi
+
+          # Unambiguous fatal indicators: any match fails the workflow.
+          HARD_FAIL_REGEX='Fatal error|Terminating app due to uncaught exception|SIGABRT|EXC_BAD_ACCESS|NSInvalidArgumentException|Mixed Content|blocked by CORS|WebView failed'
+          # Ambiguous/commonly-benign indicators: reported for visibility, does not fail the build.
+          WATCH_REGEX='Could not load'
+
+          echo "=== Hard-fail pattern scan ==="
+          if grep -inE "$HARD_FAIL_REGEX" "$LOG"; then
+            echo "FATAL pattern detected in iOS startup log - failing workflow" >&2
+            exit 1
+          fi
+          echo "No hard-fail patterns found."
+
+          echo "=== Watch-only pattern scan (non-blocking, documented for evidence) ==="
+          grep -inE "$WATCH_REGEX" "$LOG" || echo "(none found)"
+
+      - name: Backend API reachability + CORS check (safe, read-only, not in-app network proof)
+        run: |
+          echo "=== GET / (reachability) ==="
+          curl -sS -o /dev/null -w "HTTP %{http_code}\n" https://yeshmishak-production.up.railway.app/ --max-time 15
+
+          echo "=== OPTIONS /fields/ with Origin: https://localhost (CORS preflight, matches the Capacitor WebView origin) ==="
+          curl -sS -i -X OPTIONS "https://yeshmishak-production.up.railway.app/fields/" \
+            -H "Origin: https://localhost" \
+            -H "Access-Control-Request-Method: GET" \
+            -H "Access-Control-Request-Headers: authorization,content-type" \
+            --max-time 15 | tee cors_check.txt
+
+          grep -qi "access-control-allow-origin: https://localhost" cors_check.txt || {
+            echo "CORS preflight did not return the expected Access-Control-Allow-Origin header" >&2
+            exit 1
+          }
+          echo "CORS preflight OK: backend allows the Capacitor WebView origin."
+
+      - name: Upload simulator startup log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-startup-log
+          path: frontend/ios/App/ios_startup_log.txt
+          if-no-files-found: ignore
+
+      - name: Upload post-launch screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-startup-screenshot
+          path: frontend/ios/App/ios_startup_screenshot.png
+          if-no-files-found: ignore

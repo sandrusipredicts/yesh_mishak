@@ -25160,3 +25160,44 @@ Created and validated the first iOS debug build as far as possible in this envir
 - `docs/product-decisions.md` (this entry appended)
 
 No native iOS project file, signing configuration, or Android file was changed.
+
+---
+
+# ISSUE-213 - Validate iOS Application Startup Flow
+
+## Type
+
+Startup-flow validation (new CI workflow + documentation; no signing, no native features).
+
+## Date
+
+2026-07-01
+
+## Decision
+
+Confirmed PR #777 (ISSUE-212) merged into `main` before starting, per this issue's explicit prerequisite. Went beyond ISSUE-212's basic build/install/launch check to validate the app's actual startup flow on a real macOS/Xcode Simulator: launch screen completion, Capacitor WebView initialization and content loading, initial routing, and backend reachability/CORS.
+
+Added `.github/workflows/ios-startup-flow-validation.yml`, plus `build:ios` (`vite build --mode ios`) and `frontend/.env.ios.example`, mirroring the proven Android `build:android` pattern, so the app is built against the real, permanent, live production backend (`https://yeshmishak-production.up.railway.app`) already confirmed CORS-correct for the Capacitor origin. `frontend/.env.ios` is git-ignored; the workflow writes it inline in CI, never committed.
+
+**Real, observed evidence, not asserted:** run [28544475969](https://github.com/sandrusipredicts/yesh_mishak/actions/runs/28544475969), triggered via `pull_request` on PR #778, `completed success` in 6m36s, all 24 steps green. The two pre-existing iOS workflows were also re-triggered by the same PR (shared `frontend/package.json` trigger path) and both remained `completed success`, confirming no regression. Build ended in `** BUILD SUCCEEDED **`. Dynamic simulator selection picked `iPhone 17 Pro` (a newer model than ISSUE-212's `iPhone 16 Pro`, confirming the runner image evolves and the never-hardcode design keeps paying off). `simctl launch` returned a real PID; `launchctl list` after a 10s wait confirmed it still running.
+
+Captured real WebKit page-load lifecycle log lines (`WebPageProxy::loadRequest` → `didStartProvisionalLoadForFrame` → `didCommitLoadForFrame` → multiple `SubResourceLoader::didFinishLoading` → `didFinishLoadForFrame`) proving the WebView genuinely initialized and completed loading the app's bundle. A dedicated log scan for fatal/CORS/Mixed-Content patterns found zero matches. A separate, safe, read-only curl check confirmed the real production backend is reachable (`HTTP 200`) and correctly CORS-configured for `Origin: https://localhost` (`access-control-allow-origin: https://localhost`), explicitly labeled as backend reachability evidence, not in-app network proof, since the app requires login before any automatic backend call.
+
+**Strongest evidence:** the post-launch screenshot artifact was downloaded and reviewed directly — it shows the app's real React UI, the language-selection screen (`עברית`/`English`) with correct Hebrew RTL rendering, exactly matching `App.jsx`'s actual first route for a fresh install. This is precise, specific visual proof of correct initial routing, not just "something rendered."
+
+Physical iPhone installation remains BLOCKED, unchanged from ISSUE-210/211/212 — not attempted, not implied by this Simulator success.
+
+## Completion Status
+
+**PASS.** All required startup-flow areas (launch, WebView init, content loading, initial routing, backend reachability/CORS, crash scan) passed with real evidence. Physical iPhone validation remains explicitly out of scope and BLOCKED per ISSUE-210.
+
+## Files Changed
+
+- `.github/workflows/ios-startup-flow-validation.yml` (new — Simulator startup-flow validation CI workflow)
+- `frontend/package.json` (added `build:ios` script)
+- `frontend/.env.ios.example` (new — safe HTTPS-only template)
+- `.gitignore` (added `.env.ios`)
+- `docs/ios-startup-flow-validation.md` (new — full validation report with real CI evidence)
+- `docs/product-decisions.md` (this entry appended)
+
+No native iOS project file, signing configuration, or Android file was changed.
