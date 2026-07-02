@@ -1,4 +1,5 @@
 import { api } from './client'
+import { getToken, getUserMetadata, setToken, setUserMetadata } from './sessionStorage'
 
 function decodeBase64Url(value) {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
@@ -26,18 +27,13 @@ export function getJwtSubject(token) {
 }
 
 export function getStoredSessionUserId() {
-  const accessToken = localStorage.getItem('access_token')
+  const accessToken = getToken()
 
   if (accessToken) {
     return getJwtSubject(accessToken)
   }
 
-  return (
-    localStorage.getItem('currentUserId') ||
-    localStorage.getItem('current_user_id') ||
-    localStorage.getItem('user_id') ||
-    ''
-  )
+  return getUserMetadata().id
 }
 
 export function getSessionUserFromAuthData(authData) {
@@ -89,19 +85,11 @@ export async function logoutFromServer() {
   }
 }
 
-export function saveAuthSession(authData) {
+export async function saveAuthSession(authData) {
   const sessionUser = getSessionUserFromAuthData(authData)
 
-  localStorage.setItem('access_token', authData.access_token)
-  localStorage.setItem('currentUserId', sessionUser.id)
-  localStorage.setItem('currentUserName', sessionUser.name)
-  localStorage.setItem('currentUserEmail', sessionUser.email)
-
-  if (sessionUser.username) {
-    localStorage.setItem('currentUsername', sessionUser.username)
-  } else {
-    localStorage.removeItem('currentUsername')
-  }
+  await setToken(authData.access_token)
+  setUserMetadata(sessionUser)
 
   window.dispatchEvent(new Event('auth-session-changed'))
 

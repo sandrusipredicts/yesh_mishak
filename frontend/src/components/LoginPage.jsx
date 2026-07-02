@@ -62,8 +62,8 @@ function LoginPage({ onLogin }) {
   })
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
-  const handleAuthSuccess = useCallback((authData) => {
-    const sessionUser = saveAuthSession(authData)
+  const handleAuthSuccess = useCallback(async (authData) => {
+    const sessionUser = await saveAuthSession(authData)
     onLogin?.(sessionUser)
   }, [onLogin])
 
@@ -106,7 +106,7 @@ function LoginPage({ onLogin }) {
 
             try {
               const authData = await loginWithGoogle(response.credential)
-              handleAuthSuccess(authData)
+              await handleAuthSuccess(authData)
             } catch {
               setError(t('auth.googleSignInFailed'))
             } finally {
@@ -176,7 +176,7 @@ function LoginPage({ onLogin }) {
 
     try {
       const authData = await loginWithPassword(loginForm)
-      handleAuthSuccess(authData)
+      await handleAuthSuccess(authData)
     } catch (apiError) {
       setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
     } finally {
@@ -197,7 +197,7 @@ function LoginPage({ onLogin }) {
 
     try {
       const authData = await registerWithPassword(registerForm)
-      handleAuthSuccess(authData)
+      await handleAuthSuccess(authData)
     } catch (apiError) {
       setError(getApiErrorMessage(apiError, t('auth.accountCreateFailed')))
     } finally {

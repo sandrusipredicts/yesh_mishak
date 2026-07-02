@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+import { clearSession, getToken } from './sessionStorage'
+
 const apiBaseUrl =
   import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
 
@@ -8,14 +10,7 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  if (typeof localStorage === 'undefined') {
-    return config
-  }
-
-  const token =
-    localStorage.getItem('access_token') ||
-    localStorage.getItem('authToken') ||
-    localStorage.getItem('token')
+  const token = getToken()
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -27,17 +22,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (
-      error.response?.status === 401 &&
-      typeof localStorage !== 'undefined' &&
-      localStorage.getItem('access_token')
-    ) {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('currentUserId')
-      localStorage.removeItem('currentUserName')
-      localStorage.removeItem('currentUserEmail')
-      localStorage.removeItem('currentUsername')
-      window.dispatchEvent(new Event('auth-session-changed'))
+    if (error.response?.status === 401 && getToken()) {
+      clearSession().catch((cleanupError) => {
+        console.warn('Session cleanup after 401 failed.', cleanupError)
+      })
     }
 
     return Promise.reject(error)

@@ -2,17 +2,11 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getAdminMe } from '../api/admin'
+import { clearSession, getToken } from '../api/sessionStorage'
 import LoginPage from './LoginPage'
 
 function hasAccessToken() {
-  return Boolean(localStorage.getItem('access_token'))
-}
-
-function clearAuthStorage() {
-  localStorage.removeItem('access_token')
-  localStorage.removeItem('currentUserId')
-  localStorage.removeItem('currentUserName')
-  localStorage.removeItem('currentUserEmail')
+  return Boolean(getToken())
 }
 
 function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
@@ -47,7 +41,9 @@ function AdminRoute({ children, onForbidden, onLogin, onUnauthorized }) {
         const responseStatus = verifyError.response?.status
 
         if (responseStatus === 401) {
-          clearAuthStorage()
+          clearSession().catch((cleanupError) => {
+            console.warn('Session cleanup after admin 401 failed.', cleanupError)
+          })
           onUnauthorized?.()
           setStatus('logged-out')
           return
