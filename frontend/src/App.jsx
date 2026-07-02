@@ -11,33 +11,61 @@ import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
+import {
+  clearSession,
+  getToken,
+  getUserMetadata,
+  initSessionStorage,
+} from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import { hasSelectedLanguage } from './i18n'
 
 function getStoredUser() {
-  const accessToken = localStorage.getItem('access_token')
+  const accessToken = getToken()
   const id = getStoredSessionUserId()
 
   if (!accessToken || !id) {
     return null
   }
 
+  const metadata = getUserMetadata()
+
   return {
     id,
-    name: localStorage.getItem('currentUserName') || '',
-    email: localStorage.getItem('currentUserEmail') || '',
-    username: localStorage.getItem('currentUsername') || '',
+    name: metadata.name,
+    email: metadata.email,
+    username: metadata.username,
   }
 }
 
 function App() {
   const { t } = useTranslation()
   const [pathname, setPathname] = useState(() => window.location.pathname)
-  const [currentUser, setCurrentUser] = useState(getStoredUser)
+  const [isSessionReady, setIsSessionReady] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
   const [isOnboardingDone, setIsOnboardingDone] = useState(
     () => localStorage.getItem('onboarding_done') === 'true',
   )
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
+
+  useEffect(() => {
+    let isMounted = true
+
+    initSessionStorage()
+      .catch((storageError) => {
+        console.warn('Session storage initialization failed; starting logged out.', storageError)
+      })
+      .finally(() => {
+        if (isMounted) {
+          setCurrentUser(getStoredUser())
+          setIsSessionReady(true)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     function handlePopState() {
@@ -77,11 +105,9 @@ function App() {
 
   const handleLogout = useCallback(() => {
     logoutFromServer()
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('currentUserId')
-    localStorage.removeItem('currentUserName')
-    localStorage.removeItem('currentUserEmail')
-    localStorage.removeItem('currentUsername')
+    clearSession().catch((cleanupError) => {
+      console.warn('Session cleanup on logout failed.', cleanupError)
+    })
     setCurrentUser(null)
   }, [])
 
@@ -100,6 +126,10 @@ function App() {
       {content}
     </>
   )
+
+  if (!isSessionReady) {
+    return null
+  }
 
   if (!isLanguageSelected) {
     return <LanguageSelectionScreen onSelected={() => setIsLanguageSelected(true)} />
