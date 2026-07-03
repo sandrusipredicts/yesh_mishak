@@ -40,6 +40,7 @@ const he = {
     signInFailed: 'לא ניתן להתחבר. בדקו את הפרטים ונסו שוב.',
     accountCreateFailed: 'לא ניתן ליצור את החשבון.',
     checkingSession: 'בודקים את החיבור שלך...',
+    logoutCleanupError: 'נותקת, אך ניקוי ההתנתקות המאובטח נכשל במכשיר הזה. נא להתנתק שוב.',
     passwordHint: 'לפחות 8 תווים.',
     passwordMismatch: 'הסיסמאות לא תואמות.',
   },

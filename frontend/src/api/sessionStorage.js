@@ -25,6 +25,10 @@ function hasLocalStorage() {
   return typeof localStorage !== 'undefined'
 }
 
+function hasWebSessionStorage() {
+  return typeof sessionStorage !== 'undefined'
+}
+
 function emitSessionChanged() {
   window.dispatchEvent(new Event('auth-session-changed'))
 }
@@ -123,11 +127,16 @@ export async function clearToken() {
   }
 
   if (isNativeRuntime()) {
+    // Fail closed: a token left behind in secure storage would silently
+    // restore the session on the next launch, so removal failures propagate
+    // to the caller after one retry instead of being swallowed here.
+    await loadSecureStoragePlugin()
+
     try {
-      await loadSecureStoragePlugin()
       await secureStorage.removeItem(TOKEN_KEY)
-    } catch (storageError) {
-      console.warn('Secure storage remove failed.', storageError)
+    } catch (removeError) {
+      console.warn('Secure storage remove failed; retrying once.', removeError)
+      await secureStorage.removeItem(TOKEN_KEY)
     }
   }
 }
@@ -181,9 +190,29 @@ export function clearLegacyKeys() {
   }
 }
 
+export function clearWebSessionStorage() {
+  if (!hasWebSessionStorage()) {
+    return
+  }
+
+  // Nothing writes auth data to web sessionStorage today; this defensively
+  // removes any residue left by older builds or future regressions.
+  for (const key of [TOKEN_KEY, ...Object.values(METADATA_KEYS), ...LEGACY_KEYS]) {
+    sessionStorage.removeItem(key)
+  }
+}
+
 export async function clearSession() {
   clearUserMetadata()
   clearLegacyKeys()
-  await clearToken()
-  emitSessionChanged()
+  clearWebSessionStorage()
+
+  // Every synchronous cleanup runs and listeners are notified even when
+  // secure-storage removal fails; the failure still rejects so callers can
+  // surface it instead of pretending logout fully succeeded.
+  try {
+    await clearToken()
+  } finally {
+    emitSessionChanged()
+  }
 }
