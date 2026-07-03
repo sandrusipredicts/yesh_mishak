@@ -73,7 +73,8 @@ select {
   flex: 0 0 auto;
 }
 
-.logout-warning {
+.logout-warning,
+.persistence-warning {
   position: fixed;
   z-index: 3000;
   top: calc(64px + var(--safe-area-top));
@@ -89,6 +90,12 @@ select {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.persistence-warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #78350f;
 }
 
 .language-switcher {

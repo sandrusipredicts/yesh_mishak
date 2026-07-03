@@ -41,6 +41,7 @@ const en = {
     accountCreateFailed: 'Could not create your account.',
     checkingSession: 'Checking your session...',
     logoutCleanupError: 'You are signed out, but secure sign-out cleanup failed on this device. Please sign out again.',
+    persistenceWarning: 'You are signed in, but your session could not be saved securely on this device. You may need to sign in again after restarting the app.',
     passwordHint: 'At least 8 characters.',
     passwordMismatch: 'Passwords do not match.',
   },
