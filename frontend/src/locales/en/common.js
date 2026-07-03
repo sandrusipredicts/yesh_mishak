@@ -39,6 +39,7 @@ const en = {
     googleLoadFailed: 'Could not load Google login.',
     signInFailed: 'Could not sign in. Please check your details.',
     accountCreateFailed: 'Could not create your account.',
+    checkingSession: 'Checking your session...',
     passwordHint: 'At least 8 characters.',
     passwordMismatch: 'Passwords do not match.',
   },

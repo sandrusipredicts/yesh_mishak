@@ -55,7 +55,11 @@ async function initInternal() {
         await secureStorage.setItem(TOKEN_KEY, localToken)
         localStorage.removeItem(TOKEN_KEY)
       } catch (storageError) {
-        console.warn('Secure storage migration failed; will retry on next launch.', storageError)
+        // Never leave a native auth token in plaintext if migration fails.
+        cachedToken = null
+        localStorage.removeItem(TOKEN_KEY)
+        clearUserMetadata()
+        console.warn('Secure storage migration failed; starting logged out.', storageError)
       }
     } else {
       try {
@@ -65,6 +69,13 @@ async function initInternal() {
         // session. Never fall back to localStorage on native.
         console.warn('Secure storage read failed; starting logged out.', storageError)
         cachedToken = null
+        clearUserMetadata()
+
+        try {
+          await secureStorage.removeItem(TOKEN_KEY)
+        } catch (cleanupError) {
+          console.warn('Secure storage cleanup after read failure failed.', cleanupError)
+        }
       }
     }
   } else {
