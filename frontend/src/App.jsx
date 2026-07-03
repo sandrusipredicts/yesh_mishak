@@ -51,6 +51,7 @@ function App() {
   )
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
+  const [persistenceWarning, setPersistenceWarning] = useState('')
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
 
@@ -206,6 +207,20 @@ function App() {
   }, [])
 
   useEffect(() => {
+    function handlePersistenceChanged(event) {
+      setPersistenceWarning(
+        event.detail?.persisted ? '' : t('auth.persistenceWarning'),
+      )
+    }
+
+    window.addEventListener('auth-persistence-changed', handlePersistenceChanged)
+
+    return () => {
+      window.removeEventListener('auth-persistence-changed', handlePersistenceChanged)
+    }
+  }, [t])
+
+  useEffect(() => {
     if (!currentUser) {
       return
     }
@@ -224,6 +239,7 @@ function App() {
     logoutFromServer()
     setCurrentUser(null)
     setLogoutWarning('')
+    setPersistenceWarning('')
     clearSession().catch((cleanupError) => {
       console.warn('Session cleanup on logout failed.', cleanupError)
       setLogoutWarning(t('auth.logoutCleanupError'))
@@ -250,6 +266,11 @@ function App() {
       {logoutWarning ? (
         <div className="logout-warning" role="alert">
           {logoutWarning}
+        </div>
+      ) : null}
+      {persistenceWarning ? (
+        <div className="persistence-warning" role="alert">
+          {persistenceWarning}
         </div>
       ) : null}
       {content}
