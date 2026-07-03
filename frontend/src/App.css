@@ -73,6 +73,24 @@ select {
   flex: 0 0 auto;
 }
 
+.logout-warning {
+  position: fixed;
+  z-index: 3000;
+  top: calc(64px + var(--safe-area-top));
+  left: 50%;
+  max-width: min(92vw, 560px);
+  transform: translateX(-50%);
+  border: 1px solid #dc2626;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  color: #7f1d1d;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .language-switcher {
   display: inline-grid;
   gap: 4px;

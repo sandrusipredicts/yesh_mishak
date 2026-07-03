@@ -78,8 +78,17 @@ export async function checkEmail(email) {
 }
 
 export async function logoutFromServer() {
+  // The Authorization header is pinned here because logout clears the
+  // in-memory token synchronously, before the axios request interceptor
+  // reads it — the revocation call must still reach the server authenticated.
+  const token = getToken()
+
   try {
-    await api.post('/auth/logout')
+    await api.post(
+      '/auth/logout',
+      null,
+      token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+    )
   } catch {
     // Logout should clear local state regardless of server response
   }

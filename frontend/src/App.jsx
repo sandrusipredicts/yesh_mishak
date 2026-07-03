@@ -50,19 +50,27 @@ function App() {
     () => localStorage.getItem('onboarding_done') === 'true',
   )
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
+  const [logoutWarning, setLogoutWarning] = useState('')
   const validationPromiseRef = useRef(null)
+  const sessionEpochRef = useRef(0)
 
   const validateStoredSession = useCallback(async () => {
     if (validationPromiseRef.current) {
       return validationPromiseRef.current
     }
 
+    // Logout bumps the epoch; any validation started before it must not
+    // touch auth state when it settles, even if /games/me succeeds late.
+    const epoch = sessionEpochRef.current
+
     const validationPromise = (async () => {
       const storedUser = getStoredUser()
 
       if (!storedUser) {
         if (getToken()) {
-          await clearSession()
+          await clearSession().catch((cleanupError) => {
+            console.warn('Session cleanup failed.', cleanupError)
+          })
         }
         setCurrentUser(null)
         return null
@@ -70,10 +78,21 @@ function App() {
 
       try {
         await getMyGames()
+
+        if (sessionEpochRef.current !== epoch || !getToken()) {
+          return null
+        }
+
         setCurrentUser(storedUser)
         return storedUser
       } catch {
-        await clearSession()
+        if (sessionEpochRef.current !== epoch) {
+          return null
+        }
+
+        await clearSession().catch((cleanupError) => {
+          console.warn('Session cleanup failed.', cleanupError)
+        })
         setCurrentUser(null)
         return null
       }
@@ -104,7 +123,9 @@ function App() {
       })
       .catch(async (storageError) => {
         console.warn('Session storage initialization failed; starting logged out.', storageError)
-        await clearSession()
+        await clearSession().catch((cleanupError) => {
+          console.warn('Session cleanup failed.', cleanupError)
+        })
         setCurrentUser(null)
       })
       .finally(() => {
@@ -195,11 +216,23 @@ function App() {
   }, [currentUser])
 
   const handleLogout = useCallback(() => {
+    // Invalidate any in-flight or deduplicated session validation before
+    // clearing storage so a late /games/me success cannot restore the user.
+    sessionEpochRef.current += 1
+    validationPromiseRef.current = null
+
     logoutFromServer()
+    setCurrentUser(null)
+    setLogoutWarning('')
     clearSession().catch((cleanupError) => {
       console.warn('Session cleanup on logout failed.', cleanupError)
+      setLogoutWarning(t('auth.logoutCleanupError'))
     })
-    setCurrentUser(null)
+  }, [t])
+
+  const handleLogin = useCallback((user) => {
+    setLogoutWarning('')
+    setCurrentUser(user)
   }, [])
 
   const handleOnboardingComplete = useCallback(() => {
@@ -214,6 +247,11 @@ function App() {
   const renderWithOfflineBanner = (content) => (
     <>
       <OfflineBanner />
+      {logoutWarning ? (
+        <div className="logout-warning" role="alert">
+          {logoutWarning}
+        </div>
+      ) : null}
       {content}
     </>
   )
@@ -234,7 +272,7 @@ function App() {
     return renderWithOfflineBanner(
       <AdminRoute
         onForbidden={handleAdminForbidden}
-        onLogin={setCurrentUser}
+        onLogin={handleLogin}
         onUnauthorized={handleLogout}
       >
         <AdminPage />
@@ -243,7 +281,7 @@ function App() {
   }
 
   if (!currentUser) {
-    return renderWithOfflineBanner(<LoginPage onLogin={setCurrentUser} />)
+    return renderWithOfflineBanner(<LoginPage onLogin={handleLogin} />)
   }
 
   if (!isOnboardingDone) {

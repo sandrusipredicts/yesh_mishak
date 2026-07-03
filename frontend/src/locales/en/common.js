@@ -40,6 +40,7 @@ const en = {
     signInFailed: 'Could not sign in. Please check your details.',
     accountCreateFailed: 'Could not create your account.',
     checkingSession: 'Checking your session...',
+    logoutCleanupError: 'You are signed out, but secure sign-out cleanup failed on this device. Please sign out again.',
     passwordHint: 'At least 8 characters.',
     passwordMismatch: 'Passwords do not match.',
   },
