@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { App as CapacitorApp } from '@capacitor/app'
 import { useTranslation } from 'react-i18next'
 
 import './App.css'
@@ -11,11 +12,13 @@ import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
+import { getMyGames } from './api/games'
 import {
   clearSession,
   getToken,
   getUserMetadata,
   initSessionStorage,
+  isNativeRuntime,
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import { hasSelectedLanguage } from './i18n'
@@ -47,17 +50,65 @@ function App() {
     () => localStorage.getItem('onboarding_done') === 'true',
   )
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
+  const validationPromiseRef = useRef(null)
+
+  const validateStoredSession = useCallback(async () => {
+    if (validationPromiseRef.current) {
+      return validationPromiseRef.current
+    }
+
+    const validationPromise = (async () => {
+      const storedUser = getStoredUser()
+
+      if (!storedUser) {
+        if (getToken()) {
+          await clearSession()
+        }
+        setCurrentUser(null)
+        return null
+      }
+
+      try {
+        await getMyGames()
+        setCurrentUser(storedUser)
+        return storedUser
+      } catch {
+        await clearSession()
+        setCurrentUser(null)
+        return null
+      }
+    })()
+
+    validationPromiseRef.current = validationPromise
+
+    try {
+      return await validationPromise
+    } finally {
+      if (validationPromiseRef.current === validationPromise) {
+        validationPromiseRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
 
     initSessionStorage()
-      .catch((storageError) => {
+      .then(() => {
+        if (isNativeRuntime()) {
+          return validateStoredSession()
+        }
+
+        setCurrentUser(getStoredUser())
+        return null
+      })
+      .catch(async (storageError) => {
         console.warn('Session storage initialization failed; starting logged out.', storageError)
+        await clearSession()
+        setCurrentUser(null)
       })
       .finally(() => {
         if (isMounted) {
-          setCurrentUser(getStoredUser())
           setIsSessionReady(true)
         }
       })
@@ -65,7 +116,47 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [validateStoredSession])
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && isNativeRuntime() && getToken()) {
+        validateStoredSession()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [validateStoredSession])
+
+  useEffect(() => {
+    if (!isNativeRuntime()) {
+      return undefined
+    }
+
+    let listenerHandle = null
+    let isDisposed = false
+
+    CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive && getToken()) {
+        validateStoredSession()
+      }
+    }).then((handle) => {
+      if (isDisposed) {
+        handle.remove()
+      } else {
+        listenerHandle = handle
+      }
+    })
+
+    return () => {
+      isDisposed = true
+      listenerHandle?.remove()
+    }
+  }, [validateStoredSession])
 
   useEffect(() => {
     function handlePopState() {
@@ -128,7 +219,11 @@ function App() {
   )
 
   if (!isSessionReady) {
-    return null
+    return (
+      <main className="auth-checking" data-testid="auth-checking" aria-busy="true">
+        <p>{t('auth.checkingSession')}</p>
+      </main>
+    )
   }
 
   if (!isLanguageSelected) {

@@ -39,6 +39,7 @@ const he = {
     googleLoadFailed: 'לא ניתן לטעון התחברות Google.',
     signInFailed: 'לא ניתן להתחבר. בדקו את הפרטים ונסו שוב.',
     accountCreateFailed: 'לא ניתן ליצור את החשבון.',
+    checkingSession: 'בודקים את החיבור שלך...',
     passwordHint: 'לפחות 8 תווים.',
     passwordMismatch: 'הסיסמאות לא תואמות.',
   },
