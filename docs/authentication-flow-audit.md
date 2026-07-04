@@ -144,4 +144,10 @@ Authoritative detail lives in `docs/session-lifecycle.md`; summary:
 
 ## Final verdict: Native Authentication readiness
 
-**READY, with three pre-conditions to resolve in the Native Auth phase planning:** (1) decide how the backend will validate native Google ID-token audiences (likely a small, separately-approved backend change); (2) reaffirm the email-based account-linking policy; (3) decide the onboarding treatment for Google-created partial profiles. The storage/session foundation underneath all flows is certified (ISSUE-235, Section 1 Complete) and requires no changes. Manual login and registration are already fully functional and device-validated on native; Google login is the sole flow requiring native adaptation work.
+- **ISSUE-236 is complete.** All required authentication flows (Google Login, Manual Login, Registration, Logout, Existing User Login, New User Registration) are documented above, grounded in the current codebase.
+- **Native Login implementation remains out of scope** for this issue. No implementation work was performed, and **implementation must not start from this issue.**
+- **What this issue enables is the next architecture-definition issue (ISSUE-237 "Define native authentication architecture"), not direct implementation.** Native Authentication **architecture** work may proceed **only after the following preconditions are reviewed** during that architecture definition:
+  1. How the backend will validate native Google ID-token audiences — `verify_google_token` currently accepts a single client ID, so native tokens likely require a small, separately-approved backend change.
+  2. Reaffirmation of the email-based account-linking policy (Google accounts match by email, not `google_sub`).
+  3. The onboarding treatment for Google-created partial profiles (null username/phone, no password, no password-set flow).
+- Supporting context: the storage/session foundation is certified and unchanged (ISSUE-235, Section 1 Complete); manual login and registration already work natively and are device-validated; Google login is the sole flow requiring native adaptation, to be designed in ISSUE-237 and implemented only in its own subsequent, separately-approved issues.
