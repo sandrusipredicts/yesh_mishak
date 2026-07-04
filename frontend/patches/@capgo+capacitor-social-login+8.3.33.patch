@@ -1,0 +1,14 @@
+diff --git a/node_modules/@capgo/capacitor-social-login/android/src/main/java/ee/forgr/capacitor/social/login/GoogleProvider.java b/node_modules/@capgo/capacitor-social-login/android/src/main/java/ee/forgr/capacitor/social/login/GoogleProvider.java
+index 4e8b554..a74d111 100644
+--- a/node_modules/@capgo/capacitor-social-login/android/src/main/java/ee/forgr/capacitor/social/login/GoogleProvider.java
++++ b/node_modules/@capgo/capacitor-social-login/android/src/main/java/ee/forgr/capacitor/social/login/GoogleProvider.java
+@@ -127,7 +127,8 @@ public class GoogleProvider implements SocialProvider {
+                 }
+             }
+ 
+-            Log.i(SocialLoginPlugin.LOG_TAG, String.format("Google restoreState: %s", object));
++            // Never serialize restored OAuth credentials into Android logs.
++            Log.i(SocialLoginPlugin.LOG_TAG, "Google restoreState: credentials restored");
+         } catch (JSONException e) {
+             Log.e(SocialLoginPlugin.LOG_TAG, "Google restoreState: Failed to parse JSON", e);
+         }

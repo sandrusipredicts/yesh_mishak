@@ -42,6 +42,8 @@ const en = {
     checkingSession: 'Checking your session...',
     logoutCleanupError: 'You are signed out, but secure sign-out cleanup failed on this device. Please sign out again.',
     persistenceWarning: 'You are signed in, but your session could not be saved securely on this device. You may need to sign in again after restarting the app.',
+    continueWithGoogle: 'Continue with Google',
+    googleNativeUnavailable: 'Google sign-in is not available on this device. You can sign in with your username and password.',
     passwordHint: 'At least 8 characters.',
     passwordMismatch: 'Passwords do not match.',
   },

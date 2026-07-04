@@ -42,6 +42,8 @@ const he = {
     checkingSession: 'בודקים את החיבור שלך...',
     logoutCleanupError: 'נותקת, אך ניקוי ההתנתקות המאובטח נכשל במכשיר הזה. נא להתנתק שוב.',
     persistenceWarning: 'התחברת, אך לא ניתן היה לשמור את החיבור באופן מאובטח במכשיר הזה. ייתכן שיהיה צורך להתחבר שוב לאחר הפעלה מחדש של האפליקציה.',
+    continueWithGoogle: 'המשך עם Google',
+    googleNativeUnavailable: 'התחברות Google אינה זמינה במכשיר הזה. ניתן להתחבר עם שם משתמש וסיסמה.',
     passwordHint: 'לפחות 8 תווים.',
     passwordMismatch: 'הסיסמאות לא תואמות.',
   },

@@ -7,6 +7,12 @@ import {
   registerWithPassword,
   saveAuthSession,
 } from '../api/auth'
+import {
+  initNativeGoogleAuth,
+  isUserCancellation,
+  signInWithGoogleNative,
+} from '../api/nativeGoogleAuth'
+import { isNativeRuntime } from '../api/sessionStorage'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -48,6 +54,7 @@ function LoginPage({ onLogin }) {
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [nativeGoogleStatus, setNativeGoogleStatus] = useState('pending')
   const [loginForm, setLoginForm] = useState({
     username: '',
     password: '',
@@ -69,6 +76,30 @@ function LoginPage({ onLogin }) {
 
   useEffect(() => {
     let isMounted = true
+
+    // Native runtime (ISSUE-240): Google sign-in goes through the Android
+    // Credential Manager plugin — the GIS web script is never loaded (it does
+    // not work inside the WebView, see docs/authentication-flow-audit.md).
+    async function initializeNativeGoogleLogin() {
+      if (!googleClientId) {
+        setNativeGoogleStatus('unavailable')
+        setError(t('auth.googleMissingClient'))
+        return
+      }
+
+      try {
+        await initNativeGoogleAuth(googleClientId)
+
+        if (isMounted) {
+          setNativeGoogleStatus('ready')
+        }
+      } catch {
+        // Fail closed to "unavailable": manual login stays fully usable.
+        if (isMounted) {
+          setNativeGoogleStatus('unavailable')
+        }
+      }
+    }
 
     async function initializeGoogleLogin() {
       if (!googleClientId) {
@@ -134,7 +165,11 @@ function LoginPage({ onLogin }) {
       }
     }
 
-    initializeGoogleLogin()
+    if (isNativeRuntime()) {
+      initializeNativeGoogleLogin()
+    } else {
+      initializeGoogleLogin()
+    }
 
     return () => {
       isMounted = false
@@ -179,6 +214,25 @@ function LoginPage({ onLogin }) {
       await handleAuthSuccess(authData)
     } catch (apiError) {
       setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleNativeGoogleLogin() {
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const idToken = await signInWithGoogleNative(googleClientId)
+      const authData = await loginWithGoogle(idToken)
+      await handleAuthSuccess(authData)
+    } catch (loginError) {
+      // Cancelling the account picker is not an error: stay on the login
+      // page silently with no session and nothing stored.
+      if (!isUserCancellation(loginError)) {
+        setError(getApiErrorMessage(loginError, t('auth.googleSignInFailed')))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -361,7 +415,22 @@ function LoginPage({ onLogin }) {
           <strong>{t('auth.or')}</strong>
           <span />
         </div>
-        <div ref={buttonRef} className="google-login-button" />
+        {isNativeRuntime() ? (
+          nativeGoogleStatus === 'unavailable' ? (
+            <p className="google-native-unavailable">{t('auth.googleNativeUnavailable')}</p>
+          ) : (
+            <button
+              className="google-native-button"
+              disabled={isLoading || nativeGoogleStatus !== 'ready'}
+              onClick={handleNativeGoogleLogin}
+              type="button"
+            >
+              {t('auth.continueWithGoogle')}
+            </button>
+          )
+        ) : (
+          <div ref={buttonRef} className="google-login-button" />
+        )}
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
       </section>
     </main>
