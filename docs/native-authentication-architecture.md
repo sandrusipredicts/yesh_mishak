@@ -18,7 +18,7 @@ Defines the **official, closed** architecture for authentication in the Android 
 
 ## Executive Summary
 
-Google login is the only authentication flow broken in the Android WebView (ISSUE-236). The chosen fix: **Native SDK sign-in via Android Credential Manager ("Sign in with Google"), exposed through a Capacitor plugin, configured with `serverClientId` = the existing web OAuth client ID.** Because the resulting Google ID token then carries the *web* client ID as its `aud`, the existing backend endpoint `POST /auth/google` verifies it **unchanged** — no backend modification, no new endpoint, no audience list. Everything after the Google ID token is obtained is byte-for-byte the current, certified pipeline: same token exchange, same `TokenResponse`, same `saveAuthSession`, same secure storage, same restore/logout behavior. Manual login and registration change nothing. Implementation is **blocked** on exactly one named follow-up (plugin technology selection) plus one operational task (Google Cloud console Android client registration).
+Google login is the only authentication flow broken in the Android WebView (ISSUE-236). The chosen fix: **Native SDK sign-in via Android Credential Manager ("Sign in with Google"), exposed through a Capacitor plugin, configured with `serverClientId` = the existing web OAuth client ID.** The approved **target** architecture keeps the backend unchanged: with that configuration the returned Google ID token is **expected** to carry an audience compatible with the current backend `verify_google_token` check, so the existing `POST /auth/google` endpoint verifies it as-is — no backend modification, no new endpoint, no audience list. **This audience assumption must be validated during NA-1 / NA-3 on Samsung SM-S928B.** If the selected plugin cannot produce a backend-verifiable Google ID token with the existing web client ID audience, **NA-B1 becomes a blocking backend follow-up before Native Authentication can ship.** Everything after the Google ID token is obtained is byte-for-byte the current, certified pipeline: same token exchange, same `TokenResponse`, same `saveAuthSession`, same secure storage, same restore/logout behavior. Manual login and registration change nothing. Implementation is **blocked** on exactly one named follow-up (plugin technology selection) plus one operational task (Google Cloud console Android client registration).
 
 ## Architecture Decision Record
 
@@ -27,7 +27,7 @@ Google login is the only authentication flow broken in the Android WebView (ISSU
 | ADR-1 | **Native SDK, not Browser Redirect** for Google auth on Android | **DECIDED** |
 | ADR-2 | Google ID token obtained via **Android Credential Manager** ("Sign in with Google") through a Capacitor plugin | **DECIDED** (concrete plugin: blocking follow-up NA-1, mirroring the ISSUE-227→228 architecture/technology split) |
 | ADR-3 | Plugin configured with **`serverClientId` = existing web OAuth client ID** → ID-token `aud` = web client ID | **DECIDED** |
-| ADR-4 | **Backend unchanged**: single audience (`google_client_id`) remains; `POST /auth/google` reused; **no** native-specific endpoint | **DECIDED** |
+| ADR-4 | **Backend unchanged in the target architecture**: single audience (`google_client_id`) remains; `POST /auth/google` reused; **no** native-specific endpoint. Contingent on the ADR-3 audience assumption, which must be validated in NA-1/NA-3 on device; if disproved, NA-B1 (backend audience change) becomes blocking before ship | **DECIDED (target; assumption validated in NA-1/NA-3)** |
 | ADR-5 | Account linking stays **email-based** (with backend-enforced `email_verified === true`); `google_sub` linkage is a non-blocking hardening follow-up | **DECIDED** |
 | ADR-6 | Google-created partial profiles (null username/phone, no password) **remain acceptable** for the first native release; profile completion is a non-blocking product follow-up | **DECIDED** |
 | ADR-7 | Manual login and registration: **no changes** for mobile | **DECIDED** |
@@ -55,7 +55,7 @@ This matches the "preferred architecture" proposed in ISSUE-237 and is hereby **
 | Keep the **GIS web script** inside the WebView | Empirically broken (device-observed load failure, ISSUE-231/233 validations); Google blocks OAuth in WebViews |
 | **Firebase Authentication** as the sign-in layer | Issues Firebase-signed ID tokens (different `iss`/`aud`) that `verify_google_token` cannot verify → would force backend changes and couple auth to Firebase; the app uses Firebase only for push today |
 | **New native-specific backend endpoint** | Unnecessary: with ADR-3 the existing endpoint verifies native tokens as-is; a second endpoint doubles the audited surface |
-| **Backend multi-audience list** (accept the Android client ID as `aud`) | Not needed under ADR-3; kept as the documented fallback if plugin evaluation (NA-1) disproves the `serverClientId` assumption — in that case a small, separately-approved backend change reopens via blocking issue NA-B1 |
+| **Backend multi-audience list** (accept the Android client ID as `aud`) | Not needed under the ADR-3 target assumption; kept as the documented fallback if NA-1 evaluation or NA-3 device validation disproves the `serverClientId` assumption — in that case a small, separately-approved backend change reopens via NA-B1, blocking before ship |
 | **Switch account linking to `google_sub`** now | Requires a schema/data migration and changes web behavior mid-phase; email linking is bounded by the `email_verified` requirement; revisit as non-blocking hardening (NA-5) |
 
 ## Flow maps
@@ -126,7 +126,9 @@ No failure path may leave a partial session: the session exists only after `save
 
 ## Backend contract
 
-**No changes.** `POST /auth/google` request/response, audience verification (single `google_client_id`), `email_verified` requirement, email-based find-or-create, JWT shape (HS256, `sub`/`email`/`iat`/`exp`, 7-day TTL), revocation via `tokens_valid_after`, and rate limits (10/min, 50/hr per IP) all remain as audited in ISSUE-236. If NA-1 evaluation shows the chosen plugin cannot produce web-audience tokens, backend work reopens **only** through blocking issue NA-B1 (audience list), separately approved.
+The approved target architecture keeps the backend unchanged by configuring the native Google Sign-In plugin with `serverClientId` equal to the existing web OAuth client ID, so the returned Google ID token is **expected** to have an audience compatible with the current backend `verify_google_token` check. **This assumption must be validated during NA-1 / NA-3 on Samsung SM-S928B. If the selected plugin cannot produce a backend-verifiable Google ID token with the existing web client ID audience, NA-B1 becomes a blocking backend follow-up before Native Authentication can ship.**
+
+Under the target architecture, everything else stays as audited in ISSUE-236: `POST /auth/google` request/response, audience verification (single `google_client_id`), `email_verified` requirement, email-based find-or-create, JWT shape (HS256, `sub`/`email`/`iat`/`exp`, 7-day TTL), revocation via `tokens_valid_after`, and rate limits (10/min, 50/hr per IP). Backend work may reopen **only** through NA-B1, separately approved.
 
 ## Frontend contract
 
@@ -177,7 +179,7 @@ No failure path may leave a partial session: the session exists only after `save
 
 **Non-blocking follow-ups:** NA-5 `google_sub` linkage hardening · NA-6 profile completion for Google-created users (product) · NA-7 password-set flow (product) · NA-8 FCM token logout cleanup (pre-existing ISSUE-226 finding).
 
-**Conditional:** NA-B1 backend audience list — opened **only if** NA-1 disproves ADR-3; until then backend remains frozen.
+**Conditional:** NA-B1 backend audience list — opened **only if** the ADR-3 audience assumption is disproved during NA-1 evaluation or NA-3 device validation on Samsung SM-S928B; in that case NA-B1 is **blocking before Native Authentication can ship**. Until then the backend remains frozen.
 
 ## Final decision checklist
 
@@ -186,7 +188,7 @@ No failure path may leave a partial session: the session exists only after `save
 | 1. Native SDK or Browser Redirect? | **Native SDK** (Credential Manager via Capacitor plugin); Browser Redirect rejected | ✅ |
 | 2. How are Google tokens created? | Natively by Credential Manager "Sign in with Google", requested with `serverClientId` = web client ID | ✅ |
 | 3. Which client IDs / audiences are accepted? | The single existing web client ID (`google_client_id`) | ✅ |
-| 4. Backend multi-audience support needed? | **No** (ADR-3/4); fallback path defined via conditional NA-B1 | ✅ |
+| 4. Backend multi-audience support needed? | **Not in the target architecture** (ADR-3/4); the audience assumption is validated in NA-1/NA-3 on device, and NA-B1 becomes a blocking backend follow-up if it fails | ✅ |
 | 5. How is the Google ID token exchanged for the app JWT? | Existing `POST /auth/google`, unchanged | ✅ |
 | 6. How is the app JWT stored? | Certified secure-storage path via `saveAuthSession` (ISSUE-235) | ✅ |
 | 7. First login for a new Google user? | Auto-create by email; partial profile accepted (ADR-6) | ✅ |
@@ -202,4 +204,4 @@ No authentication architecture decision remains open. The only blocking items ar
 
 ## Final verdict
 
-**APPROVED.** The preferred architecture proposed in ISSUE-237 is adopted as the official native authentication architecture, with the refinement that no native-specific backend endpoint is created and the backend remains entirely unchanged (single audience via the `serverClientId` mechanism). All fourteen required questions are decided; rejected alternatives are recorded with reasons; implementation proceeds only through the NA-1 → NA-2 → NA-3/NA-4 → NA-V issue sequence, each under the repository's per-issue approval protocol. This document contains no implementation and changes no runtime behavior.
+**APPROVED.** The preferred architecture proposed in ISSUE-237 is adopted as the official native authentication architecture, with the refinement that no native-specific backend endpoint is created and the backend is kept unchanged **in the target architecture** (single audience via the `serverClientId` mechanism) — an audience assumption that must be validated during NA-1/NA-3 on Samsung SM-S928B, with NA-B1 becoming a blocking backend follow-up before Native Authentication can ship if it is disproved. All fourteen required questions are decided; rejected alternatives are recorded with reasons; implementation proceeds only through the NA-1 → NA-2 → NA-3/NA-4 → NA-V issue sequence, each under the repository's per-issue approval protocol. This document contains no implementation and changes no runtime behavior.
