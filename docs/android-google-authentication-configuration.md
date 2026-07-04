@@ -26,10 +26,13 @@ Native Login implementation, plugin installation, any backend/frontend/native/pa
 | Play App Signing SHA-1 / SHA-256 | **Not applicable yet** — app not enrolled; when enrolled, Google's app-signing certificate fingerprints (from Play Console → App integrity) must be added to the same Android OAuth Client |
 | Google Cloud project | Project number `936888694089` (identifiable from the existing client ID prefix; full project name intentionally not recorded here) |
 | Existing Web OAuth Client ID (the ISSUE-237 `serverClientId`) | `936888694089-fu96…h71.apps.googleusercontent.com` (partially redacted; full value lives in `frontend/.env` as `VITE_GOOGLE_CLIENT_ID` and mirrors backend `google_client_id`) — **must remain unchanged** |
-| Android OAuth Client ID | **BLOCKED — not yet created.** Creation requires the Google account owner to execute the console steps below (this session has no authorized access to the Google Cloud account, and account actions belong to the owner). All input values are ready to paste |
-| SHA-1 added to Android OAuth Client | **BLOCKED** (same reason — value ready above) |
+| Android OAuth Client ID | **CREATED (2026-07-03, by the account owner):** `936888694089-f3hrv6kpiotr9u8ggl7pd0mi2t987er1.apps.googleusercontent.com` |
+| SHA-1 added to Android OAuth Client | **YES** — the debug SHA-1 above was entered at client creation (the Android client form requires it) |
+| OAuth consent screen status | **Testing** (publishing status) |
+| Test users configured | **YES** (emails redacted — managed in the console by the account owner) |
+| OAuth access restricted to test users | **YES** — while in Testing, only the configured test users can complete Google sign-in |
 | SHA-256 recorded | **YES — recorded here for audit/future compatibility.** Google Cloud's Android OAuth Client form takes SHA-1 only; SHA-256 is documented for Play App Signing/asset-links future use |
-| Validation target | Samsung SM-S928B (Galaxy S24 Ultra), Android 16 — the device used for all prior certifications; runs **debug-signed** builds, so the debug fingerprints above are the ones that matter for NA-3/NA-V validation |
+| Validation target | Samsung SM-S928B (Galaxy S24 Ultra), Android 16 — the device used for all prior certifications; runs **debug-signed** builds, so the debug fingerprints above are the ones that matter for NA-3/NA-V validation. **Because the consent screen is in Testing, Samsung validation must sign in with one of the configured test users** |
 
 **No secrets are recorded in this document:** certificate fingerprints and OAuth client IDs are public identifiers; keystore passwords listed below are the well-known Android debug defaults; no private keys, API secrets, or tokens appear here.
 
@@ -44,9 +47,11 @@ Native Login implementation, plugin installation, any backend/frontend/native/pa
 7. Package name: `com.yeshmishak.app`
 8. SHA-1 certificate fingerprint: `44:74:72:31:C5:EF:83:3F:8F:9F:94:82:97:49:C6:E5:BE:48:84:9B`
 9. Save the Android OAuth Client.
-10. Record the resulting **Android OAuth Client ID** in this document (fill the BLOCKED row above and flip the checklist below).
+10. Record the resulting **Android OAuth Client ID** in this document — **DONE** (recorded above, 2026-07-03).
 11. SHA-256: the Android client form does not take it; it is recorded in this document as the audit reference (step complete).
-12. Confirm the **existing Web OAuth Client ID remains unchanged** — it continues to serve as the `serverClientId` per ISSUE-237 ADR-3, and nothing about the web client is edited.
+12. Confirm the **existing Web OAuth Client ID remains unchanged** — **CONFIRMED**; it continues to serve as the `serverClientId` per ISSUE-237 ADR-3, and nothing about the web client was edited.
+
+**Runbook executed by the account owner on 2026-07-03.** Additional outcome: the OAuth consent screen publishing status is **Testing** with test users configured, so sign-in is restricted to those test users until the app is moved to Production.
 
 Fingerprint re-collection commands (for future keys/machines):
 
@@ -63,10 +68,10 @@ Note: this machine's debug keystore alias reports as `AndroidDebugKey` (case-ins
 
 ## Risks / follow-up items
 
-1. **BLOCKING (carried from NA-2):** Android OAuth Client creation must be executed in the console by the account owner using the runbook above. Native Login implementation (NA-3) must not start before it exists — without it, Credential Manager sign-in fails on device.
-2. **Debug-keystore locality:** the debug SHA-1 above belongs to *this development machine's* keystore. Building the APK on another machine/CI produces a different debug fingerprint that must be added to the same Android OAuth Client as an additional fingerprint entry.
-3. **Release signing (future):** before any release build ships with native Google login, a release keystore (or Play App Signing) must be created and its SHA-1 added to the Android OAuth Client. Tracked as part of the existing release-readiness work, not this phase.
-4. **Consent screen review:** step 4 assumes the consent screen is production-ready because web login works; if the console shows it in "testing" mode with a limited test-user list, native sign-in on arbitrary devices may be restricted — verify while executing the runbook.
+1. ~~BLOCKING: Android OAuth Client creation~~ — **RESOLVED 2026-07-03:** the Android OAuth Client was created by the account owner and is recorded above. NA-3 is no longer blocked by NA-2.
+2. **Testing-mode restriction (accepted for this phase):** the consent screen is in **Testing**, so only configured test users can sign in. This is sufficient for NA-3 development and NA-V Samsung validation (which must use a test user), but **the publishing status must move to Production before native Google login ships to real users** — carry this as a release-gate follow-up item.
+3. **Debug-keystore locality:** the debug SHA-1 above belongs to *this development machine's* keystore. Building the APK on another machine/CI produces a different debug fingerprint that must be added to the same Android OAuth Client as an additional fingerprint entry.
+4. **Release signing (future):** before any release build ships with native Google login, a release keystore (or Play App Signing) must be created and its SHA-1 added to the Android OAuth Client. Tracked as part of the existing release-readiness work, not this phase.
 5. `.env` remains the source of truth for the full web client ID; do not duplicate the full value into more places than necessary.
 
 ## Final checklist
@@ -81,11 +86,14 @@ Note: this machine's debug keystore alias reports as `AndroidDebugKey` (case-ins
 | Web OAuth Client ID referenced as `serverClientId` (unchanged) | ✅ |
 | Google Cloud project identified (by number) | ✅ |
 | Console runbook with paste-ready values | ✅ |
-| Android OAuth Client created | ⛔ BLOCKED — operator action required (runbook above) |
-| SHA-1 added to Android OAuth Client | ⛔ BLOCKED — same operator action |
+| Android OAuth Client created (ID recorded) | ✅ (2026-07-03, by account owner) |
+| SHA-1 added to Android OAuth Client | ✅ |
+| OAuth consent screen status recorded (Testing) | ✅ |
+| Test users configured; access restricted to test users | ✅ |
+| Samsung validation constrained to a configured test user | ✅ (recorded as a validation requirement) |
 | No secrets committed | ✅ |
 | No implementation/plugin/protected-path changes | ✅ |
 
 ## Final verdict
 
-**READY-WITH-ONE-BLOCKER.** Every locally collectable configuration fact is verified and recorded (package name, debug SHA-1/SHA-256, signing mode, web `serverClientId` reference), and the console runbook is paste-ready. The single unresolved item — creating the Android OAuth Client in Google Cloud Console — requires the Google account owner and is documented as the **blocking follow-up** (the NA-2 operator action): **Native Google Login implementation (NA-3) remains blocked until the Android OAuth Client ID is created and recorded in this document.** Once the owner executes the runbook and the client ID is filled in, this configuration is complete for the implementation issue.
+**GO.** The NA-2 configuration is complete: package name, debug SHA-1/SHA-256, and signing mode are verified and recorded; the Android OAuth Client exists with the debug SHA-1 registered and its client ID recorded above; the existing Web OAuth Client ID is confirmed unchanged as the `serverClientId`; the OAuth consent screen is in **Testing** with test users configured, which is sufficient for development and device validation. **NA-3 (native Google login implementation) is unblocked**, subject to two standing constraints: (1) Samsung SM-S928B validation must sign in with one of the configured test users while the consent screen remains in Testing; (2) moving the publishing status to Production is a release-gate follow-up before native Google login ships to real users.
