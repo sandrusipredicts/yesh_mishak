@@ -12,6 +12,7 @@ import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
+import { isNativeGoogleSupported, signOutGoogleNative } from './api/nativeGoogleAuth'
 import { getMyGames } from './api/games'
 import {
   clearSession,
@@ -237,6 +238,13 @@ function App() {
     validationPromiseRef.current = null
 
     logoutFromServer()
+
+    if (isNativeGoogleSupported()) {
+      // Best-effort provider sign-out so the next Google login shows the
+      // account picker; never affects app logout (handled inside).
+      signOutGoogleNative()
+    }
+
     setCurrentUser(null)
     setLogoutWarning('')
     setPersistenceWarning('')
