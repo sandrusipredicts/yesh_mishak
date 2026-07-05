@@ -29,7 +29,8 @@ test('Android native auth logging is hardened against credential payloads', () =
 })
 
 // Native mock: SecureStorage (certified pipeline), App, and the NA-1
-// SocialLogin plugin. googleMode: 'success' | 'cancel'.
+// SocialLogin plugin. googleMode:
+// 'success' | 'cancel' | 'provider-failure' | 'missing-id-token'.
 async function prepareApp(page, { googleMode = 'success' } = {}) {
   await page.addInitScript(({ cfg, googleIdToken }) => {
     const SECURE_BACKING_KEY = '__test_secure_token'
@@ -84,9 +85,18 @@ async function prepareApp(page, { googleMode = 'success' } = {}) {
               cancelError.code = 'USER_CANCELLED'
               return Promise.reject(cancelError)
             }
+            if (cfg.googleMode === 'provider-failure') {
+              const providerError = new Error('Developer-only provider detail')
+              providerError.code = 'GOOGLE_SIGN_IN_FAILED'
+              return Promise.reject(providerError)
+            }
             return Promise.resolve({
               provider: 'google',
-              result: { idToken: googleIdToken, accessToken: null, responseType: 'online' },
+              result: {
+                idToken: cfg.googleMode === 'missing-id-token' ? null : googleIdToken,
+                accessToken: null,
+                responseType: 'online',
+              },
             })
           }
           if (method === 'logout') {
@@ -135,11 +145,14 @@ async function prepareApp(page, { googleMode = 'success' } = {}) {
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":"ok"}' }))
 }
 
-function routeGoogleExchange(page, { status = 200 } = {}) {
+function routeGoogleExchange(page, { status = 200, networkError = false } = {}) {
   const exchanges = []
   page.route('**/auth/google', async (route) => {
     const body = route.request().postDataJSON()
     exchanges.push(body)
+    if (networkError) {
+      return route.abort('internetdisconnected')
+    }
     if (status !== 200) {
       return route.fulfill({
         status,
@@ -154,6 +167,34 @@ function routeGoogleExchange(page, { status = 200 } = {}) {
     })
   })
   return exchanges
+}
+
+async function seedPartialSession(page) {
+  await page.evaluate(() => {
+    localStorage.setItem('__test_secure_token', 'stale-secure-token')
+    localStorage.setItem('access_token', 'stale-plaintext-token')
+    localStorage.setItem('authToken', 'stale-legacy-token')
+    localStorage.setItem('currentUserId', 'stale-user')
+    sessionStorage.setItem('access_token', 'stale-session-token')
+  })
+}
+
+async function expectFailedAttemptCleanedUp(page) {
+  await expect(page.locator('.google-native-button')).toBeEnabled()
+  await expect(page.locator('.auth-toolbar')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => ({
+    secure: localStorage.getItem('__test_secure_token'),
+    plaintext: localStorage.getItem('access_token'),
+    legacy: localStorage.getItem('authToken'),
+    id: localStorage.getItem('currentUserId'),
+    session: sessionStorage.getItem('access_token'),
+  }))).toEqual({
+    secure: null,
+    plaintext: null,
+    legacy: null,
+    id: null,
+    session: null,
+  })
 }
 
 test('native Google login succeeds through the plugin and certified pipeline', async ({ page }) => {
@@ -184,37 +225,99 @@ test('native Google login succeeds through the plugin and certified pipeline', a
   expect(state.sessionKeys).toBe(0)
 })
 
-test('cancelling the native picker stays logged out with no error and no exchange', async ({ page }) => {
+test('cancelling the native picker shows neutral feedback and clears partial state', async ({ page }) => {
   await prepareApp(page, { googleMode: 'cancel' })
   const exchanges = routeGoogleExchange(page)
 
   await page.goto('/')
   await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await seedPartialSession(page)
   await page.locator('.google-native-button').click()
-  await page.waitForTimeout(500)
 
   await expect(page.locator('.login-page')).toBeVisible()
-  await expect(page.locator('.auth-toolbar')).toHaveCount(0)
   await expect(page.locator('.login-error')).toHaveCount(0)
+  await expect(page.locator('.login-info')).toHaveText('Sign-in cancelled. You can try again.')
   expect(exchanges.length).toBe(0)
-  expect(await page.evaluate(() => localStorage.getItem('__test_secure_token'))).toBeNull()
+  await expectFailedAttemptCleanedUp(page)
 })
 
-test('backend rejection shows a controlled error and stores nothing', async ({ page }) => {
+test('network failure shows retry-friendly feedback and clears partial state', async ({ page }) => {
   await prepareApp(page)
-  routeGoogleExchange(page, { status: 401 })
+  routeGoogleExchange(page, { networkError: true })
 
   await page.goto('/')
   await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await seedPartialSession(page)
   await page.locator('.google-native-button').click()
 
-  await expect(page.locator('.login-error')).toContainText('Invalid Google token')
-  await expect(page.locator('.auth-toolbar')).toHaveCount(0)
-  expect(await page.evaluate(() => ({
-    secure: localStorage.getItem('__test_secure_token'),
-    plaintext: localStorage.getItem('access_token'),
-    id: localStorage.getItem('currentUserId'),
-  }))).toEqual({ secure: null, plaintext: null, id: null })
+  await expect(page.locator('.login-error')).toHaveText(
+    'We could not connect. Check your internet connection and try again.',
+  )
+  await expectFailedAttemptCleanedUp(page)
+})
+
+for (const status of [400, 401, 403]) {
+  test(`backend ${status} shows verification failure and clears partial state`, async ({ page }) => {
+    await prepareApp(page)
+    routeGoogleExchange(page, { status })
+
+    await page.goto('/')
+    await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+    await seedPartialSession(page)
+    await page.locator('.google-native-button').click()
+
+    await expect(page.locator('.login-error')).toHaveText(
+      'We could not verify your Google sign-in. Please try again.',
+    )
+    await expectFailedAttemptCleanedUp(page)
+  })
+}
+
+test('backend 5xx shows a temporary server error and clears partial state', async ({ page }) => {
+  await prepareApp(page)
+  routeGoogleExchange(page, { status: 503 })
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await seedPartialSession(page)
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.login-error')).toHaveText(
+    'The server is temporarily unavailable. Please try again shortly.',
+  )
+  await expectFailedAttemptCleanedUp(page)
+})
+
+test('Google provider failure shows a safe provider message and clears partial state', async ({ page }) => {
+  await prepareApp(page, { googleMode: 'provider-failure' })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await seedPartialSession(page)
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.login-error')).toHaveText(
+    'Could not sign in with Google. Please try again.',
+  )
+  expect(exchanges.length).toBe(0)
+  await expectFailedAttemptCleanedUp(page)
+})
+
+test('missing provider ID token fails verification safely and clears partial state', async ({ page }) => {
+  await prepareApp(page, { googleMode: 'missing-id-token' })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await seedPartialSession(page)
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.login-error')).toHaveText(
+    'We could not verify your Google sign-in. Please try again.',
+  )
+  expect(exchanges.length).toBe(0)
+  await expectFailedAttemptCleanedUp(page)
 })
 
 test('logout after native Google login signs out of the provider and clears the session', async ({ page }) => {

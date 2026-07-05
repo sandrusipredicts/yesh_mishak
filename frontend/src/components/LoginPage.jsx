@@ -9,10 +9,10 @@ import {
 } from '../api/auth'
 import {
   initNativeGoogleAuth,
-  isUserCancellation,
   signInWithGoogleNative,
 } from '../api/nativeGoogleAuth'
-import { isNativeRuntime } from '../api/sessionStorage'
+import { mapNativeAuthError } from '../api/authErrorMapping'
+import { clearSession, isNativeRuntime } from '../api/sessionStorage'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -53,6 +53,7 @@ function LoginPage({ onLogin }) {
   const buttonRef = useRef(null)
   const [mode, setMode] = useState('login')
   const [error, setError] = useState('')
+  const [nativeAuthFeedback, setNativeAuthFeedback] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [nativeGoogleStatus, setNativeGoogleStatus] = useState('pending')
   const [loginForm, setLoginForm] = useState({
@@ -222,17 +223,27 @@ function LoginPage({ onLogin }) {
   async function handleNativeGoogleLogin() {
     setIsLoading(true)
     setError('')
+    setNativeAuthFeedback(null)
 
     try {
       const idToken = await signInWithGoogleNative(googleClientId)
       const authData = await loginWithGoogle(idToken)
       await handleAuthSuccess(authData)
     } catch (loginError) {
-      // Cancelling the account picker is not an error: stay on the login
-      // page silently with no session and nothing stored.
-      if (!isUserCancellation(loginError)) {
-        setError(getApiErrorMessage(loginError, t('auth.googleSignInFailed')))
+      const mappedError = mapNativeAuthError(loginError)
+
+      if (mappedError.shouldClearSession) {
+        try {
+          await clearSession()
+        } catch {
+          // clearSession clears in-memory and web state synchronously before
+          // propagating secure-storage removal failures. Log classification
+          // only; never include credential-bearing error objects.
+          console.warn('event=native_google.failed_login_cleanup_failure')
+        }
       }
+
+      setNativeAuthFeedback(mappedError)
     } finally {
       setIsLoading(false)
     }
@@ -431,6 +442,14 @@ function LoginPage({ onLogin }) {
         ) : (
           <div ref={buttonRef} className="google-login-button" />
         )}
+        {nativeAuthFeedback ? (
+          <p
+            className={nativeAuthFeedback.severity === 'info' ? 'login-info' : 'login-error'}
+            role={nativeAuthFeedback.severity === 'info' ? 'status' : 'alert'}
+          >
+            {t(nativeAuthFeedback.messageKey)}
+          </p>
+        ) : null}
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
       </section>
     </main>

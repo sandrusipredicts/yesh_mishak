@@ -329,6 +329,11 @@ select {
   font-size: 14px;
 }
 
+.login-info {
+  color: #475569;
+  font-size: 14px;
+}
+
 .onboarding-page {
   display: grid;
   min-height: 100dvh;
