@@ -188,6 +188,40 @@ function fieldsFingerprint(fields) {
   return parts.join('\n')
 }
 
+function mergeFieldsById(currentFields, loadedFields) {
+  const incomingById = new Map()
+  for (const field of loadedFields) {
+    if (field?.id != null) {
+      incomingById.set(field.id, field)
+    }
+  }
+
+  if (!incomingById.size) {
+    return currentFields
+  }
+
+  // Upsert in place: existing fields keep their array position, and their
+  // object identity when the data is unchanged; unseen fields are appended.
+  // Nothing is pruned — a bounds-limited response must never evict fields
+  // the user panned away from (Map Fixing 1 audit, root cause #1).
+  const merged = currentFields.map((field) => {
+    const incoming = incomingById.get(field.id)
+    if (!incoming || fieldsFingerprint([incoming]) === fieldsFingerprint([field])) {
+      return field
+    }
+    return incoming
+  })
+
+  const existingIds = new Set(currentFields.map((field) => field.id))
+  for (const field of loadedFields) {
+    if (field?.id != null && !existingIds.has(field.id)) {
+      merged.push(field)
+    }
+  }
+
+  return merged
+}
+
 function RecenterMap({ center }) {
   const map = useMap()
 
@@ -322,6 +356,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
   const cachedFieldsState = useMemo(() => readCachedFields(), [])
   const [fields, setFields] = useState(cachedFieldsState.fields)
+  const fieldsRef = useRef(cachedFieldsState.fields)
   const fieldsFingerprintRef = useRef(fieldsFingerprint(cachedFieldsState.fields))
   const [isFieldsLoading, setIsFieldsLoading] = useState(!cachedFieldsState.fields.length)
   const [error, setError] = useState('')
@@ -334,6 +369,12 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const currentUserId = authenticatedUserId || getStoredCurrentUserId()
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
   const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
+
+  // Keep the merge base in sync with setFields callers that bypass
+  // handleFieldsLoaded (refreshFieldState's functional updates).
+  useEffect(() => {
+    fieldsRef.current = fields
+  }, [fields])
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -444,13 +485,14 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
   const handleFieldsLoaded = useCallback((loadedFields) => {
-    const loadedFingerprint = fieldsFingerprint(loadedFields)
-    const shouldUpdateFields = fieldsFingerprintRef.current !== loadedFingerprint
+    const merged = mergeFieldsById(fieldsRef.current, loadedFields)
+    const mergedFingerprint = fieldsFingerprint(merged)
 
-    if (shouldUpdateFields) {
-      fieldsFingerprintRef.current = loadedFingerprint
-      setFields(loadedFields)
-      writeCachedFields(loadedFields)
+    if (fieldsFingerprintRef.current !== mergedFingerprint) {
+      fieldsFingerprintRef.current = mergedFingerprint
+      fieldsRef.current = merged
+      setFields(merged)
+      writeCachedFields(merged)
     }
 
     setSelectedField((currentField) => {
@@ -535,7 +577,9 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       try {
         const loadedFields = await getFields()
         const nextFields = Array.isArray(loadedFields) ? loadedFields : []
-        setFields(nextFields)
+        // Notification loads use the same merge path as FieldLoader
+        // responses so the cache, fingerprint, and merge base stay in sync.
+        handleFieldsLoaded(nextFields)
         targetField = findTargetField(nextFields)
       } catch {
         targetField = null
