@@ -31,7 +31,9 @@ test('Android native auth logging is hardened against credential payloads', () =
 // Native mock: SecureStorage (certified pipeline), App, and the NA-1
 // SocialLogin plugin. googleMode:
 // 'success' | 'cancel' | 'provider-failure' | 'missing-id-token'.
-async function prepareApp(page, { googleMode = 'success' } = {}) {
+// providerLogoutFails makes the provider's logout reject (ISSUE-242: provider
+// sign-out is best-effort and must never block local cleanup).
+async function prepareApp(page, { googleMode = 'success', providerLogoutFails = false } = {}) {
   await page.addInitScript(({ cfg, googleIdToken }) => {
     const SECURE_BACKING_KEY = '__test_secure_token'
 
@@ -101,6 +103,9 @@ async function prepareApp(page, { googleMode = 'success' } = {}) {
           }
           if (method === 'logout') {
             window.__social.logoutCalls += 1
+            if (cfg.providerLogoutFails) {
+              return Promise.reject(new Error('Credential Manager clearCredentialState failed'))
+            }
             return Promise.resolve()
           }
         }
@@ -129,7 +134,7 @@ async function prepareApp(page, { googleMode = 'success' } = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
-  }, { cfg: { googleMode }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
+  }, { cfg: { googleMode, providerLogoutFails }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
 
   await page.route('**/fields/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
@@ -338,4 +343,67 @@ test('logout after native Google login signs out of the provider and clears the 
     plaintext: localStorage.getItem('access_token'),
     id: localStorage.getItem('currentUserId'),
   }))).toEqual({ providerLogouts: 1, secure: null, plaintext: null, id: null })
+})
+
+test('provider sign-out failure does not block local logout cleanup', async ({ page }) => {
+  await prepareApp(page, { providerLogoutFails: true })
+  routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+
+  await page.locator('.auth-toolbar button').last().click()
+
+  // Local logout completes fully despite the provider rejection: logged-out
+  // UI, no cleanup warning, and no auth residue in any storage tier.
+  await expect(page.locator('.login-page')).toBeVisible()
+  await expect(page.locator('.auth-toolbar')).toHaveCount(0)
+  await expect(page.locator('.logout-warning')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => ({
+    providerLogouts: window.__social.logoutCalls,
+    secure: localStorage.getItem('__test_secure_token'),
+    plaintext: localStorage.getItem('access_token'),
+    legacy: localStorage.getItem('authToken'),
+    id: localStorage.getItem('currentUserId'),
+    session: sessionStorage.getItem('access_token'),
+  }))).toEqual({
+    providerLogouts: 1,
+    secure: null,
+    plaintext: null,
+    legacy: null,
+    id: null,
+    session: null,
+  })
+})
+
+test('Google login succeeds again after logout with a fresh session', async ({ page }) => {
+  await prepareApp(page)
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+
+  await page.locator('.auth-toolbar button').last().click()
+  await expect(page.locator('.login-page')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('__test_secure_token'))).toBe(null)
+
+  await expect(page.locator('.google-native-button')).toBeEnabled()
+  await page.locator('.google-native-button').click()
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+
+  const state = await page.evaluate(() => ({
+    loginCalls: window.__social.loginCalls,
+    secureToken: localStorage.getItem('__test_secure_token'),
+    plaintext: localStorage.getItem('access_token'),
+  }))
+  // A second full pipeline run: fresh provider login, fresh backend exchange,
+  // fresh securely-stored app JWT, still no web-storage JWT.
+  expect(state.loginCalls).toBe(2)
+  expect(exchanges.length).toBe(2)
+  expect(state.secureToken).toMatch(/^eyJ/)
+  expect(state.plaintext).toBeNull()
 })
