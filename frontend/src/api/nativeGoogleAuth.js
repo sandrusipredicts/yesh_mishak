@@ -54,15 +54,31 @@ export async function signInWithGoogleNative(webClientId) {
   // already returns an ID token carrying the email/profile/email_verified
   // claims the backend verifies. (Passing `scopes` switches the plugin to
   // its AuthorizationClient path, which requires MainActivity changes.)
-  const response = await socialLogin.login({
-    provider: 'google',
-    options: {},
-  })
+  let response
+
+  try {
+    response = await socialLogin.login({
+      provider: 'google',
+      options: {},
+    })
+  } catch (providerError) {
+    if (isUserCancellation(providerError)) {
+      throw providerError
+    }
+
+    const normalizedError = new Error('Native Google provider sign-in failed', {
+      cause: providerError,
+    })
+    normalizedError.code = 'GOOGLE_SIGN_IN_FAILED'
+    throw normalizedError
+  }
 
   const idToken = response?.result?.idToken
 
   if (!idToken) {
-    throw new Error('Native Google sign-in returned no ID token')
+    const missingTokenError = new Error('Native Google sign-in returned no ID token')
+    missingTokenError.code = 'NATIVE_GOOGLE_MISSING_ID_TOKEN'
+    throw missingTokenError
   }
 
   return idToken
