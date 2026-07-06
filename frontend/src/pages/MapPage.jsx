@@ -511,10 +511,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
   const fieldMarkers = useMemo(
     () =>
-      fields.map((field, index) => (
+      fields.map((field) => (
         <FieldMarker
           field={field}
-          key={`${field.id ?? field.name ?? 'field'}-${index}`}
+          key={field.id}
           markerIcons={markerIcons}
           onSelectField={handleSelectField}
         />
