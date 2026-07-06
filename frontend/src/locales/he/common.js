@@ -77,6 +77,12 @@ const he = {
     myLocation: 'המיקום שלי',
     loadingFields: 'טוען מגרשים...',
     addField: 'הוספת מגרש',
+    // ISSUE-255: copy dictated by docs/location-permission-strategy.md §7.
+    locationDenied: 'לא ניתן להציג את מיקומך הנוכחי ללא הרשאת מיקום. המפה תמשיך לפעול במיקום ברירת המחדל.',
+    locationSettings: 'הרשאת המיקום נחסמה. כדי לאפשר אותה, יש להיכנס להגדרות המכשיר ולאפשר גישה למיקום עבור yesh_mishak.',
+    locationUnavailable: 'המיקום אינו זמין. מציג מיקום ברירת מחדל.',
+    locationRevoked: 'הרשאת המיקום בוטלה. חזרה למיקום ברירת המחדל.',
+    dismissNotice: 'סגירת ההודעה',
   },
   field: {
     details: 'פרטי מגרש',
