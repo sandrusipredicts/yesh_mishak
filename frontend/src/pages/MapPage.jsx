@@ -358,6 +358,7 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const [fields, setFields] = useState(cachedFieldsState.fields)
   const fieldsRef = useRef(cachedFieldsState.fields)
   const fieldsFingerprintRef = useRef(fieldsFingerprint(cachedFieldsState.fields))
+  const notificationFieldsRequestRef = useRef(0)
   const [isFieldsLoading, setIsFieldsLoading] = useState(!cachedFieldsState.fields.length)
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
@@ -574,12 +575,21 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     let targetField = findTargetField(fields)
 
     if (!targetField) {
+      // Same stale-response rule as FieldLoader: only the latest
+      // notification-triggered load may merge into shared field state.
+      const requestId = notificationFieldsRequestRef.current + 1
+      notificationFieldsRequestRef.current = requestId
+
       try {
         const loadedFields = await getFields()
         const nextFields = Array.isArray(loadedFields) ? loadedFields : []
-        // Notification loads use the same merge path as FieldLoader
-        // responses so the cache, fingerprint, and merge base stay in sync.
-        handleFieldsLoaded(nextFields)
+        if (requestId === notificationFieldsRequestRef.current) {
+          // Notification loads use the same merge path as FieldLoader
+          // responses so the cache, fingerprint, and merge base stay in sync.
+          handleFieldsLoaded(nextFields)
+        }
+        // Finding this tap's target in this tap's response stays correct
+        // even when a newer request has made the merge stale.
         targetField = findTargetField(nextFields)
       } catch {
         targetField = null
