@@ -122,6 +122,31 @@ test('login does not render before startup validation completes', async ({ page 
   await expect(page.locator('.auth-toolbar')).toBeVisible()
 })
 
+test('authenticated requests after restore use the restored bearer token', async ({ page }) => {
+  const token = makeJwt()
+  await prepareApp(page, token)
+
+  const authorizations = { gamesMe: [], unreadCount: [] }
+  await page.route('**/games/me', (route) => {
+    authorizations.gamesMe.push(route.request().headers().authorization ?? null)
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+  await page.route('**/notifications/unread-count', (route) => {
+    authorizations.unreadCount.push(route.request().headers().authorization ?? null)
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"unread_count":0}' })
+  })
+
+  await page.goto('/')
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name)
+
+  // Startup validation authenticated with the restored token, and every
+  // authenticated API call after the restore carries that same token —
+  // not a transient in-memory value from a login flow.
+  expect(authorizations.gamesMe[0]).toBe(`Bearer ${token}`)
+  await expect.poll(() => authorizations.unreadCount.length).toBeGreaterThan(0)
+  expect(authorizations.unreadCount.every((value) => value === `Bearer ${token}`)).toBe(true)
+})
+
 test('corrupted token fails closed and clears auth state', async ({ page }) => {
   await prepareApp(page, 'corrupted-token')
   await page.goto('/')
