@@ -35,6 +35,12 @@ const AUTH_ERROR_RESULTS = {
     severity: 'error',
     shouldClearSession: true,
   },
+  accountLinkingRequired: {
+    kind: 'account_linking_required',
+    messageKey: 'auth.accountLinkingRequired',
+    severity: 'error',
+    shouldClearSession: true,
+  },
 }
 
 const NETWORK_ERROR_CODES = new Set(['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'])
@@ -46,6 +52,11 @@ export function mapNativeAuthError(error) {
   }
 
   const status = error?.response?.status
+  const detail = error?.response?.data?.detail
+
+  if (status === 409 && detail?.code === 'ACCOUNT_LINKING_REQUIRED') {
+    return AUTH_ERROR_RESULTS.accountLinkingRequired
+  }
 
   if (VERIFICATION_STATUSES.has(status)) {
     return AUTH_ERROR_RESULTS.verificationFailed

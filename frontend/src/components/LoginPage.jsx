@@ -139,8 +139,13 @@ function LoginPage({ onLogin }) {
             try {
               const authData = await loginWithGoogle(response.credential)
               await handleAuthSuccess(authData)
-            } catch {
-              setError(t('auth.googleSignInFailed'))
+            } catch (apiError) {
+              const detail = apiError?.response?.data?.detail
+              if (apiError?.response?.status === 409 && detail?.code === 'ACCOUNT_LINKING_REQUIRED') {
+                setError(t('auth.accountLinkingRequired'))
+              } else {
+                setError(t('auth.googleSignInFailed'))
+              }
             } finally {
               setIsLoading(false)
             }
