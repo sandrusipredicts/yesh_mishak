@@ -20,6 +20,19 @@ create table if not exists users (
     tokens_valid_after timestamptz
 );
 
+create table if not exists user_identities (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references users(id) on delete cascade,
+    provider text not null,
+    provider_subject text not null,
+    email_at_link text,
+    email_verified_at_link boolean not null default false,
+    created_at timestamptz not null default now(),
+    last_used_at timestamptz not null default now(),
+    unique (provider, provider_subject),
+    unique (user_id, provider)
+);
+
 create table if not exists fields (
     id uuid primary key default gen_random_uuid(),
     name text not null,
@@ -140,6 +153,9 @@ alter table user_moderation_audit enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
 grant select, update on public.users to service_role;
+grant select, insert, update, delete on public.user_identities to service_role;
+
+alter table user_identities enable row level security;
 
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
@@ -182,3 +198,6 @@ create unique index if not exists idx_notifications_user_type_game_unique
 create unique index if not exists idx_notifications_user_game_extended_end_time_unique
     on notifications(user_id, type, game_id, (data ->> 'new_end_time'))
     where game_id is not null and type = 'game_extended' and data ? 'new_end_time';
+
+create index if not exists idx_user_identities_user_id on user_identities(user_id);
+create index if not exists idx_user_identities_lookup on user_identities(provider, provider_subject);

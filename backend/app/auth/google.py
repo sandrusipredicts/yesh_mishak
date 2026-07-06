@@ -8,6 +8,7 @@ from google.oauth2 import id_token
 
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_client
+from app.errors import raise_api_error
 
 logger = logging.getLogger(__name__)
 
@@ -192,30 +193,34 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
 def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "unknown") -> dict[str, Any]:
     supabase = get_supabase_client()
     email = google_user["email"]
+    google_sub = google_user["google_sub"]
+
     logger.info(
-        "looking up existing Google user",
+        "looking up existing Google user by subject",
         extra={
             "event": "auth.google_user.lookup.start",
             "auth_method": "google",
             "attempt_id": attempt_id,
-            "google_sub_present": bool(google_user.get("google_sub")),
+            "google_sub_present": bool(google_sub),
         },
     )
 
+    # 1. Lookup in user_identities table
     try:
-        existing_user = (
-            supabase.table("users")
-            .select("id,email,name")
-            .eq("email", email)
+        identity_response = (
+            supabase.table("user_identities")
+            .select("id,user_id")
+            .eq("provider", "google")
+            .eq("provider_subject", google_sub)
             .limit(1)
             .execute()
         )
     except Exception as exc:
         error = _format_supabase_error(exc)
         logger.exception(
-            "Google user lookup failed",
+            "Google user identity lookup failed",
             extra={
-                "event": "auth.google_user.lookup.failure",
+                "event": "auth.google_identity.lookup.failure",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
                 "error_code": "DATABASE_ERROR",
@@ -226,28 +231,182 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "message": "Failed to query user",
+                "message": "Failed to query user identities",
                 "supabase_error": error,
-                "hint": "Check SUPABASE_KEY permissions, users table RLS policies, and that users has id/email/name columns.",
             },
         ) from exc
 
-    if existing_user.data:
-        user = existing_user.data[0]
+    if identity_response.data:
+        # Subject match (L1 resolution)
+        user_id = identity_response.data[0]["user_id"]
+        try:
+            user_response = (
+                supabase.table("users")
+                .select("id,email,name,google_sub,username,phone_number,password_hash")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:
+            error = _format_supabase_error(exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Failed to query user", "supabase_error": error},
+            ) from exc
+
+        if not user_response.data:
+            logger.error(
+                "linked user not found in users table",
+                extra={
+                    "event": "auth.google_user.lookup.failure",
+                    "user_id": user_id,
+                    "attempt_id": attempt_id,
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+            )
+
+        user = user_response.data[0]
+        # Update last_used_at on identity safely
+        try:
+            from datetime import datetime, timezone
+            now_iso = datetime.now(timezone.utc).isoformat()
+            supabase.table("user_identities").update({"last_used_at": now_iso}).eq("id", identity_response.data[0]["id"]).execute()
+        except Exception as exc:
+            logger.warning(
+                "failed to update identity last_used_at",
+                extra={"exception": str(exc)},
+            )
+
         logger.info(
-            "existing Google user found",
+            "existing Google user found by subject",
             extra={
                 "event": "auth.google_user.lookup.success",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
                 "user_id": user.get("id"),
-                "name_present": bool(user.get("name")),
                 "result": "success",
             },
         )
         _log_google_user_lookup_debug(email, attempt_id)
-        return existing_user.data[0]
+        return user
 
+    # 2. If not found in user_identities, check by email
+    logger.info(
+        "looking up existing Google user by email",
+        extra={
+            "event": "auth.google_user_email_lookup.start",
+            "auth_method": "google",
+            "attempt_id": attempt_id,
+        },
+    )
+    try:
+        existing_user_response = (
+            supabase.table("users")
+            .select("id,email,name,google_sub,username,phone_number,password_hash")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        error = _format_supabase_error(exc)
+        logger.exception(
+            "Google user email lookup failed",
+            extra={
+                "event": "auth.google_user_email_lookup.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to query user by email",
+                "supabase_error": error,
+            },
+        ) from exc
+
+    if existing_user_response.data:
+        existing_user = existing_user_response.data[0]
+        # Check if existing user has a password (manual account)
+        if existing_user.get("password_hash") is not None:
+            # Reject with 409 Conflict (L2 Conflict resolution)
+            logger.warning(
+                "silent link blocked: account exists with manual password",
+                extra={
+                    "event": "auth.login.failure",
+                    "auth_method": "google",
+                    "attempt_id": attempt_id,
+                    "status_code": status.HTTP_409_CONFLICT,
+                    "error_code": "ACCOUNT_LINKING_REQUIRED",
+                    "result": "failure",
+                },
+            )
+            raise_api_error(
+                status_code=status.HTTP_409_CONFLICT,
+                code="ACCOUNT_LINKING_REQUIRED",
+                message="An account with this email already exists. Please sign in with your password to link Google.",
+            )
+
+        # Existing user has no password (L2 auto-link resolution)
+        logger.info(
+            "auto-linking Google subject to existing provider-only account",
+            extra={
+                "event": "auth.google_user.autolink.start",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "user_id": existing_user["id"],
+            },
+        )
+        try:
+            # Create user_identity mapping
+            supabase.table("user_identities").insert({
+                "user_id": existing_user["id"],
+                "provider": "google",
+                "provider_subject": google_sub,
+                "email_at_link": email,
+                "email_verified_at_link": True,
+            }).execute()
+
+            # Keep users.google_sub updated for backward compatibility
+            if not existing_user.get("google_sub"):
+                supabase.table("users").update({"google_sub": google_sub}).eq("id", existing_user["id"]).execute()
+                existing_user["google_sub"] = google_sub
+
+        except Exception as exc:
+            error = _format_supabase_error(exc)
+            logger.exception(
+                "failed to auto-link identity",
+                extra={
+                    "event": "auth.google_user.autolink.failure",
+                    "auth_method": "google",
+                    "attempt_id": attempt_id,
+                    "user_id": existing_user["id"],
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"message": "Failed to create user identity", "supabase_error": error},
+            ) from exc
+
+        logger.info(
+            "auto-linking Google subject succeeded",
+            extra={
+                "event": "auth.google_user.autolink.success",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "user_id": existing_user["id"],
+            },
+        )
+        _log_google_user_lookup_debug(email, attempt_id)
+        return existing_user
+
+    # 3. If no email exists (L3 resolution - create new user + user_identity)
     logger.info(
         "creating Google user",
         extra={
@@ -257,12 +416,12 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         },
     )
     try:
-        created_user = (
+        created_user_response = (
             supabase.table("users")
             .insert(
                 {
-                    "google_sub": google_user["google_sub"],
-                    "email": google_user["email"],
+                    "google_sub": google_sub,
+                    "email": email,
                     "name": google_user["name"],
                 }
             )
@@ -277,7 +436,6 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
                 "auth_method": "google",
                 "attempt_id": attempt_id,
                 "error_code": "DATABASE_ERROR",
-                "exception_type": exc.__class__.__name__,
                 "result": "failure",
             },
         )
@@ -286,39 +444,51 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
             detail={
                 "message": "DB insert failure",
                 "supabase_error": error,
-                "hint": "Check SUPABASE_KEY permissions, users table RLS policies, required columns, and unique constraints for email/google_sub.",
             },
         ) from exc
 
-    if not created_user.data:
-        logger.error(
-            "Google user insert returned no rows",
+    if not created_user_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "DB insert failure, returned no user rows"},
+        )
+
+    new_user = created_user_response.data[0]
+
+    # Create user_identity mapping
+    try:
+        supabase.table("user_identities").insert({
+            "user_id": new_user["id"],
+            "provider": "google",
+            "provider_subject": google_sub,
+            "email_at_link": email,
+            "email_verified_at_link": True,
+        }).execute()
+    except Exception as exc:
+        error = _format_supabase_error(exc)
+        logger.exception(
+            "Google identity insert failed for new user",
             extra={
                 "event": "auth.google_user.create.failure",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
-                "error_code": "DATABASE_ERROR",
-                "result": "failure",
+                "user_id": new_user["id"],
             },
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "message": "DB insert failure",
-                "supabase_error": "Insert returned no user rows",
-                "hint": "If insert succeeded but returns no data, check Supabase/PostgREST return settings and table policies.",
-            },
-        )
+            detail={"message": "Failed to create user identity", "supabase_error": error},
+        ) from exc
 
     logger.info(
-        "Google user created",
+        "Google user created successfully with identity mapping",
         extra={
             "event": "auth.google_user.create.success",
             "auth_method": "google",
             "attempt_id": attempt_id,
-            "user_id": created_user.data[0].get("id"),
+            "user_id": new_user["id"],
             "result": "success",
         },
     )
     _log_google_user_lookup_debug(email, attempt_id)
-    return created_user.data[0]
+    return new_user
