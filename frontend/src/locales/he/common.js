@@ -51,6 +51,7 @@ const he = {
     googleNativeUnavailable: 'התחברות Google אינה זמינה במכשיר הזה. ניתן להתחבר עם שם משתמש וסיסמה.',
     passwordHint: 'לפחות 8 תווים.',
     passwordMismatch: 'הסיסמאות לא תואמות.',
+    accountLinkingRequired: 'כבר קיים חשבון עם האימייל הזה. התחבר עם סיסמה כדי להמשיך.',
   },
   onboarding: {
     findGames: 'מצאו משחקים לידכם',

@@ -61,3 +61,19 @@ test('maps unknown failures to the safe fallback', () => {
     expected('unexpected', 'auth.signInUnexpectedError'),
   )
 })
+
+test('maps 409 conflict with ACCOUNT_LINKING_REQUIRED to account linking required error', () => {
+  const err = {
+    response: {
+      status: 409,
+      data: {
+        detail: {
+          code: 'ACCOUNT_LINKING_REQUIRED',
+        },
+      },
+    },
+  }
+  expect(mapNativeAuthError(err)).toEqual(
+    expected('account_linking_required', 'auth.accountLinkingRequired'),
+  )
+})

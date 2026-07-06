@@ -51,6 +51,7 @@ const en = {
     googleNativeUnavailable: 'Google sign-in is not available on this device. You can sign in with your username and password.',
     passwordHint: 'At least 8 characters.',
     passwordMismatch: 'Passwords do not match.',
+    accountLinkingRequired: 'An account with this email already exists. Please sign in with your password to continue.',
   },
   onboarding: {
     findGames: 'Find games near you',
