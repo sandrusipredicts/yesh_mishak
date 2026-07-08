@@ -14,6 +14,7 @@ import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
 import { checkExistingPermission } from '../api/locationPermission'
 import { getCurrentLocation } from '../api/locationService'
+import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -447,7 +448,15 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         setUserLocation(nextUserLocation)
         setCenter(nextUserLocation.position)
         setUserLocationRequestId((currentRequestId) => currentRequestId + 1)
-        setLocationNotice('')
+
+        const markerEval = evaluateLocationAccuracy(loc, USE_CASES.USER_MARKER)
+        const fieldsEval = evaluateLocationAccuracy(loc, USE_CASES.NEARBY_FIELDS)
+
+        if (!markerEval.isAccurateEnough || !fieldsEval.isAccurateEnough) {
+          setLocationNotice(`${t('map.approximateLocationWarning')} ${t('map.nearbyFieldsWarning')}`)
+        } else {
+          setLocationNotice('')
+        }
         return
       }
 

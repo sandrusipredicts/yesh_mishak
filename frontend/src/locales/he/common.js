@@ -83,6 +83,8 @@ const he = {
     locationUnavailable: 'המיקום אינו זמין. מציג מיקום ברירת מחדל.',
     locationRevoked: 'הרשאת המיקום בוטלה. חזרה למיקום ברירת המחדל.',
     dismissNotice: 'סגירת ההודעה',
+    approximateLocationWarning: 'המיקום שלך משוער בגלל דיוק GPS נמוך',
+    nearbyFieldsWarning: 'ייתכן שחלק מהמגרשים הקרובים לא יוצגו בדיוק בגלל דיוק GPS נמוך',
   },
   field: {
     details: 'פרטי מגרש',

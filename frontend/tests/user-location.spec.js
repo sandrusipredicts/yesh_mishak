@@ -245,3 +245,34 @@ test('keeps the map usable when geolocation is unsupported', async ({ page }) =>
   await page.getByRole('button', { name: 'My Location' }).click()
   await expect(page.locator('.location-notice')).toContainText('Location is unavailable')
 })
+
+test('low accuracy geolocation surfaces the warning notice', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__geolocationCalls = 0
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition(success) {
+          window.__geolocationCalls += 1
+          success({
+            coords: {
+              latitude: 30.9872,
+              longitude: 34.9314,
+              accuracy: 600,
+            },
+            timestamp: Date.now(),
+          })
+        },
+      },
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.locator('.map-canvas')).toBeVisible()
+  await page.getByRole('button', { name: 'My Location' }).click()
+
+  const notice = page.locator('.location-notice')
+  await expect(notice).toBeVisible()
+  await expect(notice).toContainText('approximate')
+  await expect(notice).toContainText('nearby fields')
+})

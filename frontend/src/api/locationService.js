@@ -43,6 +43,7 @@ function normalize(coords, permissionState) {
   return {
     latitude: coords.latitude,
     longitude: coords.longitude,
+    accuracy: coords.accuracy ?? null,
     accuracyMeters: coords.accuracy ?? null,
     altitude: coords.altitude ?? null,
     altitudeAccuracy: coords.altitudeAccuracy ?? null,
