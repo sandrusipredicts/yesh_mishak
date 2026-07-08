@@ -77,6 +77,11 @@ const en = {
     myLocation: 'My location',
     loadingFields: 'Loading fields...',
     addField: 'Add field',
+    locationDenied: 'Cannot show your current location without permission. The map continues at the default location.',
+    locationSettings: 'Location permission is blocked. To enable it, open device settings and allow location access for yesh_mishak.',
+    locationUnavailable: 'Location is unavailable. Showing default location.',
+    locationRevoked: 'Location permission was revoked. Returning to the default location.',
+    dismissNotice: 'Dismiss notice',
   },
   field: {
     details: 'Field details',

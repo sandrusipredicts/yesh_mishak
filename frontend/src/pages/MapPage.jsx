@@ -1,5 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { App as CapacitorApp } from '@capacitor/app'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Circle, MapContainer, Marker, Popup, TileLayer, ZoomControl, useMap, useMapEvents } from 'react-leaflet'
@@ -11,6 +12,7 @@ import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
 import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
+import { checkExistingPermission, requestCurrentLocation } from '../api/locationPermission'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -370,6 +372,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
   const currentUserId = authenticatedUserId || getStoredCurrentUserId()
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false)
   const [fieldSubmitMessage, setFieldSubmitMessage] = useState('')
+  // Non-blocking banner about the last location request. '' = hidden.
+  // The Hebrew copy is dictated by docs/location-permission-strategy.md §7.
+  const [locationNotice, setLocationNotice] = useState('')
+  const [isLocatingUser, setIsLocatingUser] = useState(false)
 
   // Keep the merge base in sync with setFields callers that bypass
   // handleFieldsLoaded (refreshFieldState's functional updates).
@@ -377,43 +383,85 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     fieldsRef.current = fields
   }, [fields])
 
+  // ISSUE-255: no automatic location request on mount. Location is only
+  // acquired when the user taps "My Location", per point-of-need strategy.
+  // When we already hold a fix from an earlier grant and the app returns
+  // to the foreground, re-check the permission — if it was revoked in
+  // Android settings, drop the marker cleanly and warn once.
   useEffect(() => {
-    if (!navigator.geolocation) {
-      return
+    let isMounted = true
+    let listenerHandle = null
+
+    const revalidate = async () => {
+      if (!isMounted) {
+        return
+      }
+      const { state } = await checkExistingPermission()
+      if (!isMounted) {
+        return
+      }
+      if (state === 'denied') {
+        setUserLocation((current) => (current ? null : current))
+        setLocationNotice((currentNotice) =>
+          currentNotice || t('map.locationRevoked'),
+        )
+      }
     }
 
-    let isMounted = true
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (!isMounted) {
-          return
+    ;(async () => {
+      const registration = await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          revalidate()
         }
-
-        const nextUserLocation = {
-          position: [position.coords.latitude, position.coords.longitude],
-          accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
-        }
-
-        setUserLocation(nextUserLocation)
-        setCenter(nextUserLocation.position)
-      },
-      () => {
-        if (isMounted) {
-          setUserLocation(null)
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
-      },
-    )
+      })
+      if (!isMounted) {
+        registration.remove?.()
+        return
+      }
+      listenerHandle = registration
+    })().catch(() => {
+      // No @capacitor/app on web / plugin failure: skip the resume hook.
+    })
 
     return () => {
       isMounted = false
+      listenerHandle?.remove?.()
     }
-  }, [])
+  }, [t])
+
+  const handleRequestUserLocation = useCallback(async () => {
+    if (isLocatingUser) {
+      return
+    }
+
+    setIsLocatingUser(true)
+    try {
+      const result = await requestCurrentLocation({ highAccuracy: true })
+      if (result.status === 'granted') {
+        const nextUserLocation = {
+          position: [result.coords.latitude, result.coords.longitude],
+          accuracy: Number.isFinite(result.coords.accuracy) ? result.coords.accuracy : null,
+        }
+        setUserLocation(nextUserLocation)
+        setCenter(nextUserLocation.position)
+        setUserLocationRequestId((currentRequestId) => currentRequestId + 1)
+        setLocationNotice('')
+        return
+      }
+
+      if (result.status === 'settings') {
+        setLocationNotice(t('map.locationSettings'))
+      } else if (result.status === 'denied') {
+        setLocationNotice(t('map.locationDenied'))
+      } else if (result.status === 'unsupported') {
+        setLocationNotice(t('map.locationUnavailable'))
+      } else {
+        setLocationNotice(t('map.locationUnavailable'))
+      }
+    } finally {
+      setIsLocatingUser(false)
+    }
+  }, [isLocatingUser, t])
 
   const refreshNotifications = useCallback(async () => {
     try {
@@ -610,6 +658,19 @@ function MapPage({ currentUserId: authenticatedUserId }) {
     <main className={`map-page${currentUserId ? ' has-toolbar' : ''}`}>
       {error ? <div className="map-error" role="alert">{error}</div> : null}
       {fieldSubmitMessage ? <div className="map-success">{fieldSubmitMessage}</div> : null}
+      {locationNotice ? (
+        <div className="location-notice" role="status">
+          <span>{locationNotice}</span>
+          <button
+            type="button"
+            className="location-notice-dismiss"
+            aria-label={t('map.dismissNotice')}
+            onClick={() => setLocationNotice('')}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       <div className="map-floating-controls">
         <div className="map-actions-stack top-start">
@@ -640,13 +701,14 @@ function MapPage({ currentUserId: authenticatedUserId }) {
           </button>
         </div>
 
-        {userLocation && !selectedField ? (
+        {!selectedField ? (
           <div className="map-actions-stack bottom-start">
             <button
               className="floating-button my-location"
               type="button"
               aria-label={t('map.myLocation')}
-              onClick={() => setUserLocationRequestId((currentRequestId) => currentRequestId + 1)}
+              onClick={handleRequestUserLocation}
+              disabled={isLocatingUser}
             >
               <LocateFixed size={22} />
             </button>

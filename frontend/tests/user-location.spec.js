@@ -62,10 +62,12 @@ async function mockSharedRequests(page) {
 
 async function mockGrantedGeolocation(page) {
   await page.addInitScript((location) => {
+    window.__geolocationCalls = 0
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
       value: {
         getCurrentPosition(success) {
+          window.__geolocationCalls += 1
           success({
             coords: {
               latitude: location.latitude,
@@ -81,10 +83,12 @@ async function mockGrantedGeolocation(page) {
 
 async function mockRejectedGeolocation(page, code) {
   await page.addInitScript((errorCode) => {
+    window.__geolocationCalls = 0
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
       value: {
         getCurrentPosition(_success, error) {
+          window.__geolocationCalls += 1
           error?.({ code: errorCode, message: 'Location unavailable' })
         },
       },
@@ -94,6 +98,7 @@ async function mockRejectedGeolocation(page, code) {
 
 async function mockUnsupportedGeolocation(page) {
   await page.addInitScript(() => {
+    window.__geolocationCalls = 0
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
       value: undefined,
@@ -143,32 +148,30 @@ test.beforeEach(async ({ page }) => {
   await mockSharedRequests(page)
 })
 
-test('shows user location, centers once, and returns to it from the map button', async ({
+test('no geolocation is requested on mount; button triggers acquisition and centers', async ({
   page,
 }) => {
   await mockGrantedGeolocation(page)
 
   await page.goto('/')
 
-  await expect(page.locator('.user-location-marker-icon')).toBeVisible()
-  await expect(page.locator('.leaflet-interactive')).toBeVisible()
+  // ISSUE-255: point-of-need — MapPage must not auto-request on load.
+  await expect(page.locator('.map-canvas')).toBeVisible()
   await expect(page.getByRole('button', { name: 'My Location' })).toBeVisible()
+  await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(0)
+
+  await page.getByRole('button', { name: 'My Location' }).click()
+
+  await expect(page.locator('.user-location-marker-icon')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(1)
   await expectUserMarkerNearCenter(page)
 
   const mapBox = await page.locator('.map-canvas').boundingBox()
-  expect(mapBox).not.toBeNull()
-
   await page.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2)
   await page.mouse.down()
   await page.mouse.move(mapBox.x + mapBox.width / 2 + 220, mapBox.y + mapBox.height / 2)
   await page.mouse.up()
-
-  await expect
-    .poll(() => markerOffsetFromMapCenter(page))
-    .toMatchObject({
-      x: expect.any(Number),
-      y: expect.any(Number),
-    })
 
   const pannedOffset = await markerOffsetFromMapCenter(page)
   expect(pannedOffset.x).toBeGreaterThan(70)
@@ -177,24 +180,57 @@ test('shows user location, centers once, and returns to it from the map button',
   await expectUserMarkerNearCenter(page)
 })
 
-test('keeps the map usable when location permission is denied', async ({ page }) => {
+test('denied permission surfaces the Hebrew notice and does not loop', async ({ page }) => {
   await mockRejectedGeolocation(page, 1)
 
   await page.goto('/')
 
   await expect(page.locator('.map-canvas')).toBeVisible()
   await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'My Location' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'My Location' }).click()
+
+  const notice = page.locator('.location-notice')
+  await expect(notice).toBeVisible()
+  // Seeded language is English; the Hebrew source-of-truth string lives in
+  // frontend/src/locales/he/common.js (map.locationDenied) per strategy §7.
+  await expect(notice).toContainText('without permission')
+  await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(1)
+
+  // Marker stays hidden; the button remains available for a manual retry.
+  await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'My Location' })).toBeVisible()
 })
 
-test('keeps the map usable when geolocation times out', async ({ page }) => {
+test('repeated denials switch to the Android-settings guidance message', async ({ page }) => {
+  await mockRejectedGeolocation(page, 1)
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'My Location' }).click()
+  const notice = page.locator('.location-notice')
+  await expect(notice).toBeVisible()
+
+  // Dismiss the first banner and press again — the service escalates to
+  // settings-guidance after the second denial in the same runtime.
+  await page.locator('.location-notice-dismiss').click()
+  await expect(notice).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'My Location' }).click()
+  await expect(notice).toBeVisible()
+  await expect(notice).toContainText('device settings')
+  await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(2)
+})
+
+test('timeout / unavailable is treated as non-denied and shows unavailable notice', async ({ page }) => {
   await mockRejectedGeolocation(page, 3)
 
   await page.goto('/')
+  await expect(page.getByRole('button', { name: 'My Location' })).toBeVisible()
 
-  await expect(page.locator('.map-canvas')).toBeVisible()
+  await page.getByRole('button', { name: 'My Location' }).click()
+
+  await expect(page.locator('.location-notice')).toContainText('Location is unavailable')
   await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'My Location' })).toHaveCount(0)
 })
 
 test('keeps the map usable when geolocation is unsupported', async ({ page }) => {
@@ -204,5 +240,8 @@ test('keeps the map usable when geolocation is unsupported', async ({ page }) =>
 
   await expect(page.locator('.map-canvas')).toBeVisible()
   await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'My Location' })).toHaveCount(0)
+  // Button is present — pressing it should surface the unsupported notice
+  // rather than being hidden entirely.
+  await page.getByRole('button', { name: 'My Location' }).click()
+  await expect(page.locator('.location-notice')).toContainText('Location is unavailable')
 })
