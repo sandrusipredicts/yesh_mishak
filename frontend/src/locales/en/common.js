@@ -82,6 +82,8 @@ const en = {
     locationUnavailable: 'Location is unavailable. Showing default location.',
     locationRevoked: 'Location permission was revoked. Returning to the default location.',
     dismissNotice: 'Dismiss notice',
+    approximateLocationWarning: 'Your location is approximate due to low GPS accuracy.',
+    nearbyFieldsWarning: 'Some nearby fields may not be displayed correctly due to low GPS accuracy.',
   },
   field: {
     details: 'Field details',

@@ -5,6 +5,8 @@ import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
 import Modal from './Modal'
+import { getLastKnownLocation } from '../api/locationService'
+import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
 
 function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
@@ -101,6 +103,11 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
     if (!navigationCoordinates) {
       setIsNavigationModalOpen(false)
       return
+    }
+
+    const userLoc = getLastKnownLocation()
+    if (userLoc) {
+      evaluateLocationAccuracy(userLoc, USE_CASES.NAVIGATION_LAUNCH)
     }
 
     const { latitude, longitude } = navigationCoordinates
