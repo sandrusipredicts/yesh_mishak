@@ -15,6 +15,7 @@ import { getNotifications, getUnreadNotificationCount } from '../api/notificatio
 import { checkExistingPermission } from '../api/locationPermission'
 import { getCurrentLocation } from '../api/locationService'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
+import { classifyLocationFailure, getLocationFailureMessage } from '../utils/locationFailure'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -441,6 +442,15 @@ function MapPage({ currentUserId: authenticatedUserId }) {
       const result = await getCurrentLocation({ highAccuracy: true })
       if (result.ok) {
         const loc = result.location
+
+        // Check if the successful location is actually malformed
+        const failureType = classifyLocationFailure(loc)
+        if (failureType === 'MALFORMED_LOCATION') {
+          setUserLocation(null)
+          setLocationNotice(t(getLocationFailureMessage(failureType)))
+          return
+        }
+
         const nextUserLocation = {
           position: [loc.latitude, loc.longitude],
           accuracy: loc.accuracyMeters,
@@ -460,13 +470,9 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         return
       }
 
-      if (result.needsSettings) {
-        setLocationNotice(t('map.locationSettings'))
-      } else if (result.error === 'permission_denied') {
-        setLocationNotice(t('map.locationDenied'))
-      } else {
-        setLocationNotice(t('map.locationUnavailable'))
-      }
+      const failureType = classifyLocationFailure(result)
+      const msgKey = getLocationFailureMessage(failureType)
+      setLocationNotice(t(msgKey))
     } finally {
       setIsLocatingUser(false)
     }
