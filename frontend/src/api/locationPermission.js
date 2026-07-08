@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
 
 // Central location-permission service (ISSUE-255, Android slice).
 // All callers must route location acquisition through here — the auto-request
@@ -23,28 +24,22 @@ const RESULT = {
   unsupported: () => ({ status: 'unsupported' }),
 }
 
-let plugin = null
 let denialCount = 0
 
 function isNative() {
-  return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Geolocation')
+  return Capacitor.isNativePlatform()
 }
 
-async function loadPlugin() {
-  if (plugin) {
-    return plugin
-  }
-
+// MUST stay synchronous — never await the plugin proxy or return it from an
+// async function. The Capacitor proxy answers every property access with a
+// native method call, including `.then`, so promise assimilation on it
+// invokes a phantom native "then" that never resolves.
+function loadPlugin() {
   if (!isNative()) {
     return null
   }
 
-  // Same pattern as nativeGoogleAuth.js: guard on isPluginAvailable up front
-  // so we never invoke an unregistered plugin proxy (that path re-enters its
-  // own platform loader in a timer-starving microtask loop).
-  const module = await import('@capacitor/geolocation')
-  plugin = module.Geolocation
-  return plugin
+  return Geolocation
 }
 
 function isDenialError(error) {
@@ -78,18 +73,88 @@ export function resetPermissionState() {
   denialCount = 0
 }
 
+function nativeStatusIsGranted(status) {
+  return status?.location === 'granted' || status?.coarseLocation === 'granted'
+}
+
+// Safety guard against native-bridge hangs: a plugin call that never
+// resolves would otherwise wedge the caller forever (seen on this codebase
+// when a plugin proxy is awaited incorrectly). Timeouts are per-call because
+// legitimate durations differ wildly — see the call sites.
+async function withTimeout(promise, label, timeoutMs) {
+  let timeoutId
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Timeout while waiting for ${label}`))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+// checkPermissions is a passive lookup — anything beyond a few seconds is a
+// wedged bridge. requestPermissions waits on the user reading the OS dialog,
+// so it only gets a long hang guard. getCurrentPosition must outlast the
+// plugin's own 10s positionOptions timeout or we'd preempt real fixes.
+const CHECK_PERMISSIONS_TIMEOUT_MS = 8000
+const REQUEST_PERMISSIONS_TIMEOUT_MS = 120000
+const GET_POSITION_TIMEOUT_MS = 15000
+
 async function getPositionNative(highAccuracy) {
-  const geolocation = await loadPlugin()
+  const geolocation = loadPlugin()
   if (!geolocation) {
     return RESULT.unsupported()
   }
 
+  // Explicitly check → request permissions before getCurrentPosition. The
+  // Android Capacitor Geolocation plugin does not raise the OS prompt from
+  // getCurrentPosition alone; we must call requestPermissions() to surface
+  // the native dialog on user action.
+  let permitted = false
   try {
-    const position = await geolocation.getCurrentPosition({
-      enableHighAccuracy: Boolean(highAccuracy),
-      timeout: 10000,
-      maximumAge: 60000,
-    })
+    const status = await withTimeout(
+      geolocation.checkPermissions(),
+      'checkPermissions',
+      CHECK_PERMISSIONS_TIMEOUT_MS,
+    )
+    permitted = nativeStatusIsGranted(status)
+  } catch {
+    // Fall through to an explicit request if the passive check errors.
+  }
+
+  if (!permitted) {
+    try {
+      const requested = await withTimeout(
+        geolocation.requestPermissions(),
+        'requestPermissions',
+        REQUEST_PERMISSIONS_TIMEOUT_MS,
+      )
+      permitted = nativeStatusIsGranted(requested)
+    } catch {
+      permitted = false
+    }
+  }
+
+  if (!permitted) {
+    recordOutcome('denied')
+    return currentGuidance() === 'settings' ? RESULT.settings() : RESULT.denied()
+  }
+
+  try {
+    const position = await withTimeout(
+      geolocation.getCurrentPosition({
+        enableHighAccuracy: Boolean(highAccuracy),
+        timeout: 10000,
+        maximumAge: 60000,
+      }),
+      'getCurrentPosition',
+      GET_POSITION_TIMEOUT_MS,
+    )
     recordOutcome('granted')
     return RESULT.granted({
       latitude: position.coords.latitude,
@@ -159,7 +224,7 @@ export async function requestCurrentLocation({ highAccuracy = false } = {}) {
 // browsers surface revocation only on the next call.
 export async function checkExistingPermission() {
   if (isNative()) {
-    const geolocation = await loadPlugin()
+    const geolocation = loadPlugin()
     if (!geolocation) {
       return { state: 'unsupported' }
     }
