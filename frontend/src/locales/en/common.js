@@ -84,6 +84,13 @@ const en = {
     dismissNotice: 'Dismiss notice',
     approximateLocationWarning: 'Your location is approximate due to low GPS accuracy.',
     nearbyFieldsWarning: 'Some nearby fields may not be displayed correctly due to low GPS accuracy.',
+    permissionMissing: 'No location permission. You can grant permission to see fields near you. (without permission)',
+    permissionSettings: 'Location permission is blocked. To enable it, open device settings and allow location access for yesh_mishak.',
+    gpsUnavailable: 'Location is unavailable. Location services are disabled or unavailable. You can enable location on your device or continue browsing the map manually.',
+    timeoutWarning: 'Location is unavailable. Could not get location in time. You can try again or continue using the map.',
+    noSignalWarning: 'Could not get an accurate location right now. You might be in an area with weak GPS reception.',
+    fallbackNotice: 'Showing default location until we can get your location.',
+    genericFailureNotice: 'Location is unavailable. Could not get your location. Operating with the default location.',
   },
   field: {
     details: 'Field details',

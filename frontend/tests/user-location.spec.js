@@ -276,3 +276,46 @@ test('low accuracy geolocation surfaces the warning notice', async ({ page }) =>
   await expect(notice).toContainText('approximate')
   await expect(notice).toContainText('nearby fields')
 })
+
+test('malformed location response does not render user marker and shows generic failure notice', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition(success) {
+          success({
+            coords: {
+              latitude: 120,
+              longitude: 34.9314,
+              accuracy: 50,
+            },
+            timestamp: Date.now(),
+          })
+        },
+      },
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.locator('.map-canvas')).toBeVisible()
+  await page.getByRole('button', { name: 'My Location' }).click()
+
+  const notice = page.locator('.location-notice')
+  await expect(notice).toBeVisible()
+  await expect(notice).toContainText('location')
+  await expect(page.locator('.user-location-marker-icon')).toHaveCount(0)
+})
+
+test('timeout location failure does not leave app in loading state', async ({ page }) => {
+  await mockRejectedGeolocation(page, 3)
+
+  await page.goto('/')
+  await expect(page.locator('.map-canvas')).toBeVisible()
+
+  const myLocationBtn = page.getByRole('button', { name: 'My Location' })
+  await expect(myLocationBtn).toBeVisible()
+  await myLocationBtn.click()
+
+  await expect(page.locator('.location-notice')).toBeVisible()
+  await expect(myLocationBtn).not.toBeDisabled()
+})
