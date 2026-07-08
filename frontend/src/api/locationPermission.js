@@ -156,10 +156,16 @@ async function getPositionNative(highAccuracy) {
       GET_POSITION_TIMEOUT_MS,
     )
     recordOutcome('granted')
+    const c = position.coords
     return RESULT.granted({
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+      latitude: c.latitude,
+      longitude: c.longitude,
+      accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null,
+      altitude: Number.isFinite(c.altitude) ? c.altitude : null,
+      altitudeAccuracy: Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy : null,
+      heading: Number.isFinite(c.heading) ? c.heading : null,
+      speed: Number.isFinite(c.speed) ? c.speed : null,
+      timestamp: position.timestamp ?? Date.now(),
     })
   } catch (error) {
     if (isDenialError(error)) {
@@ -180,13 +186,17 @@ function getPositionWeb(highAccuracy) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         recordOutcome('granted')
+        const c = position.coords
         resolve(
           RESULT.granted({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: Number.isFinite(position.coords.accuracy)
-              ? position.coords.accuracy
-              : null,
+            latitude: c.latitude,
+            longitude: c.longitude,
+            accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null,
+            altitude: Number.isFinite(c.altitude) ? c.altitude : null,
+            altitudeAccuracy: Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy : null,
+            heading: Number.isFinite(c.heading) ? c.heading : null,
+            speed: Number.isFinite(c.speed) ? c.speed : null,
+            timestamp: position.timestamp ?? Date.now(),
           }),
         )
       },
