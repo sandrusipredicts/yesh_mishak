@@ -96,3 +96,7 @@ export function getLastKnownLocation() {
 export function clearLocationCache() {
   cachedLocation = null
 }
+
+if (import.meta.env.DEV) {
+  window.__locationServiceTest = { refreshLocation, clearLocationCache, getLastKnownLocation }
+}

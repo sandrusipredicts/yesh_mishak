@@ -162,32 +162,57 @@ test('second click within cache window does not re-call geolocation', async ({ p
   await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(1)
 })
 
-test('expired cache triggers fresh geolocation call', async ({ page }) => {
+test('refreshLocation bypasses cache and updates timestamp', async ({ page }) => {
   await mockFullGeolocation(page, userLocation)
   await page.goto('/')
   await expect(page.locator('.map-canvas')).toBeVisible()
 
-  // First click: acquires location
+  // 1. First getCurrentLocation via button click triggers one geolocation call
   await page.getByRole('button', { name: 'My Location' }).click()
   await expect(page.locator('.user-location-marker-icon')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(1)
 
-  // Advance Date.now() by 61 seconds to expire the 60s cache
-  await page.evaluate(() => {
-    const realNow = Date.now
-    let offset = 61000
-    Date.now = () => realNow.call(Date) + offset
+  // 2. Capture cached timestamp
+  const cachedTimestamp = await page.evaluate(() => {
+    return window.__locationServiceTest.getLastKnownLocation()?.timestamp
+  })
+  expect(cachedTimestamp).toBeGreaterThan(0)
+
+  // 3. Second getCurrentLocation (button click) uses cache — no new call
+  await page.getByRole('button', { name: 'My Location' }).click()
+  await page.waitForTimeout(300)
+  const callsAfterCache = await page.evaluate(() => window.__geolocationCalls)
+  expect(callsAfterCache).toBe(1)
+
+  // 4. refreshLocation bypasses cache — triggers a second geolocation call
+  const refreshResult = await page.evaluate(async () => {
+    const result = await window.__locationServiceTest.refreshLocation({ highAccuracy: true })
+    return {
+      ok: result.ok,
+      timestamp: result.location?.timestamp,
+      latitude: result.location?.latitude,
+      longitude: result.location?.longitude,
+      accuracyMeters: result.location?.accuracyMeters,
+      source: result.location?.source,
+      permissionState: result.location?.permissionState,
+      calls: window.__geolocationCalls,
+    }
   })
 
-  // Pan away so the second click has observable effect
-  const mapBox = await page.locator('.map-canvas').boundingBox()
-  await page.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(mapBox.x + mapBox.width / 2 + 220, mapBox.y + mapBox.height / 2)
-  await page.mouse.up()
+  expect(refreshResult.ok).toBe(true)
+  expect(refreshResult.calls).toBe(2)
+  expect(refreshResult.timestamp).toBeGreaterThanOrEqual(cachedTimestamp)
+  expect(refreshResult.latitude).toBe(userLocation.latitude)
+  expect(refreshResult.longitude).toBe(userLocation.longitude)
+  expect(refreshResult.accuracyMeters).toBe(userLocation.accuracy)
+  expect(refreshResult.source).toBe('web')
+  expect(refreshResult.permissionState).toBe('granted')
 
-  await page.getByRole('button', { name: 'My Location' }).click()
-  await expect.poll(() => page.evaluate(() => window.__geolocationCalls)).toBe(2)
+  // 5. getLastKnownLocation reflects the refreshed data
+  const lastKnown = await page.evaluate(() => {
+    return window.__locationServiceTest.getLastKnownLocation()
+  })
+  expect(lastKnown.timestamp).toBe(refreshResult.timestamp)
 })
 
 test('denied permission returns error without crash', async ({ page }) => {
