@@ -12,7 +12,8 @@ import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
 import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
-import { checkExistingPermission, requestCurrentLocation } from '../api/locationPermission'
+import { checkExistingPermission } from '../api/locationPermission'
+import { getCurrentLocation } from '../api/locationService'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -436,11 +437,12 @@ function MapPage({ currentUserId: authenticatedUserId }) {
 
     setIsLocatingUser(true)
     try {
-      const result = await requestCurrentLocation({ highAccuracy: true })
-      if (result.status === 'granted') {
+      const result = await getCurrentLocation({ highAccuracy: true })
+      if (result.ok) {
+        const loc = result.location
         const nextUserLocation = {
-          position: [result.coords.latitude, result.coords.longitude],
-          accuracy: Number.isFinite(result.coords.accuracy) ? result.coords.accuracy : null,
+          position: [loc.latitude, loc.longitude],
+          accuracy: loc.accuracyMeters,
         }
         setUserLocation(nextUserLocation)
         setCenter(nextUserLocation.position)
@@ -449,12 +451,10 @@ function MapPage({ currentUserId: authenticatedUserId }) {
         return
       }
 
-      if (result.status === 'settings') {
+      if (result.needsSettings) {
         setLocationNotice(t('map.locationSettings'))
-      } else if (result.status === 'denied') {
+      } else if (result.error === 'permission_denied') {
         setLocationNotice(t('map.locationDenied'))
-      } else if (result.status === 'unsupported') {
-        setLocationNotice(t('map.locationUnavailable'))
       } else {
         setLocationNotice(t('map.locationUnavailable'))
       }

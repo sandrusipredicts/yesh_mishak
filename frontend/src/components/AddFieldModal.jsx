@@ -8,7 +8,7 @@ import CityAutocomplete from './CityAutocomplete'
 
 import { createField } from '../api/fields'
 import { getApiErrorMessage } from '../api/errors'
-import { requestCurrentLocation } from '../api/locationPermission'
+import { getCurrentLocation } from '../api/locationService'
 import { israelCities } from '../data/israelCities'
 
 // Display-only fallback so the map has something to render before the user
@@ -107,24 +107,19 @@ function AddFieldModal({ onClose, onCreated }) {
   const isCityKnown = israelCities.includes(trimmedCity)
 
   async function useCurrentLocation() {
-    // ISSUE-255: route through the central permission service so the
-    // native Android runtime hits @capacitor/geolocation instead of the
-    // WebView's silently-failing navigator.geolocation.
-    const result = await requestCurrentLocation({ highAccuracy: true })
-    if (result.status === 'granted') {
-      setPosition([result.coords.latitude, result.coords.longitude])
+    const result = await getCurrentLocation({ highAccuracy: true })
+    if (result.ok) {
+      setPosition([result.location.latitude, result.location.longitude])
       setLocationSource('gps')
       setError('')
       return
     }
 
-    // Permission denied or unavailable: leave any existing manual
-    // selection untouched so the user can still place a pin by hand.
-    if (result.status === 'settings') {
+    if (result.needsSettings) {
       setError(t('map.locationSettings'))
-    } else if (result.status === 'denied') {
+    } else if (result.error === 'permission_denied') {
       setError(t('map.locationDenied'))
-    } else if (result.status === 'unsupported') {
+    } else if (result.error === 'unsupported') {
       setError(t('addField.locationUnavailable'))
     } else {
       setError(t('addField.locationFailed'))
