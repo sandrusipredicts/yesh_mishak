@@ -174,6 +174,9 @@ const he = {
     leave: 'עזיבה',
     extend: 'עוד סיבוב',
     closeGame: 'סגירת משחק',
+    deepLinkLoading: 'פותח משחק...',
+    deepLinkNotFound: 'המשחק אינו זמין. ייתכן שהוא הוסר.',
+    deepLinkLoadError: 'לא ניתן לטעון את המשחק. בדקו את החיבור ונסו שוב.',
   },
   openGame: {
     authRequired: 'צריך להתחבר כדי לפתוח משחק.',

@@ -173,6 +173,9 @@ const en = {
     leave: 'Leave',
     extend: 'Extra round',
     closeGame: 'Close game',
+    deepLinkLoading: 'Opening game...',
+    deepLinkNotFound: 'This game is unavailable. It may have been removed.',
+    deepLinkLoadError: 'Could not load this game. Check your connection and try again.',
   },
   openGame: {
     authRequired: 'You need to sign in to open a game.',

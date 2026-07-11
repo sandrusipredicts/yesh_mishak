@@ -23,7 +23,34 @@ import {
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import { hasSelectedLanguage } from './i18n'
-import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl } from './utils/appLinkRoutes'
+import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
+
+const PENDING_GAME_DEEP_LINK_STORAGE_KEY = 'pending_game_deep_link'
+
+function readPendingGameDeepLink() {
+  if (typeof sessionStorage === 'undefined') {
+    return null
+  }
+
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(PENDING_GAME_DEEP_LINK_STORAGE_KEY) ?? 'null')
+    return stored && typeof stored.gameId === 'string' ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function writePendingGameDeepLink(target) {
+  if (typeof sessionStorage === 'undefined') {
+    return
+  }
+
+  if (target) {
+    sessionStorage.setItem(PENDING_GAME_DEEP_LINK_STORAGE_KEY, JSON.stringify(target))
+  } else {
+    sessionStorage.removeItem(PENDING_GAME_DEEP_LINK_STORAGE_KEY)
+  }
+}
 
 function getStoredUser() {
   const accessToken = getToken()
@@ -54,6 +81,7 @@ function App() {
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
   const [persistenceWarning, setPersistenceWarning] = useState('')
+  const [gameDeepLinkTarget, setGameDeepLinkTarget] = useState(() => readPendingGameDeepLink())
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
 
@@ -196,6 +224,21 @@ function App() {
     setPathname(path)
   }, [])
 
+  // Central hand-off point for a resolved game deep link, regardless of
+  // whether it arrived via an external URL (appUrlOpen / launch URL /
+  // canonical-host page load) or an in-app pathname change. Persisted to
+  // sessionStorage so the target survives a login redirect or page reload;
+  // MapPage clears it once the link has been resolved (see onGameDeepLinkHandled).
+  const applyGameDeepLinkTarget = useCallback((target) => {
+    setGameDeepLinkTarget(target)
+    writePendingGameDeepLink(target)
+  }, [])
+
+  const handleGameDeepLinkHandled = useCallback(() => {
+    setGameDeepLinkTarget(null)
+    writePendingGameDeepLink(null)
+  }, [])
+
   const handleIncomingAppLink = useCallback((url, { replace = false } = {}) => {
     const normalized = normalizeAppLinkUrl(url)
 
@@ -204,10 +247,15 @@ function App() {
       return
     }
 
-    // ISSUE-272 and ISSUE-273 own game/field detail resolution. This layer
-    // only validates the external URL and hands off to existing app routes.
+    // ISSUE-273 owns field detail resolution. Game resolution is handled
+    // below via applyGameDeepLinkTarget + MapPage; this layer only
+    // validates the external URL and hands off to existing app routes.
+    if (normalized.routeType === 'game' && normalized.resourceId) {
+      applyGameDeepLinkTarget({ gameId: normalized.resourceId, action: normalized.action || '' })
+    }
+
     navigateTo(normalized.navigationPath, { replace })
-  }, [navigateTo])
+  }, [applyGameDeepLinkTarget, navigateTo])
 
   useEffect(() => {
     if (window.location.hostname === CANONICAL_APP_LINK_HOST) {
@@ -222,6 +270,31 @@ function App() {
 
     return undefined
   }, [handleIncomingAppLink])
+
+  // Same-origin counterpart: resolves a direct/bookmarked/back-forward
+  // navigation to /game/{id} regardless of hostname (covers local dev,
+  // staging, and any host that isn't the canonical App Links domain, which
+  // the effect above intentionally ignores). Host validation is irrelevant
+  // here since window.location.pathname is same-origin by construction.
+  useEffect(() => {
+    function resolvePathnameDeepLink() {
+      const resolved = parseAppPathname(pathname, window.location.search)
+
+      if (resolved.ok && resolved.routeType === 'game' && resolved.resourceId) {
+        applyGameDeepLinkTarget({ gameId: resolved.resourceId, action: resolved.action || '' })
+
+        if (window.location.pathname !== '/') {
+          navigateTo('/', { replace: true })
+        }
+      }
+    }
+
+    const timeoutId = window.setTimeout(resolvePathnameDeepLink, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [pathname, applyGameDeepLinkTarget, navigateTo])
 
   useEffect(() => {
     if (!isNativeRuntime()) {
@@ -328,11 +401,12 @@ function App() {
     setCurrentUser(null)
     setLogoutWarning('')
     setPersistenceWarning('')
+    handleGameDeepLinkHandled()
     clearSession().catch((cleanupError) => {
       console.warn('Session cleanup on logout failed.', cleanupError)
       setLogoutWarning(t('auth.logoutCleanupError'))
     })
-  }, [t])
+  }, [handleGameDeepLinkHandled, t])
 
   const handleLogin = useCallback((user) => {
     setLogoutWarning('')
@@ -403,7 +477,11 @@ function App() {
 
   return renderWithOfflineBanner(
     <>
-      <MapPage currentUserId={currentUser.id} />
+      <MapPage
+        currentUserId={currentUser.id}
+        gameDeepLinkTarget={gameDeepLinkTarget}
+        onGameDeepLinkHandled={handleGameDeepLinkHandled}
+      />
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
         <button type="button" onClick={() => navigateTo('/my-games')}>
