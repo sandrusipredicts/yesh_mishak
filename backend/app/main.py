@@ -98,6 +98,11 @@ for local_origin in (
     if local_origin not in cors_origins:
         cors_origins.append(local_origin)
 
+# Canonical production frontend origin.
+for production_origin in ("https://yesh-mishak.com",):
+    if production_origin not in cors_origins:
+        cors_origins.append(production_origin)
+
 # The Capacitor Android WebView always loads the bundled app from this fixed
 # origin (Capacitor's default androidScheme is "https"), in every build
 # variant including release. Browsers set the Origin header from the actual
