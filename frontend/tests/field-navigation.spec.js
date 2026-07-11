@@ -84,6 +84,78 @@ async function trackOpenedUrls(page) {
   })
 }
 
+async function mockNativeWazeLauncher(
+  page,
+  { canOpenNative = true, nativeCompleted = true, httpsCompleted = true } = {},
+) {
+  await page.addInitScript((config) => {
+    window.androidBridge = {}
+    window.__appLauncherCalls = []
+    window.Capacitor = {
+      PluginHeaders: [
+        {
+          name: 'SecureStorage',
+          methods: [
+            { name: 'internalGetItem', rtype: 'promise' },
+            { name: 'internalSetItem', rtype: 'promise' },
+            { name: 'internalRemoveItem', rtype: 'promise' },
+            { name: 'clearItemsWithPrefix', rtype: 'promise' },
+            { name: 'getPrefixedKeys', rtype: 'promise' },
+            { name: 'setSynchronizeKeychain', rtype: 'promise' },
+          ],
+        },
+        {
+          name: 'AppLauncher',
+          methods: [
+            { name: 'canOpenUrl', rtype: 'promise' },
+            { name: 'openUrl', rtype: 'promise' },
+          ],
+        },
+        {
+          name: 'App',
+          methods: [
+            { name: 'addListener', rtype: 'callback' },
+            { name: 'removeListener', rtype: 'promise' },
+          ],
+        },
+      ],
+      nativePromise(plugin, method, options) {
+        if (plugin === 'SecureStorage') {
+          if (method === 'internalGetItem') {
+            return Promise.resolve({ data: localStorage.getItem('__test_secure_token') })
+          }
+          if (method === 'internalSetItem') {
+            localStorage.setItem('__test_secure_token', options.data)
+            return Promise.resolve()
+          }
+          if (method === 'internalRemoveItem') {
+            localStorage.removeItem('__test_secure_token')
+            return Promise.resolve({ success: true })
+          }
+          return Promise.resolve({ keys: [] })
+        }
+        if (plugin === 'AppLauncher') {
+          window.__appLauncherCalls.push({ method, url: options.url })
+          if (method === 'canOpenUrl') {
+            return Promise.resolve({ value: config.canOpenNative })
+          }
+          if (options.url.startsWith('waze://')) {
+            return Promise.resolve({ completed: config.nativeCompleted })
+          }
+          return Promise.resolve({ completed: config.httpsCompleted })
+        }
+        return Promise.resolve()
+      },
+      nativeCallback(plugin, method, options) {
+        if (plugin === 'App' && method === 'addListener') {
+          return `field-navigation-${options.eventName}`
+        }
+        return ''
+      },
+    }
+  }, { canOpenNative, nativeCompleted, httpsCompleted })
+}
+
 async function mockMapPageRequests(page, fields) {
   await page.route(/\/fields\/?(\?.*)?$/, (route) => fulfillJson(route, fields))
   await page.route(/\/notifications(\/.*)?(\?.*)?$/, (route) => {
@@ -98,7 +170,7 @@ async function mockMapPageRequests(page, fields) {
 
 async function openFieldDetails(page) {
   await page.goto('/')
-  await page.locator('.field-marker-icon').first().click()
+  await page.locator('.field-marker-icon').first().evaluate((marker) => marker.click())
   await expect(
     page.getByLabel('Field details').getByRole('heading', { name: navigableField.name }),
   ).toBeVisible()
@@ -137,6 +209,85 @@ test('opens Waze and Google Maps navigation links for a field', async ({ page })
         features: 'noopener,noreferrer',
       },
     ])
+})
+
+test('launches Waze with the native scheme when it is available', async ({ page }) => {
+  await mockNativeWazeLauncher(page)
+  await page.goto('/')
+  const result = await page.evaluate(async ({ latitude, longitude }) => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(latitude, longitude)
+  }, navigableField)
+
+  expect(result).toEqual({ opened: true, mechanism: 'native' })
+  await expect
+    .poll(() => page.evaluate(() => window.__appLauncherCalls))
+    .toEqual([
+      { method: 'canOpenUrl', url: 'waze://' },
+      {
+        method: 'openUrl',
+        url: 'waze://?ll=31.225172,34.777498&navigate=yes',
+      },
+    ])
+  await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
+})
+
+test('falls back to the Waze HTTPS URL when the native app is unavailable', async ({ page }) => {
+  await mockNativeWazeLauncher(page, { canOpenNative: false })
+  await page.goto('/')
+  const result = await page.evaluate(async ({ latitude, longitude }) => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(latitude, longitude)
+  }, navigableField)
+
+  expect(result).toEqual({ opened: true, mechanism: 'https' })
+  await expect
+    .poll(() => page.evaluate(() => window.__appLauncherCalls))
+    .toEqual([
+      { method: 'canOpenUrl', url: 'waze://' },
+      {
+        method: 'openUrl',
+        url: 'https://waze.com/ul?ll=31.225172,34.777498&navigate=yes',
+      },
+    ])
+})
+
+test('keeps the navigation flow open when Waze cannot be launched', async ({ page }) => {
+  await mockNativeWazeLauncher(page, { nativeCompleted: false, httpsCompleted: false })
+  await page.goto('/')
+  const result = await page.evaluate(async ({ latitude, longitude }) => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(latitude, longitude)
+  }, navigableField)
+
+  expect(result).toEqual({ opened: false, reason: 'launch_failed' })
+  await expect
+    .poll(() => page.evaluate(() => window.__appLauncherCalls))
+    .toEqual([
+      { method: 'canOpenUrl', url: 'waze://' },
+      {
+        method: 'openUrl',
+        url: 'waze://?ll=31.225172,34.777498&navigate=yes',
+      },
+      {
+        method: 'openUrl',
+        url: 'https://waze.com/ul?ll=31.225172,34.777498&navigate=yes',
+      },
+    ])
+})
+
+test('rejects invalid Waze coordinates without attempting a launch', async ({ page }) => {
+  await mockNativeWazeLauncher(page)
+  await page.goto('/')
+
+  const result = await page.evaluate(async () => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(null, 34.777498)
+  })
+
+  expect(result).toEqual({ opened: false, reason: 'invalid_coordinates' })
+  await expect.poll(() => page.evaluate(() => window.__appLauncherCalls)).toEqual([])
+  await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
 test('closes the navigation dialog without opening a provider', async ({ page }) => {
