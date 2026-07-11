@@ -11,13 +11,15 @@
 
 Navigation to a field will be delegated to an external navigation provider. The app will not calculate routes, track the user's journey, or send the user's origin in the navigation URL. It will pass only the validated destination latitude and longitude.
 
-The user will choose the provider each time from a platform-aware chooser:
+The application will determine which supported native providers are available on the current platform:
 
 - **Android:** Waze and Google Maps.
 - **iOS:** Waze, Apple Maps, and Google Maps.
 - **Web:** Waze and Google Maps; Apple Maps may be shown only on Apple platforms where the link is supported.
 
-There is **no silent provider default**. Waze is presented first on Android and in the Israeli web experience because of its local relevance; Apple Maps is presented first on iOS because it is guaranteed to be available as the platform navigation service. Ordering is a recommendation, not an automatic selection.
+If exactly one supported native provider is available, the app launches it immediately. If two or more supported providers are available, the app presents the provider chooser. If no supported native provider is available, the app falls back to a supported HTTPS navigation experience, with Google Maps preferred.
+
+When a chooser is shown, the application presents supported providers in a platform-appropriate order. The exact visual ordering is a UX decision and may evolve without requiring a strategy change.
 
 If a selected native app is missing or cannot be opened, the app must fall back to that provider's HTTPS experience when available, then offer another provider. Navigation failure must never block field details or other app use.
 
@@ -52,7 +54,7 @@ The location audit establishes two constraints that this strategy preserves:
 
 ## 4. Product Principles
 
-1. **User choice over silent routing.** The app must not force a provider or change the user's device-wide navigation preference.
+1. **Availability-aware routing.** The app launches the sole available supported native provider, presents user choice when multiple providers are available, and does not change the user's device-wide navigation preference.
 2. **Platform-native expectations.** Available options and ordering should match the current platform.
 3. **Destination-only privacy.** The external provider determines the origin after it opens; yesh_mishak does not transmit the user's location.
 4. **Graceful degradation.** A missing provider, blocked popup, invalid URL, or launch failure must return the user to a usable chooser.
@@ -71,23 +73,23 @@ The location audit establishes two constraints that this strategy preserves:
 | Web fallback | Waze Live Map / provider landing behavior | Full browser directions experience | Browser link is useful mainly on Apple platforms |
 | Destination coordinates | Supported | Supported | Supported |
 | App may be missing | Yes | Yes | Not as a normal iOS condition |
-| Strategy verdict | **Supported, preferred order on Android/Israel web** | **Supported everywhere** | **Supported on iOS/Apple platforms** |
+| Strategy verdict | **Supported on Android, iOS, and web** | **Supported everywhere; preferred HTTPS fallback** | **Supported on iOS/Apple platforms** |
 
-No provider is selected as the universal default because none is simultaneously guaranteed, equally familiar, and equally capable on every supported platform.
+No native provider is selected as the universal default because availability differs by platform and device. Google Maps is the preferred HTTPS fallback when no supported native provider is available.
 
 ---
 
 ## 6. Platform Matrix and Ordering
 
-| Runtime | Options shown | Display order | Rationale |
+| Runtime | Supported providers | Ordering approach | Rationale |
 |:---|:---|:---|:---|
-| Android native | Waze, Google Maps | Waze → Google Maps | Waze is locally prominent; Google Maps is the broad fallback |
-| iOS native | Apple Maps, Waze, Google Maps | Apple Maps → Waze → Google Maps | Apple Maps is the built-in platform option; user may still choose another provider |
-| Desktop/mobile web on non-Apple platform | Waze, Google Maps | Waze → Google Maps | Both have HTTPS entry points; no Apple-only option |
-| Safari/web on Apple platform | Apple Maps, Waze, Google Maps | Apple Maps → Waze → Google Maps | Aligns with platform expectations while retaining choice |
-| Unknown platform | Google Maps, Waze | Google Maps → Waze | Google Maps has the most reliable browser experience |
+| Android native | Waze, Google Maps | Platform-appropriate UX order | Both providers are supported; availability determines direct launch or chooser behavior |
+| iOS native | Apple Maps, Waze, Google Maps | Platform-appropriate UX order | Apple Maps is the built-in platform option; the user may still choose another available provider |
+| Desktop/mobile web on non-Apple platform | Waze, Google Maps | Platform-appropriate UX order | Both have HTTPS entry points; no Apple-only option |
+| Safari/web on Apple platform | Apple Maps, Waze, Google Maps | Platform-appropriate UX order | Aligns with platform expectations while retaining supported choices |
+| Unknown platform | Google Maps, Waze | Platform-appropriate UX order | Google Maps provides the preferred HTTPS fallback |
 
-Platform detection is used only to choose the visible list and order. It must not launch a provider without a user action.
+Platform and provider availability determine the supported options and whether the app launches the sole available native provider or shows the chooser. Exact visual ordering remains a UX decision and is not part of the permanent architecture.
 
 ---
 
@@ -95,9 +97,13 @@ Platform detection is used only to choose the visible list and order. It must no
 
 ### 7.1 Official Default Decision
 
-The official default is **the provider chooser**, not a navigation provider. Every tap on “Navigate to field” opens the chooser.
+The official default is **availability-aware selection**:
 
-The first displayed option is a recommendation based on the platform matrix in §6. It is not preselected and is not launched automatically.
+- If exactly one supported native navigation provider is available, launch it immediately.
+- If two or more supported providers are available, present the provider chooser.
+- If no supported native provider is available, fall back to a supported HTTPS navigation experience, with Google Maps preferred.
+
+The chooser is therefore the default only when multiple supported providers are available. When shown, it uses a platform-appropriate order whose exact presentation may evolve as a UX decision without requiring a strategy change.
 
 ### 7.2 Remembering a Choice
 
@@ -160,7 +166,7 @@ App-store installation links may be offered as a secondary, explicit action in I
 
 ## 10. UX Contract
 
-The navigation chooser must:
+When multiple supported providers are available, the navigation chooser must:
 
 - use localized provider-independent title and explanatory copy;
 - show the official provider name and recognizable provider icon;
@@ -218,7 +224,7 @@ This issue is documentation-only. Implementation is divided as follows:
 | ISSUE-277 | Apple Maps navigation integration |
 | ISSUE-278 | Missing-app and fallback handling |
 
-Each implementation issue must follow this strategy and must add platform-appropriate tests. Any change to provider ordering, destination-only privacy, or the chooser-as-default decision requires a new documented architecture decision.
+Each implementation issue must follow this strategy and must add platform-appropriate tests. Changes to exact provider ordering are UX decisions and do not require a strategy change. Any change to destination-only privacy or the availability-aware default decision requires a new documented architecture decision.
 
 ---
 
@@ -226,7 +232,7 @@ Each implementation issue must follow this strategy and must add platform-approp
 
 Future implementation must verify:
 
-1. Correct providers and ordering on Android, iOS, Apple web, non-Apple web, and unknown platforms.
+1. Correct supported providers and platform-appropriate presentation on Android, iOS, Apple web, non-Apple web, and unknown platforms.
 2. Valid positive, negative, and boundary coordinates.
 3. Invalid, missing, non-numeric, and out-of-range coordinates do not launch anything.
 4. Each provider receives the exact encoded destination and no origin/user data.
@@ -258,8 +264,8 @@ Physical-device validation is required for Android and iOS launch/fallback behav
 ## 16. Decision Record
 
 - **Approved providers:** Waze and Google Maps across supported Android/web contexts; Apple Maps on iOS/Apple contexts.
-- **Approved default:** Always open a platform-aware provider chooser; never silently launch a provider.
-- **Approved ordering:** Waze first on Android/Israel web, Apple Maps first on iOS, Google Maps first only when the platform is unknown.
+- **Approved default:** Launch the sole available supported native provider; show the chooser when multiple providers are available; use a supported HTTPS experience, with Google Maps preferred, when none are available.
+- **Approved ordering:** Present providers in a platform-appropriate order; exact visual ordering is a UX decision that may evolve without a strategy change.
 - **Approved privacy contract:** Destination coordinates only; origin is resolved by the provider.
 - **Approved missing-app contract:** Native launch when available, HTTPS fallback, then another-provider choice; never strand the user.
 - **Approved implementation split:** ISSUE-275 through ISSUE-278 implement individual providers and fallback behavior.
@@ -271,7 +277,7 @@ Physical-device validation is required for Android and iOS launch/fallback behav
 - [x] Waze evaluated.
 - [x] Google Maps evaluated.
 - [x] Apple Maps evaluated.
-- [x] Platform-specific provider list and ordering defined.
+- [x] Platform-specific provider support and flexible ordering policy defined.
 - [x] Default-option decision defined.
 - [x] User-choice behavior defined.
 - [x] Missing-app and launch-failure behavior defined.
