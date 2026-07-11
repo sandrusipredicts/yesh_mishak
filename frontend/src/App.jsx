@@ -23,6 +23,7 @@ import {
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import { hasSelectedLanguage } from './i18n'
+import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl } from './utils/appLinkRoutes'
 
 function getStoredUser() {
   const accessToken = getToken()
@@ -181,6 +182,85 @@ function App() {
     }
   }, [validateStoredSession])
 
+  const navigateTo = useCallback((path, { replace = false } = {}) => {
+    if (window.location.pathname === path) {
+      setPathname(path)
+      return
+    }
+
+    if (replace) {
+      window.history.replaceState(null, '', path)
+    } else {
+      window.history.pushState(null, '', path)
+    }
+    setPathname(path)
+  }, [])
+
+  const handleIncomingAppLink = useCallback((url, { replace = false } = {}) => {
+    const normalized = normalizeAppLinkUrl(url)
+
+    if (!normalized.ok) {
+      console.warn('Rejected app link URL.', normalized.reason)
+      return
+    }
+
+    // ISSUE-272 and ISSUE-273 own game/field detail resolution. This layer
+    // only validates the external URL and hands off to existing app routes.
+    navigateTo(normalized.navigationPath, { replace })
+  }, [navigateTo])
+
+  useEffect(() => {
+    if (window.location.hostname === CANONICAL_APP_LINK_HOST) {
+      const timeoutId = window.setTimeout(() => {
+        handleIncomingAppLink(window.location.href, { replace: true })
+      }, 0)
+
+      return () => {
+        window.clearTimeout(timeoutId)
+      }
+    }
+
+    return undefined
+  }, [handleIncomingAppLink])
+
+  useEffect(() => {
+    if (!isNativeRuntime()) {
+      return undefined
+    }
+
+    let listenerHandle = null
+    let isDisposed = false
+
+    CapacitorApp.getLaunchUrl()
+      .then((launchUrl) => {
+        if (!isDisposed && launchUrl?.url) {
+          handleIncomingAppLink(launchUrl.url, { replace: true })
+        }
+      })
+      .catch((launchUrlError) => {
+        console.warn('Unable to read Capacitor launch URL.', launchUrlError)
+      })
+
+    CapacitorApp.addListener('appUrlOpen', (event) => {
+      if (event?.url) {
+        handleIncomingAppLink(event.url)
+      }
+    }).then((handle) => {
+      if (isDisposed) {
+        handle.remove()
+      } else {
+        listenerHandle = handle
+      }
+    }).catch((listenerError) => {
+      console.warn('Unable to register app link listener.', listenerError)
+    })
+
+    return () => {
+      isDisposed = true
+      listenerHandle?.remove()
+    }
+  }, [handleIncomingAppLink])
+
   useEffect(() => {
     function handlePopState() {
       setPathname(window.location.pathname)
@@ -315,11 +395,6 @@ function App() {
 
   if (!isOnboardingDone) {
     return renderWithOfflineBanner(<OnboardingPage onComplete={handleOnboardingComplete} />)
-  }
-
-  const navigateTo = (path) => {
-    window.history.pushState(null, '', path)
-    setPathname(path)
   }
 
   if (pathname === '/my-games') {

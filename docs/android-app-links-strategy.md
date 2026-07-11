@@ -44,7 +44,7 @@ The `singleTask` launch mode is already correct for App Links — it ensures tha
 
 ## 3. App Links Objective
 
-Enable verified Android App Links so that when a user taps a link like `https://<canonical-domain>/fields/<field_id>` in WhatsApp, Chrome, or a push notification, the yesh_mishak Android app opens directly to the corresponding content — without a browser disambiguation dialog, without a custom scheme, and with a web fallback if the app is not installed.
+Enable verified Android App Links so that when a user taps a link like `https://yesh-mishak.com/fields/<field_id>` in WhatsApp, Chrome, or a push notification, the yesh_mishak Android app opens directly to the corresponding content — without a browser disambiguation dialog, without a custom scheme, and with a web fallback if the app is not installed.
 
 ---
 
@@ -60,13 +60,13 @@ Android App Links require a domain that the team controls and can host files on.
 
 ### 4.2 Decision
 
-A **product-owned HTTPS domain** must be selected and controlled before App Links can be enabled. The exact domain is a prerequisite blocker — this document uses `<canonical-domain>` as a placeholder.
+A **product-owned HTTPS domain** must be selected and controlled before App Links can be enabled. The exact domain is a prerequisite blocker — this document uses `yesh-mishak.com` as a placeholder.
 
 ### 4.3 Domain Options
 
 | Option | Example | Pros | Cons |
 |:---|:---|:---|:---|
-| Custom product domain | `yeshmishak.app` | Full control, professional, stable | Requires purchase and DNS/hosting setup |
+| Custom product domain | `yesh-mishak.com` | Full control, professional, stable | Requires purchase and DNS/hosting setup |
 | Custom subdomain | `app.yeshmishak.co.il` | Leverages existing domain if one exists | Depends on root domain ownership |
 | Vercel/Netlify deployed domain | `yeshmishak.vercel.app` | Free, HTTPS by default, easy `.well-known` hosting | Tied to platform, less professional |
 
@@ -84,7 +84,7 @@ The team must select and register the domain before implementation begins.
 
 ### 5.2 Placeholder
 
-This document uses `<canonical-domain>` wherever the production domain would appear. Replace with the actual domain once selected.
+This document uses `yesh-mishak.com` wherever the production domain would appear. Replace with the actual domain once selected.
 
 ---
 
@@ -113,11 +113,11 @@ From `docs/deep-link-architecture.md` Section 4, adapted to Android URL patterns
 
 | URL Pattern | Purpose | Parameter | Status |
 |:---|:---|:---|:---|
-| `https://<canonical-domain>/fields/<field_id>` | Open field details | UUID v4 | Implementation-ready (`GET /fields/{field_id}` exists) |
-| `https://<canonical-domain>/games/<game_id>` | Open game details | UUID v4 | Blocked (`GET /games/{game_id}` does not exist) |
-| `https://<canonical-domain>/games/<game_id>/join` | Open game with join intent | UUID v4 | Blocked (same dependency) |
-| `https://<canonical-domain>/my-games` | Open user's games list | None | Implementation-ready (existing route) |
-| `https://<canonical-domain>/invite/<game_id>` | Future: shareable game invitation | UUID v4 | Future — not in MVP |
+| `https://yesh-mishak.com/fields/<field_id>` | Open field details | UUID v4 | Implementation-ready (`GET /fields/{field_id}` exists) |
+| `https://yesh-mishak.com/games/<game_id>` | Open game details | UUID v4 | Blocked (`GET /games/{game_id}` does not exist) |
+| `https://yesh-mishak.com/games/<game_id>/join` | Open game with join intent | UUID v4 | Blocked (same dependency) |
+| `https://yesh-mishak.com/my-games` | Open user's games list | None | Implementation-ready (existing route) |
+| `https://yesh-mishak.com/invite/<game_id>` | Future: shareable game invitation | UUID v4 | Future — not in MVP |
 
 ### 7.2 Path Convention
 
@@ -145,7 +145,7 @@ The following intent filter will be added to `AndroidManifest.xml` inside the ex
     <category android:name="android.intent.category.DEFAULT" />
     <category android:name="android.intent.category.BROWSABLE" />
     <data android:scheme="https" />
-    <data android:host="<canonical-domain>" />
+    <data android:host="yesh-mishak.com" />
 </intent-filter>
 ```
 
@@ -182,7 +182,7 @@ The Digital Asset Links file (`assetlinks.json`) proves to Android that the doma
 The file must be served at:
 
 ```
-https://<canonical-domain>/.well-known/assetlinks.json
+https://yesh-mishak.com/.well-known/assetlinks.json
 ```
 
 ### 9.3 File Structure
@@ -207,7 +207,7 @@ https://<canonical-domain>/.well-known/assetlinks.json
 
 | Requirement | Details |
 |:---|:---|
-| URL | `https://<canonical-domain>/.well-known/assetlinks.json` |
+| URL | `https://yesh-mishak.com/.well-known/assetlinks.json` |
 | Protocol | HTTPS with valid TLS certificate (no self-signed) |
 | Content-Type | `application/json` |
 | Status code | 200 |
@@ -369,7 +369,7 @@ adb shell pm set-app-links --package com.yeshmishak.app 0 all
 When an App Link is tapped:
 
 ```
-User taps https://<canonical-domain>/fields/<field_id>
+User taps https://yesh-mishak.com/fields/<field_id>
   │
   ├─ App installed + verified
   │   │
@@ -425,12 +425,12 @@ Both `getLaunchUrl()` (cold start) and `appUrlOpen` (warm resume) must be handle
 
 | Android App Link URL | Deep Link Resolver Route | Target UI | Backend Dependency | Ready? |
 |:---|:---|:---|:---|:---|
-| `https://<canonical-domain>/fields/<field_id>` | `/fields/<field_id>` | Fly to field → open FieldDetailsPanel | `GET /fields/{field_id}` (exists) | Yes |
-| `https://<canonical-domain>/games/<game_id>` | `/games/<game_id>` | Resolve field → open FieldDetailsPanel with game | `GET /games/{game_id}` (missing) | No |
-| `https://<canonical-domain>/games/<game_id>/join` | `/games/<game_id>/join` | Same as above + auto-trigger join | `GET /games/{game_id}` (missing) | No |
-| `https://<canonical-domain>/my-games` | `/my-games` | Open MyGamesPage | `GET /games/me` (exists) | Yes |
-| `https://<canonical-domain>/invite/<game_id>` | `/invite/<game_id>` | Future: shareable invitation | TBD | No (future) |
-| `https://<canonical-domain>/` | `/` | Open MapPage (home) | None | Yes |
+| `https://yesh-mishak.com/fields/<field_id>` | `/fields/<field_id>` | Fly to field → open FieldDetailsPanel | `GET /fields/{field_id}` (exists) | Yes |
+| `https://yesh-mishak.com/games/<game_id>` | `/games/<game_id>` | Resolve field → open FieldDetailsPanel with game | `GET /games/{game_id}` (missing) | No |
+| `https://yesh-mishak.com/games/<game_id>/join` | `/games/<game_id>/join` | Same as above + auto-trigger join | `GET /games/{game_id}` (missing) | No |
+| `https://yesh-mishak.com/my-games` | `/my-games` | Open MyGamesPage | `GET /games/me` (exists) | Yes |
+| `https://yesh-mishak.com/invite/<game_id>` | `/invite/<game_id>` | Future: shareable invitation | TBD | No (future) |
+| `https://yesh-mishak.com/` | `/` | Open MapPage (home) | None | Yes |
 
 ---
 
@@ -440,12 +440,12 @@ When the app receives a URL that does not match any supported route:
 
 | Scenario | Example URL | Behavior |
 |:---|:---|:---|
-| Unknown path | `https://<canonical-domain>/settings` | Show "Page not found" fallback with "Go to Map" button |
-| Invalid UUID in path | `https://<canonical-domain>/fields/not-a-uuid` | Show "Invalid link" fallback |
-| Admin path | `https://<canonical-domain>/admin` | Not a public App Link. If received, show "Page not found" fallback. Admin access is internal-only. |
-| Path with no resource ID | `https://<canonical-domain>/fields/` | Show "Invalid link" fallback |
-| Completely unknown domain path | `https://<canonical-domain>/api/v1/health` | Show "Page not found" fallback (API paths should not reach the app) |
-| Legacy query format | `https://<canonical-domain>/?game_id=<id>` | Parse and resolve as `/games/<id>` (backward compatibility) |
+| Unknown path | `https://yesh-mishak.com/settings` | Show "Page not found" fallback with "Go to Map" button |
+| Invalid UUID in path | `https://yesh-mishak.com/fields/not-a-uuid` | Show "Invalid link" fallback |
+| Admin path | `https://yesh-mishak.com/admin` | Not a public App Link. If received, show "Page not found" fallback. Admin access is internal-only. |
+| Path with no resource ID | `https://yesh-mishak.com/fields/` | Show "Invalid link" fallback |
+| Completely unknown domain path | `https://yesh-mishak.com/api/v1/health` | Show "Page not found" fallback (API paths should not reach the app) |
+| Legacy query format | `https://yesh-mishak.com/?game_id=<id>` | Parse and resolve as `/games/<id>` (backward compatibility) |
 
 The fallback screen must always provide a "Go to Map" button so the user is never stranded.
 
@@ -489,7 +489,7 @@ Since most notification types reference a `game_id`, the notification → resolv
 |:---|:---|:---|:---|
 | No `GET /games/{game_id}` endpoint | Game links (`/games/<id>`) and game join links (`/games/<id>/join`) cannot resolve directly. Must look up game through field. | **High** | Add public `GET /games/{game_id}` returning `game_id`, `field_id`, `status`, `sport_type`, `scheduled_at`, `players_present`, `max_players`. |
 | No SPA fallback on canonical domain | If app is not installed, the URL must serve the web SPA so the browser-based resolver can handle it. | **High** | Deploy web frontend to canonical domain with catch-all `index.html` fallback. |
-| No `assetlinks.json` hosting | Android cannot verify App Links without this file. | **High** | Host at `https://<canonical-domain>/.well-known/assetlinks.json`. |
+| No `assetlinks.json` hosting | Android cannot verify App Links without this file. | **High** | Host at `https://yesh-mishak.com/.well-known/assetlinks.json`. |
 | No Open Graph meta tags | Shared links in WhatsApp/social show no preview. | **Medium** | Add server-side or edge-rendered OG tags for `/fields/<id>` and `/games/<id>` paths. Not required for App Links to function, but needed for link shareability. |
 
 ---
@@ -502,7 +502,7 @@ Before implementing App Links:
 
 | Test | Method | Purpose |
 |:---|:---|:---|
-| Domain reachability | `curl -I https://<canonical-domain>/.well-known/assetlinks.json` | Verify hosting works |
+| Domain reachability | `curl -I https://yesh-mishak.com/.well-known/assetlinks.json` | Verify hosting works |
 | assetlinks.json validity | Google's [Statement List Generator](https://developers.google.com/digital-asset-links/tools/generator) | Validate JSON structure |
 | Debug fingerprint extraction | `keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android` | Get fingerprint for testing |
 
@@ -511,10 +511,10 @@ Before implementing App Links:
 | Test | Method | Expected Result |
 |:---|:---|:---|
 | Verification status | `adb shell pm get-app-links com.yeshmishak.app` | Shows `verified` for canonical domain |
-| Field link opens app | `adb shell am start -a android.intent.action.VIEW -d "https://<canonical-domain>/fields/<valid-uuid>"` | App opens, flies to field, shows FieldDetailsPanel |
-| Game link opens app | `adb shell am start -a android.intent.action.VIEW -d "https://<canonical-domain>/games/<valid-uuid>"` | App opens, shows game details (requires backend endpoint) |
-| Invalid UUID | `adb shell am start -a android.intent.action.VIEW -d "https://<canonical-domain>/fields/not-a-uuid"` | App shows "Invalid link" fallback |
-| Unknown route | `adb shell am start -a android.intent.action.VIEW -d "https://<canonical-domain>/xyz"` | App shows "Page not found" fallback |
+| Field link opens app | `adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/fields/<valid-uuid>"` | App opens, flies to field, shows FieldDetailsPanel |
+| Game link opens app | `adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/games/<valid-uuid>"` | App opens, shows game details (requires backend endpoint) |
+| Invalid UUID | `adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/fields/not-a-uuid"` | App shows "Invalid link" fallback |
+| Unknown route | `adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/xyz"` | App shows "Page not found" fallback |
 | App not running | Force stop app, tap link | App launches cold, resolves link |
 | App backgrounded | Background app, tap link | App resumes, resolves link |
 | Logged-out user | Clear session, tap link | Login screen shown, link resolved after login |
@@ -638,7 +638,7 @@ The Android App Links strategy is fully defined. The technical approach is sound
 | # | Blocker | Why It Blocks | Resolution |
 |:---|:---|:---|:---|
 | 1 | **Canonical domain must be selected and controlled** | Intent filter `android:host`, `assetlinks.json` hosting, and all shared URLs depend on the domain. No implementation can begin without it. | Team must select, register, and configure DNS/hosting for the product domain. |
-| 2 | **`assetlinks.json` hosting must be available** | Android App Link verification will fail without this file. Links will open in the browser instead of the app. | Deploy the file to `https://<canonical-domain>/.well-known/assetlinks.json` as part of the web frontend deployment. |
+| 2 | **`assetlinks.json` hosting must be available** | Android App Link verification will fail without this file. Links will open in the browser instead of the app. | Deploy the file to `https://yesh-mishak.com/.well-known/assetlinks.json` as part of the web frontend deployment. |
 | 3 | **Android package name must be confirmed** | `assetlinks.json` includes the package name. Changing it after release breaks verification and requires a new Play Store listing. | Currently `com.yeshmishak.app` — confirm this is the final production package name. |
 | 4 | **SHA-256 fingerprints for debug/release must be collected** | Without fingerprints, `assetlinks.json` cannot be populated. Debug fingerprint needed for development testing; release fingerprint needed for production. | Extract debug fingerprint immediately. Create release keystore when production build path is established. |
 | 5 | **Game detail resolver endpoint needed before game links are production-grade** | `GET /games/{game_id}` does not exist. Game links and notification-to-game resolution cannot work without it. Field links can proceed independently. | Add `GET /games/{game_id}` public endpoint to the backend. |
@@ -684,3 +684,103 @@ The Android App Links strategy is fully defined. The technical approach is sound
 - [x] Final readiness verdict stated (READY FOR IMPLEMENTATION WITH DOMAIN/CERTIFICATE PREREQUISITES)
 - [x] Five blockers explicitly listed
 - [x] Scope confirmed documentation-only
+
+---
+
+## 25. ISSUE-270 Implementation Notes
+
+**Date:** 2026-07-11
+**Status:** Infrastructure implemented; real-domain and physical-device verification still required before closing ISSUE-270.
+
+### Canonical Domain
+
+The canonical production App Links domain is now:
+
+```text
+yesh-mishak.com
+```
+
+The Android package name remains:
+
+```text
+com.yeshmishak.app
+```
+
+### Manifest Configuration
+
+`frontend/android/app/src/main/AndroidManifest.xml` declares a separate verified HTTPS VIEW intent filter on the existing `MainActivity`:
+
+```xml
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" />
+    <data android:host="yesh-mishak.com" />
+</intent-filter>
+```
+
+The existing `MAIN` / `LAUNCHER` filter is unchanged. No HTTP filter, custom URL scheme, Railway/Supabase/localhost/raw-IP/preview host, or Capacitor WebView host is declared.
+
+### Digital Asset Links
+
+The static asset is committed at:
+
+```text
+frontend/public/.well-known/assetlinks.json
+```
+
+Deployment must serve it at:
+
+```text
+https://yesh-mishak.com/.well-known/assetlinks.json
+```
+
+The file currently authorizes local debug builds signed with this developer-machine debug certificate:
+
+```text
+5F:32:96:5D:E2:FF:3D:2C:C0:5C:7E:5D:D7:77:AF:0D:14:EE:F9:77:64:98:55:41:84:D9:D3:C3:C0:EA:5E:73
+```
+
+This debug fingerprint was extracted from `%USERPROFILE%\.android\debug.keystore` with Android Studio's bundled `keytool`.
+
+### Release-Signing Limitation
+
+Production App Links are not release-ready until the production signing fingerprint is known and added. If the app is distributed through Google Play, `assetlinks.json` must include the Play App Signing certificate SHA-256 fingerprint from Play Console, not merely the local upload key. The debug fingerprint is for local testing only and should be removed or supplemented according to the production signing policy before release.
+
+### Frontend URL Handoff
+
+`frontend/src/utils/appLinkRoutes.js` validates external URLs before navigation:
+
+- requires `https:`
+- requires exact host `yesh-mishak.com`
+- rejects malformed URLs
+- accepts `/`, `/my-games`, `/field/<uuid>`, `/fields/<uuid>`, `/game/<uuid>`, `/games/<uuid>`, and `/games/<uuid>/join`
+- preserves only legacy architecture query parameters `game_id` and `field_id`
+- sends unsupported paths to `/`
+
+`frontend/src/App.jsx` registers a centralized Capacitor `appUrlOpen` listener for warm starts and calls `App.getLaunchUrl()` for cold starts. Both paths use the same validation and route through the existing `pathname` / `history.pushState` navigation mechanism. Game-specific and field-specific detail resolution remains deferred to ISSUE-272 and ISSUE-273.
+
+### Hosting Requirements
+
+`frontend/vercel.json` keeps the SPA fallback for app routes and explicitly configures `/.well-known/assetlinks.json` as a JSON static asset with a one-hour cache. Production DNS and deployment must point `yesh-mishak.com` at the frontend host with valid HTTPS. Repository changes alone cannot prove DNS, TLS, or browser fallback behavior on the acquired domain.
+
+### Validation Commands
+
+```bash
+curl -i https://yesh-mishak.com/.well-known/assetlinks.json
+node -e "fetch('https://yesh-mishak.com/.well-known/assetlinks.json').then(async r => { console.log(r.status, r.headers.get('content-type')); JSON.parse(await r.text()); console.log('valid json') })"
+npx cap sync android
+cd frontend/android && ./gradlew assembleDebug
+adb shell pm verify-app-links --re-verify com.yeshmishak.app
+adb shell pm get-app-links com.yeshmishak.app
+adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/"
+adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/my-games"
+adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/fields/<test-uuid>"
+adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/games/<test-uuid>"
+adb shell am start -a android.intent.action.VIEW -d "https://yesh-mishak.com/unknown-path"
+```
+
+### Validation Results
+
+Automated URL parsing tests, frontend lint/build, Capacitor sync, Android debug APK build, and APK signing fingerprint comparison are recorded in the ISSUE-270 implementation report. Live HTTPS asset validation, Android App Links verification, ADB launch checks, Chrome/WhatsApp tap checks, chooser behavior, and uninstall browser fallback must be performed on the Samsung Galaxy S24 Ultra against the deployed `https://yesh-mishak.com` site before ISSUE-270 is closed or a PR is marked ready.

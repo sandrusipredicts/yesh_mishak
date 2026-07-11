@@ -388,7 +388,7 @@ The resolver must be compatible with the existing `App.jsx` pathname routing mod
 
 | Aspect | Architecture |
 |:---|:---|
-| URL arrival | Browser navigates to `https://yeshmishak.app/game/{id}` |
+| URL arrival | Browser navigates to `https://yesh-mishak.com/game/{id}` |
 | SPA routing | Server serves `index.html` for all paths (SPA fallback). Client-side resolver parses pathname. |
 | Auth | Same-origin session/token in storage. Auth gate in resolver. |
 | Meta tags | Server-side or edge-function injection for Open Graph tags (title, description, image) on `/field/{id}` and `/game/{id}` paths. Required for WhatsApp/social previews. |
@@ -397,7 +397,7 @@ The resolver must be compatible with the existing `App.jsx` pathname routing mod
 
 | Aspect | Architecture |
 |:---|:---|
-| URL arrival | Android App Link: intent filter matches `https://yeshmishak.app/*` → app opens |
+| URL arrival | Android App Link: intent filter matches `https://yesh-mishak.com/*` → app opens |
 | Capacitor handler | `CapacitorApp.addListener('appUrlOpen', (event) => { ... })` receives URL |
 | Resolver | Same client-side deep link resolver as web — parses `event.url` pathname |
 | Verification | `.well-known/assetlinks.json` hosted on domain for verified App Links |
@@ -410,14 +410,14 @@ The resolver must be compatible with the existing `App.jsx` pathname routing mod
 | URL arrival | Universal Link: Associated Domains entitlement + `apple-app-site-association` file |
 | Capacitor handler | Same `appUrlOpen` listener |
 | Resolver | Same client-side resolver |
-| Verification | AASA file hosted at `https://yeshmishak.app/.well-known/apple-app-site-association` |
+| Verification | AASA file hosted at `https://yesh-mishak.com/.well-known/apple-app-site-association` |
 | Status | **Blocked** — no iOS build/signing path available |
 
 ### 14.4 WhatsApp / Browser Handoff
 
 | Aspect | Architecture |
 |:---|:---|
-| Share format | `https://yeshmishak.app/game/{game_id}` — plain HTTPS URL |
+| Share format | `https://yesh-mishak.com/game/{game_id}` — plain HTTPS URL |
 | WhatsApp preview | Open Graph meta tags provide title, description, image |
 | Tap behavior | If app installed: App Link/Universal Link opens app. If not: opens in browser. |
 | No custom scheme | `yeshmishak://` is NOT used — WhatsApp does not reliably handle custom schemes |
@@ -467,7 +467,7 @@ The resolver must be compatible with the existing `App.jsx` pathname routing mod
 
 | Requirement | Details |
 |:---|:---|
-| Intent filter | Add `<intent-filter>` with `android:scheme="https"`, `android:host="yeshmishak.app"`, `android:autoVerify="true"` to `AndroidManifest.xml` |
+| Intent filter | Add `<intent-filter>` with `android:scheme="https"`, `android:host="yesh-mishak.com"`, `android:autoVerify="true"` to `AndroidManifest.xml` |
 | Asset links | Host `.well-known/assetlinks.json` on the web domain with the app's signing certificate fingerprint |
 | `appUrlOpen` listener | Add `CapacitorApp.addListener('appUrlOpen', handler)` in `App.jsx` |
 
@@ -475,8 +475,8 @@ The resolver must be compatible with the existing `App.jsx` pathname routing mod
 
 | Requirement | Details |
 |:---|:---|
-| Associated Domains | Add `applinks:yeshmishak.app` to the app entitlements |
-| AASA file | Host `apple-app-site-association` at `https://yeshmishak.app/.well-known/apple-app-site-association` |
+| Associated Domains | Add `applinks:yesh-mishak.com` to the app entitlements |
+| AASA file | Host `apple-app-site-association` at `https://yesh-mishak.com/.well-known/apple-app-site-association` |
 | `appUrlOpen` listener | Same Capacitor listener as Android |
 | Status | **Blocked** — no iOS build path |
 
@@ -553,7 +553,7 @@ The deep link architecture is fully defined. All link types (game, field, notifi
 |:---|:---|:---|
 | ISSUE-266 entry points audit | Merged (PR #829) | No — complete |
 | This architecture document approved | Pending | Yes — must be approved before implementation begins |
-| Web domain deployed (`yeshmishak.app` or equivalent) | Unknown | Yes — required for App Links, Universal Links, and Open Graph |
+| Web domain deployed (`yesh-mishak.com` or equivalent) | Unknown | Yes — required for App Links, Universal Links, and Open Graph |
 | iOS build path | Blocked | No — Android-first implementation; iOS tracked separately |
 
 ### Implementation Can Begin When
