@@ -5,6 +5,7 @@ import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
 import Modal from './Modal'
+import { launchGoogleMapsNavigation } from '../api/googleMapsNavigation'
 import { getLastKnownLocation } from '../api/locationService'
 import { launchWazeNavigation } from '../api/wazeNavigation'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
@@ -23,8 +24,22 @@ function getWaterCoolerValue(field) {
 }
 
 function getNavigationCoordinates(field) {
-  const latitude = Number(field?.lat ?? field?.latitude)
-  const longitude = Number(field?.lng ?? field?.longitude)
+  const rawLatitude = field?.lat ?? field?.latitude
+  const rawLongitude = field?.lng ?? field?.longitude
+
+  if (
+    rawLatitude === null ||
+    rawLatitude === undefined ||
+    rawLongitude === null ||
+    rawLongitude === undefined ||
+    (typeof rawLatitude === 'string' && rawLatitude.trim() === '') ||
+    (typeof rawLongitude === 'string' && rawLongitude.trim() === '')
+  ) {
+    return null
+  }
+
+  const latitude = Number(rawLatitude)
+  const longitude = Number(rawLongitude)
 
   if (
     !Number.isFinite(latitude) ||
@@ -121,11 +136,10 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
       return
     }
 
-    const destination = `${latitude},${longitude}`
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`
-
-    window.open(url, '_blank', 'noopener,noreferrer')
-    setIsNavigationModalOpen(false)
+    const result = launchGoogleMapsNavigation(latitude, longitude)
+    if (result.opened) {
+      setIsNavigationModalOpen(false)
+    }
   }
 
   function handleGameStateChanged() {

@@ -84,6 +84,14 @@ async function trackOpenedUrls(page) {
   })
 }
 
+async function makeWindowOpenFail(page) {
+  await page.addInitScript(() => {
+    window.open = () => {
+      throw new Error('Popup launch failed')
+    }
+  })
+}
+
 async function mockNativeWazeLauncher(
   page,
   { canOpenNative = true, nativeCompleted = true, httpsCompleted = true } = {},
@@ -204,11 +212,37 @@ test('opens Waze and Google Maps navigation links for a field', async ({ page })
         features: 'noopener,noreferrer',
       },
       {
-        url: 'https://www.google.com/maps/dir/?api=1&destination=31.225172,34.777498',
+        url: 'https://www.google.com/maps/dir/?api=1&destination=31.225172%2C34.777498',
         target: '_blank',
         features: 'noopener,noreferrer',
       },
     ])
+})
+
+test('keeps the navigation flow open when Google Maps cannot be launched', async ({ page }) => {
+  await makeWindowOpenFail(page)
+  await mockMapPageRequests(page, [navigableField])
+  await openFieldDetails(page)
+
+  await page.getByRole('button', { name: 'Navigate to field' }).click()
+  await page.getByRole('button', { name: 'Google Maps' }).click()
+
+  await expect(page.getByRole('dialog', { name: 'Open navigation' })).toBeVisible()
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: navigableField.name }),
+  ).toBeAttached()
+})
+
+test('rejects invalid Google Maps coordinates without attempting a launch', async ({ page }) => {
+  await page.goto('/')
+
+  const result = await page.evaluate(async () => {
+    const { launchGoogleMapsNavigation } = await import('/src/api/googleMapsNavigation.js')
+    return launchGoogleMapsNavigation(null, 34.777498)
+  })
+
+  expect(result).toEqual({ opened: false, reason: 'invalid_coordinates' })
+  await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
 test('launches Waze with the native scheme when it is available', async ({ page }) => {
