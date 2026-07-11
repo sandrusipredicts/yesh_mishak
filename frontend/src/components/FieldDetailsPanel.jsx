@@ -6,6 +6,7 @@ import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
 import Modal from './Modal'
 import { getLastKnownLocation } from '../api/locationService'
+import { launchWazeNavigation } from '../api/wazeNavigation'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
 
 function getActiveGame(field) {
@@ -99,7 +100,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
     }).format(date)
   }
 
-  function openNavigation(provider) {
+  async function openNavigation(provider) {
     if (!navigationCoordinates) {
       setIsNavigationModalOpen(false)
       return
@@ -111,11 +112,17 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
     }
 
     const { latitude, longitude } = navigationCoordinates
+
+    if (provider === 'waze') {
+      const result = await launchWazeNavigation(latitude, longitude)
+      if (result.opened) {
+        setIsNavigationModalOpen(false)
+      }
+      return
+    }
+
     const destination = `${latitude},${longitude}`
-    const url =
-      provider === 'waze'
-        ? `https://waze.com/ul?ll=${destination}&navigate=yes`
-        : `https://www.google.com/maps/dir/?api=1&destination=${destination}`
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`
 
     window.open(url, '_blank', 'noopener,noreferrer')
     setIsNavigationModalOpen(false)
