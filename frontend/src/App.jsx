@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next'
 
 import './App.css'
 import AdminRoute from './components/AdminRoute'
+import ForgotPasswordPage from './components/ForgotPasswordPage'
 import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
 import OfflineBanner from './components/OfflineBanner'
+import ResetPasswordPage from './components/ResetPasswordPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
@@ -86,6 +88,11 @@ function App() {
   )
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
+  const [loginNotice, setLoginNotice] = useState(
+    () => new URLSearchParams(window.location.search).get('reset') === 'success'
+      ? t('auth.passwordResetSuccess')
+      : '',
+  )
   const [persistenceWarning, setPersistenceWarning] = useState('')
   const [deepLinkTarget, setDeepLinkTarget] = useState(() => readPendingDeepLink())
   const validationPromiseRef = useRef(null)
@@ -217,17 +224,19 @@ function App() {
   }, [validateStoredSession])
 
   const navigateTo = useCallback((path, { replace = false } = {}) => {
-    if (window.location.pathname === path) {
-      setPathname(path)
+    const nextUrl = new URL(path, window.location.origin)
+
+    if (window.location.pathname === nextUrl.pathname && window.location.search === nextUrl.search) {
+      setPathname(nextUrl.pathname)
       return
     }
 
     if (replace) {
-      window.history.replaceState(null, '', path)
+      window.history.replaceState(null, '', `${nextUrl.pathname}${nextUrl.search}`)
     } else {
-      window.history.pushState(null, '', path)
+      window.history.pushState(null, '', `${nextUrl.pathname}${nextUrl.search}`)
     }
-    setPathname(path)
+    setPathname(nextUrl.pathname)
   }, [])
 
   // Central hand-off point for a resolved deep link (game or field),
@@ -268,7 +277,7 @@ function App() {
   }, [applyDeepLinkTarget, navigateTo])
 
   useEffect(() => {
-    if (window.location.hostname === CANONICAL_APP_LINK_HOST) {
+    if (window.location.hostname === CANONICAL_APP_LINK_HOST && window.location.pathname !== '/reset-password') {
       const timeoutId = window.setTimeout(() => {
         handleIncomingAppLink(window.location.href, { replace: true })
       }, 0)
@@ -429,8 +438,20 @@ function App() {
 
   const handleLogin = useCallback((user) => {
     setLogoutWarning('')
+    setLoginNotice('')
     setCurrentUser(user)
   }, [])
+
+  const handlePasswordResetDone = useCallback((message) => {
+    sessionEpochRef.current += 1
+    validationPromiseRef.current = null
+    setCurrentUser(null)
+    setLogoutWarning('')
+    setPersistenceWarning('')
+    setLoginNotice(message)
+    handleDeepLinkHandled()
+    setPathname(window.location.pathname)
+  }, [handleDeepLinkHandled])
 
   const handleOnboardingComplete = useCallback(() => {
     setIsOnboardingDone(true)
@@ -459,6 +480,10 @@ function App() {
   )
 
   if (!isSessionReady) {
+    if (pathname === '/reset-password') {
+      return renderWithOfflineBanner(<ResetPasswordPage onDone={handlePasswordResetDone} />)
+    }
+
     return (
       <main className="auth-checking" data-testid="auth-checking" aria-busy="true">
         <p>{t('auth.checkingSession')}</p>
@@ -467,7 +492,21 @@ function App() {
   }
 
   if (!isLanguageSelected) {
+    if (pathname === '/reset-password') {
+      return renderWithOfflineBanner(<ResetPasswordPage onDone={handlePasswordResetDone} />)
+    }
+
     return <LanguageSelectionScreen onSelected={() => setIsLanguageSelected(true)} />
+  }
+
+  if (pathname === '/reset-password') {
+    return renderWithOfflineBanner(<ResetPasswordPage onDone={handlePasswordResetDone} />)
+  }
+
+  if (pathname === '/forgot-password') {
+    return renderWithOfflineBanner(
+      <ForgotPasswordPage onBackToLogin={() => navigateTo('/login')} />,
+    )
   }
 
   if (pathname === '/admin') {
@@ -483,7 +522,13 @@ function App() {
   }
 
   if (!currentUser) {
-    return renderWithOfflineBanner(<LoginPage onLogin={handleLogin} />)
+    return renderWithOfflineBanner(
+      <LoginPage
+        notice={loginNotice}
+        onForgotPassword={() => navigateTo('/forgot-password')}
+        onLogin={handleLogin}
+      />,
+    )
   }
 
   if (!isOnboardingDone) {

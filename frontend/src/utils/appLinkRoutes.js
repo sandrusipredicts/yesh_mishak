@@ -82,6 +82,22 @@ function resolvePathSegments(segments, searchParams) {
     })
   }
 
+  if (segments.length === 1 && segments[0] === 'forgot-password') {
+    return buildSupportedResult({
+      routeType: 'forgot-password',
+      navigationPath: '/forgot-password',
+    })
+  }
+
+  if (segments.length === 1 && segments[0] === 'reset-password') {
+    return buildSupportedResult({
+      routeType: 'reset-password',
+      navigationPath: searchParams.has('token')
+        ? `/reset-password?token=${encodeURIComponent(searchParams.get('token'))}`
+        : '/reset-password',
+    })
+  }
+
   if (segments.length === 2 && (segments[0] === 'field' || segments[0] === 'fields')) {
     const fieldId = segments[1]
 

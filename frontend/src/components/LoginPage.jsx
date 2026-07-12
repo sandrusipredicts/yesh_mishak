@@ -48,7 +48,7 @@ function loadGoogleScript() {
   return googleScriptPromise
 }
 
-function LoginPage({ onLogin }) {
+function LoginPage({ notice = '', onForgotPassword, onLogin }) {
   const { t } = useTranslation()
   const buttonRef = useRef(null)
   const [mode, setMode] = useState('login')
@@ -337,9 +337,15 @@ function LoginPage({ onLogin }) {
               />
             </label>
             {error ? <p className="login-error" role="alert">{error}</p> : null}
+            {notice ? <p className="login-info" role="status">{notice}</p> : null}
             <button className="auth-submit" disabled={isLoading} type="submit">
               {t('auth.signIn')}
             </button>
+            {onForgotPassword ? (
+              <button className="auth-link-button" type="button" onClick={onForgotPassword}>
+                {t('auth.forgotPasswordLink')}
+              </button>
+            ) : null}
           </form>
         ) : (
           <form className="auth-form" role="tabpanel" id="register-tabpanel" aria-labelledby="register-tab" onSubmit={handleRegister}>

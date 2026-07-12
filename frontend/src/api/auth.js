@@ -65,6 +65,18 @@ export async function loginWithPassword(payload) {
   return response.data
 }
 
+export async function requestPasswordReset(payload) {
+  const response = await api.post('/auth/password-reset/request', payload, { skipAuth: true })
+
+  return response.data
+}
+
+export async function confirmPasswordReset(payload) {
+  const response = await api.post('/auth/password-reset/confirm', payload, { skipAuth: true })
+
+  return response.data
+}
+
 export async function checkUsername(username) {
   const response = await api.post('/auth/check-username', { username })
 

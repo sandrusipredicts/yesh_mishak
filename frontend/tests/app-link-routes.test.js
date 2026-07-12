@@ -36,6 +36,26 @@ test('normalizes /admin to the existing admin route', () => {
   })
 })
 
+test('normalizes /reset-password without dropping the reset token', () => {
+  assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/reset-password?token=reset.token+value'), {
+    ok: true,
+    routeType: 'reset-password',
+    resourceId: '',
+    action: '',
+    navigationPath: '/reset-password?token=reset.token%20value',
+  })
+})
+
+test('normalizes /forgot-password to the request route', () => {
+  assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/forgot-password'), {
+    ok: true,
+    routeType: 'forgot-password',
+    resourceId: '',
+    action: '',
+    navigationPath: '/forgot-password',
+  })
+})
+
 test('accepts game paths and forwards them to the map route', () => {
   assert.deepEqual(normalizeAppLinkUrl(`https://yesh-mishak.com/games/${GAME_ID}/join`), {
     ok: true,
@@ -163,6 +183,16 @@ test('parseAppPathname resolves /admin to the existing admin route', () => {
     resourceId: '',
     action: '',
     navigationPath: '/admin',
+  })
+})
+
+test('parseAppPathname resolves /reset-password before app fallback routing', () => {
+  assert.deepEqual(parseAppPathname('/reset-password', '?token=reset-token'), {
+    ok: true,
+    routeType: 'reset-password',
+    resourceId: '',
+    action: '',
+    navigationPath: '/reset-password?token=reset-token',
   })
 })
 
