@@ -5,6 +5,7 @@ import Modal from './Modal'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
+import { shareGame } from '../api/gameSharing'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -100,11 +101,12 @@ function formatRemainingTime(milliseconds, t) {
   return t('game.minutes', { minutes })
 }
 
-function GamePanel({ game, currentUserId, onUpdate }) {
+function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   const { i18n, t } = useTranslation()
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
@@ -223,6 +225,27 @@ function GamePanel({ game, currentUserId, onUpdate }) {
       setError(getApiErrorMessage(closeError, t('game.closeFailed')))
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function handleShare() {
+    setIsSharing(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await shareGame({ game, fieldName, locale, t })
+
+      if (result.outcome === 'shared') {
+        setSuccessMessage(t('game.shareSuccess'))
+      } else if (result.outcome === 'cancelled') {
+        // Cancellation is a normal outcome, not an error — no message.
+      } else if (result.outcome === 'unavailable') {
+        setError(t('game.shareUnavailable'))
+      } else {
+        setError(t('game.shareFailed'))
+      }
+    } finally {
+      setIsSharing(false)
     }
   }
 
@@ -360,6 +383,17 @@ function GamePanel({ game, currentUserId, onUpdate }) {
             disabled={cannotUseActiveControls}
           >
             {t('game.closeGame')}
+          </button>
+        ) : null}
+
+        {gameId ? (
+          <button
+            type="button"
+            className="secondary-panel-button"
+            onClick={handleShare}
+            disabled={isSharing}
+          >
+            {t('game.shareButton')}
           </button>
         ) : null}
       </div>

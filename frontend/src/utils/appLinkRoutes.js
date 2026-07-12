@@ -3,7 +3,7 @@ export const CANONICAL_APP_LINK_HOST = 'yesh-mishak.com'
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function isUuidV4(value) {
+export function isUuidV4(value) {
   return UUID_V4_PATTERN.test(value)
 }
 

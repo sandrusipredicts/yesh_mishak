@@ -199,6 +199,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
             game={activeGame}
             currentUserId={currentUserId}
             onUpdate={handleGameStateChanged}
+            fieldName={field.name}
           />
         </div>
       ) : null}
@@ -214,6 +215,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
                   game={game}
                   currentUserId={currentUserId}
                   onUpdate={handleGameStateChanged}
+                  fieldName={field.name}
                 />
               </article>
             ))}
