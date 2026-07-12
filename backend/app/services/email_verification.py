@@ -4,19 +4,17 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import secrets
-import smtplib
-from email.message import EmailMessage
 from urllib.parse import quote
 
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_service_role_client
+from app.services.email_delivery import EmailDeliveryError, send_email
 
 
 GENERIC_RESEND_MESSAGE = "If the account exists and needs verification, a new email will be sent."
 
 
-class VerificationDeliveryError(RuntimeError):
-    pass
+VerificationDeliveryError = EmailDeliveryError
 
 
 def _scalar_result(data: object) -> str:
@@ -42,35 +40,22 @@ def _verification_url(token: str) -> str:
 
 
 def _send_email(recipient: str, verification_url: str) -> None:
-    settings = get_settings()
-    if not settings.smtp_host or not settings.smtp_from_address:
-        raise VerificationDeliveryError("Email delivery is not configured")
-
-    message = EmailMessage()
-    message["Subject"] = "Verify your yesh_mishak email"
-    message["From"] = settings.smtp_from_address
-    message["To"] = recipient
-    message.set_content(
+    text_body = (
         "Verify your yesh_mishak email by opening this link:\n\n"
         f"{verification_url}\n\n"
         "If you did not create this account, you can ignore this message."
     )
     safe_url = html.escape(verification_url, quote=True)
-    message.add_alternative(
+    html_body = (
         f'<p>Verify your yesh_mishak email:</p><p><a href="{safe_url}">Verify email</a></p>'
-        "<p>If you did not create this account, you can ignore this message.</p>",
-        subtype="html",
+        "<p>If you did not create this account, you can ignore this message.</p>"
     )
-
-    try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            if settings.smtp_use_tls:
-                server.starttls()
-            if settings.smtp_username:
-                server.login(settings.smtp_username, settings.smtp_password or "")
-            server.send_message(message)
-    except Exception as exc:
-        raise VerificationDeliveryError("Email delivery failed") from exc
+    send_email(
+        recipient=recipient,
+        subject="Verify your yesh_mishak email",
+        text_body=text_body,
+        html_body=html_body,
+    )
 
 
 def issue_verification_email(user_id: str, email: str) -> None:

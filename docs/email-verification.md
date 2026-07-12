@@ -14,7 +14,9 @@ Only a SHA-256 hash of the random token is stored. Tokens expire after `EMAIL_VE
 
 Resend uses both the existing IP rate limiter and an atomic per-account database cooldown. The IP limiter is process-local, resets on restart, and is not shared across instances. The database RPC uses a transaction-scoped advisory lock, so concurrent requests or multiple application instances cannot bypass the account cooldown. Responses for unknown, verified, and Google-only accounts are deliberately generic to prevent account enumeration.
 
-If SMTP delivery fails after token creation, the undelivered token is invalidated immediately. The account remains unverified and intact, the registration response reports `email_verification_sent=false`, and resend can create a fresh token without waiting for the normal cooldown.
+If HTTPS email delivery fails after token creation, the undelivered token is invalidated immediately. The account remains unverified and intact, the registration response reports `email_verification_sent=false`, and resend can create a fresh token without waiting for the normal cooldown.
+
+Email delivery uses the shared `email_delivery` abstraction over Resend's HTTPS `POST /emails` API and the existing `httpx` dependency. There is no automatic retry: the provider may accept a request even if the response is lost, so retrying inside the transport could send duplicates. Recovery is explicit through resend, which has database-backed idempotency and cooldown controls.
 
 ## Routes
 
@@ -26,14 +28,13 @@ If SMTP delivery fails after token creation, the undelivered token is invalidate
 
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `PUBLIC_APP_URL` (`https://yesh-mishak.com` for production; both this custom domain and `https://yesh-mishak.vercel.app` returned HTTP 200 from Vercel on 2026-07-12)
-- `SMTP_HOST`
-- `SMTP_PORT` (default `587`)
-- `SMTP_USERNAME` (optional when the server does not authenticate)
-- `SMTP_PASSWORD` (optional when the server does not authenticate)
-- `SMTP_FROM_ADDRESS`
-- `SMTP_USE_TLS` (default `true`)
+- `RESEND_API_KEY`
+- `RESEND_API_URL` (default `https://api.resend.com/emails`)
+- `EMAIL_FROM_ADDRESS` (use the sender authorized for the configured Resend key/domain)
 - `EMAIL_VERIFICATION_TTL_MINUTES` (default `60`)
 - `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` (default `60`)
+
+The branch preview URL checked on 2026-07-12 redirects unauthenticated visitors to Vercel SSO. Do not use that protected preview as `PUBLIC_APP_URL` for real recipients unless deployment protection is disabled or a public bypass is intentionally configured. Use the public production domain once deployed, or another public, unprotected environment URL. The Railway development service was reachable at `https://yeshmishak-dev.up.railway.app` on the same date, but that backend URL is not the frontend verification-link origin.
 
 Apply `backend/migrations/email_verification.sql` before enabling the feature in a deployed environment. Configure the canonical `/verify-email` URL in web hosting and native Associated Domains/App Links so the same HTTPS link works in browsers, Android, and iOS.
 
@@ -74,3 +75,27 @@ The exact command `python -m pytest -q`, run from `backend/`, fails during colle
 - `test_organizer_history.py`
 
 The missing imports are `tests.test_admin_me`, `tests.test_game_close`, and `tests.test_notifications`. `--import-mode=importlib` is not a valid workaround because three other modules then fail on the repository's top-level `test_manual_auth` imports. Focused suites invoked by explicit file path are the established working path and were used for this feature.
+
+## Existing email infrastructure audit
+
+Neither current `main` nor this branch contains password-reset endpoints, a password-reset sender, a Resend client, or an existing email abstraction. Repository documentation explicitly records password reset as not implemented. The observed Resend `POST /emails` traffic therefore comes from deployment code/configuration not present in this checkout, not a reusable repository service. This implementation adds one provider-neutral `email_delivery` boundary so a future password-reset task can reuse the same HTTPS transport without duplicating provider handling.
+
+The earlier `SMTP_*` variables added only for E01-02 are no longer used or documented. No other repository flow referenced them, so removing them from typed settings and examples does not affect password reset or another email feature. External dashboards may retain those variables harmlessly until the owner removes them. Do not remove any external value until the HTTPS flow has been verified live.
+
+## Live verification checklist
+
+1. Register a new manual account and confirm the response contains no JWT/session.
+2. Confirm Resend Logs shows one accepted email from the configured `EMAIL_FROM_ADDRESS` with subject `Verify your yesh_mishak email`.
+3. Confirm the email arrives and the link begins with the environment's exact `PUBLIC_APP_URL`.
+4. Confirm password login is rejected with `EMAIL_NOT_VERIFIED` before opening the link.
+5. Open the link once; verify `users.email_verified=true`, `email_verified_at` is populated, and the token has `used_at`.
+6. Confirm password login succeeds after verification.
+7. Open the same link twice quickly; only the first request may return `verified` and the second must be `already_used`.
+8. Request resend; confirm the prior token is unusable and the new token succeeds.
+9. Request resend again inside the cooldown; confirm HTTP 429 and no extra Resend email.
+10. Test an expired token and an invalid token; neither may authenticate the user.
+11. Confirm Google login and a grandfathered legacy password user still work.
+12. Verify English/LTR and Hebrew/RTL in desktop and mobile browsers.
+13. Verify the Preview URL, production URL, Android App Link, and iOS Universal Link all preserve `/verify-email?token=...`.
+14. Review Railway logs for only safe event/status metadata and Resend logs for the expected provider request; no API key or verification token may appear in Railway logs.
+15. Confirm Supabase contains only `token_hash`, never the raw token.

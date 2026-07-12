@@ -204,7 +204,7 @@ def test_legacy_user_without_verification_column_still_logs_in(monkeypatch) -> N
     assert response.json()["access_token"]
 
 
-def test_registration_smtp_failure_keeps_account_recoverable_without_session(monkeypatch) -> None:
+def test_registration_delivery_failure_keeps_account_recoverable_without_session(monkeypatch) -> None:
     from test_manual_auth import FakeSupabaseClient, configure_test_settings, register_payload
     from app.services.email_verification import VerificationDeliveryError
 
@@ -236,7 +236,7 @@ def test_resend_can_recover_after_registration_delivery_failure(monkeypatch) -> 
     assert calls == [("user-1", "user@example.com")]
 
 
-def test_resend_smtp_failure_returns_generic_recoverable_response(monkeypatch) -> None:
+def test_resend_delivery_failure_returns_generic_recoverable_response(monkeypatch) -> None:
     from app.services.email_verification import VerificationDeliveryError
 
     monkeypatch.setattr(
@@ -269,7 +269,7 @@ def test_verification_url_uses_configured_public_app_url(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
-def test_smtp_failure_invalidates_undelivered_token_for_immediate_recovery(monkeypatch) -> None:
+def test_delivery_failure_invalidates_undelivered_token_for_immediate_recovery(monkeypatch) -> None:
     from app.core.config import get_settings
     from app.services import email_verification
 
