@@ -187,6 +187,7 @@ def test_login_still_works_after_validation_changes(monkeypatch) -> None:
     _patch_supabase(monkeypatch, fake_client)
 
     TestClient(app).post("/auth/register", json=register_payload())
+    fake_client.users[0]["email_verified"] = True
 
     response = TestClient(app).post(
         "/auth/login",

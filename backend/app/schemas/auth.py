@@ -107,6 +107,19 @@ class PasswordResetRequest(BaseModel):
         return normalize_email_value(value)
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return normalize_email_value(value)
+
+
 class PasswordResetConfirmRequest(BaseModel):
     token: str = Field(min_length=32, max_length=512)
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
@@ -115,7 +128,6 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
-
 
 class AvailabilityResponse(BaseModel):
     available: bool
@@ -133,3 +145,16 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+    email_verification_required: bool = False
+    email_verification_sent: bool | None = None
+
+
+class RegistrationResponse(BaseModel):
+    user: UserResponse
+    email_verification_required: bool = True
+    email_verification_sent: bool
+
+
+class EmailVerificationResponse(BaseModel):
+    status: str
+    message: str

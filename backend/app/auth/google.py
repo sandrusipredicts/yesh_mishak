@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import jwt
@@ -271,7 +272,6 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         user = user_response.data[0]
         # Update last_used_at on identity safely
         try:
-            from datetime import datetime, timezone
             now_iso = datetime.now(timezone.utc).isoformat()
             supabase.table("user_identities").update({"last_used_at": now_iso}).eq("id", identity_response.data[0]["id"]).execute()
         except Exception as exc:
@@ -423,6 +423,8 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
                     "google_sub": google_sub,
                     "email": email,
                     "name": google_user["name"],
+                    "email_verified": True,
+                    "email_verified_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             .execute()

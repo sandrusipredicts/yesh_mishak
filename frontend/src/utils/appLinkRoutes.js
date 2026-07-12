@@ -98,6 +98,16 @@ function resolvePathSegments(segments, searchParams) {
     })
   }
 
+  if (segments.length === 1 && segments[0] === 'verify-email') {
+    const token = searchParams.get('token') || ''
+    return token.length >= 32 && token.length <= 512
+      ? buildSupportedResult({
+        routeType: 'email-verification',
+        navigationPath: `/verify-email?token=${encodeURIComponent(token)}`,
+      })
+      : buildFallbackResult('invalid-verification-token')
+  }
+
   if (segments.length === 2 && (segments[0] === 'field' || segments[0] === 'fields')) {
     const fieldId = segments[1]
 

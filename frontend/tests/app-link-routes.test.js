@@ -5,6 +5,7 @@ import { normalizeAppLinkUrl, parseAppPathname } from '../src/utils/appLinkRoute
 
 const FIELD_ID = '123e4567-e89b-42d3-a456-426614174000'
 const GAME_ID = '987e6543-e21b-42d3-a456-426614174999'
+const VERIFICATION_TOKEN = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'
 
 test('normalizes the valid root URL to home', () => {
   assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/'), {
@@ -53,6 +54,28 @@ test('normalizes /forgot-password to the request route', () => {
     resourceId: '',
     action: '',
     navigationPath: '/forgot-password',
+  })
+})
+
+test('preserves a valid email-verification token for web and native navigation', () => {
+  assert.deepEqual(
+    normalizeAppLinkUrl(`https://yesh-mishak.com/verify-email?token=${VERIFICATION_TOKEN}`),
+    {
+      ok: true,
+      routeType: 'email-verification',
+      resourceId: '',
+      action: '',
+      navigationPath: `/verify-email?token=${VERIFICATION_TOKEN}`,
+    },
+  )
+})
+
+test('falls back safely when an email-verification token is missing', () => {
+  assert.deepEqual(parseAppPathname('/verify-email'), {
+    ok: true,
+    routeType: 'fallback',
+    reason: 'invalid-verification-token',
+    navigationPath: '/',
   })
 })
 

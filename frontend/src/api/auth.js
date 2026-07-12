@@ -77,6 +77,16 @@ export async function confirmPasswordReset(payload) {
   return response.data
 }
 
+export async function verifyEmail(token) {
+  const response = await api.post('/auth/verify-email', { token })
+  return response.data
+}
+
+export async function resendVerificationEmail(email) {
+  const response = await api.post('/auth/resend-verification', { email })
+  return response.data
+}
+
 export async function checkUsername(username) {
   const response = await api.post('/auth/check-username', { username })
 

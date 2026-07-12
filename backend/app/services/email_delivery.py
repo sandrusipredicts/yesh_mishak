@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import logging
 
@@ -5,7 +7,15 @@ import httpx
 
 from app.core.config import get_settings
 
+
 logger = logging.getLogger(__name__)
+
+
+class EmailDeliveryError(RuntimeError):
+    def __init__(self, reason: str, *, status_code: int | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -15,8 +25,93 @@ class EmailDeliveryResult:
     reason: str | None = None
 
 
+def _send_resend_email(
+    *,
+    recipient: str,
+    sender: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send through Resend HTTPS without logging secrets or retrying automatically."""
+    settings = get_settings()
+    api_key = settings.resend_api_key or settings.smtp_password
+    if not api_key or not sender:
+        raise EmailDeliveryError("not_configured")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+
+    timeout = httpx.Timeout(15.0, connect=5.0, read=15.0, write=10.0, pool=5.0)
+    try:
+        response = httpx.post(
+            settings.resend_api_url,
+            headers=headers,
+            json={
+                "from": sender,
+                "to": [recipient],
+                "subject": subject,
+                "text": text_body,
+                "html": html_body,
+            },
+            timeout=timeout,
+        )
+    except httpx.TimeoutException as exc:
+        raise EmailDeliveryError("timeout") from exc
+    except httpx.RequestError as exc:
+        raise EmailDeliveryError("network_error") from exc
+
+    if response.status_code not in (200, 201):
+        logger.warning(
+            "email provider rejected request",
+            extra={
+                "event": "email.delivery.rejected",
+                "provider": "resend",
+                "status_code": response.status_code,
+            },
+        )
+        raise EmailDeliveryError("provider_error", status_code=response.status_code)
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise EmailDeliveryError("malformed_response", status_code=response.status_code) from exc
+
+    email_id = payload.get("id") if isinstance(payload, dict) else None
+    if not isinstance(email_id, str) or not email_id.strip():
+        raise EmailDeliveryError("missing_email_id", status_code=response.status_code)
+
+    logger.info(
+        "email accepted by provider",
+        extra={"event": "email.delivery.accepted", "provider": "resend"},
+    )
+    return email_id
+
+
+def send_email(
+    *,
+    recipient: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+) -> str:
+    settings = get_settings()
+    return _send_resend_email(
+        recipient=recipient,
+        sender=settings.email_from_address or "",
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+    )
+
+
 class ResendEmailDelivery:
-    endpoint = "https://api.resend.com/emails"
+    """Compatibility adapter for the existing password-reset service contract."""
 
     def send_email(
         self,
@@ -28,65 +123,19 @@ class ResendEmailDelivery:
         idempotency_key: str | None = None,
     ) -> EmailDeliveryResult:
         settings = get_settings()
-        if not settings.resend_api_key or not settings.password_reset_from_email:
-            logger.warning(
-                "password reset email configuration missing",
-                extra={"event": "auth.password_reset.email_config_missing"},
-            )
-            return EmailDeliveryResult(accepted=False, reason="configuration_missing")
-
-        from_header = settings.password_reset_from_email
-        if settings.password_reset_from_name:
-            from_header = f"{settings.password_reset_from_name} <{settings.password_reset_from_email}>"
+        from_header = settings.password_reset_from_email or ""
+        if from_header and settings.password_reset_from_name:
+            from_header = f"{settings.password_reset_from_name} <{from_header}>"
 
         try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.post(
-                    self.endpoint,
-                    headers={
-                        "Authorization": f"Bearer {settings.resend_api_key}",
-                        "Content-Type": "application/json",
-                        **({"Idempotency-Key": idempotency_key} if idempotency_key else {}),
-                    },
-                    json={
-                        "from": from_header,
-                        "to": [to_email],
-                        "subject": subject,
-                        "html": html_body,
-                        "text": text_body,
-                    },
-                )
-        except httpx.TimeoutException:
-            logger.warning(
-                "password reset email provider timed out",
-                extra={"event": "auth.password_reset.email_timeout"},
+            email_id = _send_resend_email(
+                recipient=to_email,
+                sender=from_header,
+                subject=subject,
+                text_body=text_body,
+                html_body=html_body,
+                idempotency_key=idempotency_key,
             )
-            return EmailDeliveryResult(accepted=False, reason="timeout")
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "password reset email provider request failed",
-                extra={
-                    "event": "auth.password_reset.email_http_error",
-                    "exception_type": exc.__class__.__name__,
-                },
-            )
-            return EmailDeliveryResult(accepted=False, reason="http_error")
-
-        if 200 <= response.status_code < 300:
-            try:
-                data = response.json()
-            except ValueError:
-                data = {}
-            return EmailDeliveryResult(
-                accepted=True,
-                provider_message_id=data.get("id") if isinstance(data, dict) else None,
-            )
-
-        logger.warning(
-            "password reset email provider rejected request",
-            extra={
-                "event": "auth.password_reset.email_rejected",
-                "status_code": response.status_code,
-            },
-        )
-        return EmailDeliveryResult(accepted=False, reason="provider_rejected")
+        except EmailDeliveryError as exc:
+            return EmailDeliveryResult(accepted=False, reason=exc.reason)
+        return EmailDeliveryResult(accepted=True, provider_message_id=email_id)

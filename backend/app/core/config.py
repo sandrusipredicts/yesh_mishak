@@ -45,7 +45,6 @@ class Settings(BaseSettings):
         default="https://yesh-mishak.com",
         alias="PUBLIC_WEB_BASE_URL",
     )
-    resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
     password_reset_from_email: str | None = Field(
         default=None,
         alias="PASSWORD_RESET_FROM_EMAIL",
@@ -53,6 +52,16 @@ class Settings(BaseSettings):
     password_reset_from_name: str = Field(
         default="Yesh Mishak",
         alias="PASSWORD_RESET_FROM_NAME",
+    )
+    public_app_url: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_URL")
+    resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    resend_api_url: str = Field(default="https://api.resend.com/emails", alias="RESEND_API_URL")
+    email_from_address: str | None = Field(default=None, alias="EMAIL_FROM_ADDRESS")
+    email_verification_ttl_minutes: int = Field(default=60, alias="EMAIL_VERIFICATION_TTL_MINUTES")
+    email_verification_resend_cooldown_seconds: int = Field(
+        default=60,
+        alias="EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

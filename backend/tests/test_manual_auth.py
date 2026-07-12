@@ -102,7 +102,7 @@ def register_payload(**overrides: str) -> dict[str, str]:
     return payload
 
 
-def test_register_creates_manual_user_and_returns_token(monkeypatch) -> None:
+def test_register_creates_unverified_manual_user_without_session(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
@@ -111,12 +111,16 @@ def test_register_creates_manual_user_and_returns_token(monkeypatch) -> None:
 
     assert response.status_code == 201
     body = response.json()
-    assert body["access_token"]
+    assert "access_token" not in body
+    assert "token_type" not in body
     assert body["user"]["email"] == "manual@example.com"
     assert body["user"]["name"] == "Manual User"
     assert body["user"]["username"] == "manual-user"
     assert fake_client.users[0]["password_hash"] != "strongpass123"
     assert fake_client.users[0]["last_login"]
+    assert fake_client.users[0]["email_verified"] is False
+    assert body["email_verification_required"] is True
+    assert body["email_verification_sent"] is False
 
 
 def test_register_rejects_duplicate_username(monkeypatch) -> None:
@@ -186,6 +190,7 @@ def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
     register_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
     TestClient(app).post("/auth/register", json=register_payload())
+    register_client.users[0]["email_verified"] = True
 
     with caplog.at_level(logging.INFO, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -212,6 +217,7 @@ def test_login_accepts_valid_email_and_password(monkeypatch, caplog) -> None:
     register_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
     TestClient(app).post("/auth/register", json=register_payload())
+    register_client.users[0]["email_verified"] = True
 
     with caplog.at_level(logging.INFO, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -236,6 +242,7 @@ def test_login_email_is_case_insensitive(monkeypatch) -> None:
     register_client = FakeSupabaseClient()
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
     TestClient(app).post("/auth/register", json=register_payload())
+    register_client.users[0]["email_verified"] = True
 
     response = TestClient(app).post(
         "/auth/login",

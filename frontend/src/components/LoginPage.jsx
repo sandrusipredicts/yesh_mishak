@@ -4,8 +4,10 @@ import { useTranslation } from 'react-i18next'
 import {
   loginWithGoogle,
   loginWithPassword,
+  resendVerificationEmail,
   registerWithPassword,
   saveAuthSession,
+  verifyEmail,
 } from '../api/auth'
 import {
   initNativeGoogleAuth,
@@ -50,12 +52,23 @@ function loadGoogleScript() {
 
 function LoginPage({ notice = '', onForgotPassword, onLogin }) {
   const { t } = useTranslation()
+  const initialVerificationToken = (
+    window.location.pathname === '/verify-email'
+      ? new URLSearchParams(window.location.search).get('token') || ''
+      : ''
+  )
   const buttonRef = useRef(null)
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState(initialVerificationToken ? 'verification' : 'login')
   const [error, setError] = useState('')
   const [nativeAuthFeedback, setNativeAuthFeedback] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [nativeGoogleStatus, setNativeGoogleStatus] = useState('pending')
+  const [verificationEmail, setVerificationEmail] = useState('')
+  const [verificationMessage, setVerificationMessage] = useState('')
+  const [verificationStatus, setVerificationStatus] = useState(
+    initialVerificationToken ? 'verifying' : 'idle',
+  )
+  const [resendCooldown, setResendCooldown] = useState(0)
   const [loginForm, setLoginForm] = useState({
     username: '',
     password: '',
@@ -69,6 +82,32 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     password_confirm: '',
   })
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+
+  useEffect(() => {
+    if (!initialVerificationToken) {
+      return
+    }
+
+    let active = true
+    verifyEmail(initialVerificationToken)
+      .then((result) => {
+        if (!active) return
+        setVerificationStatus(result.status)
+      })
+      .catch(() => {
+        if (!active) return
+        setVerificationStatus('invalid')
+      })
+    return () => { active = false }
+  }, [initialVerificationToken])
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined
+    const timer = window.setInterval(() => {
+      setResendCooldown((value) => Math.max(0, value - 1))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [resendCooldown])
 
   const handleAuthSuccess = useCallback(async (authData) => {
     const sessionUser = await saveAuthSession(authData)
@@ -217,9 +256,22 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
 
     try {
       const authData = await loginWithPassword(loginForm)
-      await handleAuthSuccess(authData)
+      if (authData.email_verification_required) {
+        setVerificationEmail(authData.user?.email || loginForm.username.trim().toLowerCase())
+        setVerificationStatus('sent')
+        setMode('verification')
+      } else {
+        await handleAuthSuccess(authData)
+      }
     } catch (apiError) {
-      setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
+      const code = apiError?.response?.data?.code
+      if (code === 'EMAIL_NOT_VERIFIED') {
+        setVerificationEmail(loginForm.username.trim().toLowerCase())
+        setVerificationStatus('sent')
+        setMode('verification')
+      } else {
+        setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
+      }
     } finally {
       setIsLoading(false)
     }
@@ -267,12 +319,83 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
 
     try {
       const authData = await registerWithPassword(registerForm)
-      await handleAuthSuccess(authData)
+      if (authData.email_verification_required) {
+        setVerificationEmail(registerForm.email.trim().toLowerCase())
+        setVerificationStatus(authData.email_verification_sent ? 'sent' : 'delivery_pending')
+        setMode('verification')
+        setResendCooldown(60)
+      } else {
+        await handleAuthSuccess(authData)
+      }
     } catch (apiError) {
       setError(getApiErrorMessage(apiError, t('auth.accountCreateFailed')))
     } finally {
       setIsLoading(false)
     }
+  }
+
+  async function handleResendVerification() {
+    if (!verificationEmail || resendCooldown > 0 || isLoading) return
+    setIsLoading(true)
+    setVerificationMessage('')
+    try {
+      await resendVerificationEmail(verificationEmail)
+      setVerificationMessage(t('auth.resendAccepted'))
+      setResendCooldown(60)
+    } catch (apiError) {
+      const code = apiError?.response?.data?.code
+      setVerificationMessage(
+        code === 'VERIFICATION_COOLDOWN'
+          ? t('auth.resendCooldown')
+          : t('auth.accountCreateFailed'),
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  function returnToLogin() {
+    window.history.replaceState(null, '', '/')
+    setMode('login')
+    setVerificationStatus('idle')
+    setVerificationMessage('')
+  }
+
+  if (mode === 'verification') {
+    const statusMessage = {
+      verifying: t('auth.verifyingEmail'),
+      verified: t('auth.emailVerified'),
+      already_used: t('auth.verificationAlreadyUsed'),
+      expired: t('auth.verificationExpired'),
+      invalid: t('auth.verificationInvalid'),
+      sent: t('auth.verifyEmailSent', { email: verificationEmail }),
+      delivery_pending: t('auth.verifyEmailDeliveryPending'),
+    }[verificationStatus]
+
+    return (
+      <main className="login-page">
+        <section className="login-panel verification-panel" aria-labelledby="verification-title">
+          <h1 id="verification-title">{t('auth.verifyEmailTitle')}</h1>
+          <p role={verificationStatus === 'invalid' || verificationStatus === 'expired' ? 'alert' : 'status'}>
+            {statusMessage}
+          </p>
+          {verificationEmail && verificationStatus !== 'verified' && verificationStatus !== 'already_used' ? (
+            <button
+              className="auth-submit"
+              disabled={isLoading || resendCooldown > 0}
+              onClick={handleResendVerification}
+              type="button"
+            >
+              {t('auth.resendVerification')}{resendCooldown > 0 ? ` (${resendCooldown})` : ''}
+            </button>
+          ) : null}
+          {verificationMessage ? <p role="status">{verificationMessage}</p> : null}
+          <button className="auth-secondary" onClick={returnToLogin} type="button">
+            {t('auth.backToLogin')}
+          </button>
+        </section>
+      </main>
+    )
   }
 
   return (

@@ -17,7 +17,18 @@ create table if not exists users (
     created_at timestamptz not null default now(),
     last_login timestamptz,
     last_active timestamptz,
-    tokens_valid_after timestamptz
+    tokens_valid_after timestamptz,
+    email_verified boolean not null default true,
+    email_verified_at timestamptz
+);
+
+create table if not exists email_verification_tokens (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references users(id) on delete cascade,
+    token_hash text not null unique,
+    expires_at timestamptz not null,
+    created_at timestamptz not null default now(),
+    used_at timestamptz
 );
 
 create table if not exists user_identities (
