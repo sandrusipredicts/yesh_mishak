@@ -1,3 +1,5 @@
+import re
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth.passwords import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validate_password
@@ -7,9 +9,16 @@ class GoogleAuthRequest(BaseModel):
     token: str
 
 
-import re
-
 PHONE_REGEX = re.compile(r"^\+?[0-9]+$")
+
+
+def normalize_email_value(value: str) -> str:
+    email = value.strip().lower()
+    if not email:
+        raise ValueError("Email is required")
+    if "@" not in email or "." not in email.rsplit("@", maxsplit=1)[-1]:
+        raise ValueError("A valid email is required")
+    return email
 
 
 class RegisterRequest(BaseModel):
@@ -39,10 +48,7 @@ class RegisterRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        email = value.strip().lower()
-        if "@" not in email or "." not in email.rsplit("@", maxsplit=1)[-1]:
-            raise ValueError("A valid email is required")
-        return email
+        return normalize_email_value(value)
 
     @field_validator("phone_number")
     @classmethod
@@ -89,13 +95,26 @@ class EmailCheckRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        email = value.strip().lower()
-        if not email:
-            raise ValueError("Email is required")
-        if "@" not in email or "." not in email.rsplit("@", maxsplit=1)[-1]:
-            raise ValueError("A valid email is required")
-        return email
+        return normalize_email_value(value)
 
+
+class PasswordResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return normalize_email_value(value)
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    password_confirm: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 class AvailabilityResponse(BaseModel):

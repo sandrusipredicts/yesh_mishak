@@ -3,7 +3,8 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
 from app.auth.dependencies import invalidate_cached_user, require_active_user
@@ -12,17 +13,24 @@ from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
 from app.db.supabase import get_supabase_client
-from app.errors import raise_api_error
+from app.errors import error_response, raise_api_error
 from app.rate_limit import check_rate_limit_by_ip
 from app.schemas.auth import (
     AvailabilityResponse,
     EmailCheckRequest,
     GoogleAuthRequest,
     LoginRequest,
+    MessageResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
     RegisterRequest,
     TokenResponse,
     UsernameCheckRequest,
     UserResponse,
+)
+from app.services.password_reset import (
+    PasswordResetRateLimited,
+    PasswordResetService,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -114,6 +122,15 @@ def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
                 "exception_type": exc.__class__.__name__,
             },
         )
+
+
+def _client_ip(request: Request) -> str:
+    # Trust only ASGI's resolved peer. Production may enable Uvicorn proxy-header
+    # handling only for explicitly trusted Railway proxy addresses; application
+    # code never accepts a client-supplied forwarding header directly.
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 @router.post("/google", response_model=TokenResponse)
@@ -310,6 +327,50 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
         },
     )
     return token_response
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+def request_password_reset(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: PasswordResetRequest,
+) -> MessageResponse | JSONResponse:
+    try:
+        service = PasswordResetService()
+        result = service.request_password_reset(
+            email=payload.email,
+            client_ip=_client_ip(request),
+        )
+    except PasswordResetRateLimited as exc:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+            content=error_response(
+                code="RATE_LIMITED",
+                message="Too many requests. Please try again later.",
+            ),
+        )
+    if result.delivery_job is not None:
+        background_tasks.add_task(service.deliver_password_reset, result.delivery_job)
+    return MessageResponse(message=result.message)
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+def confirm_password_reset(request: Request, payload: PasswordResetConfirmRequest) -> MessageResponse | JSONResponse:
+    try:
+        result = PasswordResetService().confirm_password_reset(
+            token=payload.token,
+            password=payload.password,
+            password_confirm=payload.password_confirm,
+            client_ip=_client_ip(request),
+        )
+    except PasswordResetRateLimited as exc:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+            content=error_response(code="RATE_LIMITED", message="Too many requests. Please try again later."),
+        )
+    return MessageResponse(message=result["message"])
 
 
 @router.post("/logout")

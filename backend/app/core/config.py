@@ -33,6 +33,27 @@ class Settings(BaseSettings):
         default=300,
         alias="AUTH_USER_CACHE_TTL_SECONDS",
     )
+    password_reset_token_secret: str | None = Field(
+        default=None,
+        alias="PASSWORD_RESET_TOKEN_SECRET",
+    )
+    password_reset_token_ttl_minutes: int = Field(
+        default=30,
+        alias="PASSWORD_RESET_TOKEN_TTL_MINUTES",
+    )
+    public_web_base_url: str = Field(
+        default="https://yesh-mishak.com",
+        alias="PUBLIC_WEB_BASE_URL",
+    )
+    resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
+    password_reset_from_email: str | None = Field(
+        default=None,
+        alias="PASSWORD_RESET_FROM_EMAIL",
+    )
+    password_reset_from_name: str = Field(
+        default="Yesh Mishak",
+        alias="PASSWORD_RESET_FROM_NAME",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

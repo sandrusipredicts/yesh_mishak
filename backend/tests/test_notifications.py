@@ -3132,15 +3132,18 @@ def test_get_current_user_caching(fake_supabase, monkeypatch, users):
         assert expected_expiry_min <= expires_at <= expected_expiry_max
         
         # 2. Second lookup (Cache Hit)
-        # Empty DB to prove it gets from cache
+        # Cached user details are reused, but revocation fields are refreshed
+        # from the database so tokens_valid_after cannot be stale.
         original_users = list(fake_supabase.tables["users"])
-        fake_supabase.tables["users"] = []
-        
         user2 = deps.get_current_user(credentials)
         assert user2["id"] == user_id
-        
-        # Restore DB
-        fake_supabase.tables["users"] = original_users
+
+        matching_user = next(row for row in fake_supabase.tables["users"] if row["id"] == user_id)
+        matching_user["tokens_valid_after"] = "2999-01-01T00:00:00+00:00"
+        with pytest.raises(HTTPException) as exc_info:
+            deps.get_current_user(credentials)
+        assert exc_info.value.status_code == 401
+        matching_user["tokens_valid_after"] = None
         
         # 3. Simulate TTL Expiration
         expires_at, cached_val = deps._user_cache[user_id]
