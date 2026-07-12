@@ -6,6 +6,8 @@ import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
 import { shareGame } from '../api/gameSharing'
+import { cancelGameReminder, getStoredGameReminder, scheduleGameReminder } from '../api/gameReminders'
+import { isNativeRuntime } from '../api/sessionStorage'
 import { isGameShareable } from '../utils/gameShareability'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
@@ -108,6 +110,9 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
+  const [isReminderBusy, setIsReminderBusy] = useState(false)
+  const [reminderMessage, setReminderMessage] = useState('')
+  const [reminderError, setReminderError] = useState('')
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
@@ -148,6 +153,31 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   )
   const cannotJoinOrLeave = isLoading || !gameId || !normalizedCurrentUserId || !isActionableGame
   const cannotUseActiveControls = isLoading || !gameId || !normalizedCurrentUserId || !isActiveGame
+  // Reminders are a native-only capability (ISSUE-290/ISSUE-289) offered
+  // only for scheduled games the current user actually joined — reminding
+  // about a game you're not attending, or one already underway, is not
+  // useful and would need different eligibility rules.
+  const canOfferReminder = Boolean(gameId) && isUpcomingGame && isParticipant && isNativeRuntime()
+  // Derived, not synced: read directly from storage during render, the same
+  // way normalizedCurrentUserId reads getStoredSessionUserId() above — a
+  // cheap localStorage lookup needs no memoization, and any setState call
+  // elsewhere in this component already triggers the re-render that picks
+  // up a fresh value.
+  const hasReminder = Boolean(getStoredGameReminder(gameId))
+
+  // Reconcile stale reminders: if the game is no longer joinable/upcoming
+  // (cancelled, finished, or the user left) but a reminder is still stored
+  // for it, cancel the local notification so it never fires for content the
+  // user can no longer act on. Purely a side effect on external storage —
+  // the reminder button is already hidden by canOfferReminder, so no
+  // component state needs to change as a result.
+  useEffect(() => {
+    if (!gameId || !hasReminder || canOfferReminder) {
+      return
+    }
+
+    cancelGameReminder(gameId)
+  }, [gameId, hasReminder, canOfferReminder])
 
   useEffect(() => {
     const refreshAt = isUpcomingGame ? scheduledAt : expiresAt
@@ -191,6 +221,9 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
     setSuccessMessage('')
     try {
       await leaveGame(gameId, normalizedCurrentUserId)
+      if (hasReminder) {
+        await cancelGameReminder(gameId)
+      }
       await onUpdate?.()
     } catch (leaveError) {
       setError(getApiErrorMessage(leaveError, t('game.leaveFailed')))
@@ -249,6 +282,51 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
       }
     } finally {
       setIsSharing(false)
+    }
+  }
+
+  async function handleScheduleReminder() {
+    if (isReminderBusy) {
+      return
+    }
+
+    setIsReminderBusy(true)
+    setReminderError('')
+    setReminderMessage('')
+    try {
+      const result = await scheduleGameReminder({ game, fieldName, t })
+
+      if (result.outcome === 'scheduled') {
+        setReminderMessage(t('game.remindScheduled'))
+      } else if (result.outcome === 'denied') {
+        setReminderError(t('game.remindDenied'))
+      } else {
+        // 'unsupported' and 'unavailable'/'failed' all resolve to the same
+        // neutral message — never expose raw plugin/native error details.
+        setReminderError(t('game.remindUnavailable'))
+      }
+    } catch {
+      setReminderError(t('game.remindFailed'))
+    } finally {
+      setIsReminderBusy(false)
+    }
+  }
+
+  async function handleCancelReminder() {
+    if (isReminderBusy) {
+      return
+    }
+
+    setIsReminderBusy(true)
+    setReminderError('')
+    setReminderMessage('')
+    try {
+      await cancelGameReminder(gameId)
+      setReminderMessage(t('game.remindCancelled'))
+    } catch {
+      setReminderError(t('game.remindFailed'))
+    } finally {
+      setIsReminderBusy(false)
     }
   }
 
@@ -399,7 +477,21 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
             {t('game.shareButton')}
           </button>
         ) : null}
+
+        {canOfferReminder ? (
+          <button
+            type="button"
+            className="secondary-panel-button"
+            onClick={hasReminder ? handleCancelReminder : handleScheduleReminder}
+            disabled={isReminderBusy}
+          >
+            {hasReminder ? t('game.remindCancel') : t('game.remind')}
+          </button>
+        ) : null}
       </div>
+
+      {reminderMessage ? <p className="panel-success">{reminderMessage}</p> : null}
+      {reminderError ? <p className="panel-error" role="alert">{reminderError}</p> : null}
 
       <Modal
         isOpen={showCloseConfirm}
