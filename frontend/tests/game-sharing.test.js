@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { shareGame } from '../src/api/gameSharing.js'
+import { copyGameLink, shareGame } from '../src/api/gameSharing.js'
 import en from '../src/locales/en/common.js'
 
 function resolveKey(key) {
@@ -155,6 +155,37 @@ test('short-circuits to unavailable when the game is unshareable', async () => {
 
   assert.deepEqual(result, { outcome: 'unavailable', mechanism: 'none', reason: 'invalid-resource' })
   assert.equal(invokeShareCalled, false)
+  assert.equal(clipboardCalled, false)
+})
+
+test('copyGameLink copies only the canonical game URL', async () => {
+  let copiedText = null
+  const result = await copyGameLink(
+    makeGame(),
+    { copyText: async (text) => { copiedText = text } },
+  )
+
+  assert.deepEqual(result, { outcome: 'copied', mechanism: 'clipboard', url: EXPECTED_URL })
+  assert.equal(copiedText, EXPECTED_URL)
+})
+
+test('copyGameLink reports failure when clipboard rejects', async () => {
+  const result = await copyGameLink(
+    makeGame(),
+    { copyText: async () => { throw new Error('denied') } },
+  )
+
+  assert.deepEqual(result, { outcome: 'failed', mechanism: 'clipboard', reason: 'clipboard-write-failed' })
+})
+
+test('copyGameLink does not copy a malformed game URL', async () => {
+  let clipboardCalled = false
+  const result = await copyGameLink(
+    makeGame({ id: undefined }),
+    { copyText: async () => { clipboardCalled = true } },
+  )
+
+  assert.deepEqual(result, { outcome: 'unavailable', mechanism: 'none', reason: 'invalid-resource' })
   assert.equal(clipboardCalled, false)
 })
 

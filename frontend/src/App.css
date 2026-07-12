@@ -826,6 +826,11 @@ select {
   font-size: 22px;
 }
 
+.field-share-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .approval-badge {
   display: inline-flex;
   border-radius: 999px;
@@ -2501,6 +2506,7 @@ select {
 
 @media (max-width: 640px), (max-height: 520px) {
   .field-details-panel,
+  .game-panel,
   .notifications-list,
   .field-selection-list,
   .city-autocomplete-suggestions,
@@ -2513,7 +2519,8 @@ select {
     overscroll-behavior: contain;
   }
 
-  .field-details-panel {
+  .field-details-panel,
+  .game-panel {
     inset-inline-start: 0;
     bottom: 0;
     width: 100%;
@@ -2847,10 +2854,9 @@ select {
   .notifications-modal,
   .add-field-modal,
   .open-game-modal,
-  .field-report-modal {
-    padding: 16px !important;
-  }
-  .field-details-panel {
+  .field-report-modal,
+  .field-details-panel,
+  .game-panel {
     padding: 16px !important;
   }
   .game-time-list {

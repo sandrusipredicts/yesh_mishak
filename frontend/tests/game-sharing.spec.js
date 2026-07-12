@@ -110,6 +110,39 @@ async function mockNativeShare(page, { mode = 'available' } = {}) {
   }, mode)
 }
 
+async function mockClipboard(page, { mode = 'success' } = {}) {
+  await page.addInitScript((clipboardMode) => {
+    window.__clipboardWrites = []
+
+    if (clipboardMode === 'fallback') {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+      document.execCommand = (command) => {
+        if (command !== 'copy') {
+          return false
+        }
+        const textarea = document.querySelector('textarea')
+        window.__clipboardWrites.push(textarea?.value ?? '')
+        return true
+      }
+      return
+    }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: async (text) => {
+          window.__clipboardWrites.push(text)
+          if (clipboardMode === 'reject') {
+            throw new Error('Clipboard rejected')
+          }
+        },
+      },
+      configurable: true,
+    })
+
+    document.execCommand = () => false
+  }, mode)
+}
+
 async function mockMapPageRequests(page, { fields = [baseField], games = {} } = {}) {
   await page.route(/\/fields\/?(\?.*)?$/, (route) => fulfillJson(route, fields))
   await page.route(/\/notifications(\/.*)?(\?.*)?$/, (route) => {
@@ -166,6 +199,16 @@ test('shows the Share game button for an open game', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
 })
 
+test('shows the Copy game link button for an open game', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockClipboard(page)
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('button', { name: 'Copy game link' })).toBeVisible()
+})
+
 test('shows the Share game button for a full game', async ({ page }) => {
   await mockNativeShare(page)
   await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: fullGame }] })
@@ -212,6 +255,50 @@ test('invokes native share with the correct localized payload and canonical deep
         url: `https://yesh-mishak.com/game/${OPEN_GAME_ID}`,
       },
     ])
+})
+
+test('copies the canonical game link and shows success feedback after copy succeeds', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockClipboard(page)
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+
+  await openFieldDetails(page)
+  await page.getByRole('button', { name: 'Copy game link' }).click()
+
+  await expect(page.getByText('Game link copied.')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => window.__clipboardWrites))
+    .toEqual([`https://yesh-mishak.com/game/${OPEN_GAME_ID}`])
+})
+
+test('shows game copy failure feedback when clipboard write fails', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockClipboard(page, { mode: 'reject' })
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+
+  await openFieldDetails(page)
+  await page.getByRole('button', { name: 'Copy game link' }).click()
+
+  await expect(page.getByRole('alert')).toContainText('Could not copy this game link. Please try again.')
+  await expect(page.getByText('Game link copied.')).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => window.__clipboardWrites))
+    .toEqual([`https://yesh-mishak.com/game/${OPEN_GAME_ID}`])
+})
+
+test('copies the game link through the DOM fallback when navigator.clipboard is unavailable', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockClipboard(page, { mode: 'fallback' })
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+
+  await openFieldDetails(page)
+  await page.getByRole('button', { name: 'Copy game link' }).click()
+
+  await expect(page.getByText('Game link copied.')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => window.__clipboardWrites))
+    .toEqual([`https://yesh-mishak.com/game/${OPEN_GAME_ID}`])
+  await expect(page.locator('textarea')).toHaveCount(0)
 })
 
 test('a recipient opening the generated link resolves to the same game (ISSUE-272 deep link routing, unmodified)', async ({ page }) => {

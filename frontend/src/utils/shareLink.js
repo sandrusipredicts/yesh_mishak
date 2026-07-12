@@ -17,3 +17,11 @@ export function buildCanonicalShareLink(entityType, resourceId) {
 
   return `https://${CANONICAL_APP_LINK_HOST}/${route}/${resourceId.toLowerCase()}`
 }
+
+export function buildGameShareUrl(gameId) {
+  return buildCanonicalShareLink('game', gameId)
+}
+
+export function buildFieldShareUrl(fieldId) {
+  return buildCanonicalShareLink('field', fieldId)
+}

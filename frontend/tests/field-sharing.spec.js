@@ -90,6 +90,26 @@ async function mockMapPageRequests(page, { fields = [approvedField] } = {}) {
   })
 }
 
+async function mockClipboard(page, { mode = 'success' } = {}) {
+  await page.addInitScript((clipboardMode) => {
+    window.__clipboardWrites = []
+
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: async (text) => {
+          window.__clipboardWrites.push(text)
+          if (clipboardMode === 'reject') {
+            throw new Error('Clipboard rejected')
+          }
+        },
+      },
+      configurable: true,
+    })
+
+    document.execCommand = () => false
+  }, mode)
+}
+
 test.beforeEach(async ({ page }) => {
   await seedAuthenticatedUser(page)
 })
@@ -104,6 +124,7 @@ test('shows share button for an approved field', async ({ page }) => {
   ).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Share field' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy field link' })).toBeVisible()
 })
 
 test('does not show share button for a pending field', async ({ page }) => {
@@ -116,6 +137,31 @@ test('does not show share button for a pending field', async ({ page }) => {
   ).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Share field' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Copy field link' })).toHaveCount(0)
+})
+
+test('copies the canonical field link and shows success feedback after copy succeeds', async ({ page }) => {
+  await mockClipboard(page)
+  await mockMapPageRequests(page, { fields: [approvedField] })
+
+  await page.goto(`/field/${FIELD_ID}`)
+  await page.getByRole('button', { name: 'Copy field link' }).click()
+
+  await expect(page.getByText('Field link copied.')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => window.__clipboardWrites))
+    .toEqual([`https://yesh-mishak.com/fields/${FIELD_ID}`])
+})
+
+test('shows field copy failure feedback when clipboard write fails', async ({ page }) => {
+  await mockClipboard(page, { mode: 'reject' })
+  await mockMapPageRequests(page, { fields: [approvedField] })
+
+  await page.goto(`/field/${FIELD_ID}`)
+  await page.getByRole('button', { name: 'Copy field link' }).click()
+
+  await expect(page.getByText('Could not copy this field link. Please try again.')).toBeVisible()
+  await expect(page.getByText('Field link copied.')).toHaveCount(0)
 })
 
 test('opening a second field link replaces the selected field without duplicate panels', async ({ page }) => {
