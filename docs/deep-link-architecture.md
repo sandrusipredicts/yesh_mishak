@@ -588,3 +588,30 @@ The deep link architecture is fully defined. All link types (game, field, notifi
 - [x] Implementation sequence recommended (13 ordered issues)
 - [x] Architecture verdict stated (READY FOR APPROVAL)
 - [x] Scope confirmed documentation-only
+
+---
+
+## 23. ISSUE-272 Implementation Notes
+
+**Date:** 2026-07-12
+**Status:** Game routing implemented. Field routing remains ISSUE-273's scope.
+
+### What Was Built
+
+- **Backend:** `GET /games/{game_id}` (`backend/app/routers/games.py`) — public, no auth. Returns the game row with participants attached. Applies the existing lazy-expiry transition (`finish_expired_games`) only when the game is currently `open`/`full`, matching every other caller of that helper; a game that is already `finished`/`cancelled` is returned as-is (see the fix note below).
+- **Frontend routing:** `frontend/src/utils/appLinkRoutes.js` gained `parseAppPathname(pathname, search)`, which reuses the same segment-matching rules as `normalizeAppLinkUrl` (extracted into a shared `resolvePathSegments` helper) but without host/protocol validation, since a same-origin `window.location.pathname` doesn't need it. This is what actually makes `/game/{id}` resolvable outside the ISSUE-270 canonical-host gate — including local dev, staging, and Playwright tests.
+- **`frontend/src/App.jsx`:** two entry points now feed a single `applyGameDeepLinkTarget` hand-off, persisted to `sessionStorage` (`pending_game_deep_link`) so it survives a login redirect or reload: (1) `handleIncomingAppLink`, for native `appUrlOpen`/launch URLs and the canonical-host page-load case from ISSUE-270; (2) a new pathname-driven effect, for same-origin SPA navigation. Because `MapPage` (and therefore deep-link resolution) only renders once `currentUser` and onboarding are both satisfied, a logged-out arrival naturally waits at the login screen and resumes afterward — no separate auth-gate branch was needed.
+- **`frontend/src/pages/MapPage.jsx`:** consumes `gameDeepLinkTarget`, fetches the game, fetches its field, and opens `FieldDetailsPanel`/`GamePanel` — both reused unchanged. A finished/cancelled game is injected as `field.active_game` when it isn't already there (those statuses are excluded from the field's normal `active_game`/`upcoming_games`), so `GamePanel`'s existing `!isActionableGame` → "This game has ended." messaging (already built, untouched) covers the closed-game requirement without new UI.
+- **Unavailable/loading states** reuse the existing `.location-notice`/`.map-loading` classes — no new CSS.
+
+### Bug Found and Fixed During Testing
+
+`finish_expired_games` (pre-existing, `game_lifecycle.py`) does not check current status before applying its lazy-expiry transition. Every prior caller pre-filtered to `open`/`full` games, so this was latent. The new endpoint is the first caller that can receive an already-terminal game; without a guard, a `cancelled` game whose `expires_at` (set at creation) has since passed would be silently overwritten to `finished` on read. Fixed by only calling `finish_expired_games` when `status in ACTIVE_GAME_STATUSES`. Covered by `test_get_cancelled_game_with_past_expires_at_stays_cancelled` in `backend/tests/test_game_deep_link.py`.
+
+### Known Limitations
+
+- **No auto-join.** `/game/{id}/join` is parsed and the `action` is threaded through to `MapPage`, but nothing auto-triggers the join API call. Executing a side-effecting action purely from a link tap, without an explicit in-app confirmation, was judged out of scope for a routing issue — the user's own ISSUE-272 requirements don't ask for it either. `GamePanel`'s existing join button is available immediately once the panel opens.
+- **"Deleted" and "missing" are the same response.** The backend has no hard-delete path for `games` (confirmed via `schema.sql` and the router — only `game_players`/`push_tokens`/`notifications` rows are ever deleted). Both surface as 404 → the same "Game unavailable" state. There is no independent "deleted" state to distinguish.
+- **Link expiration is not implemented.** There is no time-boxed or single-use link concept anywhere in the codebase or architecture doc beyond a game's own `expires_at` (which governs game state, not link validity). Per the issue's own instruction, this is documented rather than built.
+- **Field deep links (`/field/{id}`) remain unresolved** — `parseAppPathname`/`normalizeAppLinkUrl` still parse them, but no fetch/UI wiring exists yet. That is ISSUE-273.
+- **Marketing links (`/m/{slug}`), sharing, and navigation** are unchanged and out of scope, per the issue.

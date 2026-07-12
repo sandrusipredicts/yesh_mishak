@@ -58,3 +58,8 @@ export async function getMyGames() {
   const response = await api.get('/games/me')
   return response.data
 }
+
+export async function getGameById(gameId) {
+  const response = await retrySafeRead(() => api.get(`/games/${requireGameId(gameId)}`))
+  return response.data
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { normalizeAppLinkUrl } from '../src/utils/appLinkRoutes.js'
+import { normalizeAppLinkUrl, parseAppPathname } from '../src/utils/appLinkRoutes.js'
 
 const FIELD_ID = '123e4567-e89b-42d3-a456-426614174000'
 const GAME_ID = '987e6543-e21b-42d3-a456-426614174999'
@@ -85,6 +85,73 @@ test('falls unsupported paths back to home', () => {
     ok: true,
     routeType: 'fallback',
     reason: 'unsupported-path',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname resolves a same-origin game path regardless of host', () => {
+  assert.deepEqual(parseAppPathname(`/game/${GAME_ID}`), {
+    ok: true,
+    routeType: 'game',
+    resourceId: GAME_ID,
+    action: '',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname resolves the join action suffix', () => {
+  assert.deepEqual(parseAppPathname(`/games/${GAME_ID}/join`), {
+    ok: true,
+    routeType: 'game',
+    resourceId: GAME_ID,
+    action: 'join',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname falls back gracefully for a malformed game id', () => {
+  assert.deepEqual(parseAppPathname('/game/not-a-uuid'), {
+    ok: true,
+    routeType: 'fallback',
+    reason: 'invalid-game-id',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname falls back gracefully for an empty game id', () => {
+  assert.deepEqual(parseAppPathname('/game/'), {
+    ok: true,
+    routeType: 'fallback',
+    reason: 'unsupported-path',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname falls back gracefully for an unsupported route', () => {
+  assert.deepEqual(parseAppPathname('/settings'), {
+    ok: true,
+    routeType: 'fallback',
+    reason: 'unsupported-path',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname resolves the root path to home', () => {
+  assert.deepEqual(parseAppPathname('/'), {
+    ok: true,
+    routeType: 'home',
+    resourceId: '',
+    action: '',
+    navigationPath: '/',
+  })
+})
+
+test('parseAppPathname preserves legacy game_id query params', () => {
+  assert.deepEqual(parseAppPathname('/', `?game_id=${GAME_ID}`), {
+    ok: true,
+    routeType: 'game',
+    resourceId: GAME_ID,
+    action: '',
     navigationPath: '/',
   })
 })

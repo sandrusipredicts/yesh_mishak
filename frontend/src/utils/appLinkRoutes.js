@@ -60,27 +60,9 @@ function parseLegacyQuery(searchParams) {
   return null
 }
 
-export function normalizeAppLinkUrl(rawUrl) {
-  let url
-
-  try {
-    url = new URL(rawUrl)
-  } catch {
-    return buildRejectedResult('malformed-url')
-  }
-
-  if (url.protocol !== 'https:') {
-    return buildRejectedResult('non-https-url')
-  }
-
-  if (url.hostname !== CANONICAL_APP_LINK_HOST) {
-    return buildRejectedResult('wrong-host')
-  }
-
-  const segments = url.pathname.split('/').filter(Boolean)
-
+function resolvePathSegments(segments, searchParams) {
   if (segments.length === 0) {
-    return parseLegacyQuery(url.searchParams) ?? buildSupportedResult({
+    return parseLegacyQuery(searchParams) ?? buildSupportedResult({
       routeType: 'home',
       navigationPath: '/',
     })
@@ -127,4 +109,39 @@ export function normalizeAppLinkUrl(rawUrl) {
   }
 
   return buildFallbackResult('unsupported-path')
+}
+
+export function normalizeAppLinkUrl(rawUrl) {
+  let url
+
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return buildRejectedResult('malformed-url')
+  }
+
+  if (url.protocol !== 'https:') {
+    return buildRejectedResult('non-https-url')
+  }
+
+  if (url.hostname !== CANONICAL_APP_LINK_HOST) {
+    return buildRejectedResult('wrong-host')
+  }
+
+  const segments = url.pathname.split('/').filter(Boolean)
+
+  return resolvePathSegments(segments, url.searchParams)
+}
+
+// Same-origin counterpart to normalizeAppLinkUrl: resolves the SPA's own
+// window.location.pathname (set via history.pushState or a direct browser
+// load) into a deep-link target. Host/protocol are not re-validated here
+// because the pathname is already same-origin by construction; it reuses
+// the identical segment-matching rules so game/field routes never diverge
+// between the two arrival paths (external URL vs. in-app navigation).
+export function parseAppPathname(pathname, search = '') {
+  const segments = String(pathname || '').split('/').filter(Boolean)
+  const searchParams = new URLSearchParams(search)
+
+  return resolvePathSegments(segments, searchParams)
 }

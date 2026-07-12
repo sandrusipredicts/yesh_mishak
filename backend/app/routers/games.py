@@ -466,6 +466,16 @@ def get_my_games(current_user: dict[str, Any] = Depends(require_active_user)):
     }
 
 
+@router.get("/{game_id}")
+def get_game(game_id: str):
+    game_id = validate_uuid_id(game_id, "game_id")
+    supabase = get_supabase_client()
+    game = _get_single_with_client(supabase, "games", game_id, "Game not found")
+    if game.get("status") in ACTIVE_GAME_STATUSES:
+        finish_expired_games([game], supabase=supabase)
+    return attach_participants_to_games([game])[0]
+
+
 def _attach_field_names(games: list[dict[str, Any]], supabase: Any) -> list[dict[str, Any]]:
     if not games:
         return []
