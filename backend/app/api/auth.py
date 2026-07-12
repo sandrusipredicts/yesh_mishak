@@ -3,7 +3,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
@@ -125,9 +125,9 @@ def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", maxsplit=1)[0].strip()
+    # Trust only ASGI's resolved peer. Production may enable Uvicorn proxy-header
+    # handling only for explicitly trusted Railway proxy addresses; application
+    # code never accepts a client-supplied forwarding header directly.
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -332,10 +332,12 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
 @router.post("/password-reset/request", response_model=MessageResponse)
 def request_password_reset(
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: PasswordResetRequest,
 ) -> MessageResponse | JSONResponse:
     try:
-        result = PasswordResetService().request_password_reset(
+        service = PasswordResetService()
+        result = service.request_password_reset(
             email=payload.email,
             client_ip=_client_ip(request),
         )
@@ -348,16 +350,26 @@ def request_password_reset(
                 message="Too many requests. Please try again later.",
             ),
         )
+    if result.delivery_job is not None:
+        background_tasks.add_task(service.deliver_password_reset, result.delivery_job)
     return MessageResponse(message=result.message)
 
 
 @router.post("/password-reset/confirm", response_model=MessageResponse)
-def confirm_password_reset(payload: PasswordResetConfirmRequest) -> MessageResponse:
-    result = PasswordResetService().confirm_password_reset(
-        token=payload.token,
-        password=payload.password,
-        password_confirm=payload.password_confirm,
-    )
+def confirm_password_reset(request: Request, payload: PasswordResetConfirmRequest) -> MessageResponse | JSONResponse:
+    try:
+        result = PasswordResetService().confirm_password_reset(
+            token=payload.token,
+            password=payload.password,
+            password_confirm=payload.password_confirm,
+            client_ip=_client_ip(request),
+        )
+    except PasswordResetRateLimited as exc:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+            content=error_response(code="RATE_LIMITED", message="Too many requests. Please try again later."),
+        )
     return MessageResponse(message=result["message"])
 
 

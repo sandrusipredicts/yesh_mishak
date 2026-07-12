@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import hmac
 import re
 import threading
+import time
 from typing import Any
 
 import jwt as pyjwt
@@ -76,8 +77,14 @@ class FakeRpc:
     def execute(self) -> FakeResponse:
         if self.name == "check_password_reset_rate_limit":
             return FakeResponse(data=self.client.check_rate_limit(self.params))
+        if self.name in {"check_password_reset_request_rate_limit", "check_password_reset_confirm_rate_limit"}:
+            return FakeResponse(data=self.client.check_rate_limit(self.params))
         if self.name == "create_password_reset_token":
             return FakeResponse(data=self.client.create_reset_token(self.params))
+        if self.name == "finalize_password_reset_delivery":
+            return FakeResponse(data=[self.client.finalize_delivery(self.params)])
+        if self.name == "precheck_password_reset_token":
+            return FakeResponse(data=[self.client.precheck_reset_token(self.params)])
         if self.name == "consume_password_reset_token":
             return FakeResponse(data=[self.client.consume_reset_token(self.params)])
         raise AssertionError(f"Unexpected RPC {self.name}")
@@ -91,6 +98,7 @@ class FakeResetSupabaseClient:
         }
         self._lock = threading.Lock()
         self.rate_limit_result: dict[str, Any] = {"allowed": True}
+        self.rate_limit_calls: list[dict[str, Any]] = []
         self.fail_create = False
 
     def table(self, table_name: str) -> FakeQuery:
@@ -100,7 +108,9 @@ class FakeResetSupabaseClient:
         return FakeRpc(self, name, params)
 
     def check_rate_limit(self, params: dict[str, Any]) -> dict[str, Any]:
-        assert "@" not in params["p_email_key"]
+        self.rate_limit_calls.append(params)
+        if "p_email_key" in params:
+            assert "@" not in params["p_email_key"]
         assert "." not in params["p_ip_key"]
         return self.rate_limit_result
 
@@ -124,12 +134,45 @@ class FakeResetSupabaseClient:
                 "status": "pending_delivery",
                 "delivery_status": "pending",
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "expires_at": params["p_expires_at"],
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=params["p_ttl_minutes"])
+                ).isoformat(),
                 "consumed_at": None,
                 "invalidated_at": None,
             }
             self.tables["password_reset_tokens"].append(row)
             return [{"id": row["id"]}]
+
+    def finalize_delivery(self, params: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            token = next((row for row in self.tables["password_reset_tokens"] if row["token_hash"] == params["p_token_hash"]), None)
+            if token is None:
+                return {"result": "missing", "activated": False}
+            pending = (
+                token["status"] == "pending_delivery"
+                and token["delivery_status"] == "pending"
+                and token.get("invalidated_at") is None
+                and token.get("consumed_at") is None
+            )
+            if params["p_accepted"] and pending and datetime.fromisoformat(token["expires_at"]) > datetime.now(timezone.utc):
+                token.update(status="active", delivery_status="sent")
+                return {"result": "active", "activated": True}
+            if not params["p_accepted"] and pending:
+                token.update(status="delivery_failed", delivery_status="failed", invalidated_at=datetime.now(timezone.utc).isoformat())
+                return {"result": "delivery_failed", "activated": False}
+            return {"result": "unchanged", "activated": False}
+
+    def precheck_reset_token(self, params: dict[str, Any]) -> dict[str, Any]:
+        token = next((row for row in self.tables["password_reset_tokens"] if row["token_hash"] == params["p_token_hash"]), None)
+        if token is None:
+            return {"result": "invalid"}
+        if token.get("consumed_at") or token["status"] == "consumed":
+            return {"result": "consumed"}
+        if token.get("invalidated_at") or token["status"] in {"invalidated", "delivery_failed"}:
+            return {"result": "invalid"}
+        if datetime.fromisoformat(token["expires_at"]) <= datetime.now(timezone.utc):
+            return {"result": "expired"}
+        return {"result": "usable" if token["status"] == "active" else "invalid"}
 
     def consume_reset_token(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -155,9 +198,10 @@ class FakeResetSupabaseClient:
 
             user = next(row for row in self.tables["users"] if row["id"] == token["user_id"])
             user["password_hash"] = params["p_password_hash"]
-            user["tokens_valid_after"] = params["p_tokens_valid_after"]
+            reset_at = datetime.now(timezone.utc).isoformat()
+            user["tokens_valid_after"] = reset_at
             token["status"] = "consumed"
-            token["consumed_at"] = params["p_tokens_valid_after"]
+            token["consumed_at"] = reset_at
             for other in self.tables["password_reset_tokens"]:
                 if (
                     other is not token
@@ -167,7 +211,7 @@ class FakeResetSupabaseClient:
                     and other.get("invalidated_at") is None
                 ):
                     other["status"] = "invalidated"
-                    other["invalidated_at"] = params["p_tokens_valid_after"]
+                    other["invalidated_at"] = reset_at
             return {"result": "success", "user_id": token["user_id"]}
 
 
@@ -176,13 +220,14 @@ class FakeEmailDelivery:
         self.result = result or EmailDeliveryResult(accepted=True, provider_message_id="msg_1")
         self.sent: list[dict[str, str]] = []
 
-    def send_email(self, *, to_email: str, subject: str, html_body: str, text_body: str) -> EmailDeliveryResult:
+    def send_email(self, *, to_email: str, subject: str, html_body: str, text_body: str, idempotency_key: str | None = None) -> EmailDeliveryResult:
         self.sent.append(
             {
                 "to_email": to_email,
                 "subject": subject,
                 "html_body": html_body,
                 "text_body": text_body,
+                "idempotency_key": idempotency_key or "",
             }
         )
         return self.result
@@ -587,3 +632,110 @@ def test_sensitive_token_and_full_url_absent_from_logs(monkeypatch, caplog) -> N
     assert raw_token not in caplog.text
     assert "https://yesh-mishak.com/reset-password?token=" not in caplog.text
     assert "user@example.com" not in caplog.text
+
+
+def test_late_delivery_cannot_reactivate_superseded_token(monkeypatch) -> None:
+    configure_settings(monkeypatch)
+    fake_client = FakeResetSupabaseClient([password_user()])
+    email = FakeEmailDelivery()
+    service = PasswordResetService(email_delivery=email, supabase_client=fake_client)
+
+    job_a = service.request_password_reset(email="user@example.com", client_ip="peer").delivery_job
+    job_b = service.request_password_reset(email="user@example.com", client_ip="peer").delivery_job
+    assert job_a and job_b
+
+    service.deliver_password_reset(job_a)
+    service.deliver_password_reset(job_b)
+
+    token_a, token_b = fake_client.tables["password_reset_tokens"]
+    assert token_a["status"] == "invalidated"
+    assert token_a["invalidated_at"] is not None
+    assert token_b["status"] == "active"
+    with pytest.raises(Exception) as exc_info:
+        service.confirm_password_reset(
+            token=job_a.raw_token,
+            password="newpassword123",
+            password_confirm="newpassword123",
+            client_ip="peer",
+        )
+    assert getattr(exc_info.value, "status_code", None) == 400
+
+
+def test_request_creation_does_not_wait_for_slow_provider(monkeypatch) -> None:
+    configure_settings(monkeypatch)
+    fake_client = FakeResetSupabaseClient([password_user()])
+
+    class SlowEmail(FakeEmailDelivery):
+        def send_email(self, **kwargs: Any) -> EmailDeliveryResult:
+            time.sleep(0.5)
+            return super().send_email(**kwargs)
+
+    email = SlowEmail()
+    service = PasswordResetService(email_delivery=email, supabase_client=fake_client)
+    started = time.perf_counter()
+    eligible = service.request_password_reset(email="user@example.com", client_ip="peer")
+    elapsed = time.perf_counter() - started
+    unknown = service.request_password_reset(email="missing@example.com", client_ip="other-peer")
+
+    assert elapsed < 0.2
+    assert email.sent == []
+    assert eligible.message == unknown.message == "If an eligible account exists, password reset instructions will be sent."
+    assert eligible.delivery_job is not None
+    assert unknown.delivery_job is None
+
+
+@pytest.mark.parametrize("token_state", ["invalid", "expired", "consumed"])
+def test_unusable_token_does_not_invoke_bcrypt(monkeypatch, token_state: str) -> None:
+    configure_settings(monkeypatch)
+    fake_client = FakeResetSupabaseClient([password_user()])
+    email = FakeEmailDelivery()
+    service = PasswordResetService(email_delivery=email, supabase_client=fake_client)
+    raw_token = "random-token-value-with-enough-length"
+    if token_state != "invalid":
+        job = service.request_password_reset(email="user@example.com", client_ip="peer").delivery_job
+        assert job
+        service.deliver_password_reset(job)
+        raw_token = job.raw_token
+        row = fake_client.tables["password_reset_tokens"][0]
+        if token_state == "expired":
+            row["expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        else:
+            row.update(status="consumed", consumed_at=datetime.now(timezone.utc).isoformat())
+
+    monkeypatch.setattr("app.services.password_reset.hash_password", lambda _: pytest.fail("bcrypt invoked"))
+    with pytest.raises(Exception) as exc_info:
+        service.confirm_password_reset(
+            token=raw_token,
+            password="newpassword123",
+            password_confirm="newpassword123",
+            client_ip="peer",
+        )
+    assert getattr(exc_info.value, "status_code", None) == 400
+
+
+def test_confirm_uses_database_backed_ip_and_token_throttle(monkeypatch) -> None:
+    configure_settings(monkeypatch)
+    fake_client = FakeResetSupabaseClient([password_user()])
+    service = PasswordResetService(email_delivery=FakeEmailDelivery(), supabase_client=fake_client)
+    with pytest.raises(Exception):
+        service.confirm_password_reset(
+            token="invalid-token-value-with-enough-length",
+            password="newpassword123",
+            password_confirm="newpassword123",
+            client_ip="198.51.100.8",
+        )
+    confirm_call = next(call for call in fake_client.rate_limit_calls if "p_token_key" in call)
+    assert set(confirm_call) == {"p_token_key", "p_ip_key"}
+    assert "198.51.100.8" not in str(confirm_call)
+
+
+def test_untrusted_forwarded_for_cannot_change_rate_limit_ip(monkeypatch) -> None:
+    configure_settings(monkeypatch)
+    fake_client = FakeResetSupabaseClient()
+    patch_password_reset(monkeypatch, fake_client, FakeEmailDelivery())
+    client = TestClient(app)
+    client.post("/auth/password-reset/request", json={"email": "one@example.com"}, headers={"X-Forwarded-For": "1.1.1.1"})
+    client.post("/auth/password-reset/request", json={"email": "two@example.com"}, headers={"X-Forwarded-For": "8.8.8.8"})
+    request_calls = [call for call in fake_client.rate_limit_calls if "p_email_key" in call]
+    assert len(request_calls) == 2
+    assert request_calls[0]["p_ip_key"] == request_calls[1]["p_ip_key"]

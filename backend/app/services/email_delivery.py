@@ -25,6 +25,7 @@ class ResendEmailDelivery:
         subject: str,
         html_body: str,
         text_body: str,
+        idempotency_key: str | None = None,
     ) -> EmailDeliveryResult:
         settings = get_settings()
         if not settings.resend_api_key or not settings.password_reset_from_email:
@@ -45,6 +46,7 @@ class ResendEmailDelivery:
                     headers={
                         "Authorization": f"Bearer {settings.resend_api_key}",
                         "Content-Type": "application/json",
+                        **({"Idempotency-Key": idempotency_key} if idempotency_key else {}),
                     },
                     json={
                         "from": from_header,
