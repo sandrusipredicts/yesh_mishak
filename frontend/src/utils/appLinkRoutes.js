@@ -75,6 +75,13 @@ function resolvePathSegments(segments, searchParams) {
     })
   }
 
+  if (segments.length === 1 && segments[0] === 'admin') {
+    return buildSupportedResult({
+      routeType: 'admin',
+      navigationPath: '/admin',
+    })
+  }
+
   if (segments.length === 2 && (segments[0] === 'field' || segments[0] === 'fields')) {
     const fieldId = segments[1]
 
