@@ -5,7 +5,7 @@ import Modal from './Modal'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
-import { shareGame } from '../api/gameSharing'
+import { copyGameLink, shareGame } from '../api/gameSharing'
 import { isGameShareable } from '../utils/gameShareability'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
@@ -108,6 +108,7 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   const [successMessage, setSuccessMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
+  const [isCopyingLink, setIsCopyingLink] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
@@ -249,6 +250,25 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
       }
     } finally {
       setIsSharing(false)
+    }
+  }
+
+  async function handleCopyLink() {
+    setIsCopyingLink(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const result = await copyGameLink(game)
+
+      if (result.outcome === 'copied') {
+        setSuccessMessage(t('game.copyLinkSuccess'))
+      } else if (result.outcome === 'unavailable') {
+        setError(t('game.copyLinkUnavailable'))
+      } else {
+        setError(t('game.copyLinkFailed'))
+      }
+    } finally {
+      setIsCopyingLink(false)
     }
   }
 
@@ -397,6 +417,17 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
             disabled={isSharing}
           >
             {t('game.shareButton')}
+          </button>
+        ) : null}
+
+        {gameId && isGameShareable(game) ? (
+          <button
+            type="button"
+            className="secondary-panel-button"
+            onClick={handleCopyLink}
+            disabled={isCopyingLink}
+          >
+            {t('game.copyLinkButton')}
           </button>
         ) : null}
       </div>

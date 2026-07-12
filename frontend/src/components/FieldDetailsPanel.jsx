@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MapPin, Share2 } from 'lucide-react'
+import { Copy, MapPin, Share2 } from 'lucide-react'
 import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
 import Modal from './Modal'
-import { shareField } from '../api/fieldSharing'
+import { copyFieldLink, shareField } from '../api/fieldSharing'
 import { launchGoogleMapsNavigation } from '../api/googleMapsNavigation'
 import { getLastKnownLocation } from '../api/locationService'
 import { launchWazeNavigation } from '../api/wazeNavigation'
@@ -63,6 +63,7 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const [isNavigationModalOpen, setIsNavigationModalOpen] = useState(false)
   const [isFieldReportModalOpen, setIsFieldReportModalOpen] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
+  const [isCopyingLink, setIsCopyingLink] = useState(false)
   const [shareMessage, setShareMessage] = useState('')
   const [shareMessageType, setShareMessageType] = useState('')
 
@@ -178,6 +179,28 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
     }
   }
 
+  async function handleCopyFieldLink() {
+    setIsCopyingLink(true)
+    setShareMessage('')
+    setShareMessageType('')
+    try {
+      const result = await copyFieldLink(field)
+
+      if (result.outcome === 'copied') {
+        setShareMessage(t('field.share.copyLinkSuccess'))
+        setShareMessageType('success')
+      } else if (result.outcome === 'unavailable') {
+        setShareMessage(t('field.share.copyLinkUnavailable'))
+        setShareMessageType('error')
+      } else {
+        setShareMessage(t('field.share.copyLinkFailed'))
+        setShareMessageType('error')
+      }
+    } finally {
+      setIsCopyingLink(false)
+    }
+  }
+
   const playerCount = getPlayerCount(activeGame)
   const isAnyModalOpen = isOpenGameModalOpen || isFieldReportModalOpen || isNavigationModalOpen
 
@@ -198,16 +221,28 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
       </div>
 
       {isFieldShareable(field) ? (
-        <button
-          className="share-field-button"
-          type="button"
-          onClick={handleShareField}
-          disabled={isSharing}
-          aria-label={t('field.share.button')}
-        >
-          <Share2 size={16} aria-hidden="true" />
-          <span>{t('field.share.button')}</span>
-        </button>
+        <div className="field-share-actions">
+          <button
+            className="share-field-button"
+            type="button"
+            onClick={handleShareField}
+            disabled={isSharing}
+            aria-label={t('field.share.button')}
+          >
+            <Share2 size={16} aria-hidden="true" />
+            <span>{t('field.share.button')}</span>
+          </button>
+          <button
+            className="share-field-button"
+            type="button"
+            onClick={handleCopyFieldLink}
+            disabled={isCopyingLink}
+            aria-label={t('field.share.copyLinkButton')}
+          >
+            <Copy size={16} aria-hidden="true" />
+            <span>{t('field.share.copyLinkButton')}</span>
+          </button>
+        </div>
       ) : null}
 
       {shareMessage ? (

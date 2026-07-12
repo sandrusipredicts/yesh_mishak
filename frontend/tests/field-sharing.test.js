@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { shareField } from '../src/api/fieldSharing.js'
+import { copyFieldLink, shareField } from '../src/api/fieldSharing.js'
 import en from '../src/locales/en/common.js'
 
 function resolveKey(key) {
@@ -168,5 +168,36 @@ test('null field prevents both native share and clipboard invocation', async () 
 
   assert.deepEqual(result, { outcome: 'unavailable', mechanism: 'none', reason: 'invalid-resource' })
   assert.equal(invokeShareCalled, false)
+  assert.equal(clipboardCalled, false)
+})
+
+test('copyFieldLink copies only the canonical field URL', async () => {
+  let copiedText = null
+  const result = await copyFieldLink(
+    makeField(),
+    { copyText: async (text) => { copiedText = text } },
+  )
+
+  assert.deepEqual(result, { outcome: 'copied', mechanism: 'clipboard', url: EXPECTED_URL })
+  assert.equal(copiedText, EXPECTED_URL)
+})
+
+test('copyFieldLink reports failure when clipboard rejects', async () => {
+  const result = await copyFieldLink(
+    makeField(),
+    { copyText: async () => { throw new Error('denied') } },
+  )
+
+  assert.deepEqual(result, { outcome: 'failed', mechanism: 'clipboard', reason: 'clipboard-write-failed' })
+})
+
+test('copyFieldLink does not copy a malformed field URL', async () => {
+  let clipboardCalled = false
+  const result = await copyFieldLink(
+    makeField({ id: undefined }),
+    { copyText: async () => { clipboardCalled = true } },
+  )
+
+  assert.deepEqual(result, { outcome: 'unavailable', mechanism: 'none', reason: 'invalid-resource' })
   assert.equal(clipboardCalled, false)
 })

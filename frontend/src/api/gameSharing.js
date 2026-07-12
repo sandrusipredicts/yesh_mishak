@@ -1,4 +1,5 @@
 import { buildGameSharePayload } from '../utils/gameSharePayload.js'
+import { buildGameShareUrl } from '../utils/shareLink.js'
 import { buildClipboardShareText } from '../utils/clipboardShareText.js'
 import { copyToClipboard } from './clipboard.js'
 import { invokeNativeShare } from './nativeShare.js'
@@ -27,6 +28,24 @@ export async function shareGame(
   try {
     await copyText(buildClipboardShareText(payload))
     return { outcome: 'copied', mechanism: 'clipboard' }
+  } catch {
+    return { outcome: 'failed', mechanism: 'clipboard', reason: 'clipboard-write-failed' }
+  }
+}
+
+export async function copyGameLink(
+  game,
+  { copyText = copyToClipboard } = {},
+) {
+  const url = buildGameShareUrl(game?.id)
+
+  if (!url) {
+    return { outcome: 'unavailable', mechanism: 'none', reason: 'invalid-resource' }
+  }
+
+  try {
+    await copyText(url)
+    return { outcome: 'copied', mechanism: 'clipboard', url }
   } catch {
     return { outcome: 'failed', mechanism: 'clipboard', reason: 'clipboard-write-failed' }
   }

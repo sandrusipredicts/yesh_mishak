@@ -826,6 +826,11 @@ select {
   font-size: 22px;
 }
 
+.field-share-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .approval-badge {
   display: inline-flex;
   border-radius: 999px;
