@@ -225,6 +225,7 @@ test.beforeEach(async ({ page }) => {
 test('not logged in user visiting /admin sees the login page', async ({ page }) => {
   await page.goto('/admin')
 
+  await expect(page).toHaveURL('/admin')
   await expect(page.getByRole('heading', { name: 'yesh_mishak' })).toBeVisible()
   await expect(page.getByText('Sign in to open and join games.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Admin Panel' })).toHaveCount(0)
@@ -247,6 +248,7 @@ test('admin user can access /admin', async ({ page }) => {
 
   await page.goto('/admin')
 
+  await expect(page).toHaveURL('/admin')
   await expect(page.getByRole('heading', { name: 'Admin Panel' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stats' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Fields' })).toBeVisible()

@@ -26,6 +26,16 @@ test('normalizes /my-games to the existing route', () => {
   })
 })
 
+test('normalizes /admin to the existing admin route', () => {
+  assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/admin'), {
+    ok: true,
+    routeType: 'admin',
+    resourceId: '',
+    action: '',
+    navigationPath: '/admin',
+  })
+})
+
 test('accepts game paths and forwards them to the map route', () => {
   assert.deepEqual(normalizeAppLinkUrl(`https://yesh-mishak.com/games/${GAME_ID}/join`), {
     ok: true,
@@ -143,6 +153,16 @@ test('parseAppPathname resolves the root path to home', () => {
     resourceId: '',
     action: '',
     navigationPath: '/',
+  })
+})
+
+test('parseAppPathname resolves /admin to the existing admin route', () => {
+  assert.deepEqual(parseAppPathname('/admin'), {
+    ok: true,
+    routeType: 'admin',
+    resourceId: '',
+    action: '',
+    navigationPath: '/admin',
   })
 })
 
