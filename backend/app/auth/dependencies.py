@@ -33,6 +33,8 @@ def _get_cached_user(user_id: str) -> dict[str, Any] | None:
 
 def _set_cached_user(user_id: str, user: dict[str, Any]) -> None:
     ttl = float(get_settings().auth_user_cache_ttl_seconds)
+    if ttl <= 0:
+        return
     expires_at = time.monotonic() + ttl
     _user_cache[user_id] = (expires_at, dict(user))
 
@@ -66,6 +68,28 @@ def _check_token_revoked(user: dict[str, Any], token_iat: float | int | None) ->
         )
 
 
+def _refresh_cached_revocation_fields(user_id: str, cached_user: dict[str, Any]) -> dict[str, Any]:
+    response = (
+        get_supabase_client()
+        .table("users")
+        .select("id,status,tokens_valid_after")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        raise_api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="AUTH_INVALID",
+            message="User not found",
+        )
+    fresh = response.data[0]
+    cached_user["status"] = fresh.get("status", cached_user.get("status"))
+    cached_user["tokens_valid_after"] = fresh.get("tokens_valid_after")
+    _set_cached_user(user_id, cached_user)
+    return cached_user
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
@@ -96,6 +120,7 @@ def get_current_user(
     # Cache lookup
     cached_user = _get_cached_user(user_id)
     if cached_user is not None:
+        cached_user = _refresh_cached_revocation_fields(user_id, cached_user)
         _check_token_revoked(cached_user, token_iat)
         duration_db = 0.0
         t_total_end = time.perf_counter()
