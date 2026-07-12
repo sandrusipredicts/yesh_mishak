@@ -117,6 +117,9 @@ def test_register_creates_manual_user_and_returns_token(monkeypatch) -> None:
     assert body["user"]["username"] == "manual-user"
     assert fake_client.users[0]["password_hash"] != "strongpass123"
     assert fake_client.users[0]["last_login"]
+    assert fake_client.users[0]["email_verified"] is False
+    assert body["email_verification_required"] is True
+    assert body["email_verification_sent"] is False
 
 
 def test_register_rejects_duplicate_username(monkeypatch) -> None:

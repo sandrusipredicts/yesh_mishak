@@ -19,10 +19,19 @@ from app.schemas.auth import (
     EmailCheckRequest,
     GoogleAuthRequest,
     LoginRequest,
+    EmailVerificationResponse,
+    ResendVerificationRequest,
     RegisterRequest,
     TokenResponse,
     UsernameCheckRequest,
     UserResponse,
+    VerifyEmailRequest,
+)
+from app.services.email_verification import (
+    GENERIC_RESEND_MESSAGE,
+    VerificationDeliveryError,
+    issue_verification_email,
+    verify_email_token,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -57,11 +66,13 @@ def _format_user_response(user: dict[str, Any]) -> UserResponse:
 def _create_token_response(user: dict[str, Any]) -> TokenResponse:
     user_response = _format_user_response(user)
     access_token = create_access_token(subject=user_response.id, email=user_response.email)
+    email_verified = user.get("email_verified") is not False
 
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
         user=user_response,
+        email_verification_required=not email_verified,
     )
 
 
@@ -69,7 +80,7 @@ def _get_user_by_column(column: str, value: str) -> dict[str, Any] | None:
     response = (
         get_supabase_client()
         .table("users")
-        .select("id,email,name,username,phone_number,password_hash")
+        .select("id,email,name,username,phone_number,password_hash,email_verified,email_verified_at")
         .eq(column, value)
         .limit(1)
         .execute()
@@ -207,6 +218,8 @@ def register(request: Request, payload: RegisterRequest) -> TokenResponse:
         "phone_number": payload.phone_number,
         "password_hash": hash_password(payload.password),
         "last_login": _now_iso(),
+        "email_verified": False,
+        "email_verified_at": None,
     }
 
     try:
@@ -249,7 +262,17 @@ def register(request: Request, payload: RegisterRequest) -> TokenResponse:
             message="User registration failed",
         )
 
-    return _create_token_response(response.data[0])
+    token_response = _create_token_response(response.data[0])
+    email_sent = True
+    try:
+        issue_verification_email(str(response.data[0]["id"]), payload.email)
+    except Exception:
+        email_sent = False
+        logger.warning(
+            "verification email was not delivered",
+            extra={"event": "auth.email_verification.delivery_failure", "user_id": str(response.data[0]["id"])},
+        )
+    return token_response.model_copy(update={"email_verification_sent": email_sent})
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -361,4 +384,43 @@ def check_email(request: Request, payload: EmailCheckRequest) -> AvailabilityRes
     if rate_limit_hit:
         return rate_limit_hit
     return AvailabilityResponse(available=_get_user_by_column("email", payload.email) is None)
+
+
+@router.post("/verify-email", response_model=EmailVerificationResponse)
+def verify_email(request: Request, payload: VerifyEmailRequest) -> EmailVerificationResponse:
+    rate_limit_hit = check_rate_limit_by_ip(request, "auth_verify_email", [(20, 60), (100, 3600)])
+    if rate_limit_hit:
+        return rate_limit_hit
+    result = verify_email_token(payload.token)
+    messages = {
+        "verified": "Email verified successfully.",
+        "already_used": "This verification link has already been used.",
+        "expired": "This verification link has expired.",
+        "invalid": "This verification link is invalid.",
+    }
+    return EmailVerificationResponse(status=result, message=messages.get(result, messages["invalid"]))
+
+
+@router.post("/resend-verification", response_model=EmailVerificationResponse)
+def resend_verification(request: Request, payload: ResendVerificationRequest) -> EmailVerificationResponse:
+    rate_limit_hit = check_rate_limit_by_ip(request, "auth_resend_verification", [(5, 60), (20, 3600)])
+    if rate_limit_hit:
+        return rate_limit_hit
+    user = _get_user_by_column("email", payload.email)
+    if user and user.get("email_verified") is False and user.get("password_hash"):
+        try:
+            issue_verification_email(str(user["id"]), payload.email)
+        except ValueError as exc:
+            if str(exc) == "VERIFICATION_COOLDOWN":
+                raise_api_error(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    code="VERIFICATION_COOLDOWN",
+                    message="Please wait before requesting another verification email.",
+                )
+        except Exception:
+            logger.warning(
+                "verification resend delivery failed",
+                extra={"event": "auth.email_verification.resend_failure", "user_id": str(user["id"])},
+            )
+    return EmailVerificationResponse(status="accepted", message=GENERIC_RESEND_MESSAGE)
 

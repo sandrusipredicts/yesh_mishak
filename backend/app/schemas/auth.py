@@ -97,6 +97,22 @@ class EmailCheckRequest(BaseModel):
         return email
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if "@" not in email or "." not in email.rsplit("@", maxsplit=1)[-1]:
+            raise ValueError("A valid email is required")
+        return email
+
+
 
 class AvailabilityResponse(BaseModel):
     available: bool
@@ -114,3 +130,10 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+    email_verification_required: bool = False
+    email_verification_sent: bool | None = None
+
+
+class EmailVerificationResponse(BaseModel):
+    status: str
+    message: str

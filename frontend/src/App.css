@@ -92,6 +92,26 @@ select {
   line-height: 1.35;
 }
 
+.verification-panel {
+  gap: 16px;
+}
+
+.verification-panel p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.auth-secondary {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .persistence-warning {
   border-color: #f59e0b;
   background: #fffbeb;

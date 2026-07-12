@@ -33,6 +33,18 @@ class Settings(BaseSettings):
         default=300,
         alias="AUTH_USER_CACHE_TTL_SECONDS",
     )
+    public_app_url: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_URL")
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from_address: str | None = Field(default=None, alias="SMTP_FROM_ADDRESS")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    email_verification_ttl_minutes: int = Field(default=60, alias="EMAIL_VERIFICATION_TTL_MINUTES")
+    email_verification_resend_cooldown_seconds: int = Field(
+        default=60,
+        alias="EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
