@@ -120,6 +120,16 @@ const en = {
     deepLinkLoading: 'Opening field...',
     deepLinkNotFound: 'This field is unavailable. It may have been removed.',
     deepLinkLoadError: 'Could not load this field. Check your connection and try again.',
+    share: {
+      button: 'Share field',
+      title: '{{name}} - Yesh Mishak',
+      text: 'Come play at {{name}}!',
+      textWithCity: 'Come play at {{name}} in {{city}}!',
+      success: 'Field shared.',
+      copied: 'Link copied.',
+      unavailable: 'Sharing is not available on this device.',
+      failed: 'Could not share this field. Please try again.',
+    },
   },
   fieldReport: {
     title: 'Report field',

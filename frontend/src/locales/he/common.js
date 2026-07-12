@@ -121,6 +121,16 @@ const he = {
     deepLinkLoading: 'פותח מגרש...',
     deepLinkNotFound: 'המגרש אינו זמין. ייתכן שהוא הוסר.',
     deepLinkLoadError: 'לא ניתן לטעון את המגרש. בדקו את החיבור ונסו שוב.',
+    share: {
+      button: 'שיתוף מגרש',
+      title: '{{name}} - יש מישחק',
+      text: 'בואו לשחק ב{{name}}!',
+      textWithCity: 'בואו לשחק ב{{name}} ב{{city}}!',
+      success: 'המגרש שותף.',
+      copied: 'הקישור הועתק.',
+      unavailable: 'שיתוף אינו זמין במכשיר זה.',
+      failed: 'לא ניתן לשתף את המגרש. נסו שוב.',
+    },
   },
   fieldReport: {
     title: 'דיווח על מגרש',
