@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     )
     public_app_url: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_URL")
     resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
     resend_api_url: str = Field(default="https://api.resend.com/emails", alias="RESEND_API_URL")
     email_from_address: str | None = Field(default=None, alias="EMAIL_FROM_ADDRESS")
     email_verification_ttl_minutes: int = Field(default=60, alias="EMAIL_VERIFICATION_TTL_MINUTES")

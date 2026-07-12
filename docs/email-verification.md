@@ -28,7 +28,8 @@ Email delivery uses the shared `email_delivery` abstraction over Resend's HTTPS 
 
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `PUBLIC_APP_URL` (`https://yesh-mishak.com` for production; both this custom domain and `https://yesh-mishak.vercel.app` returned HTTP 200 from Vercel on 2026-07-12)
-- `RESEND_API_KEY`
+- `SMTP_PASSWORD` (backward-compatible primary name used by existing tasks and deployments; despite its name, it currently contains the Resend API key)
+- `RESEND_API_KEY` (optional forward-compatible alias, not required; takes precedence over `SMTP_PASSWORD` when both are configured)
 - `RESEND_API_URL` (default `https://api.resend.com/emails`)
 - `EMAIL_FROM_ADDRESS` (use the sender authorized for the configured Resend key/domain)
 - `EMAIL_VERIFICATION_TTL_MINUTES` (default `60`)
@@ -80,7 +81,7 @@ The missing imports are `tests.test_admin_me`, `tests.test_game_close`, and `tes
 
 Neither current `main` nor this branch contains password-reset endpoints, a password-reset sender, a Resend client, or an existing email abstraction. Repository documentation explicitly records password reset as not implemented. The observed Resend `POST /emails` traffic therefore comes from deployment code/configuration not present in this checkout, not a reusable repository service. This implementation adds one provider-neutral `email_delivery` boundary so a future password-reset task can reuse the same HTTPS transport without duplicating provider handling.
 
-The earlier `SMTP_*` variables added only for E01-02 are no longer used or documented. No other repository flow referenced them, so removing them from typed settings and examples does not affect password reset or another email feature. External dashboards may retain those variables harmlessly until the owner removes them. Do not remove any external value until the HTTPS flow has been verified live.
+`SMTP_PASSWORD` remains supported for backward compatibility with existing tasks and Railway configuration. Despite its historical name, it is currently also used as the Resend HTTPS API key. `RESEND_API_KEY` is an optional alias rather than a deployment requirement; when both names exist, `RESEND_API_KEY` wins. Other legacy `SMTP_*` variables are not used by this HTTPS delivery path. Do not remove external values until the HTTPS flow has been verified live.
 
 ## Live verification checklist
 

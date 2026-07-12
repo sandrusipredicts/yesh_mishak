@@ -30,7 +30,8 @@ def send_email(
     recipient addresses, and message content are deliberately never logged.
     """
     settings = get_settings()
-    if not settings.resend_api_key or not settings.email_from_address:
+    api_key = settings.resend_api_key or settings.smtp_password
+    if not api_key or not settings.email_from_address:
         raise EmailDeliveryError("not_configured")
 
     timeout = httpx.Timeout(15.0, connect=5.0, read=15.0, write=10.0, pool=5.0)
@@ -38,7 +39,7 @@ def send_email(
         response = httpx.post(
             settings.resend_api_url,
             headers={
-                "Authorization": f"Bearer {settings.resend_api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json={

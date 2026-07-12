@@ -26,6 +26,7 @@ def configure_email_settings(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
     monkeypatch.setenv("JWT_SECRET", "test-secret")
     monkeypatch.setenv("RESEND_API_KEY", "re_secret_value")
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
     monkeypatch.setenv("RESEND_API_URL", "https://api.resend.com/emails")
     monkeypatch.setenv("EMAIL_FROM_ADDRESS", "noreply@yesh-mishak.com")
     get_settings.cache_clear()
@@ -63,8 +64,44 @@ def test_resend_request_contract(monkeypatch) -> None:
     assert timeout.read == 15.0
 
 
+def test_sends_with_only_smtp_password(monkeypatch) -> None:
+    monkeypatch.delenv("RESEND_API_KEY")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp_compat_secret")
+    get_settings.cache_clear()
+    captured = {}
+    monkeypatch.setattr(
+        "app.services.email_delivery.httpx.post",
+        lambda _url, **kwargs: captured.update(kwargs) or FakeResponse(),
+    )
+    assert call_sender() == "email-123"
+    assert captured["headers"]["Authorization"] == "Bearer smtp_compat_secret"
+
+
+def test_sends_with_only_resend_api_key(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        "app.services.email_delivery.httpx.post",
+        lambda _url, **kwargs: captured.update(kwargs) or FakeResponse(),
+    )
+    assert call_sender() == "email-123"
+    assert captured["headers"]["Authorization"] == "Bearer re_secret_value"
+
+
+def test_resend_api_key_takes_precedence(monkeypatch) -> None:
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp_compat_secret")
+    get_settings.cache_clear()
+    captured = {}
+    monkeypatch.setattr(
+        "app.services.email_delivery.httpx.post",
+        lambda _url, **kwargs: captured.update(kwargs) or FakeResponse(),
+    )
+    assert call_sender() == "email-123"
+    assert captured["headers"]["Authorization"] == "Bearer re_secret_value"
+
+
 def test_missing_configuration_fails_before_http(monkeypatch) -> None:
     monkeypatch.delenv("RESEND_API_KEY")
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
     get_settings.cache_clear()
     called = []
     monkeypatch.setattr("app.services.email_delivery.httpx.post", lambda *_a, **_k: called.append(True))
@@ -137,3 +174,16 @@ def test_success_log_contains_no_sensitive_values(monkeypatch, caplog) -> None:
     assert "re_secret_value" not in caplog.text
     assert "secret-token" not in caplog.text
     assert "user@example.com" not in caplog.text
+
+
+def test_fallback_secret_is_not_logged_on_provider_error(monkeypatch, caplog) -> None:
+    monkeypatch.delenv("RESEND_API_KEY")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp_compat_secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "app.services.email_delivery.httpx.post",
+        lambda *_a, **_k: FakeResponse(401, {"message": "rejected"}),
+    )
+    with caplog.at_level(logging.WARNING), pytest.raises(EmailDeliveryError):
+        call_sender()
+    assert "smtp_compat_secret" not in caplog.text
