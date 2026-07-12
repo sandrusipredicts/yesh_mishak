@@ -289,6 +289,37 @@ select {
   outline: 3px solid rgba(37, 99, 235, 0.18);
 }
 
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  padding-inline-end: 46px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 6px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+
+.password-visibility-button:hover,
+.password-visibility-button:focus {
+  background: #f1f5f9;
+  color: #172033;
+}
+
 .auth-submit {
   border: 0;
   border-radius: 8px;
@@ -332,6 +363,24 @@ select {
 .login-info {
   color: #475569;
   font-size: 14px;
+}
+
+.auth-link-button {
+  justify-self: center;
+  border: 0;
+  padding: 4px 6px;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-link-button:hover,
+.auth-link-button:focus {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 
 .onboarding-page {
