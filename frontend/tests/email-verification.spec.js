@@ -40,3 +40,26 @@ test('expired verification link shows a safe actionable message', async ({ page 
   await expect(page.getByText('This verification link has expired. Request a new one.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Back to sign in' })).toBeVisible()
 })
+
+
+test('backend EMAIL_NOT_VERIFIED response moves password login to verification screen', async ({ page }) => {
+  await seedEnglishReturningUser(page)
+  await page.route('**/auth/login', (route) => route.fulfill({
+    status: 403,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: true,
+      code: 'EMAIL_NOT_VERIFIED',
+      message: 'Email verification is required before signing in.',
+    }),
+  }))
+
+  await page.goto('/')
+  await page.getByLabel('Username or Email').fill('pending@example.com')
+  await page.getByLabel('Password').fill('strongpass123')
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+  await expect(page.getByText('We sent a verification link to pending@example.com.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send again' })).toBeVisible()
+})

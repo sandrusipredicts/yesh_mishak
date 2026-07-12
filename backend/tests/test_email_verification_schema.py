@@ -30,3 +30,19 @@ def test_verification_function_is_service_role_only() -> None:
     sql = MIGRATION.read_text(encoding="utf-8").lower()
     assert "revoke all on function verify_email_token(text) from public, anon, authenticated" in sql
     assert "grant execute on function verify_email_token(text) to service_role" in sql
+
+
+def test_resend_cooldown_is_atomic_across_workers_and_invalidates_old_token() -> None:
+    sql = MIGRATION.read_text(encoding="utf-8").lower()
+    assert "pg_advisory_xact_lock" in sql
+    assert "prepare_email_verification_token" in sql
+    assert "return 'cooldown'" in sql
+    assert "set used_at = now()" in sql
+    assert "where user_id = p_user_id and used_at is null" in sql
+
+
+def test_prepare_token_rpc_cannot_be_called_by_public_roles() -> None:
+    sql = MIGRATION.read_text(encoding="utf-8").lower()
+    assert "prepare_email_verification_token(uuid, text, timestamptz, integer)" in sql
+    assert "from public, anon, authenticated" in sql
+    assert "to service_role" in sql

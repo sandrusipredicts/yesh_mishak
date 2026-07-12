@@ -134,6 +134,12 @@ class TokenResponse(BaseModel):
     email_verification_sent: bool | None = None
 
 
+class RegistrationResponse(BaseModel):
+    user: UserResponse
+    email_verification_required: bool = True
+    email_verification_sent: bool
+
+
 class EmailVerificationResponse(BaseModel):
     status: str
     message: str

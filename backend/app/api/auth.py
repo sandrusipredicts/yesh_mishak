@@ -21,6 +21,7 @@ from app.schemas.auth import (
     LoginRequest,
     EmailVerificationResponse,
     ResendVerificationRequest,
+    RegistrationResponse,
     RegisterRequest,
     TokenResponse,
     UsernameCheckRequest,
@@ -184,8 +185,8 @@ def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
     return token_response
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(request: Request, payload: RegisterRequest) -> TokenResponse:
+@router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
+def register(request: Request, payload: RegisterRequest) -> RegistrationResponse:
     rate_limit_hit = check_rate_limit_by_ip(
         request, "auth_register", [(5, 60), (20, 3600)]
     )
@@ -262,7 +263,6 @@ def register(request: Request, payload: RegisterRequest) -> TokenResponse:
             message="User registration failed",
         )
 
-    token_response = _create_token_response(response.data[0])
     email_sent = True
     try:
         issue_verification_email(str(response.data[0]["id"]), payload.email)
@@ -272,7 +272,10 @@ def register(request: Request, payload: RegisterRequest) -> TokenResponse:
             "verification email was not delivered",
             extra={"event": "auth.email_verification.delivery_failure", "user_id": str(response.data[0]["id"])},
         )
-    return token_response.model_copy(update={"email_verification_sent": email_sent})
+    return RegistrationResponse(
+        user=_format_user_response(response.data[0]),
+        email_verification_sent=email_sent,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -316,6 +319,13 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_INVALID",
             message="Invalid username or password",
+        )
+
+    if user.get("email_verified") is False:
+        raise_api_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="EMAIL_NOT_VERIFIED",
+            message="Email verification is required before signing in.",
         )
 
     reset_failed_login_state(request, payload.username)

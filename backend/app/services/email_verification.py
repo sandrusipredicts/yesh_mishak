@@ -19,6 +19,15 @@ class VerificationDeliveryError(RuntimeError):
     pass
 
 
+def _scalar_result(data: object) -> str:
+    if isinstance(data, str):
+        return data
+    if isinstance(data, list) and data:
+        value = data[0]
+        return value if isinstance(value, str) else str(value)
+    return ""
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -68,42 +77,33 @@ def issue_verification_email(user_id: str, email: str) -> None:
     settings = get_settings()
     client = get_supabase_service_role_client()
     now = _now()
-    cooldown_since = now - timedelta(seconds=settings.email_verification_resend_cooldown_seconds)
-    recent = (
-        client.table("email_verification_tokens")
-        .select("created_at")
-        .eq("user_id", user_id)
-        .is_("used_at", "null")
-        .gte("created_at", cooldown_since.isoformat())
-        .limit(1)
-        .execute()
-    )
-    if recent.data:
-        raise ValueError("VERIFICATION_COOLDOWN")
-
     raw_token = secrets.token_urlsafe(48)
     token_hash = _hash_token(raw_token)
     expires_at = now + timedelta(minutes=settings.email_verification_ttl_minutes)
-    client.table("email_verification_tokens").update({"used_at": now.isoformat()}).eq(
-        "user_id", user_id
-    ).is_("used_at", "null").execute()
-    client.table("email_verification_tokens").insert(
+    prepared = client.rpc(
+        "prepare_email_verification_token",
         {
-            "user_id": user_id,
-            "token_hash": token_hash,
-            "expires_at": expires_at.isoformat(),
-        }
+            "p_user_id": user_id,
+            "p_token_hash": token_hash,
+            "p_expires_at": expires_at.isoformat(),
+            "p_cooldown_seconds": settings.email_verification_resend_cooldown_seconds,
+        },
     ).execute()
-    _send_email(email, _verification_url(raw_token))
+    if _scalar_result(prepared.data) != "created":
+        raise ValueError("VERIFICATION_COOLDOWN")
+    try:
+        _send_email(email, _verification_url(raw_token))
+    except VerificationDeliveryError:
+        # The account remains recoverable: invalidate the undelivered token so
+        # resend is not blocked by the normal per-account cooldown.
+        client.table("email_verification_tokens").update({"used_at": _now().isoformat()}).eq(
+            "token_hash", token_hash
+        ).is_("used_at", "null").execute()
+        raise
 
 
 def verify_email_token(token: str) -> str:
     result = get_supabase_service_role_client().rpc(
         "verify_email_token", {"p_token_hash": _hash_token(token)}
     ).execute()
-    if isinstance(result.data, str):
-        return result.data
-    if isinstance(result.data, list) and result.data:
-        value = result.data[0]
-        return value if isinstance(value, str) else str(value)
-    return "invalid"
+    return _scalar_result(result.data) or "invalid"

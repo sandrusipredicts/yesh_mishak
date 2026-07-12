@@ -193,6 +193,7 @@ def test_login_issues_usable_jwt(monkeypatch) -> None:
             "password_confirm": "strongpass123",
         },
     )
+    fake_client.users[0]["email_verified"] = True
 
     login_response = TestClient(app).post(
         "/auth/login",
@@ -380,6 +381,7 @@ def test_new_login_after_logout_works(monkeypatch) -> None:
     )
 
     user = fake_client.users[0]
+    user["email_verified"] = True
     token1 = _make_token_seconds_ago(user)
 
     TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {token1}"})

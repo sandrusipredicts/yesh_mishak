@@ -264,7 +264,14 @@ function LoginPage({ onLogin }) {
         await handleAuthSuccess(authData)
       }
     } catch (apiError) {
-      setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
+      const code = apiError?.response?.data?.code
+      if (code === 'EMAIL_NOT_VERIFIED') {
+        setVerificationEmail(loginForm.username.trim().toLowerCase())
+        setVerificationStatus('sent')
+        setMode('verification')
+      } else {
+        setError(getApiErrorMessage(apiError, t('auth.signInFailed')))
+      }
     } finally {
       setIsLoading(false)
     }
