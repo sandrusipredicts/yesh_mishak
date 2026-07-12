@@ -82,6 +82,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     password_confirm: '',
   })
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  const isGoogleButtonVisible = mode !== 'verification'
 
   useEffect(() => {
     if (!initialVerificationToken) {
@@ -115,6 +116,10 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
   }, [onLogin])
 
   useEffect(() => {
+    if (!isGoogleButtonVisible) {
+      return undefined
+    }
+
     let isMounted = true
 
     // Native runtime (ISSUE-240): Google sign-in goes through the Android
@@ -191,15 +196,16 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
           },
         })
 
-        buttonRef.current.innerHTML = ''
-        window.google.accounts.id.renderButton(buttonRef.current, {
+        const buttonContainer = buttonRef.current
+        buttonContainer.replaceChildren()
+        window.google.accounts.id.renderButton(buttonContainer, {
           theme: 'outline',
           size: 'large',
           width: 280,
         })
 
         window.setTimeout(() => {
-          if (isMounted && buttonRef.current && buttonRef.current.childElementCount === 0) {
+          if (isMounted && buttonRef.current === buttonContainer && buttonContainer.childElementCount === 0) {
             setError(t('auth.googleRenderFailed'))
           }
         }, 0)
@@ -219,7 +225,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     return () => {
       isMounted = false
     }
-  }, [googleClientId, handleAuthSuccess, t])
+  }, [googleClientId, handleAuthSuccess, isGoogleButtonVisible, t])
 
   function updateLoginForm(event) {
     const { name, value } = event.target

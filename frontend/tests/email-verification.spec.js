@@ -9,6 +9,37 @@ async function seedEnglishReturningUser(page) {
 }
 
 
+async function installGoogleIdentityMock(page) {
+  await page.addInitScript(() => {
+    window.__googleIdentityCalls = { initialize: 0, renderButton: 0 }
+    window.google = {
+      accounts: {
+        id: {
+          initialize: () => { window.__googleIdentityCalls.initialize += 1 },
+          renderButton: (container) => {
+            window.__googleIdentityCalls.renderButton += 1
+            const button = document.createElement('button')
+            button.type = 'button'
+            button.setAttribute('aria-label', 'Sign in with Google')
+            button.textContent = 'Continue with Google'
+            container.appendChild(button)
+          },
+        },
+      },
+    }
+  })
+}
+
+
+async function expectGoogleButtonRenderedOnce(page) {
+  await expect(page.locator('.google-login-button button')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.__googleIdentityCalls)).toEqual({
+    initialize: 1,
+    renderButton: 1,
+  })
+}
+
+
 async function fillRegistration(page) {
   await page.getByRole('tab', { name: 'Register' }).click()
   await page.getByLabel('Full name').fill('Verification User')
@@ -22,6 +53,7 @@ async function fillRegistration(page) {
 
 test('valid verification link shows success and returns to login', async ({ page }) => {
   await seedEnglishReturningUser(page)
+  await installGoogleIdentityMock(page)
   await page.route('**/auth/verify-email', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -34,7 +66,55 @@ test('valid verification link shows success and returns to login', async ({ page
   await expect(page.getByText('Your email is verified. You can sign in now.')).toBeVisible()
   await page.getByRole('button', { name: 'Back to sign in' }).click()
   await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible()
+  await expectGoogleButtonRenderedOnce(page)
+  await expect(page.getByText('Google login button could not be mounted.')).toHaveCount(0)
   await expect(page).toHaveURL(/\/$/)
+})
+
+
+for (const verificationStatus of ['invalid', 'expired']) {
+  test(`Google button initializes after returning from ${verificationStatus} verification`, async ({ page }) => {
+    await seedEnglishReturningUser(page)
+    await installGoogleIdentityMock(page)
+    await page.route('**/auth/verify-email', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: verificationStatus, message: 'Safe verification result.' }),
+    }))
+
+    await page.goto(`/verify-email?token=${verificationStatus[0].repeat(48)}`)
+    await page.getByRole('button', { name: 'Back to sign in' }).click()
+    await expectGoogleButtonRenderedOnce(page)
+  })
+}
+
+
+test('Google button initializes on a direct login refresh', async ({ page }) => {
+  await seedEnglishReturningUser(page)
+  await installGoogleIdentityMock(page)
+  await page.goto('/')
+  await expectGoogleButtonRenderedOnce(page)
+  await page.reload()
+  await expectGoogleButtonRenderedOnce(page)
+})
+
+
+test('Google button initializes after returning from Hebrew verification', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('app_language', 'he')
+    localStorage.setItem('language_selected', 'true')
+  })
+  await installGoogleIdentityMock(page)
+  await page.route('**/auth/verify-email', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ status: 'verified', message: 'Verified.' }),
+  }))
+
+  await page.goto(`/verify-email?token=${'h'.repeat(48)}`)
+  await page.locator('.auth-secondary').click()
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+  await expectGoogleButtonRenderedOnce(page)
 })
 
 
