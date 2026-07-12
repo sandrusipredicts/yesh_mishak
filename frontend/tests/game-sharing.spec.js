@@ -11,6 +11,8 @@ const user = {
 const FIELD_ID = '11111111-1111-4111-8111-111111111111'
 const OPEN_GAME_ID = '22222222-2222-4222-8222-222222222222'
 const FINISHED_GAME_ID = '33333333-3333-4333-8333-333333333333'
+const FULL_GAME_ID = '44444444-4444-4444-8444-444444444444'
+const CANCELLED_GAME_ID = '55555555-5555-4555-8555-555555555555'
 
 const baseField = {
   id: FIELD_ID,
@@ -41,6 +43,8 @@ const baseGame = {
 
 const openGame = { ...baseGame, id: OPEN_GAME_ID, status: 'open' }
 const finishedGame = { ...baseGame, id: FINISHED_GAME_ID, status: 'finished' }
+const fullGame = { ...baseGame, id: FULL_GAME_ID, status: 'full', players_present: 10 }
+const cancelledGame = { ...baseGame, id: CANCELLED_GAME_ID, status: 'cancelled' }
 
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
@@ -153,13 +157,42 @@ test.beforeEach(async ({ page }) => {
   await seedAuthenticatedUser(page)
 })
 
-test('shows a Share game button for a visible game', async ({ page }) => {
+test('shows the Share game button for an open game', async ({ page }) => {
   await mockNativeShare(page)
   await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
 
   await openFieldDetails(page)
 
   await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
+})
+
+test('shows the Share game button for a full game', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: fullGame }] })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
+})
+
+test('hides the Share game button for a finished game (product rule: only open/full games are shareable)', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockMapPageRequests(page, { fields: [baseField], games: { [FINISHED_GAME_ID]: finishedGame } })
+
+  await page.goto(`/game/${FINISHED_GAME_ID}`)
+  await expect(page.getByText('This game has ended.')).toBeVisible()
+
+  await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0)
+})
+
+test('hides the Share game button for a cancelled game', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockMapPageRequests(page, { fields: [baseField], games: { [CANCELLED_GAME_ID]: cancelledGame } })
+
+  await page.goto(`/game/${CANCELLED_GAME_ID}`)
+  await expect(page.getByText('This game has ended.')).toBeVisible()
+
+  await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0)
 })
 
 test('invokes native share with the correct localized payload and canonical deep link', async ({ page }) => {
@@ -191,6 +224,7 @@ test('a recipient opening the generated link resolves to the same game (ISSUE-27
   await openFieldDetails(page)
   await page.getByRole('button', { name: 'Share game' }).click()
 
+  await expect.poll(() => page.evaluate(() => window.__shareCalls.length)).toBe(1)
   const [sharedCall] = await page.evaluate(() => window.__shareCalls)
   const sharedPath = new URL(sharedCall.url).pathname
   expect(sharedPath).toBe(`/game/${OPEN_GAME_ID}`)
@@ -204,27 +238,45 @@ test('a recipient opening the generated link resolves to the same game (ISSUE-27
   await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
 })
 
-test('shares a finished (closed) game using the existing ended-state messaging, without new UI', async ({ page }) => {
+test('a previously shared finished-game link still opens via the unmodified ISSUE-272 deep link, hiding only the Share button', async ({ page }) => {
   await mockNativeShare(page)
   await mockMapPageRequests(page, { fields: [baseField], games: { [FINISHED_GAME_ID]: finishedGame } })
 
-  // Reached via the existing ISSUE-272 deep link, same as a normal visit
-  // would show a finished game — sharing does not alter this flow.
+  // Simulates a recipient opening a link that was shared before this game
+  // finished — the deep-link resolver itself is untouched by this issue.
   await page.goto(`/game/${FINISHED_GAME_ID}`)
+
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: baseField.name }),
+  ).toBeVisible()
   await expect(page.getByText('This game has ended.')).toBeVisible()
+  await expect(page.getByRole('button', { name: "I'm coming" })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0)
+})
 
-  await page.getByRole('button', { name: 'Share game' }).click()
+test('a previously shared cancelled-game link still opens via the unmodified ISSUE-272 deep link, hiding only the Share button', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockMapPageRequests(page, { fields: [baseField], games: { [CANCELLED_GAME_ID]: cancelledGame } })
 
-  await expect(page.getByText('Game shared.')).toBeVisible()
-  await expect
-    .poll(() => page.evaluate(() => window.__shareCalls))
-    .toEqual([
-      {
-        title: 'Football game at Central Court',
-        text: 'This Football game at Central Court has ended.',
-        url: `https://yesh-mishak.com/game/${FINISHED_GAME_ID}`,
-      },
-    ])
+  await page.goto(`/game/${CANCELLED_GAME_ID}`)
+
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: baseField.name }),
+  ).toBeVisible()
+  await expect(page.getByText('This game has ended.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Share game' })).toHaveCount(0)
+})
+
+test('a missing/deleted game link still shows the existing unavailable state, unaffected by the sharing rule change', async ({ page }) => {
+  await mockNativeShare(page)
+  await mockMapPageRequests(page, { fields: [baseField], games: {} })
+
+  await page.goto('/game/66666666-6666-4666-8666-666666666666')
+
+  await expect(page.getByRole('alert')).toContainText(
+    'This game is unavailable. It may have been removed.',
+  )
+  await expect(page.getByLabel('Field details')).toHaveCount(0)
 })
 
 test('treats user cancellation as a normal outcome, not an error', async ({ page }) => {

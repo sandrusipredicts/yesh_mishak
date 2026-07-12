@@ -6,6 +6,7 @@ import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
 import { shareGame } from '../api/gameSharing'
+import { isGameShareable } from '../utils/gameShareability'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -386,7 +387,7 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
           </button>
         ) : null}
 
-        {gameId ? (
+        {gameId && isGameShareable(game) ? (
           <button
             type="button"
             className="secondary-panel-button"
