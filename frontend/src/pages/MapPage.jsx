@@ -355,8 +355,8 @@ const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectFiel
 
 function MapPage({
   currentUserId: authenticatedUserId,
-  gameDeepLinkTarget = null,
-  onGameDeepLinkHandled,
+  deepLinkTarget = null,
+  onDeepLinkHandled,
 }) {
   const { t, i18n } = useTranslation()
   const isRtl = i18n.resolvedLanguage === 'he'
@@ -385,10 +385,11 @@ function MapPage({
   const [locationNotice, setLocationNotice] = useState('')
   const [isLocatingUser, setIsLocatingUser] = useState(false)
   // '' | 'loading' | 'unavailable' — tracks resolution of an incoming
-  // /game/{id} deep link (ISSUE-272). Field/UI state itself still lives in
-  // `selectedField`; this only drives the loading/unavailable affordances.
-  const [gameDeepLinkStatus, setGameDeepLinkStatus] = useState('')
-  const [gameDeepLinkMessage, setGameDeepLinkMessage] = useState('')
+  // /game/{id} or /field/{id} deep link (ISSUE-272, ISSUE-273). Field/UI
+  // state itself still lives in `selectedField`; this only drives the
+  // shared loading/unavailable affordances below.
+  const [deepLinkStatus, setDeepLinkStatus] = useState('')
+  const [deepLinkMessage, setDeepLinkMessage] = useState('')
 
   // Keep the merge base in sync with setFields callers that bypass
   // handleFieldsLoaded (refreshFieldState's functional updates).
@@ -675,13 +676,25 @@ function MapPage({
     }
   }
 
+  // Shared by both deep-link resolvers below: merges a freshly-fetched
+  // field into `fields` by id, upserting in place like refreshFieldState.
+  const mergeResolvedField = useCallback((field) => {
+    setFields((currentFields) => {
+      const existingIndex = currentFields.findIndex((candidate) => candidate.id === field.id)
+      if (existingIndex === -1) {
+        return [...currentFields, field]
+      }
+      return currentFields.map((candidate) => (candidate.id === field.id ? field : candidate))
+    })
+  }, [])
+
   // ISSUE-272: resolves a /game/{game_id} deep link into the Game screen.
   // Always fetches fresh state from the server (never trusts cached field
   // data) so an existing game shows its latest status, a missing/deleted
   // game surfaces the unavailable state, and a finished/cancelled game is
   // still opened with its terminal status visible (not re-created).
   useEffect(() => {
-    const targetGameId = gameDeepLinkTarget?.gameId
+    const targetGameId = deepLinkTarget?.routeType === 'game' ? deepLinkTarget.resourceId : null
     if (!targetGameId) {
       return undefined
     }
@@ -689,8 +702,8 @@ function MapPage({
     let isCancelled = false
 
     async function resolveGameDeepLink() {
-      setGameDeepLinkStatus('loading')
-      setGameDeepLinkMessage('')
+      setDeepLinkStatus('loading')
+      setDeepLinkMessage('')
 
       try {
         const game = await getGameById(targetGameId)
@@ -714,28 +727,22 @@ function MapPage({
         // upcoming_games, so it must be injected to be shown at all.
         const resolvedField = isCurrentGame ? field : { ...field, active_game: game }
 
-        setFields((currentFields) => {
-          const existingIndex = currentFields.findIndex((candidate) => candidate.id === field.id)
-          if (existingIndex === -1) {
-            return [...currentFields, field]
-          }
-          return currentFields.map((candidate) => (candidate.id === field.id ? field : candidate))
-        })
+        mergeResolvedField(field)
         setSelectedField(resolvedField)
-        setGameDeepLinkStatus('')
+        setDeepLinkStatus('')
       } catch (resolveError) {
         if (isCancelled) {
           return
         }
 
         const statusCode = resolveError?.response?.status
-        setGameDeepLinkStatus('unavailable')
-        setGameDeepLinkMessage(
+        setDeepLinkStatus('unavailable')
+        setDeepLinkMessage(
           statusCode === 404 ? t('game.deepLinkNotFound') : t('game.deepLinkLoadError'),
         )
       } finally {
         if (!isCancelled) {
-          onGameDeepLinkHandled?.()
+          onDeepLinkHandled?.()
         }
       }
     }
@@ -745,7 +752,64 @@ function MapPage({
     return () => {
       isCancelled = true
     }
-  }, [gameDeepLinkTarget, onGameDeepLinkHandled, t])
+  }, [deepLinkTarget, mergeResolvedField, onDeepLinkHandled, t])
+
+  // ISSUE-273: resolves a /field/{field_id} deep link. Always fetches fresh
+  // state from the server (getFieldById already returns 404 for pending and
+  // rejected fields per the visibility rules in docs/deep-link-architecture.md
+  // §6.5, so those need no separate handling here). A closed/renovation field
+  // still returns 200 and is opened normally — FieldDetailsPanel already
+  // surfaces `field.status` inline, the same as a marker click would.
+  useEffect(() => {
+    const targetFieldId = deepLinkTarget?.routeType === 'field' ? deepLinkTarget.resourceId : null
+    if (!targetFieldId) {
+      return undefined
+    }
+
+    let isCancelled = false
+
+    async function resolveFieldDeepLink() {
+      setDeepLinkStatus('loading')
+      setDeepLinkMessage('')
+
+      try {
+        const field = await getFieldById(targetFieldId)
+        if (isCancelled) {
+          return
+        }
+
+        mergeResolvedField(field)
+        setSelectedField(field)
+
+        const position = getFieldPosition(field)
+        if (position) {
+          setCenter(position)
+        }
+
+        setDeepLinkStatus('')
+      } catch (resolveError) {
+        if (isCancelled) {
+          return
+        }
+
+        const statusCode = resolveError?.response?.status
+        setDeepLinkStatus('unavailable')
+        setDeepLinkMessage(
+          statusCode === 404 ? t('field.deepLinkNotFound') : t('field.deepLinkLoadError'),
+        )
+      } finally {
+        if (!isCancelled) {
+          onDeepLinkHandled?.()
+        }
+      }
+    }
+
+    resolveFieldDeepLink()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [deepLinkTarget, mergeResolvedField, onDeepLinkHandled, t])
 
   const notificationsLabel = unreadNotificationCount
     ? t('map.notificationsUnread', { count: unreadNotificationCount })
@@ -753,14 +817,14 @@ function MapPage({
 
   return (
     <main className={`map-page${currentUserId ? ' has-toolbar' : ''}`}>
-      {gameDeepLinkStatus === 'unavailable' ? (
+      {deepLinkStatus === 'unavailable' ? (
         <div className="location-notice" role="alert">
-          <span>{gameDeepLinkMessage}</span>
+          <span>{deepLinkMessage}</span>
           <button
             type="button"
             className="location-notice-dismiss"
             aria-label={t('map.dismissNotice')}
-            onClick={() => setGameDeepLinkStatus('')}
+            onClick={() => setDeepLinkStatus('')}
           >
             ×
           </button>
@@ -886,10 +950,14 @@ function MapPage({
         {fieldMarkers}
       </MapContainer>
 
-      {gameDeepLinkStatus === 'loading' ? (
+      {deepLinkStatus === 'loading' ? (
         <div className="map-loading" role="status" aria-live="polite">
           <span className="map-loading-spinner" aria-hidden="true" />
-          <span>{t('game.deepLinkLoading')}</span>
+          <span>
+            {deepLinkTarget?.routeType === 'field'
+              ? t('field.deepLinkLoading')
+              : t('game.deepLinkLoading')}
+          </span>
         </div>
       ) : isFieldsLoading && !fields.length ? (
         <div className="map-loading" role="status" aria-live="polite">

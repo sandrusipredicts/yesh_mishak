@@ -118,6 +118,9 @@ const he = {
     playersOutOf: '{{current}} מתוך {{max}} שחקנים',
     dateNotSet: 'מועד לא נקבע',
     invalidDate: 'מועד לא תקין',
+    deepLinkLoading: 'פותח מגרש...',
+    deepLinkNotFound: 'המגרש אינו זמין. ייתכן שהוא הוסר.',
+    deepLinkLoadError: 'לא ניתן לטעון את המגרש. בדקו את החיבור ונסו שוב.',
   },
   fieldReport: {
     title: 'דיווח על מגרש',

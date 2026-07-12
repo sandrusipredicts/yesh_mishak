@@ -117,6 +117,9 @@ const en = {
     playersOutOf: '{{current}} of {{max}} players',
     dateNotSet: 'Date not set',
     invalidDate: 'Invalid date',
+    deepLinkLoading: 'Opening field...',
+    deepLinkNotFound: 'This field is unavailable. It may have been removed.',
+    deepLinkLoadError: 'Could not load this field. Check your connection and try again.',
   },
   fieldReport: {
     title: 'Report field',
