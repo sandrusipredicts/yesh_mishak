@@ -33,12 +33,11 @@ test('rejects a non-string identifier', () => {
   assert.equal(buildCanonicalShareLink('game', undefined), null)
 })
 
-test('rejects an unsupported entity type (field sharing is out of scope for ISSUE-284)', () => {
-  assert.equal(buildCanonicalShareLink('field', GAME_ID), null)
+test('rejects an unsupported entity type', () => {
   assert.equal(buildCanonicalShareLink('unknown-entity', GAME_ID), null)
 })
 
-test('the generated link round-trips through the existing ISSUE-272/273 route parser', () => {
+test('the generated game link round-trips through the route parser', () => {
   const url = buildCanonicalShareLink('game', GAME_ID)
   const parsedUrl = new URL(url)
 
@@ -46,6 +45,39 @@ test('the generated link round-trips through the existing ISSUE-272/273 route pa
     ok: true,
     routeType: 'game',
     resourceId: GAME_ID,
+    action: '',
+    navigationPath: '/',
+  })
+})
+
+const FIELD_ID = '11111111-1111-4111-8111-111111111111'
+
+test('builds the canonical HTTPS field link using /fields/ path', () => {
+  assert.equal(
+    buildCanonicalShareLink('field', FIELD_ID),
+    `https://yesh-mishak.com/fields/${FIELD_ID}`,
+  )
+})
+
+test('lowercases the field resource id', () => {
+  assert.equal(
+    buildCanonicalShareLink('field', FIELD_ID.toUpperCase()),
+    `https://yesh-mishak.com/fields/${FIELD_ID}`,
+  )
+})
+
+test('rejects a malformed field UUID', () => {
+  assert.equal(buildCanonicalShareLink('field', 'not-a-uuid'), null)
+})
+
+test('the generated field link round-trips through the route parser', () => {
+  const url = buildCanonicalShareLink('field', FIELD_ID)
+  const parsedUrl = new URL(url)
+
+  assert.deepEqual(parseAppPathname(parsedUrl.pathname), {
+    ok: true,
+    routeType: 'field',
+    resourceId: FIELD_ID,
     action: '',
     navigationPath: '/',
   })

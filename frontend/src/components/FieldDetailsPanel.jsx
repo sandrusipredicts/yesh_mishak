@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MapPin } from 'lucide-react'
+import { MapPin, Share2 } from 'lucide-react'
 import GamePanel from './GamePanel'
 import OpenGameModal from './OpenGameModal'
 import FieldReportModal from './FieldReportModal'
 import Modal from './Modal'
+import { shareField } from '../api/fieldSharing'
 import { launchGoogleMapsNavigation } from '../api/googleMapsNavigation'
 import { getLastKnownLocation } from '../api/locationService'
 import { launchWazeNavigation } from '../api/wazeNavigation'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
+import { isFieldShareable } from '../utils/fieldShareability'
 
 function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
@@ -60,6 +62,9 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
   const [isOpenGameModalOpen, setIsOpenGameModalOpen] = useState(false)
   const [isNavigationModalOpen, setIsNavigationModalOpen] = useState(false)
   const [isFieldReportModalOpen, setIsFieldReportModalOpen] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
+  const [shareMessage, setShareMessage] = useState('')
+  const [shareMessageType, setShareMessageType] = useState('')
 
   if (!field) {
     return null
@@ -146,6 +151,33 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
     return onGameCreated?.(field.id)
   }
 
+  async function handleShareField() {
+    setIsSharing(true)
+    setShareMessage('')
+    setShareMessageType('')
+    try {
+      const result = await shareField({ field, t })
+
+      if (result.outcome === 'shared') {
+        setShareMessage(t('field.share.success'))
+        setShareMessageType('success')
+      } else if (result.outcome === 'copied') {
+        setShareMessage(t('field.share.copied'))
+        setShareMessageType('success')
+      } else if (result.outcome === 'cancelled') {
+        // Cancellation is a normal outcome — no message.
+      } else if (result.outcome === 'unavailable') {
+        setShareMessage(t('field.share.unavailable'))
+        setShareMessageType('error')
+      } else {
+        setShareMessage(t('field.share.failed'))
+        setShareMessageType('error')
+      }
+    } finally {
+      setIsSharing(false)
+    }
+  }
+
   const playerCount = getPlayerCount(activeGame)
   const isAnyModalOpen = isOpenGameModalOpen || isFieldReportModalOpen || isNavigationModalOpen
 
@@ -164,6 +196,25 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
         <h2>{field.name ?? t('field.unnamed')}</h2>
         {isPending ? <span className="approval-badge">{t('field.pendingApproval')}</span> : null}
       </div>
+
+      {isFieldShareable(field) ? (
+        <button
+          className="share-field-button"
+          type="button"
+          onClick={handleShareField}
+          disabled={isSharing}
+          aria-label={t('field.share.button')}
+        >
+          <Share2 size={16} aria-hidden="true" />
+          <span>{t('field.share.button')}</span>
+        </button>
+      ) : null}
+
+      {shareMessage ? (
+        <p className={`share-message share-message--${shareMessageType}`} role="status">
+          {shareMessage}
+        </p>
+      ) : null}
 
       <dl className="field-details-list">
         <div>
