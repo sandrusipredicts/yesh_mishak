@@ -207,8 +207,8 @@ test('invokes native share with the correct localized payload and canonical deep
     .poll(() => page.evaluate(() => window.__shareCalls))
     .toEqual([
       {
-        title: 'Football game at Central Court',
-        text: 'Join a Football game at Central Court — 4 / 10 players.',
+        title: 'Football game at Central Court - Yesh Mishak',
+        text: '⚽ Game on!\n\n📍 Central Court\n👥 4 / 10 players\n\nJoin through Yesh Mishak:',
         url: `https://yesh-mishak.com/game/${OPEN_GAME_ID}`,
       },
     ])
@@ -302,14 +302,15 @@ test('shows a normalized failure message when native share invocation fails', as
   await expect(page.getByRole('alert')).toContainText('Could not share this game. Please try again.')
 })
 
-test('shows an unavailable message when the platform cannot share, without crashing', async ({ page }) => {
+test('falls back to clipboard when the platform cannot native-share, without crashing', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-write'])
   await mockNativeShare(page, { mode: 'unavailable' })
   await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
 
   await openFieldDetails(page)
   await page.getByRole('button', { name: 'Share game' }).click()
 
-  await expect(page.getByRole('alert')).toContainText('Sharing is not available on this device.')
+  await expect(page.getByText('Message copied.')).toBeVisible()
   // The panel is still intact — no crash, no blank screen.
   await expect(
     page.getByLabel('Field details').getByRole('heading', { name: baseField.name }),

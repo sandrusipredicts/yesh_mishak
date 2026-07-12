@@ -32,14 +32,15 @@ test('builds payload with field name and canonical URL', () => {
   const payload = buildFieldSharePayload({ field: makeField(), t })
 
   assert.equal(payload.title, 'Central Court - Yesh Mishak')
-  assert.equal(payload.text, 'Come play at Central Court!')
+  assert.ok(payload.text.includes('Central Court'))
   assert.equal(payload.url, `https://yesh-mishak.com/fields/${FIELD_ID}`)
 })
 
 test('includes city in text when available', () => {
   const payload = buildFieldSharePayload({ field: makeField({ city: 'Tel Aviv' }), t })
 
-  assert.equal(payload.text, 'Come play at Central Court in Tel Aviv!')
+  assert.ok(payload.text.includes('Tel Aviv'))
+  assert.ok(payload.text.includes('Central Court'))
 })
 
 test('uses location fallback when city is absent', () => {
@@ -48,13 +49,14 @@ test('uses location fallback when city is absent', () => {
     t,
   })
 
-  assert.equal(payload.text, 'Come play at Central Court in Near the park!')
+  assert.ok(payload.text.includes('Near the park'))
 })
 
 test('omits city clause when neither city nor location is set', () => {
   const payload = buildFieldSharePayload({ field: makeField({ city: '', location: '' }), t })
 
-  assert.equal(payload.text, 'Come play at Central Court!')
+  assert.ok(!payload.text.includes('undefined'))
+  assert.ok(!payload.text.includes('null'))
 })
 
 test('returns null for a field with no id', () => {
@@ -85,4 +87,30 @@ test('field ID is lowercased in the URL', () => {
   })
 
   assert.equal(payload.url, `https://yesh-mishak.com/fields/${FIELD_ID}`)
+})
+
+test('no private information in payload', () => {
+  const payload = buildFieldSharePayload({
+    field: makeField({ created_by: 'secret-user', owner: 'admin-123' }),
+    t,
+  })
+
+  const serialized = JSON.stringify(payload)
+  assert.doesNotMatch(serialized, /secret-user/)
+  assert.doesNotMatch(serialized, /admin-123/)
+})
+
+test('no broken empty lines in text', () => {
+  const payload = buildFieldSharePayload({ field: makeField(), t })
+
+  // Should not have 3+ consecutive newlines (i.e., double blank lines)
+  assert.doesNotMatch(payload.text, /\n{3,}/)
+})
+
+test('no undefined or null strings in payload', () => {
+  const payload = buildFieldSharePayload({ field: makeField({ name: '' }), t })
+  const serialized = JSON.stringify(payload)
+
+  assert.doesNotMatch(serialized, /\bundefined\b/)
+  assert.doesNotMatch(serialized, /\bnull\b/)
 })

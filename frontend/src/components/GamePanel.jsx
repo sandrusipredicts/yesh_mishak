@@ -238,6 +238,8 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
 
       if (result.outcome === 'shared') {
         setSuccessMessage(t('game.shareSuccess'))
+      } else if (result.outcome === 'copied') {
+        setSuccessMessage(t('game.shareCopied'))
       } else if (result.outcome === 'cancelled') {
         // Cancellation is a normal outcome, not an error — no message.
       } else if (result.outcome === 'unavailable') {

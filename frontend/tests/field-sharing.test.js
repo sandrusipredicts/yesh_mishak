@@ -88,12 +88,12 @@ test('falls back to clipboard when native share is unavailable', async () => {
   )
 
   assert.deepEqual(result, { outcome: 'copied', mechanism: 'clipboard' })
-  assert.equal(copiedText, EXPECTED_URL)
+  assert.ok(copiedText.includes(EXPECTED_URL), 'clipboard text includes canonical URL')
 })
 
-// --- copied URL matches canonical exactly ---
+// --- clipboard fallback contains readable message and URL ---
 
-test('clipboard receives exactly the canonical field URL', async () => {
+test('clipboard fallback contains readable message and URL', async () => {
   let copiedText = null
   await shareField(
     { field: makeField(), t },
@@ -103,12 +103,24 @@ test('clipboard receives exactly the canonical field URL', async () => {
     },
   )
 
-  // Verify protocol, host, path, and no trailing slash
-  const url = new URL(copiedText)
-  assert.equal(url.protocol, 'https:')
-  assert.equal(url.hostname, 'yesh-mishak.com')
-  assert.equal(url.pathname, `/fields/${FIELD_ID}`)
-  assert.equal(copiedText, EXPECTED_URL)
+  assert.ok(copiedText.includes('Central Court'), 'clipboard text includes field name')
+  assert.ok(copiedText.includes(EXPECTED_URL), 'clipboard text includes canonical URL')
+})
+
+// --- clipboard fallback does not duplicate URL ---
+
+test('clipboard fallback does not duplicate URL', async () => {
+  let copiedText = null
+  await shareField(
+    { field: makeField(), t },
+    {
+      invokeShare: async () => ({ outcome: 'unavailable', mechanism: 'native-share', reason: 'share-api-unavailable' }),
+      copyText: async (text) => { copiedText = text },
+    },
+  )
+
+  const urlOccurrences = copiedText.split(EXPECTED_URL).length - 1
+  assert.equal(urlOccurrences, 1, 'URL should appear exactly once')
 })
 
 // --- native share unavailable → clipboard failure ---
