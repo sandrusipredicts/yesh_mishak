@@ -3,14 +3,28 @@ import { useTranslation } from 'react-i18next'
 
 import {
   approveField,
+  deleteAdminField,
   getAdminFields,
   getPendingFields,
   rejectField,
   updateAdminFieldStatus,
 } from '../../api/admin'
+import { getApiErrorMessage } from '../../api/errors'
 import EditFieldModal from '../EditFieldModal'
+import Modal from '../Modal'
 
 const FIELD_STATUSES = ['open', 'closed', 'renovation']
+const FIELD_REMOVAL_REASONS = [
+  'field_does_not_exist',
+  'duplicate_field',
+  'private_field',
+  'school_property',
+  'wrong_location',
+  'invalid_field',
+  'safety_issue',
+  'other',
+]
+const NOTE_MAX_LENGTH = 500
 
 function AdminFields() {
   const { i18n, t } = useTranslation()
@@ -25,6 +39,12 @@ function AdminFields() {
   const [workingFieldId, setWorkingFieldId] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [editingField, setEditingField] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteNote, setDeleteNote] = useState('')
+  const [deleteFormError, setDeleteFormError] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -185,6 +205,79 @@ function AdminFields() {
     )
   }
 
+  function openDeleteConfirm(field) {
+    setActionError('')
+    setActionMessage('')
+    setDeleteFormError('')
+    setDeleteReason('')
+    setDeleteNote('')
+    setDeleteTarget(field)
+  }
+
+  function closeDeleteConfirm() {
+    if (isDeleting) {
+      return
+    }
+
+    setDeleteTarget(null)
+    setDeleteReason('')
+    setDeleteNote('')
+    setDeleteFormError('')
+  }
+
+  function removeFieldFromLists(fieldId) {
+    setAllFields((currentFields) => currentFields.filter((field) => field.id !== fieldId))
+    setPendingFields((currentFields) => currentFields.filter((field) => field.id !== fieldId))
+  }
+
+  async function handleDeleteConfirm() {
+    if (isDeleting || !deleteTarget) {
+      return
+    }
+
+    if (!deleteReason) {
+      setDeleteFormError(t('admin.deleteFieldReasonRequired'))
+      return
+    }
+
+    const trimmedNote = deleteNote.trim()
+    if (trimmedNote.length > NOTE_MAX_LENGTH) {
+      setDeleteFormError(t('admin.deleteFieldNoteTooLong'))
+      return
+    }
+
+    const fieldId = deleteTarget.id
+    setIsDeleting(true)
+    setDeleteFormError('')
+
+    try {
+      await deleteAdminField(fieldId, { reason: deleteReason, note: trimmedNote || undefined })
+      removeFieldFromLists(fieldId)
+      setActionMessage(t('admin.deleteFieldSuccess'))
+      setDeleteTarget(null)
+      setDeleteReason('')
+      setDeleteNote('')
+    } catch (submitError) {
+      const statusCode = submitError?.response?.status
+
+      if (statusCode === 404 || statusCode === 409) {
+        // The backend confirms the field is already gone or already
+        // removed — trust that over our stale local copy.
+        removeFieldFromLists(fieldId)
+        setDeleteTarget(null)
+        setActionError(
+          statusCode === 409 ? t('admin.deleteFieldAlreadyRemoved') : t('admin.deleteFieldNotFound'),
+        )
+      } else if (statusCode === 403) {
+        setDeleteFormError(t('admin.deleteFieldForbidden'))
+      } else {
+        setDeleteFormError(getApiErrorMessage(submitError, t('admin.failedDeleteField')))
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <div className="admin-fields">
       <div className="admin-tabs" role="tablist" aria-label={t('admin.fieldTabs')}>
@@ -209,6 +302,7 @@ function AdminFields() {
       </div>
 
       {actionError ? <p className="admin-error" role="alert">{actionError}</p> : null}
+      {actionMessage ? <p className="admin-success" role="status">{actionMessage}</p> : null}
 
       {activeTab === 'pending' ? (
         <section className="admin-fields-panel" aria-label={t('admin.pendingFields')}>
@@ -334,6 +428,13 @@ function AdminFields() {
                           >
                             {t('admin.edit')}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => openDeleteConfirm(field)}
+                            aria-label={t('admin.deleteFieldLabel', { name: field.name || field.id })}
+                          >
+                            {t('admin.deleteField')}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -352,6 +453,70 @@ function AdminFields() {
           onSaved={handleFieldSaved}
         />
       ) : null}
+
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={closeDeleteConfirm}
+        isConfirm={true}
+        ariaLabelledBy="admin-delete-field-title"
+      >
+        <h3 id="admin-delete-field-title">{t('admin.deleteFieldConfirmTitle')}</h3>
+        <p>
+          {t('admin.deleteFieldConfirmDescription', {
+            name: deleteTarget?.name || deleteTarget?.id,
+          })}
+        </p>
+
+        <label htmlFor="delete-field-reason">
+          {t('admin.deleteFieldReasonLabel')}
+          <select
+            id="delete-field-reason"
+            value={deleteReason}
+            onChange={(event) => setDeleteReason(event.target.value)}
+            disabled={isDeleting}
+          >
+            <option value="">{t('admin.deleteFieldReasonPlaceholder')}</option>
+            {FIELD_REMOVAL_REASONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {t(`admin.deleteReason.${reason}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label htmlFor="delete-field-note">
+          {t('admin.deleteFieldNoteLabel')}
+          <textarea
+            id="delete-field-note"
+            value={deleteNote}
+            onChange={(event) => setDeleteNote(event.target.value)}
+            rows="2"
+            maxLength={NOTE_MAX_LENGTH}
+            disabled={isDeleting}
+          />
+        </label>
+
+        {deleteFormError ? <p className="modal-error" role="alert">{deleteFormError}</p> : null}
+
+        <div className="confirm-modal-actions">
+          <button
+            type="button"
+            className="secondary-modal-button"
+            onClick={closeDeleteConfirm}
+            disabled={isDeleting}
+          >
+            {t('admin.moderationCancelAction')}
+          </button>
+          <button
+            type="button"
+            className="danger-modal-button"
+            onClick={handleDeleteConfirm}
+            disabled={isDeleting}
+          >
+            {isDeleting ? t('admin.deleteFieldDeleting') : t('admin.deleteFieldConfirmAction')}
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }

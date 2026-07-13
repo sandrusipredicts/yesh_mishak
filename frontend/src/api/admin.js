@@ -37,6 +37,13 @@ export async function updateAdminField(fieldId, data) {
   return response.data
 }
 
+export async function deleteAdminField(fieldId, { reason, note }) {
+  const response = await api.delete(`/admin/fields/${fieldId}`, {
+    data: note ? { reason, note } : { reason },
+  })
+  return response.data
+}
+
 export async function getAdminGames(status = null) {
   const response = await api.get('/admin/games', {
     params: status ? { status } : undefined,

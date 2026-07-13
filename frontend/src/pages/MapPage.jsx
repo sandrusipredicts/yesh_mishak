@@ -194,7 +194,17 @@ function fieldsFingerprint(fields) {
   return parts.join('\n')
 }
 
-function mergeFieldsById(currentFields, loadedFields) {
+function isPositionWithinBounds(position, bounds) {
+  const [lat, lng] = position
+  return (
+    lat <= bounds.getNorth() &&
+    lat >= bounds.getSouth() &&
+    lng <= bounds.getEast() &&
+    lng >= bounds.getWest()
+  )
+}
+
+function mergeFieldsById(currentFields, loadedFields, bounds) {
   const incomingById = new Map()
   for (const field of loadedFields) {
     if (field?.id != null) {
@@ -202,30 +212,50 @@ function mergeFieldsById(currentFields, loadedFields) {
     }
   }
 
-  if (!incomingById.size) {
-    return currentFields
-  }
-
   // Upsert in place: existing fields keep their array position, and their
   // object identity when the data is unchanged; unseen fields are appended.
-  // Nothing is pruned — a bounds-limited response must never evict fields
-  // the user panned away from (Map Fixing 1 audit, root cause #1).
-  const merged = currentFields.map((field) => {
-    const incoming = incomingById.get(field.id)
-    if (!incoming || fieldsFingerprint([incoming]) === fieldsFingerprint([field])) {
-      return field
-    }
-    return incoming
-  })
+  // A bounds-limited response must never evict fields the user panned away
+  // from (Map Fixing 1 audit, root cause #1) — that guarantee is preserved
+  // below by only pruning fields whose own position falls inside the
+  // bounds that were just queried.
+  let merged = currentFields
+  if (incomingById.size) {
+    merged = currentFields.map((field) => {
+      const incoming = incomingById.get(field.id)
+      if (!incoming || fieldsFingerprint([incoming]) === fieldsFingerprint([field])) {
+        return field
+      }
+      return incoming
+    })
 
-  const existingIds = new Set(currentFields.map((field) => field.id))
-  for (const field of loadedFields) {
-    if (field?.id != null && !existingIds.has(field.id)) {
-      merged.push(field)
+    const existingIds = new Set(currentFields.map((field) => field.id))
+    for (const field of loadedFields) {
+      if (field?.id != null && !existingIds.has(field.id)) {
+        merged.push(field)
+      }
     }
   }
 
-  return merged
+  if (!bounds) {
+    return merged
+  }
+
+  // A field whose coordinates fall inside the just-queried bounds but is
+  // missing from the response is genuinely gone (removed/rejected/
+  // unapproved) — drop it so it doesn't linger from a stale cache or an
+  // earlier fetch. Fields outside these bounds are left untouched.
+  return merged.filter((field) => {
+    if (incomingById.has(field.id)) {
+      return true
+    }
+
+    const position = getFieldPosition(field)
+    if (!position) {
+      return true
+    }
+
+    return !isPositionWithinBounds(position, bounds)
+  })
 }
 
 function RecenterMap({ center }) {
@@ -269,7 +299,7 @@ function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
           return
         }
 
-        onFieldsLoaded(Array.isArray(fields) ? fields : [])
+        onFieldsLoaded(Array.isArray(fields) ? fields : [], bounds)
         onError('')
       } catch {
         if (requestId !== latestRequestId.current) {
@@ -559,8 +589,8 @@ function MapPage({
   )
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
-  const handleFieldsLoaded = useCallback((loadedFields) => {
-    const merged = mergeFieldsById(fieldsRef.current, loadedFields)
+  const handleFieldsLoaded = useCallback((loadedFields, bounds) => {
+    const merged = mergeFieldsById(fieldsRef.current, loadedFields, bounds)
     const mergedFingerprint = fieldsFingerprint(merged)
 
     if (fieldsFingerprintRef.current !== mergedFingerprint) {
@@ -573,6 +603,14 @@ function MapPage({
     setSelectedField((currentField) => {
       if (!currentField) {
         return currentField
+      }
+
+      // If the merge just pruned this field (confirmed gone — e.g. removed
+      // by an admin), close the panel instead of continuing to show stale
+      // data for a field that no longer exists.
+      const stillPresent = merged.some((field) => field.id === currentField.id)
+      if (!stillPresent) {
+        return null
       }
 
       return loadedFields.find((field) => field.id === currentField.id) ?? currentField
