@@ -37,6 +37,10 @@ class FakeTableQuery:
         self.in_filters.append((column, values))
         return self
 
+    def is_(self, column: str, value: Any) -> "FakeTableQuery":
+        self.filters.append(("__is", (column, value)))
+        return self
+
     def gte(self, column: str, value: Any) -> "FakeTableQuery":
         self.filters.append(("__gte", (column, value)))
         return self
@@ -104,6 +108,14 @@ class FakeTableQuery:
             elif column == "__lte":
                 col, threshold = value
                 rows = [row for row in rows if row.get(col) is not None and row[col] <= threshold]
+            elif column == "__is":
+                col, is_value = value
+                if is_value in (None, "null"):
+                    rows = [row for row in rows if row.get(col) is None]
+                elif is_value == "not.null":
+                    rows = [row for row in rows if row.get(col) is not None]
+                else:
+                    rows = [row for row in rows if row.get(col) == is_value]
             else:
                 rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:

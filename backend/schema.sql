@@ -62,7 +62,20 @@ create table if not exists fields (
     created_at timestamptz not null default now(),
     notes text,
     image_url text,
-    updated_at timestamptz
+    updated_at timestamptz,
+    removed_at timestamptz,
+    removed_by uuid references users(id) on delete set null,
+    removal_reason text
+        check (removal_reason is null or removal_reason in (
+            'field_does_not_exist',
+            'duplicate_field',
+            'private_field',
+            'school_property',
+            'wrong_location',
+            'invalid_field',
+            'safety_issue',
+            'other'
+        ))
 );
 
 create table if not exists games (
@@ -174,6 +187,13 @@ create index if not exists idx_user_moderation_audit_created_at on user_moderati
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_fields_public_listing_spatial on fields(verified, approval_status, status, lat, lng);
 create index if not exists idx_fields_approval_status on fields(approval_status);
+create index if not exists idx_fields_removed_at on fields(removed_at);
+create index if not exists idx_fields_public_active_spatial
+    on fields(lat, lng)
+    where removed_at is null
+      and verified = true
+      and approval_status = 'approved'
+      and status = 'open';
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_field_id_status on games(field_id, status);
 create index if not exists idx_games_status on games(status);

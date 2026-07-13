@@ -279,6 +279,10 @@ class FakeQuery:
         self._filters.append((column, value))
         return self
 
+    def is_(self, column: str, value: Any) -> "FakeQuery":
+        self._filters.append((f"__is__{column}", value))
+        return self
+
     def limit(self, *args) -> "FakeQuery":
         return self
 
@@ -288,7 +292,16 @@ class FakeQuery:
     def execute(self) -> FakeResponse:
         rows = self._data
         for col, val in self._filters:
-            rows = [r for r in rows if r.get(col) == val]
+            if col.startswith("__is__"):
+                real_col = col[len("__is__"):]
+                if val in (None, "null"):
+                    rows = [r for r in rows if r.get(real_col) is None]
+                elif val == "not.null":
+                    rows = [r for r in rows if r.get(real_col) is not None]
+                else:
+                    rows = [r for r in rows if r.get(real_col) == val]
+            else:
+                rows = [r for r in rows if r.get(col) == val]
         return FakeResponse(rows)
 
 

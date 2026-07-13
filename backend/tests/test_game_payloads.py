@@ -31,6 +31,10 @@ class FakeQuery:
         self.filters.append((column, value))
         return self
 
+    def is_(self, column: str, value: Any) -> "FakeQuery":
+        self.filters.append((f"__is__{column}", value))
+        return self
+
     def in_(self, column: str, values: list[Any]) -> "FakeQuery":
         if len(values) > self.client.max_in_values:
             raise AssertionError(f"{column} in_ batch exceeded {self.client.max_in_values}: {len(values)}")
@@ -51,7 +55,16 @@ class FakeQuery:
 
         rows = self.client.tables.get(self.table_name, [])
         for column, value in self.filters:
-            rows = [row for row in rows if row.get(column) == value]
+            if column.startswith("__is__"):
+                real_column = column[len("__is__"):]
+                if value in (None, "null"):
+                    rows = [row for row in rows if row.get(real_column) is None]
+                elif value == "not.null":
+                    rows = [row for row in rows if row.get(real_column) is not None]
+                else:
+                    rows = [row for row in rows if row.get(real_column) == value]
+            else:
+                rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
         if self.range_filter is None and self.table_name == "fields":

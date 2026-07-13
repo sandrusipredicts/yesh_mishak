@@ -12,8 +12,10 @@ from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
 from app.routers.fields import (
+    FieldRemoveBody,
     FieldStatusUpdate,
     FieldUpdate,
+    remove_field_record,
     update_field_record,
     update_field_status_record,
 )
@@ -54,6 +56,9 @@ ADMIN_FIELD_COLUMNS = ",".join(
         "verified",
         "notes",
         "created_at",
+        "removed_at",
+        "removed_by",
+        "removal_reason",
     ]
 )
 FINISHED_GAME_STATUSES = ["finished", "cancelled"]
@@ -465,6 +470,7 @@ def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
         .table("fields")
         .select("*")
         .eq("approval_status", "pending")
+        .is_("removed_at", "null")
         .order("created_at", desc=False)
         .execute()
     )
@@ -526,12 +532,36 @@ def update_admin_field(
     return result
 
 
+@router.delete("/fields/{field_id}")
+def delete_admin_field(
+    field_id: str,
+    body: FieldRemoveBody,
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    field_id = validate_uuid_id(field_id, "field_id")
+    result = remove_field_record(field_id, body, str(current_user["id"]))
+    logger.info(
+        "field removed by admin",
+        extra={
+            "event": "fields.moderation.remove",
+            "endpoint": "/admin/fields/{field_id}",
+            "method": "DELETE",
+            "actor_user_id": current_user.get("id"),
+            "field_id": field_id,
+            "removal_reason": body.reason,
+            "result": "success",
+        },
+    )
+    return result
+
+
 @router.get("/fields/duplicates")
 def get_field_duplicates(_: dict[str, Any] = Depends(require_admin)):
     fields = (
         get_supabase_client()
         .table("fields")
         .select(ADMIN_FIELD_COLUMNS + ",added_by")
+        .is_("removed_at", "null")
         .execute()
         .data
         or []

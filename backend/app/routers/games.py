@@ -210,6 +210,13 @@ def create_game(
             message="Field not approved",
         )
 
+    if field.get("removed_at") is not None:
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="FIELD_NOT_OPEN",
+            message="Field has been removed",
+        )
+
     if field.get("status") != "open":
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -81,6 +81,104 @@ class FieldStatusUpdate(BaseModel):
         return value
 
 
+# Controlled removal reasons for moderated field deletion. Kept distinct
+# from field_reports' category enum (a user-facing report reason) since
+# this drives an admin-only, irreversible-from-the-public-map action and
+# needs a couple of values reports don't (school_property, safety_issue,
+# invalid_field).
+FIELD_REMOVAL_REASONS = {
+    "field_does_not_exist",
+    "duplicate_field",
+    "private_field",
+    "school_property",
+    "wrong_location",
+    "invalid_field",
+    "safety_issue",
+    "other",
+}
+
+
+class FieldRemoveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        if value not in FIELD_REMOVAL_REASONS:
+            raise ValueError("Invalid removal reason")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def strip_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        return stripped or None
+
+
+def remove_field_record(
+    field_id: str, body: FieldRemoveBody, actor_user_id: str
+) -> dict[str, Any]:
+    field_id = validate_uuid_id(field_id, "field_id")
+    supabase = get_supabase_client()
+
+    existing_response = (
+        supabase.table("fields").select("*").eq("id", field_id).execute()
+    )
+    if not existing_response.data:
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
+
+    if existing_response.data[0].get("removed_at") is not None:
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="FIELD_ALREADY_REMOVED",
+            message="Field has already been removed",
+        )
+
+    update_payload = {
+        "removed_at": datetime.now(timezone.utc).isoformat(),
+        "removed_by": actor_user_id,
+        "removal_reason": body.reason,
+    }
+
+    try:
+        # The removed_at IS NULL guard makes this a single atomic
+        # check-and-set at the database level: if another request removed
+        # the field between our read above and this write, zero rows match
+        # and we fall through to the 409 below instead of double-applying
+        # the removal or clobbering the first actor's reason.
+        response = (
+            supabase.table("fields")
+            .update(update_payload)
+            .eq("id", field_id)
+            .is_("removed_at", "null")
+            .execute()
+        )
+    except Exception:
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to remove field",
+        )
+
+    if not response.data:
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="FIELD_ALREADY_REMOVED",
+            message="Field has already been removed",
+        )
+
+    return {"message": "Field removed", "field": response.data[0]}
+
+
 def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[str, Any]:
     field_id = validate_uuid_id(field_id, "field_id")
     if body.status not in ALLOWED_FIELD_STATUSES:
@@ -221,7 +319,9 @@ def _validate_field_update_content(provided: dict[str, Any]) -> None:
 def _check_no_confirmed_duplicate(
     field_id: str, candidate: dict[str, Any], supabase: Any
 ) -> None:
-    other_fields = supabase.table("fields").select("*").execute().data or []
+    other_fields = (
+        supabase.table("fields").select("*").is_("removed_at", "null").execute().data or []
+    )
     for other in other_fields:
         if str(other.get("id")) == str(field_id):
             continue
@@ -354,6 +454,7 @@ def get_fields(
             .eq("verified", True)
             .eq("approval_status", "approved")
             .eq("status", "open")
+            .is_("removed_at", "null")
             .gte("lat", south)
             .lte("lat", north)
             .gte("lng", west)
@@ -371,6 +472,7 @@ def get_fields(
                 .eq("verified", True)
                 .eq("approval_status", "approved")
                 .eq("status", "open")
+                .is_("removed_at", "null")
                 .range(offset, offset + FIELDS_PAGE_SIZE - 1)
                 .execute()
             )
@@ -405,6 +507,14 @@ def get_field(field_id: str):
             message="Field not found",
         )
     field = response.data[0]
+    if field.get("removed_at") is not None:
+        # Same code/message as a genuinely missing field — a removed field's
+        # existence and moderation reason are not public information.
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="FIELD_NOT_FOUND",
+            message="Field not found",
+        )
 
     active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields([field_id])
     field["active_game"] = active_games_by_field_id.get(field_id)
