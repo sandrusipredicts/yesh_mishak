@@ -158,3 +158,45 @@ class RegistrationResponse(BaseModel):
 class EmailVerificationResponse(BaseModel):
     status: str
     message: str
+
+
+class LinkGoogleRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class UnlinkGoogleRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+
+
+class SetPasswordRequest(BaseModel):
+    google_token: str = Field(min_length=1)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    password_confirm: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+
+class RemovePasswordRequest(BaseModel):
+    google_token: str = Field(min_length=1)
+
+
+class EmailAccountMethod(BaseModel):
+    address: str | None = None
+    linked: bool
+    verified: bool
+    can_unlink: bool
+
+
+class GoogleAccountMethod(BaseModel):
+    linked: bool
+    email: str | None = None
+    can_unlink: bool
+
+
+class AccountMethodsResponse(BaseModel):
+    email: EmailAccountMethod
+    google: GoogleAccountMethod
+    available_login_methods: int
+
+
+class AccountMethodsMutationResponse(BaseModel):
+    account_methods: AccountMethodsResponse
+    access_token: str

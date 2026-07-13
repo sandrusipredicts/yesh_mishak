@@ -14,24 +14,31 @@ from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
 from app.db.supabase import get_supabase_client
 from app.errors import error_response, raise_api_error
-from app.rate_limit import check_rate_limit_by_ip
+from app.rate_limit import check_rate_limit_by_ip, check_rate_limit_by_user
 from app.schemas.auth import (
+    AccountMethodsMutationResponse,
+    AccountMethodsResponse,
     AvailabilityResponse,
     EmailCheckRequest,
     GoogleAuthRequest,
+    LinkGoogleRequest,
     LoginRequest,
     EmailVerificationResponse,
     MessageResponse,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
+    RemovePasswordRequest,
     ResendVerificationRequest,
     RegistrationResponse,
     RegisterRequest,
+    SetPasswordRequest,
     TokenResponse,
+    UnlinkGoogleRequest,
     UsernameCheckRequest,
     UserResponse,
     VerifyEmailRequest,
 )
+from app.services import account_linking
 from app.services.email_verification import (
     GENERIC_RESEND_MESSAGE,
     VerificationDeliveryError,
@@ -494,4 +501,98 @@ def resend_verification(request: Request, payload: ResendVerificationRequest) ->
                 extra={"event": "auth.email_verification.resend_failure", "user_id": str(user["id"])},
             )
     return EmailVerificationResponse(status="accepted", message=GENERIC_RESEND_MESSAGE)
+
+
+# --- Account linking (E01-04) -----------------------------------------------
+# Every mutating endpoint below reissues an access token (tokens_valid_after
+# is bumped so any *other* live sessions are forced to re-authenticate, while
+# the caller's own session keeps working via the freshly issued token).
+
+
+@router.get("/account-methods", response_model=AccountMethodsResponse)
+def get_account_methods(current_user: dict = Depends(require_active_user)) -> AccountMethodsResponse:
+    methods = account_linking.get_account_methods(str(current_user["id"]))
+    return AccountMethodsResponse(**methods)
+
+
+@router.post("/link/google", response_model=AccountMethodsMutationResponse)
+def link_google_account(
+    request: Request,
+    payload: LinkGoogleRequest,
+    current_user: dict = Depends(require_active_user),
+) -> AccountMethodsMutationResponse:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "account_linking_link_google", [(10, 60), (30, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = account_linking.link_google(str(current_user["id"]), payload.token)
+    logger.info(
+        "google account linked",
+        extra={"event": "auth.account_linking.link_google.success", "user_id": current_user["id"]},
+    )
+    return AccountMethodsMutationResponse(**result)
+
+
+@router.post("/unlink/google", response_model=AccountMethodsMutationResponse)
+def unlink_google_account(
+    request: Request,
+    payload: UnlinkGoogleRequest,
+    current_user: dict = Depends(require_active_user),
+) -> AccountMethodsMutationResponse:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "account_linking_unlink_google", [(10, 60), (30, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = account_linking.unlink_google(str(current_user["id"]), payload.current_password, request)
+    logger.info(
+        "google account unlinked",
+        extra={"event": "auth.account_linking.unlink_google.success", "user_id": current_user["id"]},
+    )
+    return AccountMethodsMutationResponse(**result)
+
+
+@router.post("/set-password", response_model=AccountMethodsMutationResponse)
+def set_account_password(
+    request: Request,
+    payload: SetPasswordRequest,
+    current_user: dict = Depends(require_active_user),
+) -> AccountMethodsMutationResponse:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "account_linking_set_password", [(10, 60), (30, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = account_linking.set_password_for_user(
+        str(current_user["id"]), payload.google_token, payload.password, payload.password_confirm
+    )
+    logger.info(
+        "account password set",
+        extra={"event": "auth.account_linking.set_password.success", "user_id": current_user["id"]},
+    )
+    return AccountMethodsMutationResponse(**result)
+
+
+@router.post("/remove-password", response_model=AccountMethodsMutationResponse)
+def remove_account_password(
+    request: Request,
+    payload: RemovePasswordRequest,
+    current_user: dict = Depends(require_active_user),
+) -> AccountMethodsMutationResponse:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "account_linking_remove_password", [(10, 60), (30, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = account_linking.remove_password_for_user(str(current_user["id"]), payload.google_token)
+    logger.info(
+        "account password removed",
+        extra={"event": "auth.account_linking.remove_password.success", "user_id": current_user["id"]},
+    )
+    return AccountMethodsMutationResponse(**result)
 
