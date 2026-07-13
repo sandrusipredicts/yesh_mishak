@@ -113,8 +113,40 @@ class PasswordResetConfirmRequest(BaseModel):
     password_confirm: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
+class PhoneOtpStartRequest(BaseModel):
+    phone_number: str = Field(min_length=6, max_length=30)
+
+    @field_validator("phone_number")
+    @classmethod
+    def strip_phone_number(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Phone number is required")
+        return stripped
+
+
+class PhoneOtpVerifyRequest(PhoneOtpStartRequest):
+    otp: str = Field(min_length=4, max_length=10)
+
+    @field_validator("otp")
+    @classmethod
+    def strip_otp(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Verification code is required")
+        return stripped
+
+
 class MessageResponse(BaseModel):
     message: str
+
+
+class PhoneOtpStartResponse(MessageResponse):
+    cooldown_seconds: int
+
+
+class PhoneOtpVerifyResponse(MessageResponse):
+    phone_number: str
 
 
 class AvailabilityResponse(BaseModel):

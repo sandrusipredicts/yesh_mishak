@@ -23,6 +23,10 @@ from app.schemas.auth import (
     MessageResponse,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
+    PhoneOtpStartRequest,
+    PhoneOtpStartResponse,
+    PhoneOtpVerifyRequest,
+    PhoneOtpVerifyResponse,
     RegisterRequest,
     TokenResponse,
     UsernameCheckRequest,
@@ -32,6 +36,7 @@ from app.services.password_reset import (
     PasswordResetRateLimited,
     PasswordResetService,
 )
+from app.services.phone_verification import PhoneVerificationService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -371,6 +376,52 @@ def confirm_password_reset(request: Request, payload: PasswordResetConfirmReques
             content=error_response(code="RATE_LIMITED", message="Too many requests. Please try again later."),
         )
     return MessageResponse(message=result["message"])
+
+
+@router.post("/phone/start", response_model=PhoneOtpStartResponse)
+def start_phone_verification(
+    request: Request,
+    payload: PhoneOtpStartRequest,
+    current_user: dict = Depends(require_active_user),
+) -> PhoneOtpStartResponse | JSONResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_phone_start", [(10, 60), (40, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = PhoneVerificationService().start(
+        user=current_user,
+        phone_number=payload.phone_number,
+    )
+    return PhoneOtpStartResponse(
+        message=result.message,
+        cooldown_seconds=result.cooldown_seconds,
+    )
+
+
+@router.post("/phone/verify", response_model=PhoneOtpVerifyResponse)
+def verify_phone_otp(
+    request: Request,
+    payload: PhoneOtpVerifyRequest,
+    current_user: dict = Depends(require_active_user),
+) -> PhoneOtpVerifyResponse | JSONResponse:
+    rate_limit_hit = check_rate_limit_by_ip(
+        request, "auth_phone_verify", [(20, 60), (80, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    result = PhoneVerificationService().verify(
+        user=current_user,
+        phone_number=payload.phone_number,
+        otp=payload.otp,
+    )
+    invalidate_cached_user(str(current_user["id"]))
+    return PhoneOtpVerifyResponse(
+        message=result.message,
+        phone_number=result.phone_number,
+    )
 
 
 @router.post("/logout")

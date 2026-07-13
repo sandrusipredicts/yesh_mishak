@@ -27,6 +27,7 @@ create table if not exists user_identities (
     provider_subject text not null,
     email_at_link text,
     email_verified_at_link boolean not null default false,
+    phone_verified_at timestamptz,
     created_at timestamptz not null default now(),
     last_used_at timestamptz not null default now(),
     unique (provider, provider_subject),
@@ -201,3 +202,6 @@ create unique index if not exists idx_notifications_user_game_extended_end_time_
 
 create index if not exists idx_user_identities_user_id on user_identities(user_id);
 create index if not exists idx_user_identities_lookup on user_identities(provider, provider_subject);
+create index if not exists idx_user_identities_phone_verified_at
+    on user_identities(phone_verified_at)
+    where provider = 'phone';
