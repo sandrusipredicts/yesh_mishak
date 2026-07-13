@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expire_minutes: int = Field(default=10080, alias="JWT_EXPIRE_MINUTES")
+    jwt_issuer: str = Field(default="yesh-mishak-api", alias="JWT_ISSUER")
+    jwt_audience: str = Field(default="yesh-mishak-app", alias="JWT_AUDIENCE")
     firebase_project_id: str | None = Field(default=None, alias="FIREBASE_PROJECT_ID")
     firebase_service_account_json: str | None = Field(
         default=None,

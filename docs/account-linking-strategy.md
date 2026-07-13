@@ -16,7 +16,7 @@ Users may authenticate with more than one method: email/password (already implem
 Grounded in the code as of main `042f01f`:
 
 - **Backend:** FastAPI + Supabase Postgres. Single `users` table holds identity: `id` (UUID, PK), `email`, `name`, `username`, `phone_number`, `password_hash`, `google_sub`, `last_login`.
-- **App session:** backend-issued JWT (HS256, 7-day TTL, `sub` = internal user id, `email` claim), with server-side revocation on logout (`jwt_token_revocation.sql`).
+- **App session:** backend-issued JWT (HS256, 7-day TTL, `sub` = internal user id, `email` claim, configured `iss`/`aud` claims), with server-side revocation on logout (`jwt_token_revocation.sql`).
 - **Manual method:** `POST /auth/register` (email + username + password; **email ownership is NOT verified**) and `POST /auth/login` (email-or-username + password). Registration fails closed on duplicate email/username (`EMAIL_TAKEN` / username taken).
 - **Google method:** `POST /auth/google` verifies the Google ID token against the single web OAuth client ID audience (`app/auth/google.py`). It requires `email` + `sub` claims and **rejects `email_verified != true` with 403 `EMAIL_NOT_VERIFIED`** (already implemented). It then calls `find_or_create_google_user`:
   - Lookup is `users.email == token.email` — **`google_sub` is never used for lookup and never backfilled on match.**

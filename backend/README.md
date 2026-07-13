@@ -32,10 +32,18 @@ JWT_SECRET=
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=10080
+JWT_ISSUER=yesh-mishak-api
+JWT_AUDIENCE=yesh-mishak-app
 FIREBASE_PROJECT_ID=
 FIREBASE_SERVICE_ACCOUNT_JSON=
 FIREBASE_SERVICE_ACCOUNT_FILE=
 ```
+
+Application JWTs are backend-issued HS256 bearer tokens. Newly issued tokens
+include `sub` (internal `users.id`), `email`, `iat`, `exp`, `iss`, and `aud`.
+The backend validates signature, expiration, `JWT_ISSUER`, and `JWT_AUDIENCE`
+on protected endpoints. Deployments that change issuer/audience values will
+invalidate existing stored sessions and users may need to sign in again.
 
 For Firebase Cloud Messaging, set `FIREBASE_PROJECT_ID`. The current Firebase
 project is:

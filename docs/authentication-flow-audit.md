@@ -12,7 +12,7 @@ The app has three entry flows (Google login, manual login, registration) that al
 
 ## Current authentication architecture overview
 
-- **Token model:** stateless JWT (HS256), payload `{ sub: user_id, email, iat, exp }`, default TTL 10080 minutes (7 days) via `JWT_EXPIRE_MINUTES` (`backend/app/core/config.py:18`). Created only by `create_access_token` (`backend/app/auth/jwt.py`). No refresh tokens.
+- **Token model:** stateless JWT (HS256), payload `{ sub: user_id, email, iat, exp, iss, aud }`, default TTL 10080 minutes (7 days) via `JWT_EXPIRE_MINUTES`, issuer via `JWT_ISSUER`, and audience via `JWT_AUDIENCE` (`backend/app/core/config.py`). Created only by `create_access_token` (`backend/app/auth/jwt.py`). No refresh tokens. Tokens missing or mismatching the configured issuer/audience fail closed.
 - **Revocation:** logout sets `users.tokens_valid_after = now()`; every authenticated request compares the JWT `iat` against it (`_check_token_revoked`, `backend/app/auth/dependencies.py:53`). An in-process user cache (TTL `auth_user_cache_ttl_seconds`) fronts the DB lookup; logout invalidates the cache entry.
 - **Request auth:** `HTTPBearer` → `decode_access_token` → user lookup → status check (`require_active_user` rejects banned/suspended with 403 `ACCOUNT_RESTRICTED`).
 - **Frontend auth spine:** `frontend/src/api/auth.js` (flow calls + `saveAuthSession`), `frontend/src/api/sessionStorage.js` (sole storage owner: Android secure storage on native, localStorage tier on web), `frontend/src/api/client.js` (axios: request interceptor attaches `Authorization: Bearer`, response interceptor clears the session on 401), `frontend/src/App.jsx` (session state machine, restoration, logout).

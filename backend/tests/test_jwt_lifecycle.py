@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import _user_cache, invalidate_cached_user
-from app.auth.jwt import create_access_token
+from app.auth.jwt import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.main import app
 
@@ -148,6 +148,32 @@ def make_token(user: dict[str, Any]) -> str:
     return create_access_token(subject=user["id"], email=user["email"])
 
 
+def make_payload(
+    user: dict[str, Any] | None = None,
+    *,
+    iat: datetime | int | None = None,
+    exp: datetime | None = None,
+    include_issuer: bool = True,
+    include_audience: bool = True,
+    **overrides: Any,
+) -> dict[str, Any]:
+    settings = get_settings()
+    selected_user = user or REGULAR_USER
+    now = datetime.now(timezone.utc)
+    payload: dict[str, Any] = {
+        "sub": selected_user["id"],
+        "email": selected_user["email"],
+        "iat": iat if iat is not None else now,
+        "exp": exp if exp is not None else now + timedelta(hours=1),
+    }
+    if include_issuer:
+        payload["iss"] = settings.jwt_issuer
+    if include_audience:
+        payload["aud"] = settings.jwt_audience
+    payload.update(overrides)
+    return payload
+
+
 REGULAR_USER = {
     "id": "00000000-0000-0000-0000-000000000001",
     "email": "user@example.com",
@@ -208,6 +234,37 @@ def test_login_issues_usable_jwt(monkeypatch) -> None:
     assert response.status_code != 401
 
 
+# ---- Issued JWT includes configured issuer and audience ----
+
+
+def test_create_access_token_includes_configured_issuer_and_audience(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+
+    token = make_token(REGULAR_USER)
+    payload = pyjwt.decode(
+        token,
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
+        audience=settings.jwt_audience,
+        issuer=settings.jwt_issuer,
+    )
+
+    assert payload["iss"] == settings.jwt_issuer
+    assert payload["aud"] == settings.jwt_audience
+
+
+def test_decode_access_token_accepts_valid_issuer_and_audience(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    token = make_token(REGULAR_USER)
+
+    payload = decode_access_token(token)
+
+    assert payload["sub"] == REGULAR_USER["id"]
+    assert payload["iss"] == get_settings().jwt_issuer
+    assert payload["aud"] == get_settings().jwt_audience
+
+
 # ---- Protected endpoint accepts valid JWT ----
 
 
@@ -232,12 +289,10 @@ def test_expired_jwt_is_rejected(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     settings = get_settings()
     now = datetime.now(timezone.utc)
-    payload = {
-        "sub": REGULAR_USER["id"],
-        "email": REGULAR_USER["email"],
-        "iat": now - timedelta(hours=2),
-        "exp": now - timedelta(hours=1),
-    }
+    payload = make_payload(
+        iat=now - timedelta(hours=2),
+        exp=now - timedelta(hours=1),
+    )
     token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
     response = TestClient(app).get(
@@ -271,13 +326,7 @@ def test_missing_jwt_is_rejected() -> None:
 
 def test_wrong_secret_jwt_is_rejected(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": REGULAR_USER["id"],
-        "email": REGULAR_USER["email"],
-        "iat": now,
-        "exp": now + timedelta(hours=1),
-    }
+    payload = make_payload()
     token = pyjwt.encode(payload, "wrong-secret", algorithm="HS256")
 
     response = TestClient(app).get(
@@ -296,12 +345,7 @@ def _make_token_seconds_ago(user: dict[str, Any], seconds: int = 2) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     past = now - timedelta(seconds=seconds)
-    payload = {
-        "sub": user["id"],
-        "email": user["email"],
-        "iat": past,
-        "exp": now + timedelta(hours=1),
-    }
+    payload = make_payload(user, iat=past, exp=now + timedelta(hours=1))
     return pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -502,12 +546,63 @@ def test_admin_route_rejects_suspended_admin(monkeypatch) -> None:
 def test_token_without_sub_is_rejected(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     settings = get_settings()
-    now = datetime.now(timezone.utc)
-    payload = {
-        "email": "user@example.com",
-        "iat": now,
-        "exp": now + timedelta(hours=1),
-    }
+    payload = make_payload()
+    payload.pop("sub")
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+
+
+# ---- Missing or incorrect issuer/audience are rejected ----
+
+
+def test_token_without_issuer_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    payload = make_payload(include_issuer=False)
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+
+
+def test_token_with_wrong_issuer_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    payload = make_payload(iss="wrong-issuer")
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+
+
+def test_token_without_audience_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    payload = make_payload(include_audience=False)
+    token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+
+
+def test_token_with_wrong_audience_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    settings = get_settings()
+    payload = make_payload(aud="wrong-audience")
     token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
     response = TestClient(app).get(
@@ -558,12 +653,7 @@ def test_same_second_logout_login_token_accepted(monkeypatch) -> None:
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
 
-    payload = {
-        "sub": user["id"],
-        "email": user["email"],
-        "iat": int(now.timestamp()),
-        "exp": now + timedelta(hours=1),
-    }
+    payload = make_payload(user, iat=int(now.timestamp()), exp=now + timedelta(hours=1))
     token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
     response = TestClient(app).get(
@@ -586,12 +676,7 @@ def test_token_from_prior_second_rejected_after_revocation(monkeypatch) -> None:
     patch_all_supabase(monkeypatch, fake_client)
 
     one_second_ago = now - timedelta(seconds=1)
-    payload = {
-        "sub": user["id"],
-        "email": user["email"],
-        "iat": int(one_second_ago.timestamp()),
-        "exp": now + timedelta(hours=1),
-    }
+    payload = make_payload(user, iat=int(one_second_ago.timestamp()), exp=now + timedelta(hours=1))
     token = pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
     response = TestClient(app).get(

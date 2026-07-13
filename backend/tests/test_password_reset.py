@@ -503,6 +503,8 @@ def test_successful_reset_updates_password_invalidates_jwt_and_rejects_replay(mo
         {
             "sub": user["id"],
             "email": user["email"],
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
             "iat": now - timedelta(seconds=2),
             "exp": now + timedelta(hours=1),
         },
