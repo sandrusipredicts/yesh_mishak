@@ -17,6 +17,9 @@ psycopg = pytest.importorskip("psycopg")
 DATABASE_URL = os.getenv("PASSWORD_RESET_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="PASSWORD_RESET_DATABASE_URL is not configured")
 MIGRATION = Path(__file__).parents[1] / "migrations" / "password_reset_tokens.sql"
+MONOTONIC_REVOCATION_MIGRATION = (
+    Path(__file__).parents[1] / "migrations" / "token_revocation_monotonic.sql"
+)
 
 
 def execute(sql: str, params: tuple = (), *, fetch: bool = False):
@@ -41,6 +44,12 @@ def migrated_database():
         )
     """)
     execute(MIGRATION.read_text(encoding="utf-8"))
+    # E01-05: apply the monotonic-revocation redefinition on top. Its
+    # account-linking functions reference public.user_identities, which
+    # this minimal schema does not create; that's fine, plpgsql only
+    # validates those references lazily on first invocation, and this file
+    # never calls those functions.
+    execute(MONOTONIC_REVOCATION_MIGRATION.read_text(encoding="utf-8"))
     yield
 
 
@@ -161,6 +170,62 @@ def test_consume_rolls_back_user_update_when_token_update_fails():
     """)
     with pytest.raises(psycopg.Error):
         rpc("select * from public.consume_password_reset_token('hash-a','new-hash')")
+
+
+# ---- E01-05: tokens_valid_after must never move backward ------------------
+
+
+def test_consume_password_reset_token_does_not_move_tokens_valid_after_backward():
+    """A later revocation (e.g. a concurrent logout on another
+    worker/device) may already have advanced tokens_valid_after into the
+    future relative to this reset confirmation. Consuming the reset token
+    must not roll that back."""
+    user_id = add_user(); create_token(user_id, "hash-a")
+    rpc("select * from public.finalize_password_reset_delivery('hash-a',true)")
+    execute(
+        "update public.users set tokens_valid_after = now() + interval '1 hour' where id=%s",
+        (user_id,),
+    )
+    rpc("select * from public.consume_password_reset_token('hash-a','new-hash')")
+    remaining = execute(
+        "select tokens_valid_after > now() + interval '59 minutes' from public.users where id=%s",
+        (user_id,),
+        fetch=True,
+    )
+    assert remaining == [(True,)]
+
+
+def test_revoke_user_tokens_does_not_move_tokens_valid_after_backward():
+    user_id = add_user()
+    execute(
+        "update public.users set tokens_valid_after = now() + interval '1 hour' where id=%s",
+        (user_id,),
+    )
+    result = rpc("select * from public.revoke_user_tokens(%s)", (user_id,))
+    assert result == [("revoked",)]
+    remaining = execute(
+        "select tokens_valid_after > now() + interval '59 minutes' from public.users where id=%s",
+        (user_id,),
+        fetch=True,
+    )
+    assert remaining == [(True,)]
+
+
+def test_revoke_user_tokens_advances_from_null():
+    user_id = add_user()
+    before = execute("select now()", fetch=True)[0][0]
+    result = rpc("select * from public.revoke_user_tokens(%s)", (user_id,))
+    assert result == [("revoked",)]
+    after = execute("select now()", fetch=True)[0][0]
+    value = execute(
+        "select tokens_valid_after from public.users where id=%s", (user_id,), fetch=True
+    )[0][0]
+    assert before <= value <= after
+
+
+def test_revoke_user_tokens_missing_user():
+    result = rpc("select * from public.revoke_user_tokens(%s)", (str(uuid4()),))
+    assert result == [("user_not_found",)]
     assert execute("select password_hash from public.users where id=%s", (user_id,), fetch=True) == [("old-hash",)]
     assert execute("select status from public.password_reset_tokens where token_hash='hash-a'", fetch=True) == [("active",)]
     execute("drop trigger fail_consumption on public.password_reset_tokens; drop function public.fail_consumption()")

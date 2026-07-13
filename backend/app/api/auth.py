@@ -12,7 +12,7 @@ from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import error_response, raise_api_error
 from app.rate_limit import check_rate_limit_by_ip, check_rate_limit_by_user
 from app.schemas.auth import (
@@ -417,9 +417,19 @@ def confirm_password_reset(request: Request, payload: PasswordResetConfirmReques
 def logout(current_user: dict = Depends(require_active_user)) -> dict:
     user_id = current_user["id"]
     try:
-        get_supabase_client().table("users").update(
-            {"tokens_valid_after": _now_iso()}
-        ).eq("id", user_id).execute()
+        # revoke_user_tokens bumps tokens_valid_after atomically to
+        # GREATEST(current value, now()) under a per-user advisory lock, so a
+        # logout can never regress a later revocation (e.g. a concurrent
+        # password reset or account-linking mutation on another device) even
+        # if this request's DB round trip commits after that one's.
+        response = (
+            get_supabase_service_role_client()
+            .rpc("revoke_user_tokens", {"p_user_id": user_id})
+            .execute()
+        )
+        result = response.data[0].get("result") if response.data else None
+        if result not in ("revoked", "user_not_found"):
+            raise RuntimeError(f"unexpected revoke_user_tokens result: {result}")
     except Exception:
         logger.warning(
             "logout tokens_valid_after update failed",

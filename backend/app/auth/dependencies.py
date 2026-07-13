@@ -11,6 +11,13 @@ from app.core.config import get_settings
 from app.db.supabase import get_supabase_client
 from app.errors import raise_api_error
 
+# Fields that gate authentication/authorization decisions. These are never
+# served from a stale cached copy: every request re-reads them from the
+# database (see _refresh_cached_revocation_fields and the cache-miss branch
+# below), so a revocation or role change written by any worker/instance is
+# visible to every other worker/instance on its very next request.
+_SECURITY_FIELDS = "id,status,tokens_valid_after,role"
+
 bearer_scheme = HTTPBearer(auto_error=False)
 timing_logger = logging.getLogger("uvicorn.error")
 
@@ -56,10 +63,24 @@ def _check_token_revoked(user: dict[str, Any], token_iat: float | int | None) ->
     tokens_valid_after = user.get("tokens_valid_after")
     if tokens_valid_after is None or token_iat is None:
         return
-    if isinstance(tokens_valid_after, str):
-        threshold = _parse_iso_timestamp(tokens_valid_after)
-    else:
-        threshold = float(tokens_valid_after)
+    try:
+        if isinstance(tokens_valid_after, str):
+            threshold = _parse_iso_timestamp(tokens_valid_after)
+        else:
+            threshold = float(tokens_valid_after)
+    except (ValueError, TypeError) as exc:
+        # A malformed tokens_valid_after means revocation state cannot be
+        # verified reliably - fail closed rather than let it crash into an
+        # unhandled 500 or, worse, silently skip the revocation check.
+        timing_logger.warning(
+            "auth.tokens_valid_after_malformed exception_type=%s", exc.__class__.__name__
+        )
+        raise_api_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="AUTH_SERVICE_UNAVAILABLE",
+            message="Authentication service is temporarily unavailable",
+        )
+        return
     if int(token_iat) < int(threshold):
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -68,24 +89,46 @@ def _check_token_revoked(user: dict[str, Any], token_iat: float | int | None) ->
         )
 
 
+def _fetch_user_row(user_id: str, columns: str) -> dict[str, Any] | None:
+    """Fetch a users row from the database, failing closed on any DB error.
+
+    Auth must never treat a token as valid just because the database could
+    not be reached: an unreachable/erroring database is mapped to a stable
+    503 AUTH_SERVICE_UNAVAILABLE rather than silently falling back to a
+    cached value or leaking the underlying exception to the client.
+    """
+    try:
+        response = (
+            get_supabase_client()
+            .table("users")
+            .select(columns)
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        timing_logger.warning(
+            "auth.user_lookup_failed exception_type=%s", exc.__class__.__name__
+        )
+        raise_api_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="AUTH_SERVICE_UNAVAILABLE",
+            message="Authentication service is temporarily unavailable",
+        )
+    return response.data[0] if response.data else None
+
+
 def _refresh_cached_revocation_fields(user_id: str, cached_user: dict[str, Any]) -> dict[str, Any]:
-    response = (
-        get_supabase_client()
-        .table("users")
-        .select("id,status,tokens_valid_after")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if not response.data:
+    fresh = _fetch_user_row(user_id, _SECURITY_FIELDS)
+    if fresh is None:
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_INVALID",
             message="User not found",
         )
-    fresh = response.data[0]
     cached_user["status"] = fresh.get("status", cached_user.get("status"))
     cached_user["tokens_valid_after"] = fresh.get("tokens_valid_after")
+    cached_user["role"] = fresh.get("role", cached_user.get("role"))
     _set_cached_user(user_id, cached_user)
     return cached_user
 
@@ -136,25 +179,17 @@ def get_current_user(
 
     # Cache miss - lookup in Supabase
     t_db_start = time.perf_counter()
-    response = (
-        get_supabase_client()
-        .table("users")
-        .select("id,email,name,role,status,tokens_valid_after")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
+    user = _fetch_user_row(user_id, "id,email,name,role,status,tokens_valid_after")
     t_db_end = time.perf_counter()
     duration_db = t_db_end - t_db_start
 
-    if not response.data:
+    if user is None:
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_INVALID",
             message="User not found",
         )
 
-    user = response.data[0]
     _check_token_revoked(user, token_iat)
     _set_cached_user(user_id, user)
 

@@ -11,6 +11,16 @@ from app.auth.jwt import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.main import app
 
+_EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _as_datetime(value: Any) -> datetime:
+    if value is None:
+        return _EPOCH
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return value
+
 
 @dataclass
 class FakeResponse:
@@ -103,6 +113,11 @@ class FakeTableQuery:
         return {column: row.get(column) for column in self.selected_columns}
 
 
+@dataclass
+class FakeRpcResponse:
+    data: list[dict[str, Any]]
+
+
 class FakeSupabaseClient:
     def __init__(
         self,
@@ -124,6 +139,29 @@ class FakeSupabaseClient:
     def table(self, table_name: str) -> FakeTableQuery:
         return FakeTableQuery(self.tables.get(table_name, []))
 
+    def rpc(self, name: str, params: dict[str, Any]) -> "FakeRpcCall":
+        if name != "revoke_user_tokens":
+            raise AssertionError(f"Unexpected RPC {name}")
+        return FakeRpcCall(self, params["p_user_id"])
+
+
+class FakeRpcCall:
+    """Mirrors migrations/token_revocation_monotonic.sql's revoke_user_tokens:
+    an atomic, monotonic (GREATEST) bump of tokens_valid_after."""
+
+    def __init__(self, client: FakeSupabaseClient, user_id: str) -> None:
+        self.client = client
+        self.user_id = user_id
+
+    def execute(self) -> FakeRpcResponse:
+        user = next((u for u in self.client.users if u["id"] == self.user_id), None)
+        if user is None:
+            return FakeRpcResponse(data=[{"result": "user_not_found"}])
+        now = datetime.now(timezone.utc)
+        current = _as_datetime(user.get("tokens_valid_after"))
+        user["tokens_valid_after"] = max(current, now).isoformat()
+        return FakeRpcResponse(data=[{"result": "revoked"}])
+
 
 def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
@@ -142,6 +180,7 @@ def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
         "app.routers.game_payloads",
     ):
         monkeypatch.setattr(f"{module}.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
 
 
 def make_token(user: dict[str, Any]) -> str:
@@ -687,3 +726,230 @@ def test_token_from_prior_second_rejected_after_revocation(monkeypatch) -> None:
     )
     assert response.status_code == 401
     assert response.json()["code"] == "TOKEN_REVOKED"
+
+
+# ---- E01-05: multi-worker in-process cache lag on token revocation -------
+#
+# app.auth.dependencies._user_cache is a module-level dict: in a real
+# multi-worker/multi-instance deployment each worker process has its own
+# copy. These tests simulate that by swapping in independent dict objects
+# for "worker A" and "worker B" instead of sharing the single process-wide
+# cache the way the other tests in this file do.
+
+
+import app.auth.dependencies as deps
+
+
+@pytest.fixture
+def enable_cache(monkeypatch):
+    monkeypatch.setattr(deps, "_enable_cache_in_tests", True)
+    monkeypatch.setenv("AUTH_USER_CACHE_TTL_SECONDS", "300")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_worker_a_stale_cache_rejects_token_after_worker_b_revokes(monkeypatch, enable_cache) -> None:
+    """Core E01-05 proof: Worker A populates its own cache, Worker B revokes
+    via logout (writing tokens_valid_after in the shared database and
+    clearing only *its own* local cache), and Worker A - which never had its
+    local cache invalidated - must still reject the old token because
+    revocation state is always re-read from the database, never trusted
+    from a stale in-process cache."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    shared_db = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, shared_db)
+
+    worker_a_cache: dict = {}
+    worker_b_cache: dict = {}
+
+    token = _make_token_seconds_ago(user)
+
+    # Worker A serves a request: cache miss, populates worker_a_cache.
+    monkeypatch.setattr(deps, "_user_cache", worker_a_cache)
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code != 401
+    assert user["id"] in worker_a_cache
+
+    # Worker B serves the logout: revokes in the shared DB, invalidates only
+    # its own (empty) local cache. Worker A's cache is untouched.
+    monkeypatch.setattr(deps, "_user_cache", worker_b_cache)
+    logout_response = TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert logout_response.status_code == 200
+    assert user["id"] not in worker_b_cache
+    assert user["id"] in worker_a_cache  # still stale on Worker A
+
+    # Worker A serves the same old token again: its cache is a hit, but the
+    # DB-authoritative refresh must still reject the token.
+    monkeypatch.setattr(deps, "_user_cache", worker_a_cache)
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+    assert response.json()["code"] == "TOKEN_REVOKED"
+
+
+def test_worker_a_accepts_new_token_after_worker_b_revokes(monkeypatch, enable_cache) -> None:
+    """Companion to the above: a fresh login after the revocation must work
+    on Worker A even though Worker A's cache still holds the pre-revocation
+    entry for this user."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    shared_db = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, shared_db)
+
+    worker_a_cache: dict = {}
+    worker_b_cache: dict = {}
+
+    old_token = _make_token_seconds_ago(user)
+
+    monkeypatch.setattr(deps, "_user_cache", worker_a_cache)
+    TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {old_token}"})
+    assert user["id"] in worker_a_cache
+
+    monkeypatch.setattr(deps, "_user_cache", worker_b_cache)
+    TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {old_token}"})
+
+    new_token = create_access_token(subject=user["id"], email=user["email"])
+
+    monkeypatch.setattr(deps, "_user_cache", worker_a_cache)
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {new_token}"})
+    assert response.status_code != 401
+
+
+def test_cached_role_is_refreshed_from_database(monkeypatch, enable_cache) -> None:
+    """A cached copy of `role` must never outlive a database change: role
+    gates admin authorization (require_admin), so it is refreshed on every
+    request exactly like status and tokens_valid_after."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER, role="user")
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    token = create_access_token(subject=user["id"], email=user["email"])
+
+    # Populate the cache while role="user".
+    response = TestClient(app).get("/admin/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+    assert user["id"] in deps._user_cache
+
+    # Promote to admin directly in the database (as a real admin action
+    # would, from any worker) without touching the cache at all.
+    user["role"] = "admin"
+
+    response = TestClient(app).get("/admin/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+
+
+def test_db_unavailable_fails_closed_on_cache_miss(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+
+    class BrokenSupabaseClient:
+        def table(self, name: str):
+            raise ConnectionError("database unreachable")
+
+    monkeypatch.setattr(deps, "get_supabase_client", lambda: BrokenSupabaseClient())
+
+    token = create_access_token(subject=REGULAR_USER["id"], email=REGULAR_USER["email"])
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "AUTH_SERVICE_UNAVAILABLE"
+
+
+def test_db_unavailable_fails_closed_on_cache_hit(monkeypatch, enable_cache) -> None:
+    """A cache hit must not bypass the DB-unavailable fail-closed path: the
+    security fields are always re-read from the database, so if that read
+    fails, the request is rejected rather than silently trusting the cache."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    token = create_access_token(subject=user["id"], email=user["email"])
+    first = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert first.status_code != 401
+    assert user["id"] in deps._user_cache
+
+    class BrokenSupabaseClient:
+        def table(self, name: str):
+            raise ConnectionError("database unreachable")
+
+    monkeypatch.setattr(deps, "get_supabase_client", lambda: BrokenSupabaseClient())
+
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "AUTH_SERVICE_UNAVAILABLE"
+
+
+def test_malformed_tokens_valid_after_does_not_crash(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER, tokens_valid_after="not-a-timestamp")
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    token = create_access_token(subject=user["id"], email=user["email"])
+    response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 503
+    assert response.json()["code"] == "AUTH_SERVICE_UNAVAILABLE"
+
+
+def test_concurrent_revocations_do_not_move_tokens_valid_after_backward(monkeypatch) -> None:
+    """Race C: revoke_user_tokens uses GREATEST(existing, now()), so a write
+    that captured an *earlier* wall-clock timestamp can never overwrite a
+    value already advanced by a write that captured a *later* one - however
+    the two commits are ordered/interleaved in a real multi-worker
+    deployment. This exercises the same GREATEST semantics implemented in
+    migrations/token_revocation_monotonic.sql's revoke_user_tokens (and
+    mirrored by FakeRpcCall), independent of any single request's auth
+    state."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+
+    # A later-committing revocation already advanced tokens_valid_after into
+    # the near future (simulating Worker B's write landing first).
+    future = datetime.now(timezone.utc) + timedelta(seconds=5)
+    user["tokens_valid_after"] = future.isoformat()
+
+    # Worker A's revocation captured an earlier timestamp but its write
+    # reaches the database second. It must not roll tokens_valid_after back.
+    fake_client.rpc("revoke_user_tokens", {"p_user_id": user["id"]}).execute()
+
+    final_value = datetime.fromisoformat(user["tokens_valid_after"])
+    assert final_value == future
+
+
+def test_revocation_timestamp_only_advances(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+
+    before = datetime.now(timezone.utc)
+    fake_client.rpc("revoke_user_tokens", {"p_user_id": user["id"]}).execute()
+    after = datetime.now(timezone.utc)
+
+    final_value = datetime.fromisoformat(user["tokens_valid_after"])
+    assert before <= final_value <= after
+
+
+def test_logout_revoke_missing_user_does_not_error(monkeypatch) -> None:
+    """If the user row disappears between auth and the revoke RPC executing,
+    revoke_user_tokens reports user_not_found; logout must not blow up."""
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    token = create_access_token(subject=user["id"], email=user["email"])
+    # Simulate the row vanishing only for the RPC call (get_current_user's
+    # own lookup, resolved as a dependency before the handler body runs,
+    # still sees the user).
+    original_rpc = fake_client.rpc
+
+    def rpc_user_missing(name, params):
+        fake_client.users.clear()
+        return original_rpc(name, params)
+
+    monkeypatch.setattr(fake_client, "rpc", rpc_user_missing)
+
+    response = TestClient(app).post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
