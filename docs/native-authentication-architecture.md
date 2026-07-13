@@ -128,7 +128,7 @@ No failure path may leave a partial session: the session exists only after `save
 
 The approved target architecture keeps the backend unchanged by configuring the native Google Sign-In plugin with `serverClientId` equal to the existing web OAuth client ID, so the returned Google ID token is **expected** to have an audience compatible with the current backend `verify_google_token` check. **This assumption must be validated during NA-1 / NA-3 on Samsung SM-S928B. If the selected plugin cannot produce a backend-verifiable Google ID token with the existing web client ID audience, NA-B1 becomes a blocking backend follow-up before Native Authentication can ship.**
 
-Under the target architecture, everything else stays as audited in ISSUE-236: `POST /auth/google` request/response, audience verification (single `google_client_id`), `email_verified` requirement, email-based find-or-create, JWT shape (HS256, `sub`/`email`/`iat`/`exp`, 7-day TTL), revocation via `tokens_valid_after`, and rate limits (10/min, 50/hr per IP). Backend work may reopen **only** through NA-B1, separately approved.
+Under the target architecture, everything else stays as audited in ISSUE-236: `POST /auth/google` request/response, Google ID-token audience verification (single `google_client_id`), `email_verified` requirement, email-based find-or-create, app JWT shape (HS256, `sub`/`email`/`iat`/`exp` plus configured `iss`/`aud`, 7-day TTL), revocation via `tokens_valid_after`, and rate limits (10/min, 50/hr per IP). Backend work may reopen **only** through NA-B1, separately approved.
 
 ## Frontend contract
 
