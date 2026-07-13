@@ -13,6 +13,7 @@ import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import OnboardingPage from './pages/OnboardingPage'
+import SettingsPage from './pages/SettingsPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
 import { isNativeGoogleSupported, signOutGoogleNative } from './api/nativeGoogleAuth'
 import { getMyGames } from './api/games'
@@ -539,6 +540,10 @@ function App() {
     return renderWithOfflineBanner(<MyGamesPage onBack={() => navigateTo('/')} />)
   }
 
+  if (pathname === '/settings') {
+    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} />)
+  }
+
   return renderWithOfflineBanner(
     <>
       <MapPage
@@ -550,6 +555,9 @@ function App() {
         <span>{currentUser.name || currentUser.email}</span>
         <button type="button" onClick={() => navigateTo('/my-games')}>
           {t('myGames.title')}
+        </button>
+        <button type="button" onClick={() => navigateTo('/settings')}>
+          {t('accountLinking.navTitle')}
         </button>
         <button type="button" onClick={handleLogout}>
           {t('app.logout')}

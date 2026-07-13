@@ -2573,6 +2573,102 @@ select {
   background: #b91c1c;
 }
 
+.account-linking-sections {
+  display: grid;
+  gap: 20px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.account-method-card {
+  background: #ffffff;
+}
+
+.account-method-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-method-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.account-method-status {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-method-status.is-linked {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.account-method-status.is-unlinked {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.account-method-detail {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.account-method-warning {
+  margin: 0;
+  color: #b45309;
+  font-size: 13px;
+}
+
+.account-method-reason {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.account-method-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.account-linking-modal {
+  width: min(420px, 100%);
+  max-height: min(600px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+}
+
+.confirm-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.google-credential-action {
+  display: grid;
+  gap: 6px;
+}
+
+.google-credential-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
 @media (max-width: 640px), (max-height: 520px) {
   .field-details-panel,
   .game-panel,
@@ -2584,7 +2680,8 @@ select {
   .notifications-modal,
   .add-field-modal,
   .open-game-modal,
-  .field-report-modal {
+  .field-report-modal,
+  .account-linking-modal {
     overscroll-behavior: contain;
   }
 
