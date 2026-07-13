@@ -8,6 +8,7 @@ import ForgotPasswordPage from './components/ForgotPasswordPage'
 import LanguageSelectionScreen from './components/LanguageSelectionScreen'
 import LoginPage from './components/LoginPage'
 import OfflineBanner from './components/OfflineBanner'
+import PhoneVerificationModal from './components/PhoneVerificationModal'
 import ResetPasswordPage from './components/ResetPasswordPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
@@ -95,6 +96,8 @@ function App() {
   )
   const [persistenceWarning, setPersistenceWarning] = useState('')
   const [deepLinkTarget, setDeepLinkTarget] = useState(() => readPendingDeepLink())
+  const [isPhoneVerificationOpen, setIsPhoneVerificationOpen] = useState(false)
+  const [verifiedPhoneNumber, setVerifiedPhoneNumber] = useState('')
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
 
@@ -429,6 +432,8 @@ function App() {
     setCurrentUser(null)
     setLogoutWarning('')
     setPersistenceWarning('')
+    setIsPhoneVerificationOpen(false)
+    setVerifiedPhoneNumber('')
     handleDeepLinkHandled()
     clearSession().catch((cleanupError) => {
       console.warn('Session cleanup on logout failed.', cleanupError)
@@ -440,6 +445,7 @@ function App() {
     setLogoutWarning('')
     setLoginNotice('')
     setCurrentUser(user)
+    setVerifiedPhoneNumber(user?.phone_number || '')
   }, [])
 
   const handlePasswordResetDone = useCallback((message) => {
@@ -546,8 +552,26 @@ function App() {
         deepLinkTarget={deepLinkTarget}
         onDeepLinkHandled={handleDeepLinkHandled}
       />
+      {isPhoneVerificationOpen ? (
+        <PhoneVerificationModal
+          onClose={() => setIsPhoneVerificationOpen(false)}
+          onVerified={(phoneNumber) => {
+            setVerifiedPhoneNumber(phoneNumber)
+            setCurrentUser((user) => (user ? { ...user, phone_number: phoneNumber } : user))
+          }}
+        />
+      ) : null}
       <div className="auth-toolbar">
         <span>{currentUser.name || currentUser.email}</span>
+        <button
+          type="button"
+          onClick={() => setIsPhoneVerificationOpen(true)}
+          disabled={Boolean(verifiedPhoneNumber || currentUser.phone_number)}
+        >
+          {verifiedPhoneNumber || currentUser.phone_number
+            ? t('phoneVerification.verified')
+            : t('phoneVerification.open')}
+        </button>
         <button type="button" onClick={() => navigateTo('/my-games')}>
           {t('myGames.title')}
         </button>

@@ -27,6 +27,7 @@ Required environment variables:
 ```text
 SUPABASE_URL=
 SUPABASE_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 GOOGLE_CLIENT_ID=
 JWT_SECRET=
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
@@ -63,6 +64,26 @@ Messaging messages for the `yesh-mishak` project. Keep
 using ADC locally.
 
 Do not expose Firebase service account JSON or private keys to the frontend.
+
+## Phone OTP verification
+
+`POST /auth/phone/start` and `POST /auth/phone/verify` let an already
+authenticated user verify ownership of a phone number. The backend coordinates
+Supabase Phone Auth and records the verified phone as a `phone` row in
+`user_identities`; `users.id` remains the canonical application identity and no
+phone login session is issued.
+
+Owner setup required before real SMS delivery:
+
+1. Enable Phone Auth in the Supabase dashboard for the target project.
+2. Configure the SMS provider, sender, allowed regions, OTP expiry, provider
+   rate limits, billing, and cost controls.
+3. Set `SUPABASE_SERVICE_ROLE_KEY` only in the backend environment, such as
+   Railway. Do not set it in any `VITE_*` variable or mobile build config.
+4. Apply `backend/migrations/phone_otp_verification.sql`.
+5. Validate with controlled test numbers before production rollout.
+
+Automated tests use a fake provider adapter and never send real SMS.
 
 Run the API locally:
 
