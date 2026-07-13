@@ -453,10 +453,15 @@ def get_admin_stats(_: dict[str, Any] = Depends(require_admin)):
 
 @router.get("/fields")
 def get_admin_fields(_: dict[str, Any] = Depends(require_admin)):
+    # Removed fields stay in the database for history/audit, but the
+    # default admin listing must not surface them — same rule as the
+    # public listing. A future "show removed fields" view should be an
+    # explicit, separate filter rather than changing this default.
     response = (
         get_supabase_client()
         .table("fields")
         .select(ADMIN_FIELD_COLUMNS)
+        .is_("removed_at", "null")
         .order("created_at", desc=True)
         .execute()
     )

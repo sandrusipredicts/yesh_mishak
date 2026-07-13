@@ -425,7 +425,13 @@ def test_removed_field_detail_returns_404(monkeypatch) -> None:
     assert response.json()["code"] == "FIELD_NOT_FOUND"
 
 
-def test_removed_field_still_visible_in_admin_listing(monkeypatch) -> None:
+def test_already_removed_field_excluded_from_admin_listing(monkeypatch) -> None:
+    """A field removed before this request began must not appear in the
+    default admin listing either — removal must survive a fresh GET, not
+    just the acting session's local state. Regression test for a bug where
+    GET /admin/fields had no removed_at filter, so a soft-deleted field
+    would reappear after any page refresh even though the deletion had
+    persisted correctly."""
     _configure(monkeypatch)
     field = _field(removed_at="2026-01-02T00:00:00+00:00", removed_by="admin-1", removal_reason="safety_issue")
     client = _make_client(monkeypatch, _base_tables(field))
@@ -433,10 +439,35 @@ def test_removed_field_still_visible_in_admin_listing(monkeypatch) -> None:
     response = client.get("/admin/fields", headers=_headers(ADMIN))
 
     assert response.status_code == 200
-    admin_fields = response.json()
-    assert len(admin_fields) == 1
-    assert admin_fields[0]["removed_at"] is not None
-    assert admin_fields[0]["removal_reason"] == "safety_issue"
+    assert response.json() == []
+
+
+def test_delete_then_admin_listing_excludes_field_but_database_row_still_exists(monkeypatch) -> None:
+    """End-to-end regression test for the refresh bug: remove a field
+    through the real endpoint (not a pre-seeded removed row), then fetch
+    the admin field list again in a separate request and confirm the field
+    is gone from it — while the underlying database row is still present
+    with removed_at/removed_by/removal_reason populated (soft delete, not
+    a hard delete)."""
+    _configure(monkeypatch)
+    tables = _base_tables(_field())
+    client = _make_client(monkeypatch, tables)
+
+    delete_response = client.request(
+        "DELETE", DELETE_PATH.format("field-1"), json=VALID_BODY, headers=_headers(ADMIN)
+    )
+    assert delete_response.status_code == 200
+
+    # Simulates a page refresh: a brand-new GET /admin/fields request,
+    # independent of any client-side state from the DELETE response.
+    listing_response = client.get("/admin/fields", headers=_headers(ADMIN))
+    assert listing_response.status_code == 200
+    assert listing_response.json() == []
+
+    db_row = next(row for row in tables["fields"] if row["id"] == "field-1")
+    assert db_row["removed_at"] is not None
+    assert db_row["removed_by"] == "admin-1"
+    assert db_row["removal_reason"] == "duplicate_field"
 
 
 # ═══════════════════════════════════════════════════════════════
