@@ -11,7 +11,12 @@ from app.errors import raise_api_error, validate_uuid_id
 from app.auth.dependencies import require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
-from app.routers.fields import FieldStatusUpdate, update_field_status_record
+from app.routers.fields import (
+    FieldStatusUpdate,
+    FieldUpdate,
+    update_field_record,
+    update_field_status_record,
+)
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     ensure_game_is_actionable,
@@ -41,6 +46,9 @@ ADMIN_FIELD_COLUMNS = ",".join(
         "lng",
         "sport_type",
         "surface_type",
+        "has_nets",
+        "has_water",
+        "opening_hours",
         "status",
         "approval_status",
         "verified",
@@ -493,6 +501,29 @@ def update_admin_field_status(
 ):
     field_id = validate_uuid_id(field_id, "field_id")
     return update_field_status_record(field_id, body)
+
+
+@router.patch("/fields/{field_id}")
+def update_admin_field(
+    field_id: str,
+    body: FieldUpdate,
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    field_id = validate_uuid_id(field_id, "field_id")
+    result = update_field_record(field_id, body)
+    logger.info(
+        "field edited by admin",
+        extra={
+            "event": "fields.edit.success",
+            "endpoint": "/admin/fields/{field_id}",
+            "method": "PATCH",
+            "actor_user_id": current_user.get("id"),
+            "field_id": field_id,
+            "changed_fields": sorted(body.model_dump(exclude_unset=True).keys()),
+            "result": "success",
+        },
+    )
+    return result
 
 
 @router.get("/fields/duplicates")

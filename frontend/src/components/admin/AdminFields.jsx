@@ -8,6 +8,7 @@ import {
   rejectField,
   updateAdminFieldStatus,
 } from '../../api/admin'
+import EditFieldModal from '../EditFieldModal'
 
 const FIELD_STATUSES = ['open', 'closed', 'renovation']
 
@@ -23,6 +24,7 @@ function AdminFields() {
   const [actionError, setActionError] = useState('')
   const [workingFieldId, setWorkingFieldId] = useState('')
   const [retryKey, setRetryKey] = useState(0)
+  const [editingField, setEditingField] = useState(null)
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
 
   function formatValue(value, fallback = t('admin.missing')) {
@@ -170,6 +172,19 @@ function AdminFields() {
     }
   }
 
+  function handleFieldSaved(updatedField) {
+    setAllFields((currentFields) =>
+      currentFields.map((currentField) =>
+        currentField.id === updatedField.id ? { ...currentField, ...updatedField } : currentField,
+      ),
+    )
+    setPendingFields((currentFields) =>
+      currentFields.map((currentField) =>
+        currentField.id === updatedField.id ? { ...currentField, ...updatedField } : currentField,
+      ),
+    )
+  }
+
   return (
     <div className="admin-fields">
       <div className="admin-tabs" role="tablist" aria-label={t('admin.fieldTabs')}>
@@ -282,6 +297,7 @@ function AdminFields() {
                     <th>{t('admin.sport')}</th>
                     <th>{t('admin.surface')}</th>
                     <th>{t('admin.created')}</th>
+                    <th>{t('admin.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -309,6 +325,17 @@ function AdminFields() {
                       <td>{formatValue(field.sport_type)}</td>
                       <td>{formatValue(field.surface_type)}</td>
                       <td>{formatDate(field.created_at)}</td>
+                      <td>
+                        <div className="admin-actions">
+                          <button
+                            type="button"
+                            onClick={() => setEditingField(field)}
+                            aria-label={t('admin.editFieldLabel', { name: field.name || field.id })}
+                          >
+                            {t('admin.edit')}
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -317,6 +344,14 @@ function AdminFields() {
           ) : null}
         </section>
       )}
+
+      {editingField ? (
+        <EditFieldModal
+          field={editingField}
+          onClose={() => setEditingField(null)}
+          onSaved={handleFieldSaved}
+        />
+      ) : null}
     </div>
   )
 }

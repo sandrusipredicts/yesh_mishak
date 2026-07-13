@@ -61,7 +61,8 @@ create table if not exists fields (
     added_by uuid references users(id) on delete set null,
     created_at timestamptz not null default now(),
     notes text,
-    image_url text
+    image_url text,
+    updated_at timestamptz
 );
 
 create table if not exists games (

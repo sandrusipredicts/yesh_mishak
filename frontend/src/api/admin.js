@@ -32,6 +32,11 @@ export async function updateAdminFieldStatus(fieldId, status) {
   return response.data
 }
 
+export async function updateAdminField(fieldId, data) {
+  const response = await api.patch(`/admin/fields/${fieldId}`, data)
+  return response.data
+}
+
 export async function getAdminGames(status = null) {
   const response = await api.get('/admin/games', {
     params: status ? { status } : undefined,
