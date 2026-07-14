@@ -26,6 +26,12 @@ import {
   isNativeRuntime,
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
+import {
+  initNativePush,
+  isNativePushSupported,
+  teardownNativePush,
+} from './api/nativePushNotifications'
+import { deletePushToken, savePushToken } from './api/notifications'
 import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 
@@ -430,6 +436,50 @@ function App() {
       console.warn('Foreground push notification setup failed.', pushError)
     })
   }, [currentUser])
+
+  useEffect(() => {
+    if (!currentUser || !isNativePushSupported()) {
+      return undefined
+    }
+
+    let isDisposed = false
+    let registeredToken = null
+
+    initNativePush({
+      onTokenReceived: (token) => {
+        if (isDisposed) {
+          return
+        }
+        registeredToken = token
+        savePushToken(token).catch((tokenError) => {
+          console.warn('Failed to save native push token.', tokenError)
+        })
+      },
+      onTokenError: (error) => {
+        console.warn('Native push registration error.', error?.message || error)
+      },
+      onForegroundNotification: () => {
+        window.dispatchEvent(new CustomEvent('native-push-received'))
+      },
+      onNotificationTapped: (target) => {
+        if (target) {
+          applyDeepLinkTarget(target)
+        }
+      },
+    }).catch((initError) => {
+      console.warn('Native push initialization failed.', initError)
+    })
+
+    return () => {
+      isDisposed = true
+      if (registeredToken) {
+        deletePushToken(registeredToken).catch((deleteError) => {
+          console.warn('Failed to delete native push token on cleanup.', deleteError)
+        })
+      }
+      teardownNativePush()
+    }
+  }, [currentUser, applyDeepLinkTarget])
 
   const handleLogout = useCallback(() => {
     // Invalidate any in-flight or deduplicated session validation before

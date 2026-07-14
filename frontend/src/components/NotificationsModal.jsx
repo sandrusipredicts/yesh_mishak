@@ -10,6 +10,7 @@ import {
 } from '../api/notifications'
 import { israelCities } from '../data/israelCities'
 import { requestFirebasePushToken } from '../firebaseMessaging'
+import { getCurrentToken, isNativePushSupported, requestPushPermission } from '../api/nativePushNotifications'
 import CityAutocomplete from './CityAutocomplete'
 import LanguageSwitcher from './LanguageSwitcher'
 import Modal from './Modal'
@@ -111,7 +112,9 @@ function NotificationsModal({
   const [isSaving, setIsSaving] = useState(false)
   const [isPushSaving, setIsPushSaving] = useState(false)
   const [pushToken, setPushToken] = useState(
-    () => localStorage.getItem(STORED_PUSH_TOKEN_KEY) || '',
+    () => (isNativePushSupported() ? getCurrentToken() : null)
+      || localStorage.getItem(STORED_PUSH_TOKEN_KEY)
+      || '',
   )
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
@@ -304,7 +307,21 @@ function NotificationsModal({
     setPushMessage('')
 
     try {
-      const token = await requestFirebasePushToken()
+      let token
+
+      if (isNativePushSupported()) {
+        const permission = await requestPushPermission()
+        if (permission !== 'granted') {
+          throw new Error(t('notifications.pushPermissionDenied'))
+        }
+        token = getCurrentToken()
+        if (!token) {
+          throw new Error(t('notifications.pushEnableFailed'))
+        }
+      } else {
+        token = await requestFirebasePushToken()
+      }
+
       await savePushToken(token)
       localStorage.setItem(STORED_PUSH_TOKEN_KEY, token)
       setPushToken(token)
