@@ -12,6 +12,7 @@ import ResetPasswordPage from './components/ResetPasswordPage'
 import AdminPage from './pages/AdminPage'
 import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
+import MyReportsPage from './pages/MyReportsPage'
 import OnboardingPage from './pages/OnboardingPage'
 import SettingsPage from './pages/SettingsPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
@@ -540,6 +541,10 @@ function App() {
     return renderWithOfflineBanner(<MyGamesPage onBack={() => navigateTo('/')} />)
   }
 
+  if (pathname === '/my-reports') {
+    return renderWithOfflineBanner(<MyReportsPage onBack={() => navigateTo('/')} />)
+  }
+
   if (pathname === '/settings') {
     return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} />)
   }
@@ -555,6 +560,9 @@ function App() {
         <span>{currentUser.name || currentUser.email}</span>
         <button type="button" onClick={() => navigateTo('/my-games')}>
           {t('myGames.title')}
+        </button>
+        <button type="button" onClick={() => navigateTo('/my-reports')}>
+          {t('myReports.title')}
         </button>
         <button type="button" onClick={() => navigateTo('/settings')}>
           {t('accountLinking.navTitle')}

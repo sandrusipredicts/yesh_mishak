@@ -82,7 +82,32 @@ TEMPLATES: dict[tuple[str, str], dict[str, str]] = {
         "title": "Upcoming game reminder",
         "body": "Your game starts in one hour. Don't forget to arrive on time.",
     },
-    # 7. test_push
+    # 7. field_report_status_changed
+    ("field_report_status_changed_in_review", "he"): {
+        "title": "עדכון לדיווח שלך",
+        "body": "הדיווח שלך על {field_name} נמצא בבדיקה.",
+    },
+    ("field_report_status_changed_in_review", "en"): {
+        "title": "Your field report was updated",
+        "body": "Your report about {field_name} is under review.",
+    },
+    ("field_report_status_changed_resolved", "he"): {
+        "title": "עדכון לדיווח שלך",
+        "body": "הדיווח שלך על {field_name} טופל.",
+    },
+    ("field_report_status_changed_resolved", "en"): {
+        "title": "Your field report was updated",
+        "body": "Your report about {field_name} has been resolved.",
+    },
+    ("field_report_status_changed_rejected", "he"): {
+        "title": "עדכון לדיווח שלך",
+        "body": "הדיווח שלך על {field_name} נדחה.",
+    },
+    ("field_report_status_changed_rejected", "en"): {
+        "title": "Your field report was updated",
+        "body": "Your report about {field_name} was rejected.",
+    },
+    # 8. test_push
     ("test_push", "he"): {
         "title": "בדיקת התראות",
         "body": "התראות Push מוכנות.",
@@ -114,6 +139,10 @@ def render_notification_template(
             effective_type = "player_joined_game_fallback"
         else:
             variables = {**variables, "player_name": player_name}
+
+    if notification_type == "field_report_status_changed":
+        new_status = variables.pop("new_status", "resolved")
+        effective_type = f"field_report_status_changed_{new_status}"
 
     if notification_type == "scheduled_game_cancelled":
         cancelled_by_role = variables.pop("cancelled_by_role", "creator")

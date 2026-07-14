@@ -30,7 +30,8 @@
 .onboarding-page,
 .map-page,
 .admin-page,
-.my-games-page {
+.my-games-page,
+.my-reports-page {
   direction: inherit;
   text-align: start;
 }
@@ -512,6 +513,7 @@ select {
   top: 20px;
   inset-inline-end: 20px;
   display: flex;
+  flex-wrap: wrap;
   max-width: min(360px, calc(100% - 96px));
   align-items: center;
   gap: 10px;
@@ -2489,6 +2491,147 @@ select {
 }
 
 .my-games-row-date {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.my-reports-page {
+  min-height: 100dvh;
+  padding: 24px;
+  background: #f5f7fb;
+  color: #172033;
+}
+
+.my-reports-header {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  margin: 0 auto 24px;
+}
+
+.my-reports-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.my-reports-title {
+  margin: 0;
+  font-size: 28px;
+}
+
+.my-reports-loading,
+.my-reports-error,
+.my-reports-empty {
+  max-width: 680px;
+  margin: 0 auto;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  color: #64748b;
+  text-align: center;
+}
+
+.my-reports-error {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.my-reports-list {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.my-reports-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+}
+
+.my-reports-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.my-reports-field-name {
+  font-weight: 700;
+}
+
+.my-reports-status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-reports-status-open {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.my-reports-status-in_review {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.my-reports-status-resolved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.my-reports-status-rejected {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.my-reports-row-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.my-reports-separator {
+  color: #cbd5e1;
+}
+
+.my-reports-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.my-reports-admin-note {
+  margin-top: 4px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-inline-start: 3px solid #2563eb;
+  color: #334155;
+  font-size: 14px;
+}
+
+.my-reports-row-date {
   color: #64748b;
   font-size: 13px;
 }

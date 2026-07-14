@@ -161,3 +161,68 @@ def create_field_report(
     )
     return {"message": "Field report created", "report": report}
 
+
+MY_REPORT_COLUMNS = ",".join(
+    [
+        "id",
+        "field_id",
+        "category",
+        "description",
+        "status",
+        "admin_note",
+        "created_at",
+        "reviewed_at",
+    ]
+)
+
+
+def _attach_field_names_to_reports(
+    reports: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not reports:
+        return []
+
+    field_ids = sorted(
+        {str(r["field_id"]) for r in reports if r.get("field_id")}
+    )
+    fields_by_id: dict[str, str] = {}
+    if field_ids:
+        field_rows = (
+            get_supabase_client()
+            .table("fields")
+            .select("id,name")
+            .in_("id", field_ids)
+            .execute()
+            .data
+            or []
+        )
+        fields_by_id = {
+            str(f["id"]): f.get("name")
+            for f in field_rows
+            if f.get("id")
+        }
+
+    return [
+        dict(r, field_name=fields_by_id.get(str(r.get("field_id"))))
+        for r in reports
+    ]
+
+
+@router.get("/mine")
+def get_my_field_reports(
+    current_user: dict[str, Any] = Depends(require_active_user),
+):
+    user_id = str(current_user["id"])
+
+    response = (
+        get_supabase_client()
+        .table("field_reports")
+        .select(MY_REPORT_COLUMNS)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    reports = response.data or []
+    return _attach_field_names_to_reports(reports)
+
