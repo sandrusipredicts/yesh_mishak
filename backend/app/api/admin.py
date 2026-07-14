@@ -94,6 +94,28 @@ ADMIN_FIELD_REPORT_COLUMNS = ",".join(
         "reviewed_by",
     ]
 )
+JOB_RUN_COLUMNS = ",".join(
+    [
+        "id",
+        "job_name",
+        "status",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "processed_count",
+        "scanned_count",
+        "reconciled_count",
+        "skipped_count",
+        "failed_count",
+        "batch_count",
+        "reached_max_batches",
+        "error_type",
+        "error_message",
+        "metadata",
+        "created_at",
+        "updated_at",
+    ]
+)
 FIELD_REPORT_STATUSES = {"open", "in_review", "resolved", "rejected"}
 FIELD_REPORT_REVIEW_STATUSES = {"in_review", "resolved", "rejected"}
 
@@ -167,6 +189,48 @@ def _count_rows_in(table_name: str, column: str, values: list[str]) -> int:
         return count
 
     return len(response.data or [])
+
+
+def _get_recent_job_runs(*, job_name: str = "game_expiry_reconciliation", limit: int = 10) -> dict[str, Any]:
+    bounded_limit = max(1, min(limit, 50))
+    try:
+        rows = (
+            get_supabase_service_role_client()
+            .table("job_runs")
+            .select(JOB_RUN_COLUMNS)
+            .eq("job_name", job_name)
+            .order("started_at", desc=True)
+            .limit(bounded_limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning(
+            "scheduled job monitoring history unavailable",
+            extra={
+                "event": "admin.monitoring.scheduled_jobs.unavailable",
+                "job_name": job_name,
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+        return {
+            "source_available": False,
+            "reason": "Job execution history is not available. Apply backend/migrations/job_runs.sql and ensure service-role access is configured.",
+        }
+
+    latest = rows[0] if rows else None
+    return {
+        "source_available": True,
+        "source": "database",
+        "job_name": job_name,
+        "latest_status": latest.get("status") if latest else None,
+        "latest_started_at": latest.get("started_at") if latest else None,
+        "latest_finished_at": latest.get("finished_at") if latest else None,
+        "recent_runs": rows,
+    }
 
 
 @router.get("/me")
@@ -1142,10 +1206,7 @@ def get_monitoring(current_user: dict[str, Any] = Depends(require_admin)):
             "source_available": False,
             "reason": "Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069.",
         },
-        "scheduled_jobs": {
-            "source_available": False,
-            "reason": "Job execution history is not persisted. Review backend logs for job.*.start/finish/failure events. Requires Phase 2 per ISSUE-069.",
-        },
+        "scheduled_jobs": _get_recent_job_runs(),
         "push_notifications": {
             "source_available": False,
             "reason": "Push delivery metrics are in backend logs only. Requires Phase 2 log aggregation per ISSUE-069.",

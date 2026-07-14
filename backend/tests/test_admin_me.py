@@ -1129,6 +1129,66 @@ def test_monitoring_unavailable_metrics_marked(monkeypatch) -> None:
         assert len(data[key]["reason"]) > 10
 
 
+def test_monitoring_scheduled_jobs_returns_recent_runs(monkeypatch) -> None:
+    admin_user, _, fake_client = _make_monitoring_client(monkeypatch)
+    fake_client.tables["job_runs"] = [
+        {
+            "id": "run-old",
+            "job_name": "game_expiry_reconciliation",
+            "status": "succeeded",
+            "started_at": "2026-07-14T10:00:00+00:00",
+            "finished_at": "2026-07-14T10:00:01+00:00",
+            "duration_ms": 1000,
+            "processed_count": 0,
+            "scanned_count": 0,
+            "reconciled_count": 0,
+            "skipped_count": 0,
+            "failed_count": 0,
+            "batch_count": 1,
+            "reached_max_batches": False,
+            "error_type": None,
+            "error_message": None,
+            "metadata": {"batch_size": 100, "max_batches": 50},
+            "created_at": "2026-07-14T10:00:00+00:00",
+            "updated_at": "2026-07-14T10:00:01+00:00",
+        },
+        {
+            "id": "run-new",
+            "job_name": "game_expiry_reconciliation",
+            "status": "failed",
+            "started_at": "2026-07-14T11:00:00+00:00",
+            "finished_at": "2026-07-14T11:00:02+00:00",
+            "duration_ms": 2000,
+            "processed_count": None,
+            "scanned_count": None,
+            "reconciled_count": None,
+            "skipped_count": None,
+            "failed_count": None,
+            "batch_count": None,
+            "reached_max_batches": None,
+            "error_type": "RuntimeError",
+            "error_message": "database unavailable",
+            "metadata": {"batch_size": 100, "max_batches": 50},
+            "created_at": "2026-07-14T11:00:00+00:00",
+            "updated_at": "2026-07-14T11:00:02+00:00",
+        },
+    ]
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
+
+    response = TestClient(app).get(
+        "/admin/monitoring",
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+    assert response.status_code == 200
+    scheduled_jobs = response.json()["scheduled_jobs"]
+    assert scheduled_jobs["source_available"] is True
+    assert scheduled_jobs["source"] == "database"
+    assert scheduled_jobs["job_name"] == "game_expiry_reconciliation"
+    assert scheduled_jobs["latest_status"] == "failed"
+    assert [run["id"] for run in scheduled_jobs["recent_runs"]] == ["run-new", "run-old"]
+
+
 def test_monitoring_no_sensitive_data(monkeypatch) -> None:
     admin_user, _, _ = _make_monitoring_client(monkeypatch)
     response = TestClient(app).get(
