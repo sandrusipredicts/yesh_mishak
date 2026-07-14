@@ -52,8 +52,8 @@ const openGame = {
   players_present: 4,
   max_players: 10,
   created_by: 'creator-1',
-  started_at: '2026-07-12T10:00:00Z',
-  expires_at: '2026-07-12T12:00:00Z',
+  started_at: '2099-07-12T10:00:00Z',
+  expires_at: '2099-07-12T12:00:00Z',
   participants: [],
 }
 
@@ -146,6 +146,44 @@ test('opens an existing field from a /field/{id} deep link', async ({ page }) =>
   ).toBeVisible()
   // The URL is normalized back to canonical map state after resolution.
   await expect(page).toHaveURL(/\/$/)
+})
+
+test('keeps a field resolved from a deep link in the warm-load marker cache', async ({ page }) => {
+  await page.route(/\/notifications(\/.*)?(\?.*)?$/, (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/unread-count')) {
+      return fulfillJson(route, { unread_count: 0 })
+    }
+    return fulfillJson(route, [])
+  })
+  await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
+  await page.route(/\/fields\/[0-9a-f-]+$/i, (route) => fulfillJson(route, field))
+  await page.route(/\/fields\/?(\?.*)?$/, async (route) => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1000)
+    })
+
+    return fulfillJson(route, [])
+  })
+
+  await page.goto(`/field/${FIELD_ID}`)
+
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: field.name }),
+  ).toBeVisible()
+  await expect(page.locator('.field-marker-icon')).toHaveCount(1)
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(localStorage.getItem('cached_fields') ?? '[]')
+        .map((cachedField) => cachedField.id)),
+    )
+    .toContain(FIELD_ID)
+
+  await page.goto('/')
+  await page.waitForTimeout(100)
+
+  await expect(page.locator('.field-marker-icon')).toHaveCount(1)
+  await expect(page.locator('.map-loading')).toHaveCount(0)
 })
 
 test('resolves the legacy /fields/{id} path the same way', async ({ page }) => {

@@ -421,10 +421,11 @@ function MapPage({
   const [deepLinkStatus, setDeepLinkStatus] = useState('')
   const [deepLinkMessage, setDeepLinkMessage] = useState('')
 
-  // Keep the merge base in sync with setFields callers that bypass
-  // handleFieldsLoaded (refreshFieldState's functional updates).
+  // Keep the merge base in sync with any future setFields caller that does
+  // not go through commitFields.
   useEffect(() => {
     fieldsRef.current = fields
+    fieldsFingerprintRef.current = fieldsFingerprint(fields)
   }, [fields])
 
   // ISSUE-255: no automatic location request on mount. Location is only
@@ -589,16 +590,34 @@ function MapPage({
   )
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
 
+  const commitFields = useCallback((nextFields) => {
+    const nextFingerprint = fieldsFingerprint(nextFields)
+
+    if (fieldsFingerprintRef.current === nextFingerprint) {
+      return fieldsRef.current
+    }
+
+    fieldsFingerprintRef.current = nextFingerprint
+    fieldsRef.current = nextFields
+    setFields(nextFields)
+    writeCachedFields(nextFields)
+
+    return nextFields
+  }, [])
+
+  const upsertFieldById = useCallback((field) => {
+    const currentFields = fieldsRef.current
+    const existingIndex = currentFields.findIndex((candidate) => candidate.id === field.id)
+    const nextFields = existingIndex === -1
+      ? [...currentFields, field]
+      : currentFields.map((candidate) => (candidate.id === field.id ? field : candidate))
+
+    return commitFields(nextFields)
+  }, [commitFields])
+
   const handleFieldsLoaded = useCallback((loadedFields, bounds) => {
     const merged = mergeFieldsById(fieldsRef.current, loadedFields, bounds)
-    const mergedFingerprint = fieldsFingerprint(merged)
-
-    if (fieldsFingerprintRef.current !== mergedFingerprint) {
-      fieldsFingerprintRef.current = mergedFingerprint
-      fieldsRef.current = merged
-      setFields(merged)
-      writeCachedFields(merged)
-    }
+    commitFields(merged)
 
     setSelectedField((currentField) => {
       if (!currentField) {
@@ -615,7 +634,7 @@ function MapPage({
 
       return loadedFields.find((field) => field.id === currentField.id) ?? currentField
     })
-  }, [])
+  }, [commitFields])
 
   const handleSelectField = useCallback((field) => {
     setSelectedField(field)
@@ -650,17 +669,7 @@ function MapPage({
 
       try {
         const updatedField = await getFieldById(targetFieldId)
-        setFields((currentFields) => {
-          const existingIndex = currentFields.findIndex((field) => field.id === updatedField.id)
-
-          if (existingIndex === -1) {
-            return [...currentFields, updatedField]
-          }
-
-          return currentFields.map((field) =>
-            field.id === updatedField.id ? updatedField : field,
-          )
-        })
+        upsertFieldById(updatedField)
         setSelectedField(updatedField)
         await refreshUnreadCount()
       } catch {
@@ -668,7 +677,7 @@ function MapPage({
         await refreshUnreadCount()
       }
     },
-    [refreshUnreadCount, selectedField?.id],
+    [refreshUnreadCount, selectedField?.id, upsertFieldById],
   )
 
   function handleFieldCreated() {
@@ -715,16 +724,11 @@ function MapPage({
   }
 
   // Shared by both deep-link resolvers below: merges a freshly-fetched
-  // field into `fields` by id, upserting in place like refreshFieldState.
+  // field into `fields` by id while keeping the marker cache/fingerprint
+  // refs in sync with viewport-loaded fields.
   const mergeResolvedField = useCallback((field) => {
-    setFields((currentFields) => {
-      const existingIndex = currentFields.findIndex((candidate) => candidate.id === field.id)
-      if (existingIndex === -1) {
-        return [...currentFields, field]
-      }
-      return currentFields.map((candidate) => (candidate.id === field.id ? field : candidate))
-    })
-  }, [])
+    upsertFieldById(field)
+  }, [upsertFieldById])
 
   // ISSUE-272: resolves a /game/{game_id} deep link into the Game screen.
   // Always fetches fresh state from the server (never trusts cached field

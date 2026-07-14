@@ -45,8 +45,8 @@ const baseGame = {
   players_present: 4,
   max_players: 10,
   created_by: 'creator-1',
-  started_at: '2026-07-12T10:00:00Z',
-  expires_at: '2026-07-12T12:00:00Z',
+  started_at: '2099-07-12T10:00:00Z',
+  expires_at: '2099-07-12T12:00:00Z',
   participants: [],
 }
 
