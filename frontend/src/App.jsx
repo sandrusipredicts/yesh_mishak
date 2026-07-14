@@ -26,6 +26,13 @@ import {
   isNativeRuntime,
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
+import {
+  getCurrentToken,
+  initNativePush,
+  isNativePushSupported,
+  teardownNativePush,
+} from './api/nativePushNotifications'
+import { deletePushToken, savePushToken } from './api/notifications'
 import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 
@@ -431,6 +438,54 @@ function App() {
     })
   }, [currentUser])
 
+  const currentUserId = currentUser?.id || null
+
+  useEffect(() => {
+    if (!currentUserId || !isNativePushSupported()) {
+      return undefined
+    }
+
+    let isDisposed = false
+
+    initNativePush({
+      onTokenReceived: (token) => {
+        if (isDisposed) {
+          console.info('[E04-01 PUSH DEBUG] token received but effect disposed, skipping upload')
+          return
+        }
+        console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
+        savePushToken(token)
+          .then(() => {
+            console.info('[E04-01 PUSH DEBUG] token upload succeeded')
+          })
+          .catch((tokenError) => {
+            console.warn('[E04-01 PUSH DEBUG] token upload failed',
+              tokenError?.response?.status || tokenError?.message || tokenError)
+          })
+      },
+      onTokenError: (error) => {
+        console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
+      },
+      onForegroundNotification: () => {
+        window.dispatchEvent(new CustomEvent('native-push-received'))
+      },
+      onNotificationTapped: (target) => {
+        if (target) {
+          applyDeepLinkTarget(target)
+        }
+      },
+    }).then((result) => {
+      console.info('[E04-01 PUSH DEBUG] init result:', result?.outcome)
+    }).catch((initError) => {
+      console.warn('[E04-01 PUSH DEBUG] init failed:', initError?.message || initError)
+    })
+
+    return () => {
+      console.info('[E04-01 PUSH DEBUG] effect cleanup, isDisposed set to true')
+      isDisposed = true
+    }
+  }, [currentUserId, applyDeepLinkTarget])
+
   const handleLogout = useCallback(() => {
     // Invalidate any in-flight or deduplicated session validation before
     // clearing storage so a late /games/me success cannot restore the user.
@@ -444,6 +499,15 @@ function App() {
       // account picker; never affects app logout (handled inside).
       signOutGoogleNative()
     }
+
+    const pushToken = getCurrentToken()
+    if (pushToken) {
+      console.info('[E04-01 PUSH DEBUG] logout: deleting push token')
+      deletePushToken(pushToken).catch((deleteError) => {
+        console.warn('[E04-01 PUSH DEBUG] logout: token delete failed', deleteError)
+      })
+    }
+    teardownNativePush()
 
     setCurrentUser(null)
     setLogoutWarning('')

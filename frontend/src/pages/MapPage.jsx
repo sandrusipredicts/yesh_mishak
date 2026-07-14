@@ -592,6 +592,17 @@ function MapPage({
   }, [])
 
   useEffect(() => {
+    function handleNativePush() {
+      refreshNotifications()
+    }
+
+    window.addEventListener('native-push-received', handleNativePush)
+    return () => {
+      window.removeEventListener('native-push-received', handleNativePush)
+    }
+  }, [refreshNotifications])
+
+  useEffect(() => {
     if (!currentUserId) {
       return undefined
     }
