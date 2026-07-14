@@ -162,6 +162,8 @@ const he = {
     notificationPreferences: 'העדפות התראות',
     myLocation: 'המיקום שלי',
     loadingFields: 'טוען מגרשים...',
+    loadingTiles: 'טוען מפה...',
+    tileLoadError: 'לא ניתן לטעון את אריחי המפה. בדקו את החיבור.',
     addField: 'הוספת מגרש',
     // ISSUE-255: copy dictated by docs/location-permission-strategy.md §7.
     locationDenied: 'לא ניתן להציג את מיקומך הנוכחי ללא הרשאת מיקום. המפה תמשיך לפעול במיקום ברירת המחדל.',

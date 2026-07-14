@@ -282,6 +282,25 @@ function UserLocationFlyTo({ requestId, userLocation }) {
   return null
 }
 
+function MapTileLayer({ onInitialTileError, onInitialTileLoaded, onInitialTilesReady }) {
+  const tileEventHandlers = useMemo(
+    () => ({
+      load: onInitialTilesReady,
+      tileload: onInitialTileLoaded,
+      tileerror: onInitialTileError,
+    }),
+    [onInitialTileError, onInitialTileLoaded, onInitialTilesReady],
+  )
+
+  return (
+    <TileLayer
+      attribution="&copy; OpenStreetMap contributors"
+      eventHandlers={tileEventHandlers}
+      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    />
+  )
+}
+
 function FieldLoader({ onError, onFieldsLoaded, onLoadingChange, reloadKey }) {
   const { t } = useTranslation()
   const latestRequestId = useRef(0)
@@ -420,6 +439,9 @@ function MapPage({
   // shared loading/unavailable affordances below.
   const [deepLinkStatus, setDeepLinkStatus] = useState('')
   const [deepLinkMessage, setDeepLinkMessage] = useState('')
+  const [tileLoadStatus, setTileLoadStatus] = useState('loading')
+  const tileLoadStatusRef = useRef('loading')
+  const initialTileStatsRef = useRef({ loaded: 0, failed: 0 })
 
   // Keep the merge base in sync with any future setFields caller that does
   // not go through commitFields.
@@ -427,6 +449,10 @@ function MapPage({
     fieldsRef.current = fields
     fieldsFingerprintRef.current = fieldsFingerprint(fields)
   }, [fields])
+
+  useEffect(() => {
+    tileLoadStatusRef.current = tileLoadStatus
+  }, [tileLoadStatus])
 
   // ISSUE-255: no automatic location request on mount. Location is only
   // acquired when the user taps "My Location", per point-of-need strategy.
@@ -589,6 +615,27 @@ function MapPage({
     [t],
   )
   const userLocationIcon = useMemo(() => createUserLocationIcon(), [])
+
+  const handleInitialTilesReady = useCallback(() => {
+    setTileLoadStatus((currentStatus) => (
+      currentStatus === 'loading' && initialTileStatsRef.current.loaded === 0 &&
+        initialTileStatsRef.current.failed > 0
+        ? 'error'
+        : 'ready'
+    ))
+  }, [])
+
+  const handleInitialTileLoaded = useCallback(() => {
+    if (tileLoadStatusRef.current === 'loading') {
+      initialTileStatsRef.current.loaded += 1
+    }
+  }, [])
+
+  const handleInitialTileError = useCallback(() => {
+    if (tileLoadStatusRef.current === 'loading') {
+      initialTileStatsRef.current.failed += 1
+    }
+  }, [])
 
   const commitFields = useCallback((nextFields) => {
     const nextFingerprint = fieldsFingerprint(nextFields)
@@ -950,9 +997,10 @@ function MapPage({
       </div>
 
       <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas" zoomControl={false}>
-        <TileLayer
-          attribution="&copy; OpenStreetMap contributors"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        <MapTileLayer
+          onInitialTileError={handleInitialTileError}
+          onInitialTileLoaded={handleInitialTileLoaded}
+          onInitialTilesReady={handleInitialTilesReady}
         />
         <ZoomControl position={zoomPosition} key={zoomPosition} />
         <RecenterMap center={center} />
@@ -991,6 +1039,20 @@ function MapPage({
 
         {fieldMarkers}
       </MapContainer>
+
+      {tileLoadStatus === 'loading' ? (
+        <div className="map-tile-loading" role="status" aria-live="polite">
+          <span className="map-tile-loading-shimmer" aria-hidden="true" />
+          <span className="map-tile-loading-card">
+            <span className="map-loading-spinner" aria-hidden="true" />
+            <span>{t('map.loadingTiles')}</span>
+          </span>
+        </div>
+      ) : tileLoadStatus === 'error' ? (
+        <div className="map-tile-warning" role="status">
+          {t('map.tileLoadError')}
+        </div>
+      ) : null}
 
       {deepLinkStatus === 'loading' ? (
         <div className="map-loading" role="status" aria-live="polite">

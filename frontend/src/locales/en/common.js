@@ -162,6 +162,8 @@ const en = {
     notificationPreferences: 'Notification preferences',
     myLocation: 'My location',
     loadingFields: 'Loading fields...',
+    loadingTiles: 'Loading map...',
+    tileLoadError: 'Map tiles could not be loaded. Check your connection.',
     addField: 'Add field',
     locationDenied: 'Cannot show your current location without permission. The map continues at the default location.',
     locationSettings: 'Location permission is blocked. To enable it, open device settings and allow location access for yesh_mishak.',
