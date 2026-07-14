@@ -27,6 +27,7 @@ import {
 } from './api/sessionStorage'
 import { startForegroundPushNotifications } from './firebaseMessaging'
 import {
+  getCurrentToken,
   initNativePush,
   isNativePushSupported,
   teardownNativePush,
@@ -437,26 +438,33 @@ function App() {
     })
   }, [currentUser])
 
+  const currentUserId = currentUser?.id || null
+
   useEffect(() => {
-    if (!currentUser || !isNativePushSupported()) {
+    if (!currentUserId || !isNativePushSupported()) {
       return undefined
     }
 
     let isDisposed = false
-    let registeredToken = null
 
     initNativePush({
       onTokenReceived: (token) => {
         if (isDisposed) {
+          console.info('[E04-01 PUSH DEBUG] token received but effect disposed, skipping upload')
           return
         }
-        registeredToken = token
-        savePushToken(token).catch((tokenError) => {
-          console.warn('Failed to save native push token.', tokenError)
-        })
+        console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
+        savePushToken(token)
+          .then(() => {
+            console.info('[E04-01 PUSH DEBUG] token upload succeeded')
+          })
+          .catch((tokenError) => {
+            console.warn('[E04-01 PUSH DEBUG] token upload failed',
+              tokenError?.response?.status || tokenError?.message || tokenError)
+          })
       },
       onTokenError: (error) => {
-        console.warn('Native push registration error.', error?.message || error)
+        console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
       },
       onForegroundNotification: () => {
         window.dispatchEvent(new CustomEvent('native-push-received'))
@@ -466,20 +474,17 @@ function App() {
           applyDeepLinkTarget(target)
         }
       },
+    }).then((result) => {
+      console.info('[E04-01 PUSH DEBUG] init result:', result?.outcome)
     }).catch((initError) => {
-      console.warn('Native push initialization failed.', initError)
+      console.warn('[E04-01 PUSH DEBUG] init failed:', initError?.message || initError)
     })
 
     return () => {
+      console.info('[E04-01 PUSH DEBUG] effect cleanup, isDisposed set to true')
       isDisposed = true
-      if (registeredToken) {
-        deletePushToken(registeredToken).catch((deleteError) => {
-          console.warn('Failed to delete native push token on cleanup.', deleteError)
-        })
-      }
-      teardownNativePush()
     }
-  }, [currentUser, applyDeepLinkTarget])
+  }, [currentUserId, applyDeepLinkTarget])
 
   const handleLogout = useCallback(() => {
     // Invalidate any in-flight or deduplicated session validation before
@@ -494,6 +499,15 @@ function App() {
       // account picker; never affects app logout (handled inside).
       signOutGoogleNative()
     }
+
+    const pushToken = getCurrentToken()
+    if (pushToken) {
+      console.info('[E04-01 PUSH DEBUG] logout: deleting push token')
+      deletePushToken(pushToken).catch((deleteError) => {
+        console.warn('[E04-01 PUSH DEBUG] logout: token delete failed', deleteError)
+      })
+    }
+    teardownNativePush()
 
     setCurrentUser(null)
     setLogoutWarning('')

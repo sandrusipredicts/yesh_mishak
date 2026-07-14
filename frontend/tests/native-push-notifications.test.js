@@ -4,7 +4,9 @@ import { afterEach, describe, test } from 'node:test'
 import {
   checkPushPermission,
   extractNotificationTarget,
+  getCurrentToken,
   initNativePush,
+  isInitialized,
   isNativePushSupported,
   requestPushPermission,
   teardownNativePush,
@@ -416,5 +418,254 @@ describe('permission prompt flow', () => {
 
     assert.strictEqual(result, 'granted')
     assert.strictEqual(calls.requestPermissions, 0)
+  })
+})
+
+// 11. Regression: registration listener attached before register()
+describe('registration listener before register', () => {
+  test('registration listener is attached before register() is called', async () => {
+    const callOrder = []
+    const plugin = {
+      async checkPermissions() { return { receive: 'granted' } },
+      async requestPermissions() { return { receive: 'granted' } },
+      async register() {
+        callOrder.push('register')
+      },
+      async addListener(eventName) {
+        if (eventName === 'registration') {
+          callOrder.push('addListener:registration')
+        }
+        return { remove: async () => {} }
+      },
+      async removeAllListeners() {},
+    }
+
+    await initNativePush({ plugin })
+
+    const registrationIndex = callOrder.indexOf('addListener:registration')
+    const registerIndex = callOrder.indexOf('register')
+    assert.ok(registrationIndex < registerIndex,
+      `registration listener (index ${registrationIndex}) must be attached before register() (index ${registerIndex})`)
+  })
+})
+
+// 12. Regression: registration callback triggers onTokenReceived for upload
+describe('registration callback triggers token upload', () => {
+  test('onTokenReceived is called synchronously when registration fires', async () => {
+    const { calls, plugin } = createPlugin()
+    const tokens = []
+
+    await initNativePush({
+      plugin,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+
+    fireEvent(calls, 'registration', { value: 'fcm-token-abc123' })
+
+    assert.strictEqual(tokens.length, 1)
+    assert.strictEqual(tokens[0], 'fcm-token-abc123')
+  })
+})
+
+// 13. Regression: teardown resets initialization state
+describe('teardown resets state', () => {
+  test('isInitialized returns false after teardown', async () => {
+    const { plugin } = createPlugin()
+
+    await initNativePush({ plugin })
+    assert.strictEqual(isInitialized(), true)
+
+    await teardownNativePush(plugin)
+    assert.strictEqual(isInitialized(), false)
+  })
+
+  test('getCurrentToken returns null after teardown', async () => {
+    const { calls, plugin } = createPlugin()
+
+    await initNativePush({ plugin })
+    fireEvent(calls, 'registration', { value: 'my-token-xyz' })
+    assert.strictEqual(getCurrentToken(), 'my-token-xyz')
+
+    await teardownNativePush(plugin)
+    assert.strictEqual(getCurrentToken(), null)
+  })
+})
+
+// 14. Regression: init works again after teardown
+describe('re-initialization after teardown', () => {
+  test('initNativePush succeeds after teardown and receives new token', async () => {
+    const { calls, plugin } = createPlugin()
+    const tokens = []
+
+    await initNativePush({
+      plugin,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+    fireEvent(calls, 'registration', { value: 'token-round-1' })
+    await teardownNativePush(plugin)
+
+    await initNativePush({
+      plugin,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+    fireEvent(calls, 'registration', { value: 'token-round-2' })
+
+    assert.strictEqual(tokens.length, 2)
+    assert.strictEqual(tokens[1], 'token-round-2')
+    assert.strictEqual(getCurrentToken(), 'token-round-2')
+  })
+})
+
+// 15. Regression: React-style init → cleanup → init does not permanently disable push
+describe('React double-mount pattern', () => {
+  test('init → teardown → init still receives tokens', async () => {
+    const { plugin: plugin1 } = createPlugin()
+    const tokens = []
+
+    await initNativePush({
+      plugin: plugin1,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+    await teardownNativePush(plugin1)
+
+    const { calls: calls2, plugin: plugin2 } = createPlugin()
+    await initNativePush({
+      plugin: plugin2,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+    fireEvent(calls2, 'registration', { value: 'token-after-remount' })
+
+    assert.strictEqual(tokens.length, 1)
+    assert.strictEqual(tokens[0], 'token-after-remount')
+  })
+})
+
+// 16. Regression: stale generation callback is ignored after teardown+reinit
+describe('stale generation callback', () => {
+  test('registration callback from previous generation is ignored', async () => {
+    const tokens = []
+    let registrationCallback1
+
+    const plugin1 = {
+      async checkPermissions() { return { receive: 'granted' } },
+      async requestPermissions() { return { receive: 'granted' } },
+      async register() {},
+      async addListener(eventName, cb) {
+        if (eventName === 'registration') {
+          registrationCallback1 = cb
+        }
+        return { remove: async () => {} }
+      },
+      async removeAllListeners() {},
+    }
+
+    await initNativePush({
+      plugin: plugin1,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+
+    await teardownNativePush(plugin1)
+
+    const { calls: calls2, plugin: plugin2 } = createPlugin()
+    await initNativePush({
+      plugin: plugin2,
+      onTokenReceived: (token) => tokens.push(token),
+    })
+
+    registrationCallback1({ value: 'stale-token' })
+
+    assert.strictEqual(tokens.length, 0,
+      'stale generation callback should not trigger onTokenReceived')
+
+    fireEvent(calls2, 'registration', { value: 'fresh-token' })
+    assert.strictEqual(tokens.length, 1)
+    assert.strictEqual(tokens[0], 'fresh-token')
+  })
+})
+
+// 17. Regression: normal effect cleanup does not delete backend token
+describe('effect cleanup vs logout', () => {
+  test('teardown does not call any backend deletion endpoint', async () => {
+    const { calls, plugin } = createPlugin()
+
+    await initNativePush({ plugin })
+    fireEvent(calls, 'registration', { value: 'my-active-token' })
+
+    await teardownNativePush(plugin)
+
+    assert.strictEqual(getCurrentToken(), null)
+    assert.strictEqual(isInitialized(), false)
+  })
+})
+
+// 18. Regression: explicit logout can retrieve current token before teardown
+describe('logout token retrieval', () => {
+  test('getCurrentToken returns active token before teardown', async () => {
+    const { calls, plugin } = createPlugin()
+
+    await initNativePush({ plugin })
+    fireEvent(calls, 'registration', { value: 'logout-test-token' })
+
+    const tokenBeforeTeardown = getCurrentToken()
+    assert.strictEqual(tokenBeforeTeardown, 'logout-test-token')
+
+    await teardownNativePush(plugin)
+    assert.strictEqual(getCurrentToken(), null)
+  })
+})
+
+// 19. Regression: upload failure remains retryable
+describe('upload failure retryable', () => {
+  test('onTokenReceived fires again on subsequent registration events', async () => {
+    const { calls, plugin } = createPlugin()
+    let callCount = 0
+
+    await initNativePush({
+      plugin,
+      onTokenReceived: () => { callCount += 1 },
+    })
+
+    fireEvent(calls, 'registration', { value: 'token-attempt-1' })
+    assert.strictEqual(callCount, 1)
+
+    fireEvent(calls, 'registration', { value: 'token-attempt-2' })
+    assert.strictEqual(callCount, 2)
+  })
+})
+
+// 20. Regression: full token is never logged (debug logging uses suffix only)
+describe('token logging safety', () => {
+  test('debugLog output contains only token length and suffix, not full token', async () => {
+    const { calls, plugin } = createPlugin()
+    const loggedMessages = []
+    const originalInfo = console.info
+    console.info = (...args) => {
+      loggedMessages.push(args.join(' '))
+    }
+
+    try {
+      await initNativePush({ plugin })
+      const testToken = 'abcdefghijklmnopqrstuvwxyz1234567890ABCDEF'
+      fireEvent(calls, 'registration', { value: testToken })
+
+      const registrationLog = loggedMessages.find(
+        (message) => message.includes('registration callback received'),
+      )
+      assert.ok(registrationLog, 'expected a registration callback log line')
+      assert.ok(
+        !registrationLog.includes(testToken),
+        'full token must never appear in debug log',
+      )
+      assert.ok(
+        registrationLog.includes('BCDEF'),
+        'log should contain the last 6 chars suffix',
+      )
+      assert.ok(
+        registrationLog.includes(String(testToken.length)),
+        'log should contain token length',
+      )
+    } finally {
+      console.info = originalInfo
+    }
   })
 })

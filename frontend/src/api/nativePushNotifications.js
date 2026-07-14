@@ -3,6 +3,8 @@ import { PushNotifications } from '@capacitor/push-notifications'
 
 import { isUuidV4 } from '../utils/appLinkRoutes.js'
 
+const DEBUG_PREFIX = '[E04-01 PUSH DEBUG]'
+
 const CHECK_PERMISSIONS_TIMEOUT_MS = 8000
 const REQUEST_PERMISSIONS_TIMEOUT_MS = 120000
 const REGISTER_TIMEOUT_MS = 15000
@@ -10,6 +12,11 @@ const REGISTER_TIMEOUT_MS = 15000
 let listenerHandles = []
 let initialized = false
 let currentToken = null
+let initGeneration = 0
+
+function debugLog(...args) {
+  console.info(DEBUG_PREFIX, ...args)
+}
 
 function isNative() {
   return Capacitor.isNativePlatform()
@@ -66,6 +73,8 @@ export async function requestPushPermission(plugin = loadPlugin()) {
   }
 
   const current = await checkPushPermission(plugin)
+  debugLog('permission check result:', current)
+
   if (current === 'granted') {
     return 'granted'
   }
@@ -74,12 +83,15 @@ export async function requestPushPermission(plugin = loadPlugin()) {
   }
 
   try {
+    debugLog('requesting permission')
     const result = await withTimeout(
       plugin.requestPermissions(),
       'requestPermissions',
       REQUEST_PERMISSIONS_TIMEOUT_MS,
     )
-    return result?.receive ?? 'denied'
+    const outcome = result?.receive ?? 'denied'
+    debugLog('permission request result:', outcome)
+    return outcome
   } catch {
     return 'denied'
   }
@@ -111,32 +123,49 @@ export async function initNativePush({
   onNotificationTapped,
 } = {}) {
   if (!plugin) {
+    debugLog('plugin not available — unsupported')
     return { outcome: 'unsupported' }
   }
 
   if (initialized) {
+    debugLog('already initialized, token length:', currentToken?.length ?? 0)
     return { outcome: 'already-initialized', token: currentToken }
   }
+
+  debugLog('initialization started')
 
   const permission = await requestPushPermission(plugin)
 
   if (permission !== 'granted') {
+    debugLog('permission not granted:', permission)
     return { outcome: 'denied' }
   }
 
+  initGeneration += 1
+  const thisGeneration = initGeneration
   initialized = true
+
+  debugLog('attaching listeners, generation:', thisGeneration)
 
   const registrationHandle = await plugin.addListener('registration', (registrationToken) => {
     const token = registrationToken?.value
     if (!token) {
+      debugLog('registration callback fired but token is empty')
       return
     }
+    if (thisGeneration !== initGeneration) {
+      debugLog('registration callback fired for stale generation, ignoring')
+      return
+    }
+    debugLog('registration callback received, token length:', token.length,
+      'suffix:', token.slice(-6))
     currentToken = token
     onTokenReceived?.(token)
   })
   listenerHandles.push(registrationHandle)
 
   const errorHandle = await plugin.addListener('registrationError', (error) => {
+    debugLog('registrationError callback:', error?.message || error)
     onTokenError?.(error)
   })
   listenerHandles.push(errorHandle)
@@ -144,6 +173,7 @@ export async function initNativePush({
   const foregroundHandle = await plugin.addListener(
     'pushNotificationReceived',
     (notification) => {
+      debugLog('foreground notification received')
       onForegroundNotification?.(notification)
     },
   )
@@ -154,14 +184,19 @@ export async function initNativePush({
     (action) => {
       const data = action?.notification?.data
       const target = extractNotificationTarget(data)
+      debugLog('notification action performed, target:', target?.routeType || 'none')
       onNotificationTapped?.(target, action)
     },
   )
   listenerHandles.push(actionHandle)
 
+  debugLog('listeners attached, calling register()')
+
   try {
     await withTimeout(plugin.register(), 'register', REGISTER_TIMEOUT_MS)
+    debugLog('register() resolved')
   } catch (registerError) {
+    debugLog('register() failed:', registerError?.message)
     onTokenError?.({ message: registerError?.message || 'registration-failed' })
     return { outcome: 'registration-failed' }
   }
@@ -170,6 +205,8 @@ export async function initNativePush({
 }
 
 export async function teardownNativePush(plugin = loadPlugin()) {
+  debugLog('teardown invoked, handle count:', listenerHandles.length)
+
   for (const handle of listenerHandles) {
     try {
       await handle.remove()
@@ -188,6 +225,8 @@ export async function teardownNativePush(plugin = loadPlugin()) {
       // Best-effort cleanup.
     }
   }
+
+  debugLog('teardown complete')
 }
 
 export function getCurrentToken() {
