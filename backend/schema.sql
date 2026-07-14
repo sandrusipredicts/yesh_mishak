@@ -198,6 +198,10 @@ create index if not exists idx_fields_public_active_spatial
 create index if not exists idx_games_field_id on games(field_id);
 create index if not exists idx_games_field_id_status on games(field_id, status);
 create index if not exists idx_games_status on games(status);
+create index if not exists idx_games_expiry_reconciliation
+    on games(expires_at, id)
+    where status in ('open', 'full')
+      and expires_at is not null;
 create index if not exists idx_games_created_by on games(created_by);
 create index if not exists idx_games_scheduled_at on games(scheduled_at);
 create index if not exists idx_games_scheduled_reminder_processed_at on games(scheduled_reminder_processed_at);

@@ -82,6 +82,18 @@ The `yesh_mishak` application is split into a static frontend SPA and a Python R
   3. Find the last known stable generation.
   4. Select `Redeploy` to revert to that deployment artifact.
 
+### Scheduled backend jobs
+
+The game expiry reconciliation job is deployed as a Railway cron service/job, not as a public HTTP endpoint:
+
+```bash
+cd backend && python -m app.jobs.reconcile_game_expiry --batch-size 100 --max-batches 50
+```
+
+Recommended schedule: `*/5 * * * *`.
+
+Before enabling it, apply `backend/migrations/game_expiry_reconciliation.sql` in Supabase and configure the required backend environment variables on the Railway job. See `docs/game-expiry-reconciliation.md` for the full owner checklist and rollback steps.
+
 ## 7. Environment Variables
 
 | Variable Name | Area | Required | Purpose | Secret? | Example Format | Local Storage | Production Config | Rotation Notes |
