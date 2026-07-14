@@ -23,3 +23,5 @@ issue-088*.log
 backend/issue-088*.log
 backend/load_tests/.local/
 backend/load_tests/*.txt
+
+frontend/android/app/google-services.json
