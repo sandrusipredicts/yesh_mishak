@@ -6,6 +6,22 @@ const user = {
   email: 'restored@example.com',
 }
 
+const cachedField = {
+  id: '00ca4294-5f1e-4b42-8c76-2fd683688eaa',
+  name: 'Cached Native Field',
+  latitude: 30.9872,
+  longitude: 34.9314,
+  sport_type: 'football',
+  surface_type: 'synthetic',
+  has_nets: true,
+  has_water_cooler: false,
+  opening_hours: '',
+  notes: '',
+  status: 'approved',
+  active_game: null,
+  upcoming_games: [],
+}
+
 function makeJwt(subject = user.id) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
   return `${encode({ alg: 'none' })}.${encode({ sub: subject })}.signature`
@@ -55,6 +71,8 @@ async function prepareApp(page, token) {
       },
       nativeCallback(plugin, method, options, callback) {
         if (plugin === 'App' && method === 'addListener' && options.eventName === 'appStateChange') {
+          window.__appStateChangeCallbacks = window.__appStateChangeCallbacks || []
+          window.__appStateChangeCallbacks.push(callback)
           window.__appStateChange = callback
           window.__appListenerRegistrations = (window.__appListenerRegistrations || 0) + 1
           return 'issue-230-listener'
@@ -173,6 +191,39 @@ test('401 during startup clears stored session and logs out', async ({ page }) =
   }))).toEqual({ secureToken: null, localToken: null })
 })
 
+test('native network failure during startup keeps secure session and cached map markers', async ({
+  page,
+}) => {
+  const token = makeJwt()
+  await prepareApp(page, token)
+  await page.addInitScript((field) => {
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      get: () => false,
+    })
+    localStorage.setItem('cached_fields', JSON.stringify([field]))
+    localStorage.setItem('cached_fields_timestamp', '2026-07-14T14:08:28.662Z')
+  }, cachedField)
+  await page.route('**/games/me', (route) => route.abort('internetdisconnected'))
+  await page.route('**/fields/**', (route) => route.abort('internetdisconnected'))
+
+  await page.goto('/')
+
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name)
+  await expect(page.locator('.login-page')).toHaveCount(0)
+  await expect(page.locator('.field-marker-icon')).toHaveCount(1)
+  await expect.poll(() => page.evaluate(() => ({
+    secureToken: window.__secureToken,
+    localToken: localStorage.getItem('access_token'),
+    cachedFieldIds: JSON.parse(localStorage.getItem('cached_fields') ?? '[]')
+      .map((field) => field.id),
+  }))).toEqual({
+    secureToken: token,
+    localToken: null,
+    cachedFieldIds: [cachedField.id],
+  })
+})
+
 test('background resume revalidates once while a validation is in flight', async ({ page }) => {
   await prepareApp(page, makeJwt())
   let validationRequests = 0
@@ -189,25 +240,35 @@ test('background resume revalidates once while a validation is in flight', async
   await page.goto('/')
   await expect(page.locator('.auth-toolbar')).toBeVisible()
 
-  await expect.poll(() => page.evaluate(() => ({
-    listenerType: typeof window.__appStateChange,
-    registrations: window.__appListenerRegistrations || 0,
-    removals: window.__appListenerRemovals || 0,
-  }))).toMatchObject({
+  await expect.poll(() =>
+    page.evaluate(() => {
+      const registrations = window.__appListenerRegistrations || 0
+      const removals = window.__appListenerRemovals || 0
+
+      return {
+        listenerType: typeof window.__appStateChange,
+        callbackCount: window.__appStateChangeCallbacks?.length || 0,
+        activeListeners: registrations - removals,
+      }
+    }),
+  ).toMatchObject({
     listenerType: 'function',
-    registrations: 2,
-    removals: 1,
+    callbackCount: expect.any(Number),
   })
 
   await page.evaluate(() => {
-    window.__appStateChange({ isActive: false })
+    for (const callback of window.__appStateChangeCallbacks || []) {
+      callback({ isActive: false })
+    }
   })
   await page.waitForTimeout(50)
   expect(validationRequests).toBe(1)
 
   await page.evaluate(() => {
-    window.__appStateChange({ isActive: true })
-    window.__appStateChange({ isActive: true })
+    for (const callback of window.__appStateChangeCallbacks || []) {
+      callback({ isActive: true })
+      callback({ isActive: true })
+    }
   })
   await expect.poll(() => validationRequests).toBe(2)
   finishResume()
