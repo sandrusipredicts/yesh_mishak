@@ -80,6 +80,10 @@ function getStoredUser() {
   }
 }
 
+function isNetworkValidationFailure(error) {
+  return !error?.response
+}
+
 function App() {
   const { t } = useTranslation()
   const [pathname, setPathname] = useState(() => window.location.pathname)
@@ -131,9 +135,14 @@ function App() {
 
         setCurrentUser(storedUser)
         return storedUser
-      } catch {
+      } catch (validationError) {
         if (sessionEpochRef.current !== epoch) {
           return null
+        }
+
+        if (isNativeRuntime() && isNetworkValidationFailure(validationError)) {
+          setCurrentUser(storedUser)
+          return storedUser
         }
 
         await clearSession().catch((cleanupError) => {
@@ -192,10 +201,18 @@ function App() {
       }
     }
 
+    function handleOnline() {
+      if (isNativeRuntime() && getToken()) {
+        validateStoredSession()
+      }
+    }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
     }
   }, [validateStoredSession])
 
