@@ -104,6 +104,16 @@ The approved Task A tables are:
 
 The SQL schema is in `schema.sql` and includes foreign keys between users, fields, games, game players, and notification preferences.
 
+## Scheduled game expiry reconciliation
+
+Expired games are reconciled by a scheduler-compatible CLI job:
+
+```bash
+python -m app.jobs.reconcile_game_expiry --batch-size 100 --max-batches 50
+```
+
+Apply `migrations/game_expiry_reconciliation.sql` before enabling the job. In production, run it from a Railway cron service every 5 minutes with the required backend env vars configured. See `../docs/game-expiry-reconciliation.md` for full deployment, verification, and rollback steps.
+
 ## Google login
 
 `POST /auth/google` verifies a Google ID token, finds or creates a user in Supabase by email, and returns an internal app JWT.

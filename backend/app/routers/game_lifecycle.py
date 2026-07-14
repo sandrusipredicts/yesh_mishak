@@ -59,12 +59,20 @@ def is_game_upcoming(game: dict[str, Any], now: datetime | None = None) -> bool:
     return scheduled_at > current_time.astimezone(timezone.utc)
 
 
-def finish_game(game_id: str, supabase: Any | None = None) -> dict[str, Any] | None:
+def finish_game(
+    game_id: str,
+    supabase: Any | None = None,
+    *,
+    cutoff: datetime | None = None,
+) -> dict[str, Any] | None:
     client = supabase or get_supabase_client()
+    current_time = (cutoff or get_now()).astimezone(timezone.utc)
     response = (
         client.table("games")
         .update({"status": FINISHED_GAME_STATUS})
         .eq("id", game_id)
+        .in_("status", ACTIVE_GAME_STATUSES)
+        .lte("expires_at", current_time.isoformat())
         .execute()
     )
     return response.data[0] if response.data else None
@@ -87,8 +95,9 @@ def finish_expired_games(
         if is_game_expired(game, current_time):
             game_id = game.get("id")
             if game_id:
-                finish_game(str(game_id), client)
-            game["status"] = FINISHED_GAME_STATUS
+                updated_game = finish_game(str(game_id), client, cutoff=current_time)
+                if updated_game:
+                    game["status"] = FINISHED_GAME_STATUS
         else:
             active_games.append(game)
 
@@ -106,8 +115,9 @@ def ensure_game_is_actionable(game: dict[str, Any], *, supabase: Any | None = No
     if is_game_expired(game):
         game_id = game.get("id")
         if game_id:
-            finish_game(str(game_id), supabase)
-        game["status"] = FINISHED_GAME_STATUS
+            updated_game = finish_game(str(game_id), supabase)
+            if updated_game:
+                game["status"] = FINISHED_GAME_STATUS
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="GAME_NOT_ACTIONABLE",
