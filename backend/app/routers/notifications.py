@@ -938,6 +938,83 @@ def generate_scheduled_game_reminders(
     }
 
 
+def create_field_report_status_notification(
+    report: dict[str, Any],
+    new_status: str,
+) -> list[dict[str, Any]]:
+    reporter_id = report.get("user_id")
+    field_report_id = report.get("id")
+    field_id = report.get("field_id")
+
+    if not reporter_id or not field_report_id:
+        return []
+
+    service_supabase = get_supabase_service_role_client()
+
+    field_name = "Unknown field"
+    if field_id:
+        field_rows = (
+            service_supabase.table("fields")
+            .select("id,name")
+            .eq("id", field_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if field_rows:
+            field_name = field_rows[0].get("name") or field_name
+
+    existing = (
+        service_supabase.table("notifications")
+        .select("id,data")
+        .eq("type", "field_report_status_changed")
+        .eq("user_id", reporter_id)
+        .execute()
+        .data
+        or []
+    )
+    for row in existing:
+        data = row.get("data")
+        if (
+            isinstance(data, dict)
+            and data.get("field_report_id") == field_report_id
+            and data.get("new_status") == new_status
+        ):
+            return []
+
+    rendered = render_notification_template(
+        "field_report_status_changed",
+        "he",
+        {"new_status": new_status, "field_name": field_name},
+    )
+
+    notification_row = {
+        "user_id": reporter_id,
+        "type": "field_report_status_changed",
+        "title": rendered["title"],
+        "body": rendered["body"],
+        "field_id": field_id,
+        "data": {
+            "type": "field_report_status_changed",
+            "field_report_id": field_report_id,
+            "field_id": field_id,
+            "new_status": new_status,
+        },
+    }
+
+    notifications = (
+        service_supabase.table("notifications")
+        .insert(notification_row)
+        .execute()
+        .data
+        or []
+    )
+
+    _send_push_for_notifications(service_supabase, notifications)
+    return notifications
+
+
 @router.get("")
 def get_notifications(current_user: dict[str, Any] = Depends(require_active_user)):
     authenticated_user_id = str(current_user["id"])

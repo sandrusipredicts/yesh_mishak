@@ -129,6 +129,7 @@ create table if not exists field_reports (
     status text not null default 'open' check (
         status in ('open', 'in_review', 'resolved', 'rejected')
     ),
+    admin_note text,
     created_at timestamptz not null default now(),
     reviewed_at timestamptz,
     reviewed_by uuid references users(id) on delete set null

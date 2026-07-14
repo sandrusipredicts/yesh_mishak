@@ -29,6 +29,7 @@ from app.routers.game_lifecycle import (
 from app.routers.game_payloads import attach_participants_to_games
 from app.routers.notifications import (
     cleanup_old_notifications,
+    create_field_report_status_notification,
     create_game_closed_notifications,
     create_game_extended_notifications,
     create_scheduled_game_cancelled_notifications,
@@ -87,6 +88,7 @@ ADMIN_FIELD_REPORT_COLUMNS = ",".join(
         "category",
         "description",
         "status",
+        "admin_note",
         "created_at",
         "reviewed_at",
         "reviewed_by",
@@ -96,8 +98,14 @@ FIELD_REPORT_STATUSES = {"open", "in_review", "resolved", "rejected"}
 FIELD_REPORT_REVIEW_STATUSES = {"in_review", "resolved", "rejected"}
 
 
+_ADMIN_NOTE_UNSET = object()
+
+
 class FieldReportStatusUpdate(BaseModel):
     status: str
+    admin_note: Optional[str] = Field(default=None, max_length=1000)
+
+    model_config = {"extra": "forbid"}
 
     @field_validator("status")
     @classmethod
@@ -110,6 +118,14 @@ class FieldReportStatusUpdate(BaseModel):
                 message="status must be in_review, resolved, or rejected",
             )
         return value
+
+    @field_validator("admin_note")
+    @classmethod
+    def normalize_admin_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
 
 
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
@@ -412,16 +428,18 @@ def update_admin_field_report_status(
             message="status must be in_review, resolved, or rejected",
         )
 
+    update_payload: dict[str, Any] = {
+        "status": body.status,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": current_user["id"],
+    }
+    if "admin_note" in body.model_fields_set:
+        update_payload["admin_note"] = body.admin_note
+
     response = (
         get_supabase_client()
         .table("field_reports")
-        .update(
-            {
-                "status": body.status,
-                "reviewed_at": datetime.now(timezone.utc).isoformat(),
-                "reviewed_by": current_user["id"],
-            }
-        )
+        .update(update_payload)
         .eq("id", report_id)
         .execute()
     )
@@ -433,7 +451,29 @@ def update_admin_field_report_status(
             message="Field report not found",
         )
 
-    return {"message": "Field report status updated", "report": response.data[0]}
+    report = response.data[0]
+
+    try:
+        create_field_report_status_notification(
+            report=report,
+            new_status=body.status,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to create field report status notification",
+            extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "field_report_status_changed",
+                "field_report_id": report_id,
+                "actor_user_id": current_user.get("id"),
+                "new_status": body.status,
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+
+    return {"message": "Field report status updated", "report": report}
 
 
 @router.get("/stats")
