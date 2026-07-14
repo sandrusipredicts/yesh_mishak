@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getAdminFieldReports } from '../../api/admin'
+import { getAdminFieldReports, updateAdminFieldReportStatus } from '../../api/admin'
+import { getApiErrorMessage } from '../../api/errors'
+import Modal from '../Modal'
 
 const STATUS_FILTERS = ['all', 'open', 'in_review', 'resolved', 'rejected']
+const REVIEW_STATUSES = ['open', 'in_review', 'resolved', 'rejected']
 
 const CATEGORY_LABEL_KEYS = {
   wrong_location: 'fieldReport.categories.wrongLocation',
@@ -16,6 +19,8 @@ const CATEGORY_LABEL_KEYS = {
   other: 'fieldReport.categories.other',
 }
 
+const ADMIN_NOTE_MAX = 1000
+
 function AdminFieldReports() {
   const { i18n, t } = useTranslation()
   const [reports, setReports] = useState([])
@@ -24,6 +29,13 @@ function AdminFieldReports() {
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const locale = i18n.resolvedLanguage === 'he' ? 'he-IL' : 'en-US'
+
+  const [managingReport, setManagingReport] = useState(null)
+  const [editStatus, setEditStatus] = useState('open')
+  const [editNote, setEditNote] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveSuccess, setSaveSuccess] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -91,6 +103,62 @@ function AdminFieldReports() {
     return report.reporter_name || report.reporter_email || report.user_id || t('admin.missing')
   }
 
+  function openManage(report) {
+    setManagingReport(report)
+    setEditStatus(report.status || 'open')
+    setEditNote(report.admin_note || '')
+    setSaveError('')
+    setSaveSuccess('')
+  }
+
+  function closeManage() {
+    setManagingReport(null)
+    setSaveError('')
+    setSaveSuccess('')
+  }
+
+  async function handleSave() {
+    if (!managingReport || isSaving) return
+
+    setIsSaving(true)
+    setSaveError('')
+    setSaveSuccess('')
+
+    const trimmedNote = editNote.trim()
+    const payload = { status: editStatus }
+
+    if (trimmedNote) {
+      payload.admin_note = trimmedNote
+    } else if (managingReport.admin_note) {
+      payload.admin_note = null
+    } else if (editNote !== '' && !trimmedNote) {
+      payload.admin_note = null
+    }
+
+    try {
+      const result = await updateAdminFieldReportStatus(managingReport.id, payload)
+      const updatedReport = result.report || result
+
+      setReports((prev) =>
+        prev.map((r) =>
+          r.id === managingReport.id
+            ? { ...r, ...updatedReport }
+            : r,
+        ),
+      )
+
+      setSaveSuccess(t('admin.fieldReportManage.saveSuccess'))
+
+      setTimeout(() => {
+        closeManage()
+      }, 1200)
+    } catch (err) {
+      setSaveError(getApiErrorMessage(err, t('admin.fieldReportManage.saveError')))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="admin-field-reports">
       <header className="admin-field-reports-header">
@@ -142,6 +210,7 @@ function AdminFieldReports() {
                 <th>{t('admin.date')}</th>
                 <th>{t('admin.status')}</th>
                 <th>{t('admin.descriptionColumn')}</th>
+                <th>{t('admin.fieldReportManage.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -157,12 +226,92 @@ function AdminFieldReports() {
                     </span>
                   </td>
                   <td>{formatValue(report.description)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="admin-manage-report-button"
+                      onClick={() => openManage(report)}
+                    >
+                      {t('admin.fieldReportManage.manage')}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : null}
+
+      <Modal
+        isOpen={!!managingReport}
+        onClose={isSaving ? undefined : closeManage}
+        isConfirm
+        ariaLabelledBy="admin-manage-report-title"
+      >
+        <h3 id="admin-manage-report-title">{t('admin.fieldReportManage.title')}</h3>
+        <p>
+          {managingReport
+            ? `${formatValue(managingReport.field_name, managingReport.field_id)} — ${formatCategory(managingReport.category)}`
+            : ''}
+        </p>
+
+        <label className="confirm-modal-label">
+          <span>{t('admin.fieldReportManage.statusLabel')}</span>
+          <select
+            className="confirm-modal-input"
+            value={editStatus}
+            onChange={(e) => setEditStatus(e.target.value)}
+            disabled={isSaving}
+          >
+            {REVIEW_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {t(`admin.fieldReportStatuses.${s}`, s)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="confirm-modal-label">
+          <span>
+            {t('admin.fieldReportManage.noteLabel')}
+            {' '}
+            <span className="admin-note-counter">
+              {editNote.length}/{ADMIN_NOTE_MAX}
+            </span>
+          </span>
+          <textarea
+            className="confirm-modal-input"
+            rows={3}
+            maxLength={ADMIN_NOTE_MAX}
+            value={editNote}
+            onChange={(e) => setEditNote(e.target.value)}
+            disabled={isSaving}
+            placeholder={t('admin.fieldReportManage.notePlaceholder')}
+          />
+        </label>
+
+        {saveError ? <p className="modal-error" role="alert">{saveError}</p> : null}
+        {saveSuccess ? <p className="modal-success" role="status">{saveSuccess}</p> : null}
+
+        <div className="confirm-modal-actions">
+          <button
+            type="button"
+            className="secondary-modal-button"
+            onClick={closeManage}
+            disabled={isSaving}
+          >
+            {t('admin.fieldReportManage.cancel')}
+          </button>
+          <button
+            type="button"
+            className="primary-modal-button"
+            onClick={handleSave}
+            disabled={isSaving}
+          >
+            {isSaving ? t('admin.fieldReportManage.saving') : t('admin.fieldReportManage.save')}
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }

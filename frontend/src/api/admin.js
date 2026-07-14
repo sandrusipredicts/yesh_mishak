@@ -91,6 +91,15 @@ export async function getAdminFieldReports() {
   return response.data
 }
 
+export async function updateAdminFieldReportStatus(reportId, { status, admin_note }) {
+  const body = { status }
+  if (admin_note !== undefined) {
+    body.admin_note = admin_note
+  }
+  const response = await api.patch(`/admin/field-reports/${reportId}/status`, body)
+  return response.data
+}
+
 export async function getAdminStats() {
   const response = await api.get('/admin/stats')
   return response.data
