@@ -389,3 +389,323 @@ def test_mixed_statuses_in_correct_sections(monkeypatch):
     assert _ids(data["upcoming_games"]) == ["upcoming-1"]
     assert _ids(data["past_games"]) == ["past-1"]
     assert _ids(data["cancelled_games"]) == ["cancelled-1"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# 12. Batching / deduplication regression tests (PostgREST fix)
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_many_participant_games_returned_correctly(monkeypatch):
+    """Games fetched via batched .in_() are all returned."""
+    count = 150
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    active = resp.json()["active_games"]
+    assert len(active) == count
+
+
+def test_200_participant_games_all_present(monkeypatch):
+    """200 games exercising two full batches of 100."""
+    count = 200
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == count
+
+
+def test_101_games_crosses_batch_boundary(monkeypatch):
+    """101 games = 1 full batch + 1 partial batch — both must return."""
+    count = 101
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == count
+
+
+def test_exactly_100_games_single_batch(monkeypatch):
+    """Exactly one full batch — no off-by-one."""
+    count = 100
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == count
+
+
+def test_duplicate_game_player_rows_deduplicated(monkeypatch):
+    """Multiple game_players rows for the same game produce one result."""
+    game = _game("g1", created_by="user-b", status="open")
+    gps = [
+        {"id": "gp-1", "game_id": "g1", "user_id": "user-a"},
+        {"id": "gp-2", "game_id": "g1", "user_id": "user-a"},
+        {"id": "gp-3", "game_id": "g1", "user_id": "user-a"},
+    ]
+    client, _ = _setup(monkeypatch, [game], gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 1
+    assert resp.json()["active_games"][0]["id"] == "g1"
+
+
+def test_many_duplicates_across_batch_boundary(monkeypatch):
+    """110 game_player rows pointing to 10 distinct games — dedup keeps count low."""
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(10)]
+    gps = []
+    for i in range(10):
+        for dup in range(11):
+            gps.append({"id": f"gp-{i}-{dup}", "game_id": f"g-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 10
+
+
+def test_large_list_with_mixed_statuses(monkeypatch):
+    """Large participant list with games spread across all four sections."""
+    games = []
+    gps = []
+    for i in range(50):
+        games.append(_game(f"active-{i}", created_by="user-b", status="open"))
+        gps.append({"id": f"gp-a-{i}", "game_id": f"active-{i}", "user_id": "user-a"})
+    for i in range(50):
+        games.append(_game(f"upcoming-{i}", created_by="user-b", status="open", scheduled_at=FUTURE))
+        gps.append({"id": f"gp-u-{i}", "game_id": f"upcoming-{i}", "user_id": "user-a"})
+    for i in range(30):
+        games.append(_game(f"past-{i}", created_by="user-b", status="finished"))
+        gps.append({"id": f"gp-p-{i}", "game_id": f"past-{i}", "user_id": "user-a"})
+    for i in range(20):
+        games.append(_game(f"cancel-{i}", created_by="user-b", status="cancelled", cancelled_at=NOW))
+        gps.append({"id": f"gp-c-{i}", "game_id": f"cancel-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["active_games"]) == 50
+    assert len(data["upcoming_games"]) == 50
+    assert len(data["past_games"]) == 30
+    assert len(data["cancelled_games"]) == 20
+
+
+def test_creator_and_participant_overlap_large_set(monkeypatch):
+    """User created 50 games and joined 100 others — no duplicates, all returned."""
+    games = []
+    gps = []
+    for i in range(50):
+        games.append(_game(f"created-{i}", created_by="user-a", status="open"))
+    for i in range(100):
+        games.append(_game(f"joined-{i}", created_by="user-b", status="open"))
+        gps.append({"id": f"gp-{i}", "game_id": f"joined-{i}", "user_id": "user-a"})
+    for i in range(50):
+        gps.append({"id": f"gp-own-{i}", "game_id": f"created-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 150
+
+
+def test_zero_participant_games_still_returns_created(monkeypatch):
+    """No game_players rows — only created games returned."""
+    game = _game("g1", created_by="user-a", status="open")
+    client, _ = _setup(monkeypatch, [game], [])
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 1
+
+
+def test_single_participant_game(monkeypatch):
+    """One game_player row — trivial batch of size 1."""
+    game = _game("g1", created_by="user-b", status="open")
+    gps = [{"id": "gp-1", "game_id": "g1", "user_id": "user-a"}]
+    client, _ = _setup(monkeypatch, [game], gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 1
+
+
+def test_99_games_under_batch_boundary(monkeypatch):
+    """99 games — just under the batch size, single batch."""
+    count = 99
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == count
+
+
+def test_participant_game_ids_with_none_values_ignored(monkeypatch):
+    """game_players rows with null game_id are silently skipped."""
+    game = _game("g1", created_by="user-b", status="open")
+    gps = [
+        {"id": "gp-1", "game_id": "g1", "user_id": "user-a"},
+        {"id": "gp-2", "game_id": None, "user_id": "user-a"},
+    ]
+    client, _ = _setup(monkeypatch, [game], gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 1
+
+
+def test_participant_game_ids_with_empty_string_ignored(monkeypatch):
+    """game_players rows with empty-string game_id are skipped."""
+    game = _game("g1", created_by="user-b", status="open")
+    gps = [
+        {"id": "gp-1", "game_id": "g1", "user_id": "user-a"},
+        {"id": "gp-2", "game_id": "", "user_id": "user-a"},
+    ]
+    client, _ = _setup(monkeypatch, [game], gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 1
+
+
+def test_large_set_preserves_is_creator_flag(monkeypatch):
+    """is_creator is correct across a large mixed set."""
+    games = []
+    gps = []
+    for i in range(60):
+        games.append(_game(f"own-{i}", created_by="user-a", status="open"))
+    for i in range(60):
+        games.append(_game(f"other-{i}", created_by="user-b", status="open"))
+        gps.append({"id": f"gp-{i}", "game_id": f"other-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    active = resp.json()["active_games"]
+    own_ids = {f"own-{i}" for i in range(60)}
+    for g in active:
+        if g["id"] in own_ids:
+            assert g["is_creator"] is True, f"{g['id']} should be creator"
+        else:
+            assert g["is_creator"] is False, f"{g['id']} should not be creator"
+
+
+def test_large_set_field_name_attached(monkeypatch):
+    """field_name is enriched even for batched participant games."""
+    count = 110
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    for g in resp.json()["active_games"]:
+        assert g.get("field_name") == "Central Court"
+
+
+def test_large_participant_past_games_sorted_descending(monkeypatch):
+    """Past games from batched queries are still sorted by expires_at descending."""
+    games = []
+    gps = []
+    for i in range(120):
+        exp = NOW - timedelta(hours=i + 1)
+        games.append(_game(f"past-{i}", created_by="user-b", status="finished", expires_at=exp))
+        gps.append({"id": f"gp-{i}", "game_id": f"past-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    past = resp.json()["past_games"]
+    assert len(past) == 120
+    assert past[0]["id"] == "past-0"
+    assert past[-1]["id"] == "past-119"
+
+
+def test_batch_error_propagates_as_500(monkeypatch):
+    """If the batched query raises, the endpoint returns 500 — not empty 200."""
+    game = _game("g1", created_by="user-b", status="open")
+    gps = [{"id": "gp-1", "game_id": "g1", "user_id": "user-a"}]
+    client, _ = _setup(monkeypatch, [game], gps)
+
+    def exploding_select(*_args, **_kwargs):
+        raise RuntimeError("PostgREST request too large")
+
+    monkeypatch.setattr("app.routers.games._select_with_in_batches", exploding_select)
+
+    error_client = TestClient(app, raise_server_exceptions=False)
+    resp = error_client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 500
+
+
+def test_300_participant_games_three_batches(monkeypatch):
+    """300 games = 3 full batches — all present in response."""
+    count = 300
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(count)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(count)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == count
+
+
+def test_duplicate_ids_not_double_counted_in_response(monkeypatch):
+    """50 games with 5 duplicate game_players each — response has exactly 50 games."""
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(50)]
+    gps = []
+    for i in range(50):
+        for d in range(5):
+            gps.append({"id": f"gp-{i}-{d}", "game_id": f"g-{i}", "user_id": "user-a"})
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    assert len(resp.json()["active_games"]) == 50
+
+
+def test_response_shape_unchanged_with_batching(monkeypatch):
+    """Response still has all four section keys with batched queries."""
+    games = [_game(f"g-{i}", created_by="user-b", status="open") for i in range(105)]
+    gps = [{"id": f"gp-{i}", "game_id": f"g-{i}", "user_id": "user-a"} for i in range(105)]
+    client, _ = _setup(monkeypatch, games, gps)
+
+    resp = client.get("/games/me", headers=_headers(USER_A))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "active_games" in data
+    assert "upcoming_games" in data
+    assert "past_games" in data
+    assert "cancelled_games" in data

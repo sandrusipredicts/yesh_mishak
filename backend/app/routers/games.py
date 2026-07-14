@@ -22,7 +22,7 @@ from app.routers.game_lifecycle import (
     is_game_upcoming,
     parse_game_datetime,
 )
-from app.routers.game_payloads import attach_participants_to_games
+from app.routers.game_payloads import attach_participants_to_games, _select_with_in_batches
 from app.routers.notifications import (
     create_game_closed_notifications,
     create_game_created_notifications,
@@ -430,13 +430,10 @@ def get_my_games(current_user: dict[str, Any] = Depends(require_active_user)):
     created_games = {str(g["id"]): g for g in created_response.data if g.get("id")}
 
     if participant_game_ids:
-        joined_response = (
-            supabase.table("games")
-            .select("*")
-            .in_("id", participant_game_ids)
-            .execute()
+        joined_rows = _select_with_in_batches(
+            supabase, "games", "*", "id", participant_game_ids,
         )
-        for g in joined_response.data:
+        for g in joined_rows:
             if g.get("id"):
                 created_games.setdefault(str(g["id"]), g)
 
