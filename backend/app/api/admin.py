@@ -35,7 +35,10 @@ from app.routers.notifications import (
     create_scheduled_game_cancelled_notifications,
     generate_scheduled_game_reminders,
 )
-from app.services.api_request_metrics import count_api_request_metrics
+from app.services.api_request_metrics import (
+    count_api_request_metrics,
+    get_api_response_time_metrics,
+)
 from app.services.duplicate_detection import find_duplicates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -237,9 +240,9 @@ def _get_recent_job_runs(*, job_name: str = "game_expiry_reconciliation", limit:
 def _get_api_error_rate(
     *,
     window_minutes: int,
+    window_started_at: datetime,
     window_ended_at: datetime,
 ) -> dict[str, Any]:
-    window_started_at = window_ended_at - timedelta(minutes=window_minutes)
     try:
         total_requests = count_api_request_metrics(
             window_started_at=window_started_at,
@@ -276,6 +279,46 @@ def _get_api_error_rate(
         "total_requests": total_requests,
         "failed_requests": failed_requests,
         "error_rate": error_rate,
+    }
+
+
+def _get_response_time_metrics(
+    *,
+    window_minutes: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    try:
+        metrics = get_api_response_time_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+        )
+    except Exception as exc:
+        logger.warning(
+            "api response-time metrics unavailable",
+            extra={
+                "event": "admin.monitoring.response_time.unavailable",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+        return {
+            "source_available": False,
+            "reason": "API response-time metrics are temporarily unavailable. Apply backend/migrations/api_response_time_metrics.sql and ensure service-role access is configured.",
+        }
+
+    return {
+        "source_available": True,
+        "source": "database",
+        "window_minutes": window_minutes,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": window_ended_at.isoformat(),
+        "sample_count": metrics["sample_count"],
+        "average_ms": metrics["average_ms"],
+        "p50_ms": metrics["p50_ms"],
+        "p95_ms": metrics["p95_ms"],
+        "max_ms": metrics["max_ms"],
     }
 
 
@@ -1163,6 +1206,7 @@ def get_monitoring(
 ):
     now = get_now()
     generated_at = now.isoformat()
+    window_started_at = now - timedelta(minutes=window_minutes)
     supabase = get_supabase_client()
 
     # --- Active games (reuses existing logic) ---
@@ -1249,12 +1293,14 @@ def get_monitoring(
         },
         "api_errors": _get_api_error_rate(
             window_minutes=window_minutes,
+            window_started_at=window_started_at,
             window_ended_at=now,
         ),
-        "response_time": {
-            "source_available": False,
-            "reason": "Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069.",
-        },
+        "response_time": _get_response_time_metrics(
+            window_minutes=window_minutes,
+            window_started_at=window_started_at,
+            window_ended_at=now,
+        ),
         "scheduled_jobs": _get_recent_job_runs(),
         "push_notifications": {
             "source_available": False,
