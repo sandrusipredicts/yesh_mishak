@@ -18,6 +18,14 @@ class FakeResponse:
     count: int | None = None
 
 
+class FakeRpcQuery:
+    def __init__(self, data: Any) -> None:
+        self.data = data
+
+    def execute(self) -> FakeResponse:
+        return FakeResponse(data=self.data)
+
+
 class FakeUsersQuery:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.rows = rows
@@ -127,13 +135,73 @@ class FakeSupabaseClient:
         self,
         users_by_id: dict[str, dict[str, Any]],
         tables: dict[str, list[dict[str, Any]]] | None = None,
+        rpc_responses: dict[str, Any] | None = None,
     ) -> None:
         self.tables = tables or {}
         self.tables.setdefault("users", list(users_by_id.values()))
+        self.rpc_responses = rpc_responses or {}
+        self.rpc_calls: list[tuple[str, dict[str, Any]]] = []
 
     def table(self, table_name: str) -> FakeUsersQuery:
         assert table_name in self.tables
         return FakeUsersQuery(self.tables[table_name])
+
+    def rpc(self, name: str, params: dict[str, Any]) -> FakeRpcQuery:
+        self.rpc_calls.append((name, dict(params)))
+        if name in self.rpc_responses:
+            response = self.rpc_responses[name]
+            if isinstance(response, BaseException):
+                raise response
+            return FakeRpcQuery(response)
+        if name == "get_api_response_time_metrics":
+            return FakeRpcQuery([_calculate_response_time_rpc(self.tables.get("api_request_metrics", []), params)])
+        raise AssertionError(f"Unexpected RPC call: {name}")
+
+
+def _calculate_response_time_rpc(rows: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
+    window_start = params["window_start"]
+    window_end = params["window_end"]
+    durations = sorted(
+        row["duration_ms"]
+        for row in rows
+        if window_start <= (row.get("recorded_at") or "") < window_end
+    )
+    if not durations:
+        return {
+            "sample_count": 0,
+            "average_ms": 0.0,
+            "p50_ms": 0.0,
+            "p95_ms": 0.0,
+            "max_ms": 0.0,
+        }
+    return {
+        "sample_count": len(durations),
+        "average_ms": round(sum(durations) / len(durations), 2),
+        "p50_ms": _percentile_cont(durations, 0.50),
+        "p95_ms": _percentile_cont(durations, 0.95),
+        "max_ms": float(max(durations)),
+    }
+
+
+def _percentile_cont(sorted_values: list[int], percentile: float) -> float:
+    if len(sorted_values) == 1:
+        return float(sorted_values[0])
+    rank = percentile * (len(sorted_values) - 1)
+    lower_index = int(rank)
+    upper_index = min(lower_index + 1, len(sorted_values) - 1)
+    fraction = rank - lower_index
+    value = sorted_values[lower_index] + (
+        sorted_values[upper_index] - sorted_values[lower_index]
+    ) * fraction
+    return round(value, 2)
+
+
+def _response_time_rpc_calls(fake_client: FakeSupabaseClient) -> list[dict[str, Any]]:
+    return [
+        params
+        for name, params in fake_client.rpc_calls
+        if name == "get_api_response_time_metrics"
+    ]
 
 
 def make_token(user: dict[str, Any]) -> str:
@@ -1143,8 +1211,10 @@ def test_monitoring_unavailable_metrics_marked(monkeypatch) -> None:
 
     assert data["api_errors"]["source_available"] is True
     assert data["api_errors"]["source"] == "database"
+    assert data["response_time"]["source_available"] is True
+    assert data["response_time"]["source"] == "database"
 
-    for key in ("response_time", "scheduled_jobs", "push_notifications"):
+    for key in ("scheduled_jobs", "push_notifications"):
         assert data[key]["source_available"] is False
         assert "reason" in data[key]
         assert isinstance(data[key]["reason"], str)
@@ -1268,6 +1338,7 @@ def _metric_row(
     status_code: int = 200,
     method: str = "GET",
     normalized_path: str = "/__seeded__",
+    duration_ms: int = 12,
 ) -> dict[str, Any]:
     recorded_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
     return {
@@ -1276,7 +1347,7 @@ def _metric_row(
         "method": method,
         "normalized_path": normalized_path,
         "status_code": status_code,
-        "duration_ms": 12,
+        "duration_ms": duration_ms,
         "is_error": 500 <= status_code <= 599,
     }
 
@@ -1297,11 +1368,13 @@ def _make_metric_monitoring_client(monkeypatch, metrics_rows=None) -> tuple[dict
             "fields": [],
             "games": [],
             "notifications": [],
+            "job_runs": [],
             "api_request_metrics": list(metrics_rows or []),
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr(
         "app.services.api_request_metrics.get_supabase_service_role_client",
         lambda: fake_client,
@@ -1329,6 +1402,13 @@ def test_monitoring_api_errors_default_window_zero_requests(monkeypatch) -> None
     assert api_errors["total_requests"] == 0
     assert api_errors["failed_requests"] == 0
     assert api_errors["error_rate"] == 0.0
+    response_time = response.json()["response_time"]
+    assert response_time["window_minutes"] == 60
+    assert response_time["sample_count"] == 0
+    assert response_time["average_ms"] == 0.0
+    assert response_time["p50_ms"] == 0.0
+    assert response_time["p95_ms"] == 0.0
+    assert response_time["max_ms"] == 0.0
 
 
 def test_monitoring_api_errors_custom_valid_window(monkeypatch) -> None:
@@ -1347,6 +1427,26 @@ def test_monitoring_api_errors_custom_valid_window(monkeypatch) -> None:
     assert one_hour["total_requests"] == 1
     assert two_hours["window_minutes"] == 120
     assert two_hours["total_requests"] == 2
+
+
+def test_monitoring_response_time_custom_valid_window(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=10, status_code=200, duration_ms=100),
+            _metric_row(minutes_ago=70, status_code=200, duration_ms=300),
+        ],
+    )
+
+    one_hour = _get_admin_monitoring(admin_user, window_minutes=60).json()["response_time"]
+    two_hours = _get_admin_monitoring(admin_user, window_minutes=120).json()["response_time"]
+
+    assert one_hour["window_minutes"] == 60
+    assert one_hour["sample_count"] == 1
+    assert one_hour["average_ms"] == 100.0
+    assert two_hours["window_minutes"] == 120
+    assert two_hours["sample_count"] == 2
+    assert two_hours["average_ms"] == 200.0
 
 
 @pytest.mark.parametrize("window_minutes", [4, 1441])
@@ -1385,10 +1485,125 @@ def test_monitoring_api_error_rate_counts_5xx_only(monkeypatch) -> None:
     assert api_errors["error_rate"] == 0.2
 
 
+def test_monitoring_response_time_one_sample(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [_metric_row(minutes_ago=1, status_code=200, duration_ms=37)],
+    )
+
+    response_time = _get_admin_monitoring(admin_user).json()["response_time"]
+
+    assert response_time["sample_count"] == 1
+    assert response_time["average_ms"] == 37.0
+    assert response_time["p50_ms"] == 37.0
+    assert response_time["p95_ms"] == 37.0
+    assert response_time["max_ms"] == 37.0
+
+
+def test_monitoring_response_time_average_percentiles_and_max(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=1, duration_ms=0),
+            _metric_row(minutes_ago=2, duration_ms=100),
+            _metric_row(minutes_ago=3, duration_ms=200),
+            _metric_row(minutes_ago=4, duration_ms=1000),
+        ],
+    )
+
+    response_time = _get_admin_monitoring(admin_user).json()["response_time"]
+
+    assert response_time["sample_count"] == 4
+    assert response_time["average_ms"] == 325.0
+    assert response_time["p50_ms"] == 150.0
+    assert response_time["p95_ms"] == 880.0
+    assert response_time["max_ms"] == 1000.0
+
+
+def test_monitoring_response_time_identical_and_odd_sample_counts(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=1, duration_ms=42),
+            _metric_row(minutes_ago=2, duration_ms=42),
+            _metric_row(minutes_ago=3, duration_ms=42),
+        ],
+    )
+
+    response_time = _get_admin_monitoring(admin_user).json()["response_time"]
+
+    assert response_time["sample_count"] == 3
+    assert response_time["average_ms"] == 42.0
+    assert response_time["p50_ms"] == 42.0
+    assert response_time["p95_ms"] == 42.0
+    assert response_time["max_ms"] == 42.0
+
+
+def test_monitoring_response_time_includes_mixed_statuses_and_5xx(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=1, status_code=200, duration_ms=10),
+            _metric_row(minutes_ago=2, status_code=404, duration_ms=20),
+            _metric_row(minutes_ago=3, status_code=422, duration_ms=30),
+            _metric_row(minutes_ago=4, status_code=500, duration_ms=900),
+        ],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()
+
+    assert data["api_errors"]["total_requests"] == 4
+    assert data["api_errors"]["failed_requests"] == 1
+    assert data["response_time"]["sample_count"] == 4
+    assert data["response_time"]["max_ms"] == 900.0
+
+
+def test_monitoring_response_time_uses_same_window_boundaries_as_api_errors(monkeypatch) -> None:
+    admin_user, fake_client = _make_metric_monitoring_client(
+        monkeypatch,
+        [_metric_row(minutes_ago=1, status_code=200, duration_ms=15)],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()
+    response_time_calls = _response_time_rpc_calls(fake_client)
+
+    assert len(response_time_calls) == 1
+    assert response_time_calls[0]["window_start"] == data["api_errors"]["window_started_at"]
+    assert response_time_calls[0]["window_end"] == data["api_errors"]["window_ended_at"]
+    assert data["response_time"]["window_started_at"] == data["api_errors"]["window_started_at"]
+    assert data["response_time"]["window_ended_at"] == data["api_errors"]["window_ended_at"]
+
+
+def test_monitoring_response_time_boundaries_include_start_exclude_end(monkeypatch) -> None:
+    fixed_now = datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+    window_start = fixed_now - timedelta(minutes=60)
+    monkeypatch.setattr("app.api.admin.get_now", lambda: fixed_now)
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            {
+                **_metric_row(duration_ms=10),
+                "recorded_at": window_start.isoformat(),
+            },
+            {
+                **_metric_row(duration_ms=20),
+                "recorded_at": fixed_now.isoformat(),
+            },
+        ],
+    )
+
+    response_time = _get_admin_monitoring(admin_user).json()["response_time"]
+
+    assert response_time["sample_count"] == 1
+    assert response_time["max_ms"] == 10.0
+
+
 def test_monitoring_response_timestamps_are_utc(monkeypatch) -> None:
     admin_user, _ = _make_metric_monitoring_client(monkeypatch)
 
-    api_errors = _get_admin_monitoring(admin_user).json()["api_errors"]
+    data = _get_admin_monitoring(admin_user).json()
+    api_errors = data["api_errors"]
+    response_time = data["response_time"]
 
     started = datetime.fromisoformat(api_errors["window_started_at"])
     ended = datetime.fromisoformat(api_errors["window_ended_at"])
@@ -1396,6 +1611,58 @@ def test_monitoring_response_timestamps_are_utc(monkeypatch) -> None:
     assert ended.tzinfo is not None
     assert started.utcoffset() == timedelta(0)
     assert ended.utcoffset() == timedelta(0)
+    assert response_time["window_started_at"] == api_errors["window_started_at"]
+    assert response_time["window_ended_at"] == api_errors["window_ended_at"]
+
+
+def test_monitoring_response_time_stub_removed(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 200
+    raw = response.text
+    assert "Response-time middleware not implemented yet" not in raw
+    assert "reason" not in response.json()["response_time"]
+    assert response.json()["response_time"]["source_available"] is True
+
+
+def test_monitoring_response_time_rpc_failure_returns_unavailable_source(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+        "status": "active",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [],
+            "games": [],
+            "notifications": [],
+            "api_request_metrics": [_metric_row(minutes_ago=1, status_code=200)],
+        },
+        rpc_responses={"get_api_response_time_metrics": RuntimeError("rpc unavailable")},
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["api_errors"]["source_available"] is True
+    assert data["api_errors"]["total_requests"] == 1
+    assert data["response_time"]["source_available"] is False
+    assert "reason" in data["response_time"]
+    assert "rpc unavailable" not in data["response_time"]["reason"]
 
 
 def test_request_metrics_middleware_records_success_and_excludes_monitoring(monkeypatch) -> None:
