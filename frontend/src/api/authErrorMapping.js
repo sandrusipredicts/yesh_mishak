@@ -29,6 +29,12 @@ const AUTH_ERROR_RESULTS = {
     severity: 'error',
     shouldClearSession: true,
   },
+  googleConfiguration: {
+    kind: 'google_configuration',
+    messageKey: 'auth.googleConfigurationError',
+    severity: 'error',
+    shouldClearSession: true,
+  },
   unexpected: {
     kind: 'unexpected',
     messageKey: 'auth.signInUnexpectedError',
@@ -75,6 +81,10 @@ export function mapNativeAuthError(error) {
 
   if (error?.code === 'NATIVE_GOOGLE_MISSING_ID_TOKEN') {
     return AUTH_ERROR_RESULTS.verificationFailed
+  }
+
+  if (error?.code === 'NATIVE_GOOGLE_CONFIGURATION_ERROR') {
+    return AUTH_ERROR_RESULTS.googleConfiguration
   }
 
   if (error?.code === 'GOOGLE_SIGN_IN_FAILED') {

@@ -50,6 +50,12 @@ test('maps Google provider failures without exposing technical details', () => {
   )
 })
 
+test('maps native Google configuration failures separately from cancellation', () => {
+  expect(mapNativeAuthError({ code: 'NATIVE_GOOGLE_CONFIGURATION_ERROR' })).toEqual(
+    expected('google_configuration', 'auth.googleConfigurationError'),
+  )
+})
+
 test('maps a missing provider ID token to verification failure', () => {
   expect(mapNativeAuthError({ code: 'NATIVE_GOOGLE_MISSING_ID_TOKEN' })).toEqual(
     expected('verification_failed', 'auth.verificationFailed'),

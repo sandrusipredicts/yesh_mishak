@@ -74,6 +74,54 @@ Note: this machine's debug keystore alias reports as `AndroidDebugKey` (case-ins
 4. **Release signing (future):** before any release build ships with native Google login, a release keystore (or Play App Signing) must be created and its SHA-1 added to the Android OAuth Client. Tracked as part of the existing release-readiness work, not this phase.
 5. `.env` remains the source of truth for the full web client ID; do not duplicate the full value into more places than necessary.
 
+## Stable GitHub Actions debug signing
+
+The Android validation workflow originally relied on Gradle's implicit
+`~/.android/debug.keystore`. GitHub-hosted runners are ephemeral, so an APK built
+on a fresh runner could receive a different certificate from both the prior CI
+run and the development certificate registered on 2026-07-03. That makes the
+package/certificate pair unknown to Google Credential Manager even though
+`com.yeshmishak.app` and the Web OAuth client ID are correct.
+
+The workflow now reconstructs one dedicated non-production test keystore from
+GitHub Actions secrets and explicitly assigns it to the `debug` build type. It
+does not configure release signing and must never receive the Play Store
+production signing key. The stable CI certificate is:
+
+```text
+SHA-1:   8A:CD:E8:33:7C:67:73:D8:30:34:37:8C:FF:61:7F:C6:FE:53:32:4D
+SHA-256: 40:38:5F:E6:9C:B4:6F:3B:79:C0:4D:10:24:3B:61:03:50:57:91:99:CF:24:46:E7:48:20:77:D8:65:02:52:38
+```
+
+### Firebase and Google Cloud owner steps
+
+1. In Firebase Console, open the Android app whose package is
+   `com.yeshmishak.app`.
+2. Add both stable CI fingerprints above under **Project settings > Your apps >
+   Android app > SHA certificate fingerprints**.
+3. In Google Cloud Console, open **APIs & Services > Credentials** in the same
+   project.
+4. Confirm an Android OAuth client exists for package `com.yeshmishak.app` and
+   add the stable CI SHA-1. Create a separate Android OAuth client for this
+   package/SHA-1 pair if the console does not allow adding the fingerprint to the
+   existing client.
+5. Retain the existing Web OAuth client ID as `VITE_GOOGLE_CLIENT_ID`; it remains
+   the plugin's `webClientId`/server token audience. Do not substitute the
+   Android OAuth client ID there.
+6. If Firebase offers an updated `google-services.json` after the fingerprint or
+   Android-app change, download it, validate that its package remains
+   `com.yeshmishak.app`, replace the ignored local file, re-encode it, and update
+   `ANDROID_GOOGLE_SERVICES_JSON_BASE64`.
+7. Base64-encode the selected test keystore and add the four signing secrets
+   documented in `docs/android-firebase-configuration.md`.
+8. Manually dispatch **Android Build Validation** and verify its reported APK
+   fingerprints exactly match the stable values above before installing it.
+
+Google Credential Manager still requires both identities: the Android OAuth
+client authorizes `com.yeshmishak.app` plus the signing SHA-1, while the existing
+Web OAuth client remains the `serverClientId` and ID-token audience verified by
+the backend.
+
 ## Final checklist
 
 | Item | Status |

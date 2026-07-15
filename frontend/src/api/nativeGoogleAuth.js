@@ -8,6 +8,34 @@ import { Capacitor } from '@capacitor/core'
 let socialLogin = null
 let initPromise = null
 
+const CONFIGURATION_ERROR_CODES = new Set([
+  '10',
+  'DEVELOPER_ERROR',
+  'NATIVE_GOOGLE_CONFIGURATION_ERROR',
+])
+
+function safeProviderCode(error) {
+  const candidate = error?.code ?? error?.statusCode ?? error?.status
+  const normalized = String(candidate ?? '').toUpperCase().replace(/[^A-Z0-9_-]/g, '')
+  return normalized.slice(0, 64) || 'UNCLASSIFIED'
+}
+
+export function isGoogleConfigurationError(error) {
+  const code = safeProviderCode(error)
+  if (CONFIGURATION_ERROR_CODES.has(code)) {
+    return true
+  }
+
+  const message = String(error?.message ?? '').toLowerCase()
+  return [
+    'developer_error',
+    'developer error',
+    'status code: 10',
+    'console is not set up',
+    'client id is not set',
+  ].some((marker) => message.includes(marker))
+}
+
 export function isNativeGoogleSupported() {
   return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('SocialLogin')
 }
@@ -66,10 +94,18 @@ export async function signInWithGoogleNative(webClientId) {
       throw providerError
     }
 
+    const providerCode = safeProviderCode(providerError)
+    const configurationError = isGoogleConfigurationError(providerError)
+    console.warn(
+      `event=native_google.sign_in_failure code=${providerCode} category=${configurationError ? 'configuration' : 'provider'}`,
+    )
+
     const normalizedError = new Error('Native Google provider sign-in failed', {
       cause: providerError,
     })
-    normalizedError.code = 'GOOGLE_SIGN_IN_FAILED'
+    normalizedError.code = configurationError
+      ? 'NATIVE_GOOGLE_CONFIGURATION_ERROR'
+      : 'GOOGLE_SIGN_IN_FAILED'
     throw normalizedError
   }
 

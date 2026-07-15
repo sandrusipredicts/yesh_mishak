@@ -35,6 +35,7 @@ const en = {
     googleButtonMountFailed: 'Google login button could not be mounted.',
     googleNoCredential: 'Google did not return a credential.',
     googleSignInFailed: 'Could not sign in with Google. Please try again.',
+    googleConfigurationError: 'Google sign-in is not configured for this app build. Please contact support.',
     signInCancelled: 'Sign-in cancelled. You can try again.',
     networkError: 'We could not connect. Check your internet connection and try again.',
     verificationFailed: 'We could not verify your Google sign-in. Please try again.',
