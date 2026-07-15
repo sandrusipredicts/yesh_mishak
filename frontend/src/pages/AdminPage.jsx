@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import AdminFields from '../components/admin/AdminFields'
 import AdminFieldReports from '../components/admin/AdminFieldReports'
 import AdminGames from '../components/admin/AdminGames'
+import AdminMonitoring from '../components/admin/AdminMonitoring'
 import AdminStats from '../components/admin/AdminStats'
 import AdminUsers from '../components/admin/AdminUsers'
 
@@ -16,6 +17,12 @@ function AdminPage() {
       label: t('admin.stats'),
       title: t('admin.stats'),
       placeholder: t('admin.statsPlaceholder'),
+    },
+    {
+      id: 'monitoring',
+      label: t('admin.monitoring'),
+      title: t('admin.monitoring'),
+      placeholder: t('admin.monitoringPlaceholder'),
     },
     {
       id: 'fields',
@@ -78,11 +85,13 @@ function AdminPage() {
         <section className="admin-content" aria-labelledby="admin-section-title">
           <h2 id="admin-section-title">{activeSection.title}</h2>
           {activeSection.id === 'stats' ? <AdminStats /> : null}
+          {activeSection.id === 'monitoring' ? <AdminMonitoring /> : null}
           {activeSection.id === 'fields' ? <AdminFields /> : null}
           {activeSection.id === 'games' ? <AdminGames /> : null}
           {activeSection.id === 'users' ? <AdminUsers /> : null}
           {activeSection.id === 'fieldReports' ? <AdminFieldReports /> : null}
           {activeSection.id !== 'stats' &&
+          activeSection.id !== 'monitoring' &&
           activeSection.id !== 'fields' &&
           activeSection.id !== 'games' &&
           activeSection.id !== 'users' &&

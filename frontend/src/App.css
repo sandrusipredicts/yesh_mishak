@@ -2030,6 +2030,316 @@ select {
   line-height: 1;
 }
 
+.admin-monitoring {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-monitoring-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 4px;
+}
+
+.admin-monitoring-window,
+.admin-monitoring-timestamps,
+.admin-monitoring-section-header p,
+.admin-monitoring-metric small,
+.admin-monitoring-notice p {
+  margin: 0;
+  color: #64748b;
+}
+
+.admin-monitoring-window {
+  font-weight: 700;
+}
+
+.admin-monitoring-timestamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.admin-monitoring-refresh-button,
+.admin-monitoring-error button,
+.admin-monitoring-refresh-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid #172033;
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: #172033;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.admin-monitoring-refresh-button:hover,
+.admin-monitoring-refresh-button:focus,
+.admin-monitoring-error button:hover,
+.admin-monitoring-error button:focus,
+.admin-monitoring-refresh-error button:hover,
+.admin-monitoring-refresh-error button:focus {
+  background: #2c3a53;
+}
+
+.admin-monitoring-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.admin-monitoring-status,
+.admin-monitoring-error,
+.admin-monitoring-refresh-error,
+.admin-monitoring-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-monitoring-status {
+  min-height: 180px;
+  justify-content: center;
+  color: #64748b;
+}
+
+.admin-monitoring-error {
+  min-height: 180px;
+  justify-content: center;
+  color: #b42318;
+  text-align: start;
+}
+
+.admin-monitoring-error p {
+  margin: 0 0 12px;
+}
+
+.admin-monitoring-error button,
+.admin-monitoring-refresh-error button {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.admin-monitoring-refresh-error {
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.admin-monitoring-refresh-error button {
+  margin-inline-start: auto;
+  border-color: #b42318;
+  background: transparent;
+  color: #b42318;
+}
+
+.admin-monitoring-refresh-error button:hover,
+.admin-monitoring-refresh-error button:focus {
+  background: #fee2e2;
+}
+
+.admin-monitoring-summary {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: #ecfdf3;
+  color: #166534;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-monitoring-summary svg {
+  flex: 0 0 auto;
+}
+
+.admin-monitoring-sections {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-monitoring-section {
+  display: grid;
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.admin-monitoring-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.admin-monitoring-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.admin-monitoring-section-title > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #475569;
+}
+
+.admin-monitoring-section-header h3,
+.admin-monitoring-subsection h4 {
+  margin: 0;
+  color: #172033;
+}
+
+.admin-monitoring-section-header h3 {
+  font-size: 18px;
+}
+
+.admin-monitoring-section-header p {
+  margin-top: 5px;
+  font-size: 14px;
+}
+
+.admin-monitoring-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.admin-monitoring-metric {
+  display: grid;
+  min-height: 112px;
+  align-content: space-between;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.admin-monitoring-metric-label {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-monitoring-metric strong {
+  color: #172033;
+  font-size: 25px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.admin-monitoring-metric strong.is-degraded {
+  color: #b42318;
+}
+
+.admin-monitoring-metric small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.admin-monitoring-subsection {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-monitoring-subsection h4 {
+  font-size: 16px;
+}
+
+.admin-monitoring-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.admin-monitoring-notice.unavailable {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.admin-monitoring-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.admin-monitoring-job-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-monitoring-job-summary > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.admin-monitoring-job-summary span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-monitoring-job-summary strong {
+  color: #172033;
+  overflow-wrap: anywhere;
+}
+
+.admin-monitoring-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-monitoring-table {
+  width: 100%;
+  min-width: 580px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-monitoring-table caption {
+  margin-bottom: 8px;
+  color: #475569;
+  font-weight: 700;
+  text-align: start;
+}
+
+.admin-monitoring-table th,
+.admin-monitoring-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.admin-monitoring-table th {
+  color: #64748b;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.admin-monitoring-spin {
+  animation: admin-monitoring-spin 1s linear infinite;
+}
+
+@keyframes admin-monitoring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .admin-fields {
   display: grid;
   gap: 16px;
@@ -3009,6 +3319,26 @@ select {
   }
 
   .admin-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-monitoring-toolbar {
+    display: grid;
+  }
+
+  .admin-monitoring-refresh-button {
+    width: 100%;
+  }
+
+  .admin-monitoring-refresh-error {
+    flex-wrap: wrap;
+  }
+
+  .admin-monitoring-refresh-error button {
+    margin-inline-start: 0;
+  }
+
+  .admin-monitoring-job-summary {
     grid-template-columns: 1fr;
   }
 
