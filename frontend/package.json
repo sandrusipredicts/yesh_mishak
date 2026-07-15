@@ -9,6 +9,7 @@
     "build:android": "vite build --mode android",
     "build:ios": "vite build --mode ios",
     "lint": "eslint .",
+    "test:notification-sync": "node --test tests/notification-sync.test.js",
     "postinstall": "patch-package",
     "test:e2e": "playwright test",
     "preview": "vite preview"

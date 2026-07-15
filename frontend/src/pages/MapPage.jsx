@@ -17,6 +17,7 @@ import { checkExistingPermission } from '../api/locationPermission'
 import { getCurrentLocation } from '../api/locationService'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
 import { classifyLocationFailure, getLocationFailureMessage } from '../utils/locationFailure'
+import { createNotificationSync } from '../utils/notificationSync'
 
 const DEFAULT_CENTER = [30.9872, 34.9314]
 const DEFAULT_ZOOM = 14
@@ -418,6 +419,7 @@ function MapPage({
   const fieldsRef = useRef(cachedFieldsState.fields)
   const fieldsFingerprintRef = useRef(fieldsFingerprint(cachedFieldsState.fields))
   const notificationFieldsRequestRef = useRef(0)
+  const notificationSyncRef = useRef(null)
   const [isFieldsLoading, setIsFieldsLoading] = useState(!cachedFieldsState.fields.length)
   const [error, setError] = useState('')
   const [selectedField, setSelectedField] = useState(null)
@@ -546,18 +548,8 @@ function MapPage({
     }
   }, [isLocatingUser, t])
 
-  const refreshNotifications = useCallback(async () => {
-    try {
-      const [loadedNotifications, unreadCountResult] = await Promise.all([
-        getNotifications(),
-        getUnreadNotificationCount(),
-      ])
-      setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
-      setUnreadNotificationCount(Number(unreadCountResult?.unread_count ?? 0))
-    } catch {
-      setNotifications([])
-      setUnreadNotificationCount(0)
-    }
+  const refreshNotifications = useCallback(() => {
+    return notificationSyncRef.current?.refresh() ?? Promise.resolve({ applied: false })
   }, [])
 
   const refreshUnreadCount = useCallback(async () => {
@@ -570,30 +562,26 @@ function MapPage({
   }, [])
 
   useEffect(() => {
-    let isMounted = true
-
-    Promise.all([getNotifications(), getUnreadNotificationCount()])
-      .then(([loadedNotifications, unreadCountResult]) => {
-        if (isMounted) {
-          setNotifications(Array.isArray(loadedNotifications) ? loadedNotifications : [])
-          setUnreadNotificationCount(Number(unreadCountResult?.unread_count ?? 0))
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setNotifications([])
-          setUnreadNotificationCount(0)
-        }
-      })
+    const notificationSync = createNotificationSync({
+      loadNotifications: getNotifications,
+      loadUnreadCount: getUnreadNotificationCount,
+      onNotifications: setNotifications,
+      onUnreadCount: setUnreadNotificationCount,
+    })
+    notificationSyncRef.current = notificationSync
+    void notificationSync.refresh()
 
     return () => {
-      isMounted = false
+      notificationSync.dispose()
+      if (notificationSyncRef.current === notificationSync) {
+        notificationSyncRef.current = null
+      }
     }
   }, [])
 
   useEffect(() => {
     function handleNativePush() {
-      refreshNotifications()
+      notificationSyncRef.current?.handleForegroundPush()
     }
 
     window.addEventListener('native-push-received', handleNativePush)
