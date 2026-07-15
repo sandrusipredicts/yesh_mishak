@@ -44,13 +44,18 @@ This file is project-specific Firebase client configuration. It is not a Firebas
    npm run android:google-services:validate
    ```
 
-6. For CI, Base64-encode the complete file content and store it in the CI secret:
+6. For CI, Base64-encode the complete file content and create a repository-level
+   GitHub Actions secret under **Settings > Secrets and variables > Actions**:
 
    ```text
    ANDROID_GOOGLE_SERVICES_JSON_BASE64
    ```
 
-7. Never paste or commit the decoded JSON into source files, docs, logs, or issue comments.
+7. Allow the secret to be read by the manually dispatched
+   `Android Build Validation` workflow, then run that workflow from the Actions tab.
+8. Confirm the materialization step and cleanup complete without configuration
+   content appearing in the logs.
+9. Never paste or commit the decoded JSON into source files, docs, logs, or issue comments.
 
 ## Local Development
 
@@ -78,7 +83,16 @@ The Gradle build now fails early if `frontend/android/app/google-services.json` 
 
 ## CI Materialization
 
-No Android GitHub Actions build exists in this repository today. A future Android workflow should materialize the file before `npx cap sync android` or any Gradle task:
+`.github/workflows/android-build-validation.yml` provides two paths:
+
+- Pull requests run the synthetic validator test suite without reading any secret.
+  This includes pull requests from forks.
+- A trusted maintainer can use `workflow_dispatch` to materialize the real config,
+  build the debug APK, upload only the APK artifact, and remove the generated JSON
+  in an `always()` cleanup step. A missing secret fails at materialization before
+  Gradle runs.
+
+The trusted build runs the following sequence:
 
 ```bash
 cd frontend
@@ -115,7 +129,7 @@ Windows PowerShell:
 ```powershell
 [Convert]::ToBase64String(
     [System.IO.File]::ReadAllBytes(
-        "C:\Users\orel1\yesh_mishak\frontend\android\app\google-services.json"
+        "frontend\android\app\google-services.json"
     )
 ) | Set-Clipboard
 ```

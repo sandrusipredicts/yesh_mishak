@@ -1,0 +1,94 @@
+name: Android Build Validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/android-build-validation.yml"
+      - "frontend/android/**"
+      - "frontend/scripts/materialize-google-services.mjs"
+      - "frontend/scripts/materialize-google-services.test.mjs"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/capacitor.config.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  firebase-config-validation:
+    name: Validate Firebase config pipeline without secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test Firebase config validation
+        run: npm run test:android-google-services
+
+  android-debug-build:
+    name: Build Android debug APK with trusted Firebase config
+    if: github.event_name == 'workflow_dispatch'
+    needs: firebase-config-validation
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Materialize and validate Firebase Android config
+        run: npm run android:google-services
+
+      - name: Build web assets for Android
+        run: npm run build:android
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: frontend/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: frontend/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Remove generated Firebase config
+        if: always()
+        working-directory: frontend
+        run: rm -f android/app/google-services.json
