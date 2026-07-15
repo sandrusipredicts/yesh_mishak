@@ -5,7 +5,7 @@ from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from postgrest.exceptions import APIError
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.auth.dependencies import require_active_user, require_admin
 from app.errors import raise_api_error, validate_uuid_id
@@ -28,23 +28,14 @@ SCHEDULED_GAME_REMINDER_TYPE = "scheduled_game_reminder"
 NOTIFICATION_RETENTION_DAYS = 90
 
 
-class NotificationPreference(BaseModel):
-    enabled: bool = True
-    sport_type: Literal["football", "basketball", "both"] = "both"
-    notification_type: Literal["radius", "city", "specific_field"] = "radius"
-    radius_km: Optional[float] = Field(default=None, gt=0)
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    city: Optional[str] = Field(default=None, max_length=100)
-    field_id: Optional[str] = None
-
-
 class NotificationCandidateRequest(BaseModel):
     field_id: str
     sport_type: Literal["football", "basketball"]
 
 
 class NotificationSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     distance_enabled: bool = True
     distance_radius_km: float = Field(default=5, ge=1, le=20)
     distance_lat: Optional[float] = None
@@ -54,6 +45,17 @@ class NotificationSettings(BaseModel):
     specific_fields_enabled: bool = False
     selected_field_ids: list[str] = Field(default_factory=list)
 
+    @field_validator("selected_field_ids", mode="before")
+    @classmethod
+    def _normalize_selected_field_ids(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+    @model_validator(mode="after")
+    def _require_explicit_settings_field(self) -> "NotificationSettings":
+        if not self.model_fields_set:
+            raise ValueError("At least one notification settings field is required")
+        return self
+
 
 class PushTokenRequest(BaseModel):
     token: str = Field(min_length=1)
@@ -61,50 +63,6 @@ class PushTokenRequest(BaseModel):
 
 class PushTokenDeleteRequest(BaseModel):
     token: str | None = None
-
-
-SETTINGS_PAYLOAD_KEYS = {
-    "distance_enabled",
-    "distance_radius_km",
-    "distance_lat",
-    "distance_lng",
-    "city_enabled",
-    "city_name",
-    "specific_fields_enabled",
-    "selected_field_ids",
-}
-
-
-def _validate_preference(pref: NotificationPreference) -> None:
-    if pref.sport_type not in ("football", "basketball", "both"):
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="VALIDATION_ERROR",
-            message="Invalid sport_type",
-        )
-
-    if pref.notification_type not in ("radius", "city", "specific_field"):
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="VALIDATION_ERROR",
-            message="Invalid notification_type",
-        )
-
-    if pref.notification_type == "radius" and (
-        pref.radius_km is None or pref.lat is None or pref.lng is None
-    ):
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="VALIDATION_ERROR",
-            message="Radius preferences require radius_km, lat, and lng",
-        )
-
-    if pref.notification_type == "specific_field" and not pref.field_id:
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="VALIDATION_ERROR",
-            message="specific_field preferences require field_id",
-        )
 
 
 def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -1346,14 +1304,6 @@ def get_preferences(current_user: dict[str, Any] = Depends(require_active_user))
     return response.data
 
 
-def _is_settings_payload(body: dict[str, Any]) -> bool:
-    if not isinstance(body, dict):
-        return False
-
-    body_keys = {str(key).strip() for key in body}
-    return bool(SETTINGS_PAYLOAD_KEYS.intersection(body_keys))
-
-
 def _save_preference_row(
     supabase: Any,
     row: dict[str, Any],
@@ -1376,13 +1326,7 @@ def _field_key(field_id: Any) -> str:
     return str(field_id) if field_id else ""
 
 
-def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
-    settings_data = dict(body)
-
-    if settings_data.get("selected_field_ids") is None:
-        settings_data["selected_field_ids"] = []
-
-    settings = NotificationSettings(**settings_data)
+def _save_settings(settings: NotificationSettings, current_user: dict[str, Any]) -> dict[str, Any]:
     for fid in settings.selected_field_ids:
         validate_uuid_id(fid, "field_id")
     supabase = get_supabase_service_role_client()
@@ -1497,74 +1441,10 @@ def _save_settings(body: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 
 @router.put("/preferences")
 def save_preferences(
-    body: Any = Body(...),
+    settings: NotificationSettings,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
-    if not isinstance(body, dict):
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="VALIDATION_ERROR",
-            message="Invalid request body",
-        )
-
-    is_settings_payload = _is_settings_payload(body)
-
-    try:
-        if is_settings_payload:
-            return _save_settings(body, current_user)
-
-        pref = NotificationPreference(**body)
-        if pref.field_id:
-            validate_uuid_id(pref.field_id, "field_id")
-    except ValidationError as error:
-        details = {}
-        for err in error.errors():
-            loc = err.get("loc", [])
-            field = ".".join(str(x) for x in loc) if loc else "non_field_error"
-            details[field] = err.get("msg", "Invalid value")
-        raise_api_error(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            code="VALIDATION_ERROR",
-            message="Validation failed",
-            details=details,
-        )
-
-    _validate_preference(pref)
-    supabase = get_supabase_service_role_client()
-
-    existing = (
-        supabase.table("notification_preferences")
-        .select("id")
-        .eq("user_id", current_user["id"])
-        .eq("notification_type", pref.notification_type)
-        .eq("sport_type", pref.sport_type)
-        .limit(1)
-        .execute()
-    )
-
-    data = {
-        "user_id": current_user["id"],
-        "enabled": pref.enabled,
-        "sport_type": pref.sport_type,
-        "notification_type": pref.notification_type,
-        "radius_km": pref.radius_km,
-        "lat": pref.lat,
-        "lng": pref.lng,
-        "city": pref.city,
-        "field_id": pref.field_id,
-    }
-
-    if existing.data:
-        response = (
-            supabase.table("notification_preferences")
-            .update(data)
-            .eq("id", existing.data[0]["id"])
-            .execute()
-        )
-    else:
-        response = supabase.table("notification_preferences").insert(data).execute()
-
-    return {"message": "Preference saved", "preference": response.data[0]}
+    return _save_settings(settings, current_user)
 
 
 @router.post("/candidates")
