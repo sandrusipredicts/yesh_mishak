@@ -1,8 +1,35 @@
 apply plugin: 'com.android.application'
 
+def ciDebugSigningValues = [
+    path: System.getenv('ANDROID_DEBUG_KEYSTORE_PATH'),
+    storePassword: System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD'),
+    keyAlias: System.getenv('ANDROID_DEBUG_KEY_ALIAS'),
+    keyPassword: System.getenv('ANDROID_DEBUG_KEY_PASSWORD'),
+]
+def ciDebugSigningRequested = ciDebugSigningValues.values().any { it }
+def ciDebugSigningConfigured = ciDebugSigningValues.values().every { it }
+
+if (ciDebugSigningRequested && !ciDebugSigningConfigured) {
+    throw new GradleException('Incomplete CI debug signing configuration. Set the keystore path, store password, key alias, and key password together.')
+}
+
+if (ciDebugSigningConfigured && !rootProject.file(ciDebugSigningValues.path).isFile()) {
+    throw new GradleException('Configured CI debug keystore file does not exist.')
+}
+
 android {
     namespace = "com.yeshmishak.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        if (ciDebugSigningConfigured) {
+            ciDebug {
+                storeFile rootProject.file(ciDebugSigningValues.path)
+                storePassword ciDebugSigningValues.storePassword
+                keyAlias ciDebugSigningValues.keyAlias
+                keyPassword ciDebugSigningValues.keyPassword
+            }
+        }
+    }
     defaultConfig {
         applicationId "com.yeshmishak.app"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -17,6 +44,11 @@ android {
         }
     }
     buildTypes {
+        debug {
+            if (ciDebugSigningConfigured) {
+                signingConfig signingConfigs.ciDebug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

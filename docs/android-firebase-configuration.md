@@ -114,6 +114,26 @@ Create this repository secret under **Settings > Secrets and variables > Actions
 | Repository secret | Required | Source | Android purpose |
 | --- | --- | --- | --- |
 | `ANDROID_GOOGLE_SERVICES_JSON_BASE64` | Yes | Base64 encoding of the Firebase Android app's `google-services.json` for `com.yeshmishak.app` | Materialized and package-validated before the native build, then deleted during cleanup |
+| `ANDROID_DEBUG_KEYSTORE_BASE64` | Yes | Base64 encoding of the dedicated non-production debug/test keystore | Gives every CI validation APK the same signing certificate |
+| `ANDROID_DEBUG_KEYSTORE_PASSWORD` | Yes | Password for that test keystore | Supplied to Gradle without entering source control or logs |
+| `ANDROID_DEBUG_KEY_ALIAS` | Yes | Alias of the signing key inside that test keystore | Selects the stable test certificate |
+| `ANDROID_DEBUG_KEY_PASSWORD` | Yes | Password for that signing-key alias | Supplied to Gradle without entering source control or logs |
+
+The four debug-signing secrets are a unit: if any is missing, the workflow fails
+before building. Never use the Play Store production signing key for this debug
+validation workflow. The decoded file is written only to the ignored
+`frontend/android/ci-debug.keystore` path and removed in the workflow's
+`always()` cleanup step together with `google-services.json`.
+
+The selected stable test certificate currently has these public fingerprints:
+
+```text
+SHA-1:   8A:CD:E8:33:7C:67:73:D8:30:34:37:8C:FF:61:7F:C6:FE:53:32:4D
+SHA-256: 40:38:5F:E6:9C:B4:6F:3B:79:C0:4D:10:24:3B:61:03:50:57:91:99:CF:24:46:E7:48:20:77:D8:65:02:52:38
+```
+
+The workflow independently extracts the certificate from the completed APK and
+prints only its SHA-1 and SHA-256 digests before uploading the APK.
 
 The frontend also references `VITE_FIREBASE_API_KEY`,
 `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
@@ -168,6 +188,20 @@ Windows PowerShell:
 ```
 
 Store only the encoded output in the CI secret. Do not commit the encoded value.
+
+For the dedicated test keystore on Windows PowerShell, run this locally and put
+the clipboard value into `ANDROID_DEBUG_KEYSTORE_BASE64`:
+
+```powershell
+[Convert]::ToBase64String(
+    [System.IO.File]::ReadAllBytes(
+        "$env:USERPROFILE\.android\debug.keystore"
+    )
+) | Set-Clipboard
+```
+
+Create the other three signing secrets from that same keystore's credentials.
+Do not paste any of the four values into logs, documentation, issues, or chat.
 
 macOS Bash or zsh:
 

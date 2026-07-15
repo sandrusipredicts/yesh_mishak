@@ -47,6 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+      ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+      ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+      ANDROID_DEBUG_KEY_ALIAS: ${{ secrets.ANDROID_DEBUG_KEY_ALIAS }}
+      ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEY_PASSWORD }}
+      ANDROID_DEBUG_KEYSTORE_PATH: ci-debug.keystore
       VITE_API_URL: ${{ vars.VITE_API_URL }}
       VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
     steps:
@@ -69,6 +74,31 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate required Android signing secrets
+        run: |
+          missing=0
+          for name in \
+            ANDROID_DEBUG_KEYSTORE_BASE64 \
+            ANDROID_DEBUG_KEYSTORE_PASSWORD \
+            ANDROID_DEBUG_KEY_ALIAS \
+            ANDROID_DEBUG_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required GitHub Actions secret ${name} is missing."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Materialize CI debug keystore
+        run: |
+          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > android/ci-debug.keystore
+          test -s android/ci-debug.keystore || {
+            echo "::error::Decoded Android debug keystore is empty."
+            exit 1
+          }
+          chmod 600 android/ci-debug.keystore
 
       - name: Materialize and validate Firebase Android config
         run: npm run android:google-services
@@ -103,6 +133,17 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Report debug APK certificate fingerprints
+        working-directory: frontend/android
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER" || {
+            echo "::error::Android apksigner was not found."
+            exit 1
+          }
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep -E 'certificate SHA-1 digest:|certificate SHA-256 digest:'
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -110,7 +151,7 @@ jobs:
           path: frontend/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Remove generated Firebase config
+      - name: Remove generated Android signing and Firebase files
         if: always()
         working-directory: frontend
-        run: rm -f android/app/google-services.json
+        run: rm -f android/app/google-services.json android/ci-debug.keystore

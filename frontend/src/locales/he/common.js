@@ -35,6 +35,7 @@ const he = {
     googleButtonMountFailed: 'לא ניתן היה להציג את כפתור Google.',
     googleNoCredential: 'Google לא החזירה פרטי התחברות.',
     googleSignInFailed: 'לא ניתן להתחבר עם Google. נסו שוב.',
+    googleConfigurationError: 'התחברות Google אינה מוגדרת עבור גרסה זו. פנו לתמיכה.',
     signInCancelled: 'ההתחברות בוטלה. אפשר לנסות שוב.',
     networkError: 'לא ניתן להתחבר. בדקו את החיבור לאינטרנט ונסו שוב.',
     verificationFailed: 'לא הצלחנו לאמת את ההתחברות עם Google. נסו שוב.',
