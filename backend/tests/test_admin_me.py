@@ -155,6 +155,8 @@ class FakeSupabaseClient:
             return FakeRpcQuery(response)
         if name == "get_api_response_time_metrics":
             return FakeRpcQuery([_calculate_response_time_rpc(self.tables.get("api_request_metrics", []), params)])
+        if name == "get_push_delivery_metrics":
+            return FakeRpcQuery([_calculate_push_delivery_rpc(self.tables.get("push_delivery_attempts", []), params)])
         raise AssertionError(f"Unexpected RPC call: {name}")
 
 
@@ -180,6 +182,32 @@ def _calculate_response_time_rpc(rows: list[dict[str, Any]], params: dict[str, A
         "p50_ms": _percentile_cont(durations, 0.50),
         "p95_ms": _percentile_cont(durations, 0.95),
         "max_ms": float(max(durations)),
+    }
+
+
+def _calculate_push_delivery_rpc(rows: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
+    window_start = params["window_start"]
+    window_end = params["window_end"]
+    in_window = [
+        row for row in rows
+        if window_start <= (row.get("created_at") or "") < window_end
+    ]
+    terminal = [r for r in in_window if r.get("status") in ("delivered", "failed_permanent", "abandoned")]
+    accepted = sum(1 for r in terminal if r.get("status") == "delivered")
+    invalid_token = sum(
+        1 for r in terminal
+        if r.get("status") == "failed_permanent" and r.get("last_error_type") in ("INVALID_TOKEN", "TOKEN_INVALIDATED")
+    )
+    failed = sum(
+        1 for r in terminal
+        if (r.get("status") == "failed_permanent" and r.get("last_error_type") not in ("INVALID_TOKEN", "TOKEN_INVALIDATED"))
+        or r.get("status") == "abandoned"
+    )
+    return {
+        "attempted_count": len(terminal),
+        "accepted_count": accepted,
+        "failed_count": failed,
+        "invalid_token_count": invalid_token,
     }
 
 
@@ -1352,7 +1380,11 @@ def _metric_row(
     }
 
 
-def _make_metric_monitoring_client(monkeypatch, metrics_rows=None) -> tuple[dict[str, Any], FakeSupabaseClient]:
+def _make_metric_monitoring_client(
+    monkeypatch,
+    metrics_rows=None,
+    push_delivery_rows=None,
+) -> tuple[dict[str, Any], FakeSupabaseClient]:
     configure_test_settings(monkeypatch)
     admin_user = {
         "id": "00000000-0000-0000-0000-000000000001",
@@ -1370,6 +1402,7 @@ def _make_metric_monitoring_client(monkeypatch, metrics_rows=None) -> tuple[dict
             "notifications": [],
             "job_runs": [],
             "api_request_metrics": list(metrics_rows or []),
+            "push_delivery_attempts": list(push_delivery_rows or []),
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
@@ -1377,6 +1410,10 @@ def _make_metric_monitoring_client(monkeypatch, metrics_rows=None) -> tuple[dict
     monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr(
         "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.push_delivery_metrics.get_supabase_service_role_client",
         lambda: fake_client,
     )
     return admin_user, fake_client
@@ -1775,3 +1812,249 @@ def test_monitoring_metric_read_failure_returns_unavailable(monkeypatch) -> None
 
     assert response.status_code == 503
     assert response.json()["code"] == "MONITORING_UNAVAILABLE"
+
+
+# ---------------------------------------------------------------------------
+# Push delivery monitoring
+# ---------------------------------------------------------------------------
+
+
+def _push_row(
+    *,
+    minutes_ago: int = 5,
+    status: str = "delivered",
+    last_error_type: str | None = None,
+    row_id: str | None = None,
+) -> dict[str, Any]:
+    created_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return {
+        "id": row_id or f"pda-{minutes_ago}-{status}",
+        "status": status,
+        "last_error_type": last_error_type,
+        "created_at": created_at.isoformat(),
+    }
+
+
+def test_monitoring_push_zero_attempts(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["source_available"] is True
+    assert data["source"] == "database"
+    assert data["semantics"] == "provider_acceptance"
+    assert data["attempted_count"] == 0
+    assert data["accepted_count"] == 0
+    assert data["failed_count"] == 0
+    assert data["invalid_token_count"] == 0
+    assert data["acceptance_rate"] == 0.0
+
+
+def test_monitoring_push_accepted_send(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[_push_row(status="delivered")],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 1
+    assert data["accepted_count"] == 1
+    assert data["failed_count"] == 0
+    assert data["invalid_token_count"] == 0
+    assert data["acceptance_rate"] == 1.0
+
+
+def test_monitoring_push_failed_send(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[_push_row(status="failed_permanent", last_error_type="HTTPError")],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 1
+    assert data["accepted_count"] == 0
+    assert data["failed_count"] == 1
+    assert data["invalid_token_count"] == 0
+    assert data["acceptance_rate"] == 0.0
+
+
+def test_monitoring_push_invalid_token(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[_push_row(status="failed_permanent", last_error_type="INVALID_TOKEN")],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 1
+    assert data["accepted_count"] == 0
+    assert data["failed_count"] == 0
+    assert data["invalid_token_count"] == 1
+
+
+def test_monitoring_push_token_invalidated_sibling(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[_push_row(status="failed_permanent", last_error_type="TOKEN_INVALIDATED")],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["invalid_token_count"] == 1
+    assert data["failed_count"] == 0
+
+
+def test_monitoring_push_abandoned_counts_as_failed(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[_push_row(status="abandoned", last_error_type="STALENESS_CUTOFF")],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 1
+    assert data["failed_count"] == 1
+    assert data["accepted_count"] == 0
+
+
+def test_monitoring_push_mixed_outcomes(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[
+            _push_row(minutes_ago=5, status="delivered", row_id="pda-1"),
+            _push_row(minutes_ago=10, status="delivered", row_id="pda-2"),
+            _push_row(minutes_ago=15, status="failed_permanent", last_error_type="INVALID_TOKEN", row_id="pda-3"),
+            _push_row(minutes_ago=20, status="failed_permanent", last_error_type="HTTPError", row_id="pda-4"),
+            _push_row(minutes_ago=25, status="abandoned", last_error_type="Timeout", row_id="pda-5"),
+            _push_row(minutes_ago=30, status="processing", row_id="pda-6"),
+            _push_row(minutes_ago=35, status="failed_retryable", last_error_type="Timeout", row_id="pda-7"),
+        ],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 5
+    assert data["accepted_count"] == 2
+    assert data["failed_count"] == 2
+    assert data["invalid_token_count"] == 1
+    assert data["acceptance_rate"] == 0.4
+
+
+def test_monitoring_push_excludes_out_of_window(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[
+            _push_row(minutes_ago=120, status="delivered", row_id="pda-old"),
+            _push_row(minutes_ago=5, status="delivered", row_id="pda-in"),
+        ],
+    )
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["attempted_count"] == 1
+    assert data["accepted_count"] == 1
+
+
+def test_monitoring_push_custom_window(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        push_delivery_rows=[
+            _push_row(minutes_ago=10, status="delivered", row_id="pda-recent"),
+            _push_row(minutes_ago=90, status="delivered", row_id="pda-older"),
+        ],
+    )
+
+    one_hour = _get_admin_monitoring(admin_user, window_minutes=60).json()["push_notifications"]
+    four_hours = _get_admin_monitoring(admin_user, window_minutes=240).json()["push_notifications"]
+
+    assert one_hour["window_minutes"] == 60
+    assert four_hours["window_minutes"] == 240
+    assert four_hours["attempted_count"] >= one_hour["attempted_count"]
+
+
+def test_monitoring_push_shares_window_with_api_errors(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    data = _get_admin_monitoring(admin_user).json()
+
+    assert data["push_notifications"]["window_started_at"] == data["api_errors"]["window_started_at"]
+    assert data["push_notifications"]["window_ended_at"] == data["api_errors"]["window_ended_at"]
+
+
+def test_monitoring_push_timestamps_are_utc(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert "+00:00" in data["window_started_at"]
+    assert "+00:00" in data["window_ended_at"]
+
+
+def test_monitoring_push_rpc_failure_returns_unavailable(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+        "status": "active",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [],
+            "games": [],
+            "notifications": [],
+            "job_runs": [],
+            "api_request_metrics": [],
+            "push_delivery_attempts": [],
+        },
+        rpc_responses={
+            "get_push_delivery_metrics": RuntimeError("db unavailable"),
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.push_delivery_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+
+    response = _get_admin_monitoring(admin_user)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["push_notifications"]["source_available"] is False
+    assert "reason" in data["push_notifications"]
+    assert data["api_errors"]["source_available"] is True
+    assert data["response_time"]["source_available"] is True
+
+
+def test_monitoring_push_stub_text_removed(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    data = _get_admin_monitoring(admin_user).json()["push_notifications"]
+
+    assert data["source_available"] is True
+    assert "Phase 2" not in str(data)
+    assert "ISSUE-069" not in str(data)
+
+
+def test_monitoring_push_existing_metrics_unchanged(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    data = _get_admin_monitoring(admin_user).json()
+
+    assert "api_errors" in data
+    assert data["api_errors"]["source_available"] is True
+    assert "response_time" in data
+    assert data["response_time"]["source_available"] is True
+    assert "scheduled_jobs" in data

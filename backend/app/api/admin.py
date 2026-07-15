@@ -39,6 +39,7 @@ from app.services.api_request_metrics import (
     count_api_request_metrics,
     get_api_response_time_metrics,
 )
+from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.duplicate_detection import find_duplicates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -319,6 +320,47 @@ def _get_response_time_metrics(
         "p50_ms": metrics["p50_ms"],
         "p95_ms": metrics["p95_ms"],
         "max_ms": metrics["max_ms"],
+    }
+
+
+def _get_push_notification_metrics(
+    *,
+    window_minutes: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    try:
+        metrics = get_push_delivery_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+        )
+    except Exception as exc:
+        logger.warning(
+            "push delivery metrics unavailable",
+            extra={
+                "event": "admin.monitoring.push_notifications.unavailable",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+        return {
+            "source_available": False,
+            "reason": "Push delivery metrics are temporarily unavailable.",
+        }
+
+    return {
+        "source_available": True,
+        "source": "database",
+        "semantics": "provider_acceptance",
+        "window_minutes": window_minutes,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": window_ended_at.isoformat(),
+        "attempted_count": metrics["attempted_count"],
+        "accepted_count": metrics["accepted_count"],
+        "failed_count": metrics["failed_count"],
+        "invalid_token_count": metrics["invalid_token_count"],
+        "acceptance_rate": metrics["acceptance_rate"],
     }
 
 
@@ -1302,8 +1344,9 @@ def get_monitoring(
             window_ended_at=now,
         ),
         "scheduled_jobs": _get_recent_job_runs(),
-        "push_notifications": {
-            "source_available": False,
-            "reason": "Push delivery metrics are in backend logs only. Requires Phase 2 log aggregation per ISSUE-069.",
-        },
+        "push_notifications": _get_push_notification_metrics(
+            window_minutes=window_minutes,
+            window_started_at=window_started_at,
+            window_ended_at=now,
+        ),
     }
