@@ -195,7 +195,9 @@ class FakeSupabase:
         self.counters[table_name] = self.counters.get(table_name, 0) + 1
         return f"{table_name}-{self.counters[table_name]}"
 
-    def rpc(self, function_name: str, params: dict[str, Any]) -> "FakeRpcQueryNotif":
+    def rpc(self, function_name: str, params: dict[str, Any]) -> "FakeRpcQueryNotif | FakeClaimInitialDeliveryRpc":
+        if function_name == "claim_initial_push_delivery":
+            return FakeClaimInitialDeliveryRpc(self, params)
         assert function_name == "join_game_atomic"
         return FakeRpcQueryNotif(self, params)
 
@@ -235,6 +237,47 @@ class FakeRpcQueryNotif:
         game["status"] = "full" if game["players_present"] >= game["max_players"] else "open"
 
         return FakeResponse([{"game": dict(game)}])
+
+
+class FakeClaimInitialDeliveryRpc:
+    """Simulates claim_initial_push_delivery RPC for notification tests."""
+
+    def __init__(self, database: FakeSupabase, params: dict[str, Any]) -> None:
+        self.database = database
+        self.params = params
+
+    def execute(self) -> FakeResponse:
+        import uuid as _uuid
+        nid = self.params["p_notification_id"]
+        ptid = self.params["p_push_token_id"]
+        table = self.database.tables.setdefault("push_delivery_attempts", [])
+        existing = [
+            r for r in table
+            if r.get("notification_id") == nid
+            and r.get("push_token_id") == ptid
+            and r.get("push_token_id") is not None
+        ]
+        if existing:
+            return FakeResponse([])
+        row = {
+            "id": str(_uuid.uuid4()),
+            "notification_id": nid,
+            "push_token_id": ptid,
+            "token_hash": self.params["p_token_hash"],
+            "title": self.params["p_title"],
+            "body": self.params["p_body"],
+            "push_data": self.params.get("p_push_data"),
+            "status": "processing",
+            "attempt_count": 1,
+            "max_attempts": self.params.get("p_max_attempts", 5),
+            "lease_id": str(_uuid.uuid4()),
+            "lease_expires_at": datetime.now(timezone.utc).isoformat(),
+            "processing_started_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        table.append(row)
+        return FakeResponse([row])
 
 
 class DenyTablesSupabase(FakeSupabase):

@@ -14,6 +14,12 @@ from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_lifecycle import ACTIVE_GAME_STATUSES, parse_game_datetime
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
 from app.services.notification_templates import render_notification_template
+from app.services.push_delivery import (
+    cas_update_attempt,
+    handle_attempt_result,
+    invalidate_sibling_attempts,
+    record_and_claim_initial_delivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,15 +212,38 @@ def _send_push_to_tokens(
     sent = 0
     invalid_tokens = 0
     notification_type = str((data or {}).get("type") or "unknown")
+    notification_id = (data or {}).get("notification_id") if data else None
+    track_delivery = notification_id is not None
 
     for token_row in tokens:
         token = token_row.get("token")
         if not token:
             continue
 
+        attempt_row = None
+        if track_delivery:
+            attempt_row = record_and_claim_initial_delivery(
+                client,
+                notification_id=str(notification_id),
+                push_token_id=str(token_row["id"]),
+                token=token,
+                title=title,
+                body=body,
+                data=data,
+            )
+            if attempt_row is None:
+                continue
+
         try:
             result = send_fcm_notification(token, title, body, data)
         except FirebaseConfigError as exc:
+            if attempt_row:
+                handle_attempt_result(
+                    client, attempt_row["id"], attempt_row["lease_id"],
+                    token_row.get("id"), token,
+                    None, exc,
+                    attempt_row["attempt_count"], attempt_row["max_attempts"],
+                )
             if not suppress_config_error:
                 raise
             logger.error(
@@ -233,6 +262,14 @@ def _send_push_to_tokens(
             )
             return {"sent": sent, "invalid_tokens": invalid_tokens}
         except Exception as exc:
+            if attempt_row:
+                handle_attempt_result(
+                    client, attempt_row["id"], attempt_row["lease_id"],
+                    token_row.get("id"), token,
+                    None, exc,
+                    attempt_row["attempt_count"], attempt_row["max_attempts"],
+                    delete_token_fn=_delete_push_token,
+                )
             logger.warning(
                 "push notification send failed",
                 extra={
@@ -252,7 +289,16 @@ def _send_push_to_tokens(
 
         if result.get("invalid_token"):
             invalid_tokens += 1
-            _delete_push_token(client, token)
+            if attempt_row:
+                handle_attempt_result(
+                    client, attempt_row["id"], attempt_row["lease_id"],
+                    token_row.get("id"), token,
+                    result, None,
+                    attempt_row["attempt_count"], attempt_row["max_attempts"],
+                    delete_token_fn=_delete_push_token,
+                )
+            else:
+                _delete_push_token(client, token)
             logger.warning(
                 "invalid push token removed",
                 extra={
@@ -269,6 +315,13 @@ def _send_push_to_tokens(
             )
         elif result.get("ok"):
             sent += 1
+            if attempt_row:
+                handle_attempt_result(
+                    client, attempt_row["id"], attempt_row["lease_id"],
+                    token_row.get("id"), token,
+                    result, None,
+                    attempt_row["attempt_count"], attempt_row["max_attempts"],
+                )
 
     return {"sent": sent, "invalid_tokens": invalid_tokens}
 

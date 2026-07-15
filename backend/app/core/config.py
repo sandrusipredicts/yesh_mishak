@@ -55,6 +55,8 @@ class Settings(BaseSettings):
         default="Yesh Mishak",
         alias="PASSWORD_RESET_FROM_NAME",
     )
+    push_retry_max_attempts: int = Field(default=5, alias="PUSH_RETRY_MAX_ATTEMPTS")
+    push_retry_staleness_hours: float = Field(default=2.0, alias="PUSH_RETRY_STALENESS_HOURS")
     public_app_url: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_URL")
     resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
     smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
