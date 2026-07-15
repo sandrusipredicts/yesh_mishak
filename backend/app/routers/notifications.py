@@ -1050,28 +1050,46 @@ def get_unread_notification_count(current_user: dict[str, Any] = Depends(require
 
     authenticated_user_id = str(current_user["id"])
     client = get_supabase_service_role_client()
+    read_state_column = "read_at"
 
     try:
         response = (
             client.table("notifications")
-            .select("*", count="exact", head=True)
+            .select("id", count="exact")
             .eq("user_id", authenticated_user_id)
             .is_("read_at", "null")
+            .limit(1)
             .execute()
         )
     except APIError as error:
         if not _is_missing_column_error(error, "notifications.read_at"):
             raise
 
+        read_state_column = "is_read"
         response = (
             client.table("notifications")
-            .select("*", count="exact", head=True)
+            .select("id", count="exact")
             .eq("user_id", authenticated_user_id)
             .eq("is_read", False)
+            .limit(1)
             .execute()
         )
 
-    return {"unread_count": response.count or 0}
+    if isinstance(response.count, int) and (response.count > 0 or not response.data):
+        return {"unread_count": response.count}
+
+    fallback_response = (
+        client.table("notifications")
+        .select("id")
+        .eq("user_id", authenticated_user_id)
+    )
+    if read_state_column == "read_at":
+        fallback_response = fallback_response.is_("read_at", "null")
+    else:
+        fallback_response = fallback_response.eq("is_read", False)
+
+    fallback_response = fallback_response.execute()
+    return {"unread_count": len(fallback_response.data or [])}
 
 
 @router.post("/push-token")

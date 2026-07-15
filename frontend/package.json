@@ -11,6 +11,7 @@
     "android:google-services": "node scripts/materialize-google-services.mjs",
     "android:google-services:validate": "node scripts/materialize-google-services.mjs --validate-file android/app/google-services.json",
     "lint": "eslint .",
+    "test:notification-sync": "node --test tests/notification-sync.test.js",
     "test:android-google-services": "node --test scripts/materialize-google-services.test.mjs",
     "postinstall": "patch-package",
     "test:e2e": "playwright test",

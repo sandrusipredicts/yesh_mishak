@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+from json import JSONDecodeError
 from copy import deepcopy
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from postgrest.base_request_builder import APIResponse
 from postgrest.exceptions import APIError
 
 from app.auth.jwt import create_access_token
@@ -111,6 +114,7 @@ class FakeQuery:
                 inserted.append(deepcopy(row))
             return FakeResponse(inserted)
 
+        count_rows = self._filtered_rows(apply_limit=False)
         rows = self._filtered_rows()
 
         if self.update_payload is not None:
@@ -133,17 +137,27 @@ class FakeQuery:
                 "selected_columns": self.selected_columns,
                 "exact_count": self.exact_count,
                 "head": self.head_requested,
+                "limit": self.limit_count,
                 "filters": list(self.filters),
                 "in_filters": list(self.in_filters),
             }
         )
-        count = len(rows) if self.exact_count else None
+        if self.head_requested and self.exact_count:
+            # postgrest-py 0.18 returns count=0 for HEAD responses because the
+            # response has no JSON body and count extraction is skipped.
+            count = 0
+        elif self.exact_count and self.table_name in self.database.count_zero_tables:
+            count = 0
+        elif self.exact_count and self.table_name not in self.database.count_none_tables:
+            count = len(count_rows)
+        else:
+            count = None
         if self.head_requested:
             return FakeResponse([], count=count)
 
         return FakeResponse([self._select(row) for row in rows], count=count)
 
-    def _filtered_rows(self) -> list[dict[str, Any]]:
+    def _filtered_rows(self, apply_limit: bool = True) -> list[dict[str, Any]]:
         rows = self.database.tables.setdefault(self.table_name, [])
         for column, value in self.filters:
             if isinstance(column, _LtSentinel):
@@ -155,7 +169,7 @@ class FakeQuery:
         if self.order_by:
             column, desc = self.order_by
             rows = sorted(rows, key=lambda row: row.get(column) or "", reverse=desc)
-        if self.limit_count is not None:
+        if apply_limit and self.limit_count is not None:
             rows = rows[: self.limit_count]
         return rows
 
@@ -170,10 +184,14 @@ class FakeSupabase:
         self,
         tables: dict[str, list[dict[str, Any]]],
         missing_columns: dict[str, set[str]] | None = None,
+        count_none_tables: set[str] | None = None,
+        count_zero_tables: set[str] | None = None,
     ) -> None:
         self.tables = tables
         self.counters: dict[str, int] = {}
         self.missing_columns = missing_columns or {}
+        self.count_none_tables = count_none_tables or set()
+        self.count_zero_tables = count_zero_tables or set()
         self.queries: list[dict[str, Any]] = []
 
     def table(self, table_name: str) -> FakeQuery:
@@ -599,6 +617,95 @@ def test_unread_count_supports_legacy_is_read_schema(
 
     assert response.status_code == 200
     assert response.json() == {"unread_count": 1}
+
+
+def test_postgrest_head_response_count_is_zero_even_with_content_range() -> None:
+    class HeadResponse:
+        headers = {"content-range": "0-3/4"}
+        request = SimpleNamespace(headers={"prefer": "count=exact"})
+
+        def json(self) -> Any:
+            raise JSONDecodeError("empty head response", "", 0)
+
+    response = APIResponse.from_http_request_response(HeadResponse())
+
+    assert response.count == 0
+    assert response.data == []
+
+
+def test_unread_count_falls_back_to_row_count_when_count_metadata_missing(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    service_supabase = FakeSupabase(
+        {
+            "notifications": [
+                {"id": "own-unread-1", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-2", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-3", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-4", "user_id": users["candidate"]["id"], "read_at": None},
+                {
+                    "id": "own-read",
+                    "user_id": users["candidate"]["id"],
+                    "read_at": "2026-06-16T10:00:00+00:00",
+                },
+                {"id": "other-unread", "user_id": users["other"]["id"], "read_at": None},
+            ]
+        },
+        count_none_tables={"notifications"},
+    )
+    fake_supabase.tables["notifications"] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: service_supabase,
+    )
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 4}
+    exact_count_query = service_supabase.queries[0]
+    fallback_query = service_supabase.queries[1]
+    assert exact_count_query["exact_count"] is True
+    assert exact_count_query["head"] is False
+    assert exact_count_query["limit"] == 1
+    assert fallback_query["exact_count"] is False
+    assert fallback_query["limit"] is None
+
+
+def test_unread_count_falls_back_when_count_zero_contradicts_returned_rows(
+    fake_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    service_supabase = FakeSupabase(
+        {
+            "notifications": [
+                {"id": "own-unread-1", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-2", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-3", "user_id": users["candidate"]["id"], "read_at": None},
+                {"id": "own-unread-4", "user_id": users["candidate"]["id"], "read_at": None},
+            ]
+        },
+        count_zero_tables={"notifications"},
+    )
+    fake_supabase.tables["notifications"] = []
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: service_supabase,
+    )
+
+    response = TestClient(app).get(
+        "/notifications/unread-count",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"unread_count": 4}
 
 
 def test_mark_notification_read_sets_read_at(
@@ -2911,7 +3018,9 @@ def test_unread_notification_count_uses_database_count_and_filters_unread_for_cu
     count_query = fake_supabase.queries[-1]
     assert count_query["table"] == "notifications"
     assert count_query["exact_count"] is True
-    assert count_query["head"] is True
+    assert count_query["head"] is False
+    assert count_query["selected_columns"] == ["id"]
+    assert count_query["limit"] == 1
     assert count_query["filters"] == [
         ("user_id", users["organizer"]["id"]),
         ("read_at", None),
