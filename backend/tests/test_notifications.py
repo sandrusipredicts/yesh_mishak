@@ -997,6 +997,189 @@ def test_test_push_firebase_config_error_returns_clean_api_error(
     assert "own-token" not in caplog.text
 
 
+def canonical_settings_payload(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "distance_enabled": True,
+        "distance_radius_km": 5,
+        "distance_lat": 30.9872,
+        "distance_lng": 34.9314,
+        "city_enabled": True,
+        "city_name": "ירוחם",
+        "specific_fields_enabled": True,
+        "selected_field_ids": ["00000000-0000-0000-0000-000000000101"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_save_preferences_accepts_canonical_settings_and_preserves_response_shape(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    response = TestClient(app).put(
+        "/notifications/preferences",
+        json=canonical_settings_payload(),
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["message"] == "Preferences saved"
+    assert isinstance(data["preferences"], list)
+    assert len(data["preferences"]) == 3
+
+
+def test_save_preferences_canonical_persistence_is_unchanged(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    selected_field_id = "00000000-0000-0000-0000-000000000202"
+
+    response = TestClient(app).put(
+        "/notifications/preferences",
+        json=canonical_settings_payload(
+            distance_enabled=False,
+            distance_radius_km=7,
+            distance_lat=31.25,
+            distance_lng=34.79,
+            city_enabled=True,
+            city_name="Beer Sheva",
+            selected_field_ids=[selected_field_id],
+        ),
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    preferences = fake_supabase.tables["notification_preferences"]
+    by_type = {preference["notification_type"]: preference for preference in preferences}
+    assert by_type["radius"] == {
+        "id": by_type["radius"]["id"],
+        "user_id": users["candidate"]["id"],
+        "enabled": False,
+        "sport_type": "both",
+        "notification_type": "radius",
+        "radius_km": 7.0,
+        "lat": 31.25,
+        "lng": 34.79,
+        "city": None,
+        "field_id": None,
+    }
+    assert by_type["city"]["enabled"] is True
+    assert by_type["city"]["sport_type"] == "both"
+    assert by_type["city"]["city"] == "Beer Sheva"
+    specific_fields = [
+        preference
+        for preference in preferences
+        if preference.get("notification_type") == "specific_field"
+    ]
+    assert len(specific_fields) == 1
+    assert specific_fields[0]["enabled"] is True
+    assert specific_fields[0]["sport_type"] == "both"
+    assert specific_fields[0]["field_id"] == selected_field_id
+
+
+@pytest.mark.parametrize(
+    "legacy_payload",
+    [
+        {
+            "enabled": True,
+            "sport_type": "football",
+            "notification_type": "radius",
+            "radius_km": 5,
+            "lat": 31.25,
+            "lng": 34.79,
+        },
+        {
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "Beer Sheva",
+        },
+        {
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "specific_field",
+            "field_id": "00000000-0000-0000-0000-000000000000",
+        },
+    ],
+)
+def test_save_preferences_rejects_legacy_payloads_with_422(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+    legacy_payload: dict[str, Any],
+) -> None:
+    response = TestClient(app).put(
+        "/notifications/preferences",
+        json=legacy_payload,
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 422
+    assert fake_supabase.tables["notification_preferences"] == []
+
+
+def test_save_preferences_rejects_mixed_payload_without_partial_save(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    existing_preferences = [
+        {
+            "id": "pref-existing",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "both",
+            "notification_type": "city",
+            "city": "ירוחם",
+        }
+    ]
+    fake_supabase.tables["notification_preferences"] = deepcopy(existing_preferences)
+    mixed_payload = canonical_settings_payload(
+        enabled=False,
+        notification_type="radius",
+        sport_type="football",
+    )
+
+    response = TestClient(app).put(
+        "/notifications/preferences",
+        json=mixed_payload,
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 422
+    assert fake_supabase.tables["notification_preferences"] == existing_preferences
+
+
+def test_get_preferences_response_shape_remains_raw_rows(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    preference = {
+        "id": "pref-city",
+        "user_id": users["candidate"]["id"],
+        "enabled": True,
+        "sport_type": "football",
+        "notification_type": "city",
+        "city": "ירוחם",
+    }
+    other_preference = {
+        "id": "pref-other",
+        "user_id": users["other"]["id"],
+        "enabled": True,
+        "sport_type": "both",
+        "notification_type": "city",
+        "city": "ירוחם",
+    }
+    fake_supabase.tables["notification_preferences"] = [preference, other_preference]
+
+    response = TestClient(app).get(
+        "/notifications/preferences",
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [preference]
+
+
 
 def test_save_settings_deletes_unchecked_specific_field_preferences(
     fake_supabase: FakeSupabase,
@@ -1125,6 +1308,71 @@ def test_create_game_does_not_notify_for_unchecked_specific_field(
     assert response.status_code == 200
     assert fake_service_supabase.tables["notifications"] == []
     assert sent_tokens == []
+
+
+def test_create_game_does_not_notify_users_with_no_preference_rows(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = []
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_service_supabase.tables["notifications"] == []
+
+
+def test_create_game_does_not_notify_disabled_matching_radius_user(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-disabled-radius",
+            "user_id": users["candidate"]["id"],
+            "enabled": False,
+            "sport_type": "both",
+            "notification_type": "radius",
+            "radius_km": 100,
+            "lat": 30.9872,
+            "lng": 34.9314,
+        }
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    assert fake_service_supabase.tables["notifications"] == []
 
 
 def test_create_game_generates_notifications_for_matching_candidates_except_organizer(
@@ -1314,6 +1562,56 @@ def test_create_game_matches_by_city(
             "sport_type": "both",
             "notification_type": "city",
             "city": "תל אביב",
+        },
+    ]
+
+    response = TestClient(app).post(
+        "/games/",
+        json={
+            "field_id": "00000000-0000-0000-0000-000000000101",
+            "sport_type": "football",
+            "players_present": 1,
+            "max_players": 10,
+        },
+        headers=auth_headers(users["organizer"]),
+    )
+
+    assert response.status_code == 200
+    notifications = fake_service_supabase.tables["notifications"]
+    assert len(notifications) == 1
+    assert notifications[0]["user_id"] == users["candidate"]["id"]
+
+
+def test_create_game_matches_by_radius(
+    fake_supabase: FakeSupabase,
+    fake_service_supabase: FakeSupabase,
+    monkeypatch,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.notifications.get_supabase_service_role_client",
+        lambda: fake_service_supabase,
+    )
+    fake_supabase.tables["notification_preferences"] = [
+        {
+            "id": "pref-candidate-radius",
+            "user_id": users["candidate"]["id"],
+            "enabled": True,
+            "sport_type": "football",
+            "notification_type": "radius",
+            "radius_km": 5,
+            "lat": 30.9872,
+            "lng": 34.9314,
+        },
+        {
+            "id": "pref-other-radius",
+            "user_id": users["other"]["id"],
+            "enabled": True,
+            "sport_type": "basketball",
+            "notification_type": "radius",
+            "radius_km": 5,
+            "lat": 30.9872,
+            "lng": 34.9314,
         },
     ]
 
