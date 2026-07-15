@@ -224,15 +224,28 @@ create table if not exists push_delivery_attempts (
     check ((status = 'delivered' and delivered_at is not null) or (status != 'delivered'))
 );
 
+create table if not exists api_request_metrics (
+    id uuid primary key default gen_random_uuid(),
+    recorded_at timestamptz not null default now(),
+    method text not null check (method in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD')),
+    normalized_path text not null check (length(normalized_path) between 1 and 240),
+    status_code integer not null check (status_code between 100 and 599),
+    duration_ms integer not null check (duration_ms >= 0),
+    is_error boolean not null,
+    created_at timestamptz not null default now()
+);
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_users_last_login on users(last_login);
 alter table user_moderation_audit enable row level security;
 alter table job_runs enable row level security;
 alter table push_delivery_attempts enable row level security;
+alter table api_request_metrics enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
 grant select, insert, update on public.job_runs to service_role;
 grant select, insert, update on public.push_delivery_attempts to service_role;
+grant select, insert, delete on public.api_request_metrics to service_role;
 grant select, update on public.users to service_role;
 grant select, insert, update, delete on public.user_identities to service_role;
 
@@ -243,6 +256,9 @@ create index if not exists idx_user_moderation_audit_created_at on user_moderati
 create index if not exists idx_job_runs_job_name_started_at on job_runs(job_name, started_at desc);
 create index if not exists idx_job_runs_status_started_at on job_runs(status, started_at desc);
 create index if not exists idx_job_runs_started_at on job_runs(started_at desc);
+create index if not exists idx_api_request_metrics_recorded_at on api_request_metrics(recorded_at desc);
+create index if not exists idx_api_request_metrics_error_recorded_at on api_request_metrics(is_error, recorded_at desc);
+create index if not exists idx_api_request_metrics_path_recorded_at on api_request_metrics(normalized_path, recorded_at desc);
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_fields_public_listing_spatial on fields(verified, approval_status, status, lat, lng);
 create index if not exists idx_fields_approval_status on fields(approval_status);
@@ -296,3 +312,26 @@ create unique index if not exists idx_notifications_user_game_extended_end_time_
 
 create index if not exists idx_user_identities_user_id on user_identities(user_id);
 create index if not exists idx_user_identities_lookup on user_identities(provider, provider_subject);
+
+create or replace function public.cleanup_api_request_metrics(retention_days integer default 14)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    deleted_count integer;
+begin
+    if retention_days is null or retention_days < 1 or retention_days > 365 then
+        raise exception 'retention_days must be between 1 and 365';
+    end if;
+
+    delete from public.api_request_metrics
+    where recorded_at < now() - make_interval(days => retention_days);
+
+    get diagnostics deleted_count = row_count;
+    return deleted_count;
+end;
+$$;
+
+grant execute on function public.cleanup_api_request_metrics(integer) to service_role;

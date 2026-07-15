@@ -7,6 +7,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
+from app.middleware.request_metrics import request_metrics_middleware
 from app.routers import field_reports, fields, games, notifications
 
 logger = logging.getLogger("app")
@@ -119,6 +120,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(request_metrics_middleware)
 
 app.include_router(admin_router)
 app.include_router(auth_router)

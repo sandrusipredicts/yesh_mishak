@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth.jwt import create_access_token
@@ -45,6 +47,10 @@ class FakeUsersQuery:
 
     def gte(self, column: str, value: Any) -> "FakeUsersQuery":
         self.filters.append(("__gte", (column, value)))
+        return self
+
+    def lt(self, column: str, value: Any) -> "FakeUsersQuery":
+        self.filters.append(("__lt", (column, value)))
         return self
 
     def is_(self, column: str, value: str) -> "FakeUsersQuery":
@@ -94,6 +100,9 @@ class FakeUsersQuery:
             if column == "__gte":
                 col, threshold = value
                 rows = [row for row in rows if (row.get(col) or "") >= threshold]
+            elif column == "__lt":
+                col, threshold = value
+                rows = [row for row in rows if (row.get(col) or "") < threshold]
             elif column == "__is_null":
                 col, _ = value
                 rows = [row for row in rows if row.get(col) is None]
@@ -202,6 +211,7 @@ def make_admin_matrix_client(
                 },
             ],
             "notifications": [],
+            "api_request_metrics": [],
         },
     )
 
@@ -225,6 +235,10 @@ def test_admin_endpoints_allow_admin_user(monkeypatch, endpoint: str) -> None:
     fake_client = make_admin_matrix_client(admin_user, regular_user)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_client)
 
     response = TestClient(app).get(
@@ -996,10 +1010,15 @@ def _make_monitoring_client(monkeypatch, *, admin_user=None, regular_user=None):
                     "read_at": None,
                 },
             ],
+            "api_request_metrics": [],
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
     return admin_user, regular_user, fake_client
 
 
@@ -1122,7 +1141,10 @@ def test_monitoring_unavailable_metrics_marked(monkeypatch) -> None:
     )
     data = response.json()
 
-    for key in ("api_errors", "response_time", "scheduled_jobs", "push_notifications"):
+    assert data["api_errors"]["source_available"] is True
+    assert data["api_errors"]["source"] == "database"
+
+    for key in ("response_time", "scheduled_jobs", "push_notifications"):
         assert data[key]["source_available"] is False
         assert "reason" in data[key]
         assert isinstance(data[key]["reason"], str)
@@ -1219,3 +1241,270 @@ def test_monitoring_status_and_generated_at(monkeypatch) -> None:
     assert data["status"] in ("ok", "degraded")
     assert "generated_at" in data
     assert "T" in data["generated_at"]
+
+
+def _ensure_metric_test_routes() -> None:
+    if getattr(app.state, "metric_test_routes_registered", False):
+        return
+
+    def metric_success():
+        return {"ok": True}
+
+    def metric_http_error(code: int):
+        raise HTTPException(status_code=code, detail=f"test {code}")
+
+    def metric_unhandled_error():
+        raise RuntimeError("test unhandled failure")
+
+    app.add_api_route("/__test_metrics/success", metric_success, methods=["GET"])
+    app.add_api_route("/__test_metrics/http/{code}", metric_http_error, methods=["GET"])
+    app.add_api_route("/__test_metrics/unhandled", metric_unhandled_error, methods=["GET"])
+    app.state.metric_test_routes_registered = True
+
+
+def _metric_row(
+    *,
+    minutes_ago: int = 1,
+    status_code: int = 200,
+    method: str = "GET",
+    normalized_path: str = "/__seeded__",
+) -> dict[str, Any]:
+    recorded_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return {
+        "id": f"metric-{minutes_ago}-{status_code}-{normalized_path}",
+        "recorded_at": recorded_at.isoformat(),
+        "method": method,
+        "normalized_path": normalized_path,
+        "status_code": status_code,
+        "duration_ms": 12,
+        "is_error": 500 <= status_code <= 599,
+    }
+
+
+def _make_metric_monitoring_client(monkeypatch, metrics_rows=None) -> tuple[dict[str, Any], FakeSupabaseClient]:
+    configure_test_settings(monkeypatch)
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+        "status": "active",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [],
+            "games": [],
+            "notifications": [],
+            "api_request_metrics": list(metrics_rows or []),
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    return admin_user, fake_client
+
+
+def _get_admin_monitoring(admin_user: dict[str, Any], *, window_minutes: int | None = None):
+    params = {"window_minutes": window_minutes} if window_minutes is not None else None
+    return TestClient(app).get(
+        "/admin/monitoring",
+        params=params,
+        headers={"Authorization": f"Bearer {make_token(admin_user)}"},
+    )
+
+
+def test_monitoring_api_errors_default_window_zero_requests(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 200
+    api_errors = response.json()["api_errors"]
+    assert api_errors["window_minutes"] == 60
+    assert api_errors["total_requests"] == 0
+    assert api_errors["failed_requests"] == 0
+    assert api_errors["error_rate"] == 0.0
+
+
+def test_monitoring_api_errors_custom_valid_window(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=10, status_code=200),
+            _metric_row(minutes_ago=70, status_code=200),
+        ],
+    )
+
+    one_hour = _get_admin_monitoring(admin_user, window_minutes=60).json()["api_errors"]
+    two_hours = _get_admin_monitoring(admin_user, window_minutes=120).json()["api_errors"]
+
+    assert one_hour["window_minutes"] == 60
+    assert one_hour["total_requests"] == 1
+    assert two_hours["window_minutes"] == 120
+    assert two_hours["total_requests"] == 2
+
+
+@pytest.mark.parametrize("window_minutes", [4, 1441])
+def test_monitoring_rejects_invalid_window_minutes(monkeypatch, window_minutes: int) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    response = _get_admin_monitoring(admin_user, window_minutes=window_minutes)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_monitoring_api_error_rate_counts_5xx_only(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        [
+            _metric_row(minutes_ago=1, status_code=200),
+            _metric_row(minutes_ago=2, status_code=204),
+            _metric_row(minutes_ago=3, status_code=400),
+            _metric_row(minutes_ago=4, status_code=401),
+            _metric_row(minutes_ago=5, status_code=403),
+            _metric_row(minutes_ago=6, status_code=404),
+            _metric_row(minutes_ago=7, status_code=409),
+            _metric_row(minutes_ago=8, status_code=422),
+            _metric_row(minutes_ago=9, status_code=500),
+            _metric_row(minutes_ago=10, status_code=503),
+        ],
+    )
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 200
+    api_errors = response.json()["api_errors"]
+    assert api_errors["total_requests"] == 10
+    assert api_errors["failed_requests"] == 2
+    assert api_errors["error_rate"] == 0.2
+
+
+def test_monitoring_response_timestamps_are_utc(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(monkeypatch)
+
+    api_errors = _get_admin_monitoring(admin_user).json()["api_errors"]
+
+    started = datetime.fromisoformat(api_errors["window_started_at"])
+    ended = datetime.fromisoformat(api_errors["window_ended_at"])
+    assert started.tzinfo is not None
+    assert ended.tzinfo is not None
+    assert started.utcoffset() == timedelta(0)
+    assert ended.utcoffset() == timedelta(0)
+
+
+def test_request_metrics_middleware_records_success_and_excludes_monitoring(monkeypatch) -> None:
+    _ensure_metric_test_routes()
+    admin_user, fake_client = _make_metric_monitoring_client(monkeypatch)
+
+    success_response = TestClient(app).get("/__test_metrics/success?token=secret")
+    monitoring_response = _get_admin_monitoring(admin_user)
+
+    assert success_response.status_code == 200
+    assert monitoring_response.status_code == 200
+    rows = fake_client.tables["api_request_metrics"]
+    assert len(rows) == 1
+    assert rows[0]["method"] == "GET"
+    assert rows[0]["normalized_path"] == "/__test_metrics/success"
+    assert rows[0]["status_code"] == 200
+    assert rows[0]["is_error"] is False
+    assert "token" not in str(rows[0]).lower()
+    assert "secret" not in str(rows[0]).lower()
+
+
+def test_request_metrics_middleware_records_5xx_and_4xx_correctly(monkeypatch) -> None:
+    _ensure_metric_test_routes()
+    _, fake_client = _make_metric_monitoring_client(monkeypatch)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    client.get("/__test_metrics/http/404")
+    client.get("/__test_metrics/http/500")
+    client.get("/__test_metrics/unhandled")
+
+    rows = fake_client.tables["api_request_metrics"]
+    statuses = [row["status_code"] for row in rows]
+    assert statuses == [404, 500, 500]
+    assert [row["is_error"] for row in rows] == [False, True, True]
+    assert rows[0]["normalized_path"] == "/__test_metrics/http/{code}"
+    assert rows[2]["normalized_path"] == "/__test_metrics/unhandled"
+
+
+def test_request_metrics_middleware_excludes_health_and_options(monkeypatch) -> None:
+    _ensure_metric_test_routes()
+    _, fake_client = _make_metric_monitoring_client(monkeypatch)
+
+    TestClient(app).get("/")
+    TestClient(app).options("/__test_metrics/success")
+
+    assert fake_client.tables["api_request_metrics"] == []
+
+
+def test_request_metric_write_failure_does_not_break_response(monkeypatch, caplog) -> None:
+    _ensure_metric_test_routes()
+    configure_test_settings(monkeypatch)
+
+    class BrokenInsertQuery(FakeUsersQuery):
+        def insert(self, payload: dict[str, Any]) -> "FakeUsersQuery":
+            raise RuntimeError("metrics table unavailable")
+
+    class BrokenInsertClient(FakeSupabaseClient):
+        def table(self, table_name: str) -> FakeUsersQuery:
+            if table_name == "api_request_metrics":
+                return BrokenInsertQuery([])
+            return super().table(table_name)
+
+    broken_client = BrokenInsertClient({}, tables={"users": [], "api_request_metrics": []})
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: broken_client,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.middleware.request_metrics"):
+        response = TestClient(app).get("/__test_metrics/success")
+
+    assert response.status_code == 200
+    assert any(
+        getattr(record, "event", None) == "api_request_metrics.persist.failure"
+        for record in caplog.records
+    )
+
+
+def test_monitoring_metric_read_failure_returns_unavailable(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+        "status": "active",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [],
+            "games": [],
+            "notifications": [],
+        },
+    )
+
+    class BrokenReadClient(FakeSupabaseClient):
+        def table(self, table_name: str) -> FakeUsersQuery:
+            raise RuntimeError("metrics read unavailable")
+
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: BrokenReadClient({}, tables={}),
+    )
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "MONITORING_UNAVAILABLE"
