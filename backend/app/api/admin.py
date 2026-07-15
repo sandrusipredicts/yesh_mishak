@@ -35,6 +35,7 @@ from app.routers.notifications import (
     create_scheduled_game_cancelled_notifications,
     generate_scheduled_game_reminders,
 )
+from app.services.api_request_metrics import count_api_request_metrics
 from app.services.duplicate_detection import find_duplicates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -230,6 +231,51 @@ def _get_recent_job_runs(*, job_name: str = "game_expiry_reconciliation", limit:
         "latest_started_at": latest.get("started_at") if latest else None,
         "latest_finished_at": latest.get("finished_at") if latest else None,
         "recent_runs": rows,
+    }
+
+
+def _get_api_error_rate(
+    *,
+    window_minutes: int,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    window_started_at = window_ended_at - timedelta(minutes=window_minutes)
+    try:
+        total_requests = count_api_request_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+        )
+        failed_requests = count_api_request_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+            is_error=True,
+        )
+    except Exception as exc:
+        logger.warning(
+            "api request metrics unavailable",
+            extra={
+                "event": "admin.monitoring.api_errors.unavailable",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+            exc_info=True,
+        )
+        raise_api_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="MONITORING_UNAVAILABLE",
+            message="API request metrics are temporarily unavailable",
+        )
+
+    error_rate = failed_requests / total_requests if total_requests else 0.0
+    return {
+        "source_available": True,
+        "source": "database",
+        "window_minutes": window_minutes,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": window_ended_at.isoformat(),
+        "total_requests": total_requests,
+        "failed_requests": failed_requests,
+        "error_rate": error_rate,
     }
 
 
@@ -1111,7 +1157,10 @@ def _update_field_approval(
 
 
 @router.get("/monitoring")
-def get_monitoring(current_user: dict[str, Any] = Depends(require_admin)):
+def get_monitoring(
+    window_minutes: int = Query(default=60, ge=5, le=1440),
+    current_user: dict[str, Any] = Depends(require_admin),
+):
     now = get_now()
     generated_at = now.isoformat()
     supabase = get_supabase_client()
@@ -1198,10 +1247,10 @@ def get_monitoring(current_user: dict[str, Any] = Depends(require_admin)):
             "healthy": db_healthy,
             "error_type": db_error,
         },
-        "api_errors": {
-            "source_available": False,
-            "reason": "No persistent metrics store yet. Requires Phase 2 metrics middleware per ISSUE-069.",
-        },
+        "api_errors": _get_api_error_rate(
+            window_minutes=window_minutes,
+            window_ended_at=now,
+        ),
         "response_time": {
             "source_available": False,
             "reason": "Response-time middleware not implemented yet. Requires Phase 2 per ISSUE-069.",
