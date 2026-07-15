@@ -104,3 +104,103 @@ export async function getAdminStats() {
   const response = await api.get('/admin/stats')
   return response.data
 }
+
+const MONITORING_GROUP_FIELDS = {
+  active_games: ['count'],
+  active_users: ['last_24h', 'last_7d', 'total_registered'],
+  notifications: ['created_last_24h', 'unread_total'],
+  moderation: ['pending_fields'],
+  api_errors: ['window_minutes', 'total_requests', 'failed_requests', 'error_rate'],
+  response_time: ['window_minutes', 'sample_count', 'average_ms', 'p50_ms', 'p95_ms', 'max_ms'],
+  push_notifications: [
+    'window_minutes',
+    'attempted_count',
+    'accepted_count',
+    'failed_count',
+    'invalid_token_count',
+    'acceptance_rate',
+  ],
+}
+const MONITORING_RATE_FIELDS = new Set(['error_rate', 'acceptance_rate'])
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeNonNegativeNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+function normalizeRate(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null
+}
+
+function normalizeTimestamp(value) {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    return null
+  }
+
+  return value
+}
+
+function normalizeMonitoringGroup(value, fields) {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const normalized = { ...value }
+
+  fields.forEach((field) => {
+    normalized[field] = MONITORING_RATE_FIELDS.has(field)
+      ? normalizeRate(value[field])
+      : normalizeNonNegativeNumber(value[field])
+  })
+
+  return normalized
+}
+
+export function normalizeAdminMonitoring(data) {
+  if (!isRecord(data)) {
+    throw new Error('Invalid admin monitoring response')
+  }
+
+  const normalized = {
+    ...data,
+    generated_at: normalizeTimestamp(data.generated_at),
+  }
+
+  Object.entries(MONITORING_GROUP_FIELDS).forEach(([group, fields]) => {
+    normalized[group] = normalizeMonitoringGroup(data[group], fields)
+  })
+
+  if (isRecord(data.database)) {
+    normalized.database = {
+      ...data.database,
+      healthy: typeof data.database.healthy === 'boolean' ? data.database.healthy : null,
+    }
+  } else {
+    normalized.database = null
+  }
+
+  if (isRecord(data.scheduled_jobs)) {
+    normalized.scheduled_jobs = {
+      ...data.scheduled_jobs,
+      latest_started_at: normalizeTimestamp(data.scheduled_jobs.latest_started_at),
+      latest_finished_at: normalizeTimestamp(data.scheduled_jobs.latest_finished_at),
+      recent_runs: Array.isArray(data.scheduled_jobs.recent_runs)
+        ? data.scheduled_jobs.recent_runs
+        : [],
+    }
+  } else {
+    normalized.scheduled_jobs = null
+  }
+
+  return normalized
+}
+
+export async function getAdminMonitoring({ signal } = {}) {
+  const response = await api.get('/admin/monitoring', { signal })
+  return normalizeAdminMonitoring(response.data)
+}
