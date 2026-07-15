@@ -198,13 +198,41 @@ create table if not exists job_runs (
     )
 );
 
+create table if not exists push_delivery_attempts (
+    id uuid primary key default gen_random_uuid(),
+    notification_id uuid not null references notifications(id) on delete cascade,
+    push_token_id uuid references push_tokens(id) on delete set null,
+    token_hash text not null,
+    title text not null,
+    body text not null,
+    push_data jsonb,
+    status text not null default 'processing'
+        check (status in ('processing', 'delivered', 'failed_retryable', 'failed_permanent', 'abandoned')),
+    attempt_count integer not null default 1 check (attempt_count >= 0 and attempt_count <= 20),
+    max_attempts integer not null default 5 check (max_attempts >= 1 and max_attempts <= 20),
+    lease_id uuid not null default gen_random_uuid(),
+    lease_expires_at timestamptz not null default now() + interval '300 seconds',
+    last_error_type text check (last_error_type is null or length(last_error_type) <= 120),
+    last_error_message text check (last_error_message is null or length(last_error_message) <= 500),
+    last_http_status integer,
+    next_retry_at timestamptz,
+    processing_started_at timestamptz not null default now(),
+    last_attempted_at timestamptz,
+    delivered_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    check ((status = 'delivered' and delivered_at is not null) or (status != 'delivered'))
+);
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_users_last_login on users(last_login);
 alter table user_moderation_audit enable row level security;
 alter table job_runs enable row level security;
+alter table push_delivery_attempts enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
 grant select, insert, update on public.job_runs to service_role;
+grant select, insert, update on public.push_delivery_attempts to service_role;
 grant select, update on public.users to service_role;
 grant select, insert, update, delete on public.user_identities to service_role;
 
