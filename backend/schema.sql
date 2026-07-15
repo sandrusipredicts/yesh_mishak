@@ -370,3 +370,41 @@ as $$
 $$;
 
 grant execute on function public.get_api_response_time_metrics(timestamptz, timestamptz) to service_role;
+
+create index if not exists idx_pda_created_at on push_delivery_attempts(created_at);
+
+create or replace function public.get_push_delivery_metrics(
+    window_start timestamptz,
+    window_end timestamptz
+)
+returns table (
+    attempted_count bigint,
+    accepted_count bigint,
+    failed_count bigint,
+    invalid_token_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select
+        count(*) filter (
+            where status in ('delivered', 'failed_permanent', 'abandoned')
+        )::bigint as attempted_count,
+        count(*) filter (
+            where status = 'delivered'
+        )::bigint as accepted_count,
+        count(*) filter (
+            where (status = 'failed_permanent' and (last_error_type is null or last_error_type not in ('INVALID_TOKEN', 'TOKEN_INVALIDATED')))
+               or status = 'abandoned'
+        )::bigint as failed_count,
+        count(*) filter (
+            where status = 'failed_permanent' and last_error_type in ('INVALID_TOKEN', 'TOKEN_INVALIDATED')
+        )::bigint as invalid_token_count
+    from public.push_delivery_attempts
+    where created_at >= window_start
+      and created_at < window_end;
+$$;
+
+grant execute on function public.get_push_delivery_metrics(timestamptz, timestamptz) to service_role;
