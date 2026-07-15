@@ -47,6 +47,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
+      VITE_API_URL: ${{ vars.VITE_API_URL }}
+      VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -70,6 +72,22 @@ jobs:
 
       - name: Materialize and validate Firebase Android config
         run: npm run android:google-services
+
+      - name: Validate required Android Vite configuration
+        run: |
+          missing=0
+          if [ -z "${VITE_API_URL:-}" ]; then
+            echo "::error::Required GitHub Actions repository variable VITE_API_URL is missing."
+            missing=1
+          elif [[ "$VITE_API_URL" != https://* ]]; then
+            echo "::error::VITE_API_URL must use HTTPS for the Android WebView."
+            missing=1
+          fi
+          if [ -z "${VITE_GOOGLE_CLIENT_ID:-}" ]; then
+            echo "::error::Required GitHub Actions repository variable VITE_GOOGLE_CLIENT_ID is missing."
+            missing=1
+          fi
+          exit "$missing"
 
       - name: Build web assets for Android
         run: npm run build:android

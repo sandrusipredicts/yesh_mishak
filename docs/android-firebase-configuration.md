@@ -92,6 +92,39 @@ The Gradle build now fails early if `frontend/android/app/google-services.json` 
   in an `always()` cleanup step. A missing secret fails at materialization before
   Gradle runs.
 
+### GitHub Actions configuration
+
+Create these repository variables under **Settings > Secrets and variables >
+Actions > Variables** before manually dispatching the workflow:
+
+| Repository variable | Required | Source | Android purpose |
+| --- | --- | --- | --- |
+| `VITE_API_URL` | Yes | The HTTPS base URL of the deployed FastAPI backend, matching the existing Vercel `VITE_API_URL` convention | Baked into the Vite bundle so API, login, map, game, and notification requests reach the backend |
+| `VITE_GOOGLE_CLIENT_ID` | Yes | The existing Web OAuth client ID in Google Cloud Console; it must match the backend `GOOGLE_CLIENT_ID` audience | Used as the native Google Sign-In `serverClientId` |
+
+These values are public client configuration embedded in the APK, so repository
+variables are appropriate; putting them in Actions secrets would not make them
+secret after the Vite build. The workflow validates that both values are present
+without printing them, and also requires `VITE_API_URL` to use HTTPS because the
+Capacitor Android WebView blocks plain-HTTP API calls.
+
+Create this repository secret under **Settings > Secrets and variables > Actions
+> Secrets**:
+
+| Repository secret | Required | Source | Android purpose |
+| --- | --- | --- | --- |
+| `ANDROID_GOOGLE_SERVICES_JSON_BASE64` | Yes | Base64 encoding of the Firebase Android app's `google-services.json` for `com.yeshmishak.app` | Materialized and package-validated before the native build, then deleted during cleanup |
+
+The frontend also references `VITE_FIREBASE_API_KEY`,
+`VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
+`VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`,
+`VITE_FIREBASE_APP_ID`, and `VITE_FIREBASE_VAPID_KEY` for browser Web Push.
+They are not required by the Android APK's Capacitor Push Notifications path,
+which uses the native Firebase configuration above, so the Android workflow does
+not require or inject them. `VITE_SHOW_TEST_PUSH` is development-only and is not
+enabled in the production-mode Android build. `VITE_API_BASE_URL` remains a
+legacy fallback; new CI configuration uses canonical `VITE_API_URL` only.
+
 The trusted build runs the following sequence:
 
 ```bash
