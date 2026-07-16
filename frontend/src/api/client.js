@@ -26,7 +26,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && getToken()) {
+    if (error.response?.status === 401 && getToken() && !error.config?.skipAuthSessionCleanup) {
       clearSession().catch((cleanupError) => {
         console.warn('Session cleanup after 401 failed.', cleanupError)
       })

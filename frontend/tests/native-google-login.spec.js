@@ -16,6 +16,38 @@ const FAKE_GOOGLE_ID_TOKEN = `${Buffer.from(JSON.stringify({ alg: 'RS256' })).to
   JSON.stringify({ aud: 'web-client-id', email: user.email, email_verified: true }),
 ).toString('base64url')}.google-signature`
 
+const FIELD_ID = '11111111-1111-4111-8111-111111111111'
+const GAME_ID = '22222222-2222-4222-8222-222222222222'
+
+const field = {
+  id: FIELD_ID,
+  name: 'Deferred Link Court',
+  latitude: 31.225172,
+  longitude: 34.777498,
+  sport_type: 'football',
+  surface_type: 'synthetic',
+  has_nets: true,
+  has_water_cooler: false,
+  opening_hours: '19:00',
+  notes: '',
+  status: 'approved',
+  active_game: null,
+  upcoming_games: [],
+}
+
+const game = {
+  id: GAME_ID,
+  field_id: FIELD_ID,
+  sport_type: 'football',
+  players_present: 4,
+  max_players: 10,
+  created_by: 'creator-1',
+  started_at: '2099-07-12T10:00:00Z',
+  expires_at: '2099-07-12T12:00:00Z',
+  participants: [],
+  status: 'open',
+}
+
 test('Android native auth logging is hardened against credential payloads', () => {
   const capacitorConfig = readFileSync('capacitor.config.ts', 'utf8')
   const googleProvider = readFileSync(
@@ -30,15 +62,24 @@ test('Android native auth logging is hardened against credential payloads', () =
 
 // Native mock: SecureStorage (certified pipeline), App, and the NA-1
 // SocialLogin plugin. googleMode:
-// 'success' | 'cancel' | 'provider-failure' | 'missing-id-token'.
+// 'success' | 'delayed-success' | 'cancel' | 'provider-failure' | 'missing-id-token'.
 // providerLogoutFails makes the provider's logout reject (ISSUE-242: provider
 // sign-out is best-effort and must never block local cleanup).
-async function prepareApp(page, { googleMode = 'success', providerLogoutFails = false } = {}) {
+async function prepareApp(page, {
+  googleMode = 'success',
+  providerLogoutFails = false,
+  launchUrl = null,
+  analyticsEvents = null,
+  analyticsStatus = 202,
+  analyticsDelayMs = 0,
+} = {}) {
   await page.addInitScript(({ cfg, googleIdToken }) => {
     const SECURE_BACKING_KEY = '__test_secure_token'
 
     window.androidBridge = {}
     window.__social = { initCalls: 0, loginCalls: 0, logoutCalls: 0, lastInit: null }
+    window.__resolveSocialLogin = null
+    window.__rejectSocialLogin = null
 
     window.Capacitor = {
       PluginHeaders: [{
@@ -61,11 +102,15 @@ async function prepareApp(page, { googleMode = 'success', providerLogoutFails = 
       }, {
         name: 'App',
         methods: [
+          { name: 'getLaunchUrl', rtype: 'promise' },
           { name: 'addListener', rtype: 'callback' },
           { name: 'removeListener', rtype: 'promise' },
         ],
       }],
       nativePromise(plugin, method, options) {
+        if (plugin === 'App' && method === 'getLaunchUrl') {
+          return Promise.resolve({ url: cfg.launchUrl })
+        }
         if (plugin === 'App' && method === 'removeListener') {
           return Promise.resolve()
         }
@@ -91,6 +136,19 @@ async function prepareApp(page, { googleMode = 'success', providerLogoutFails = 
               const providerError = new Error('Developer-only provider detail')
               providerError.code = 'GOOGLE_SIGN_IN_FAILED'
               return Promise.reject(providerError)
+            }
+            if (cfg.googleMode === 'delayed-success') {
+              return new Promise((resolve, reject) => {
+                window.__resolveSocialLogin = () => resolve({
+                  provider: 'google',
+                  result: {
+                    idToken: googleIdToken,
+                    accessToken: null,
+                    responseType: 'online',
+                  },
+                })
+                window.__rejectSocialLogin = reject
+              })
             }
             return Promise.resolve({
               provider: 'google',
@@ -127,6 +185,10 @@ async function prepareApp(page, { googleMode = 'success', providerLogoutFails = 
           window.__appStateChange = callback
           return 'issue-240-listener'
         }
+        if (plugin === 'App' && method === 'addListener' && options.eventName === 'appUrlOpen') {
+          window.__appUrlOpen = callback
+          return 'app-url-open-listener'
+        }
         return ''
       },
     }
@@ -134,10 +196,33 @@ async function prepareApp(page, { googleMode = 'success', providerLogoutFails = 
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
-  }, { cfg: { googleMode, providerLogoutFails }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
+  }, { cfg: { googleMode, providerLogoutFails, launchUrl }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
 
-  await page.route('**/fields/**', (route) =>
+  await page.route(/\/analytics\/share-events$/, async (route) => {
+    if (analyticsEvents) {
+      analyticsEvents.push(route.request().postDataJSON())
+    }
+    if (analyticsDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, analyticsDelayMs))
+    }
+    return route.fulfill({ status: analyticsStatus, contentType: 'application/json', body: '{}' })
+  })
+  await page.route(/\/fields\/?(\?.*)?$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
+  await page.route(/\/fields\/[0-9a-f-]+$/i, (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').filter(Boolean).pop()
+    if (id === FIELD_ID) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...field, active_game: game }) })
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"Field not found"}' })
+  })
+  await page.route(/\/games\/[0-9a-f-]+$/i, (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').filter(Boolean).pop()
+    if (id === GAME_ID) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(game) })
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"Game not found"}' })
+  })
   await page.route('**/games/active/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.route('**/games/upcoming/**', (route) =>
@@ -148,6 +233,7 @@ async function prepareApp(page, { googleMode = 'success', providerLogoutFails = 
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":0}' }))
   await page.route('**/auth/logout', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":"ok"}' }))
+  await page.route('**/*tile.openstreetmap.org/**', (route) => route.abort())
 }
 
 function routeGoogleExchange(page, { status = 200, networkError = false } = {}) {
@@ -228,6 +314,173 @@ test('native Google login succeeds through the plugin and certified pipeline', a
   expect(state.secureToken).toMatch(/^eyJ/)
   expect(state.plaintext).toBeNull()
   expect(state.sessionKeys).toBe(0)
+})
+
+test('native Google login succeeds after a deferred cold-start game deep link', async ({ page }) => {
+  const analyticsEvents = []
+  const deepLinkUrl = `https://yesh-mishak.com/game/${GAME_ID}`
+  await prepareApp(page, { launchUrl: deepLinkUrl, analyticsEvents })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('pending_deep_link'))))
+    .toMatchObject({ routeType: 'game', resourceId: GAME_ID, analyticsDeferred: true })
+
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: field.name }),
+  ).toBeVisible({ timeout: 15000 })
+
+  const state = await page.evaluate(() => ({
+    loginCalls: window.__social.loginCalls,
+    pendingLink: sessionStorage.getItem('pending_deep_link'),
+  }))
+  expect(state.loginCalls).toBe(1)
+  expect(exchanges.length).toBe(1)
+  expect(state.pendingLink).toBeNull()
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toEqual([{
+    event_name: 'link_open',
+    entity_type: 'game',
+    platform: 'android',
+    outcome: 'deferred_for_auth',
+  }])
+})
+
+test('duplicate app-link delivery while native Google login is pending does not replay login or analytics', async ({ page }) => {
+  const analyticsEvents = []
+  const deepLinkUrl = `https://yesh-mishak.com/game/${GAME_ID}`
+  await prepareApp(page, {
+    googleMode: 'delayed-success',
+    launchUrl: deepLinkUrl,
+    analyticsEvents,
+  })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+  await expect.poll(() => page.evaluate(() => window.__social.loginCalls)).toBe(1)
+
+  await page.evaluate((url) => {
+    window.__appUrlOpen?.({ url })
+  }, deepLinkUrl)
+  await expect.poll(() => page.evaluate(() => window.__social.loginCalls)).toBe(1)
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toEqual([{
+    event_name: 'link_open',
+    entity_type: 'game',
+    platform: 'android',
+    outcome: 'deferred_for_auth',
+  }])
+
+  await page.evaluate(() => window.__resolveSocialLogin())
+
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: field.name }),
+  ).toBeVisible({ timeout: 15000 })
+
+  const state = await page.evaluate(() => ({
+    loginCalls: window.__social.loginCalls,
+    pendingLink: sessionStorage.getItem('pending_deep_link'),
+  }))
+  expect(state.loginCalls).toBe(1)
+  expect(exchanges.length).toBe(1)
+  expect(state.pendingLink).toBeNull()
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toHaveLength(1)
+})
+
+test('late unauthenticated analytics failure cannot clear a freshly saved Google session', async ({ page }) => {
+  const analyticsEvents = []
+  const deepLinkUrl = `https://yesh-mishak.com/game/${GAME_ID}`
+  await prepareApp(page, {
+    launchUrl: deepLinkUrl,
+    analyticsEvents,
+    analyticsStatus: 401,
+    analyticsDelayMs: 300,
+  })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+  await expect(
+    page.getByLabel('Field details').getByRole('heading', { name: field.name }),
+  ).toBeVisible({ timeout: 15000 })
+
+  await expect.poll(() => page.evaluate(() => ({
+    secureToken: localStorage.getItem('__test_secure_token'),
+    currentUserId: localStorage.getItem('currentUserId'),
+    toolbarCount: document.querySelectorAll('.auth-toolbar').length,
+  }))).toEqual({
+    secureToken: expect.stringMatching(/^eyJ/),
+    currentUserId: user.id,
+    toolbarCount: 1,
+  })
+  expect(exchanges.length).toBe(1)
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toHaveLength(1)
+})
+
+test('unrelated app-link callback while native Google login is pending does not cancel login', async ({ page }) => {
+  const analyticsEvents = []
+  const deepLinkUrl = `https://yesh-mishak.com/game/${GAME_ID}`
+  await prepareApp(page, {
+    googleMode: 'delayed-success',
+    launchUrl: deepLinkUrl,
+    analyticsEvents,
+  })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+  await expect.poll(() => page.evaluate(() => window.__social.loginCalls)).toBe(1)
+
+  await page.evaluate(() => {
+    window.__appUrlOpen?.({ url: 'https://yesh-mishak.com/not-a-supported-route' })
+  })
+  await page.evaluate(() => window.__resolveSocialLogin())
+
+  await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
+  expect(exchanges.length).toBe(1)
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('pending_deep_link')))
+    .toBeNull()
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toEqual([
+    {
+      event_name: 'link_open',
+      entity_type: 'game',
+      platform: 'android',
+      outcome: 'deferred_for_auth',
+    },
+  ])
+})
+
+test('native Google cancellation after a deferred deep link remains cancellation and keeps pending link', async ({ page }) => {
+  const analyticsEvents = []
+  const deepLinkUrl = `https://yesh-mishak.com/game/${GAME_ID}`
+  await prepareApp(page, { googleMode: 'cancel', launchUrl: deepLinkUrl, analyticsEvents })
+  const exchanges = routeGoogleExchange(page)
+
+  await page.goto('/')
+  await expect(page.locator('.google-native-button')).toBeEnabled({ timeout: 15000 })
+  await page.locator('.google-native-button').click()
+
+  await expect(page.locator('.login-page')).toBeVisible()
+  await expect(page.locator('.login-error')).toHaveCount(0)
+  await expect(page.locator('.login-info')).toHaveText('Sign-in cancelled. You can try again.')
+  expect(exchanges.length).toBe(0)
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('pending_deep_link'))))
+    .toMatchObject({ routeType: 'game', resourceId: GAME_ID, analyticsDeferred: true })
+  expect(analyticsEvents.filter((event) => event.event_name === 'link_open')).toEqual([{
+    event_name: 'link_open',
+    entity_type: 'game',
+    platform: 'android',
+    outcome: 'deferred_for_auth',
+  }])
 })
 
 test('cancelling the native picker shows neutral feedback and clears partial state', async ({ page }) => {
