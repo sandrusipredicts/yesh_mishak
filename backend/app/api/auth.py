@@ -514,9 +514,9 @@ def resend_verification(request: Request, payload: ResendVerificationRequest) ->
 
 
 # --- Account linking (E01-04) -----------------------------------------------
-# Every mutating endpoint below reissues an access token (tokens_valid_after
-# is bumped so any *other* live sessions are forced to re-authenticate, while
-# the caller's own session keeps working via the freshly issued token).
+# Every mutating endpoint below returns a fresh access token. Linking Google is
+# additive and does not revoke existing sessions; unlinking or changing the
+# password still advances tokens_valid_after and revokes other sessions.
 
 
 @router.get("/account-methods", response_model=AccountMethodsResponse)

@@ -116,7 +116,15 @@ Apply `migrations/game_expiry_reconciliation.sql` before enabling the job. In pr
 
 ## Google login
 
-`POST /auth/google` verifies a Google ID token, finds or creates a user in Supabase by email, and returns an internal app JWT.
+`POST /auth/google` verifies a Google ID token and resolves the stable Google
+`sub` through `user_identities(provider, provider_subject)`. A matching email
+without a linked identity returns `409 ACCOUNT_LINK_REQUIRED`; it is never
+silently attached. A genuinely new Google identity creates its application user
+and identity row atomically, then returns the normal internal app JWT.
+
+Apply `migrations/google_identity_resolution.sql` after the existing account
+linking migrations. The migration stops with an explicit error if legacy
+identity or case-insensitive email conflicts require manual repair.
 
 The Google ID token comes from the Google Identity Services `response.credential` value.
 
@@ -161,7 +169,8 @@ Expected response:
 }
 ```
 
-Invalid Google tokens return `401`. User insert failures return `500`.
+Invalid Google tokens return `401`, unverified Google email claims return `403`,
+and an existing unlinked email returns `409 ACCOUNT_LINK_REQUIRED`.
 
 Swagger admin test:
 
