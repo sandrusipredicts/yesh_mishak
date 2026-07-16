@@ -19,7 +19,8 @@ let package = Package(
         .package(name: "CapacitorLocalNotifications", path: "..\..\..\node_modules\@capacitor\local-notifications"),
         .package(name: "CapacitorPushNotifications", path: "..\..\..\node_modules\@capacitor\push-notifications"),
         .package(name: "CapacitorShare", path: "..\..\..\node_modules\@capacitor\share"),
-        .package(name: "CapgoCapacitorSocialLogin", path: "..\..\..\node_modules\@capgo\capacitor-social-login")
+        .package(name: "CapgoCapacitorSocialLogin", path: "..\..\..\node_modules\@capgo\capacitor-social-login"),
+        .package(name: "EbarooniCapacitorCalendar", path: "..\..\..\node_modules\@ebarooni\capacitor-calendar")
     ],
     targets: [
         .target(
@@ -34,7 +35,8 @@ let package = Package(
                 .product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications"),
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
-                .product(name: "CapgoCapacitorSocialLogin", package: "CapgoCapacitorSocialLogin")
+                .product(name: "CapgoCapacitorSocialLogin", package: "CapgoCapacitorSocialLogin"),
+                .product(name: "EbarooniCapacitorCalendar", package: "EbarooniCapacitorCalendar")
             ]
         )
     ]

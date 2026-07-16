@@ -29,6 +29,7 @@
     "@capacitor/push-notifications": "^8.1.1",
     "@capacitor/share": "^8.0.0",
     "@capgo/capacitor-social-login": "8.3.33",
+    "@ebarooni/capacitor-calendar": "^8.2.0",
     "axios": "^1.17.0",
     "firebase": "^12.15.0",
     "i18next": "^26.3.1",

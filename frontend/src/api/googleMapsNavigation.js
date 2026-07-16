@@ -1,4 +1,4 @@
-import { parseValidCoordinates } from '../utils/coordinates'
+import { parseValidCoordinates } from '../utils/coordinates.js'
 
 function getValidatedDestination(latitude, longitude) {
   const coordinates = parseValidCoordinates(latitude, longitude)

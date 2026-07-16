@@ -262,6 +262,8 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
             currentUserId={currentUserId}
             onUpdate={handleGameStateChanged}
             fieldName={field.name}
+            fieldLat={navigationCoordinates?.latitude}
+            fieldLng={navigationCoordinates?.longitude}
           />
         </div>
       ) : null}
@@ -278,6 +280,8 @@ function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {
                   currentUserId={currentUserId}
                   onUpdate={handleGameStateChanged}
                   fieldName={field.name}
+                  fieldLat={navigationCoordinates?.latitude}
+                  fieldLng={navigationCoordinates?.longitude}
                 />
               </article>
             ))}
