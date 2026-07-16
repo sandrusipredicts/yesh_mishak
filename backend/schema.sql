@@ -235,17 +235,68 @@ create table if not exists api_request_metrics (
     created_at timestamptz not null default now()
 );
 
+create table if not exists share_events (
+    id uuid primary key default gen_random_uuid(),
+    recorded_at timestamptz not null default now(),
+    event_name text not null check (event_name in ('share_action', 'link_open')),
+    entity_type text not null check (entity_type in ('game', 'field')),
+    platform text not null check (platform in ('web', 'android', 'ios')),
+    mechanism text check (mechanism is null or mechanism in ('native_share', 'copy_link')),
+    outcome text not null check (
+        outcome in (
+            'shared',
+            'copied',
+            'cancelled',
+            'unavailable',
+            'failed',
+            'valid',
+            'invalid',
+            'not_found',
+            'deferred_for_auth'
+        )
+    ),
+    error_category text check (
+        error_category is null
+        or error_category in (
+            'invalid_resource',
+            'unsupported_platform',
+            'share_unavailable',
+            'share_failed',
+            'clipboard_failed',
+            'malformed_link',
+            'unsupported_link',
+            'resource_not_found',
+            'resolution_failed'
+        )
+    ),
+    created_at timestamptz not null default now(),
+    check (
+        (
+            event_name = 'share_action'
+            and mechanism is not null
+            and outcome in ('shared', 'copied', 'cancelled', 'unavailable', 'failed')
+        )
+        or (
+            event_name = 'link_open'
+            and mechanism is null
+            and outcome in ('valid', 'invalid', 'not_found', 'deferred_for_auth')
+        )
+    )
+);
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_users_last_login on users(last_login);
 alter table user_moderation_audit enable row level security;
 alter table job_runs enable row level security;
 alter table push_delivery_attempts enable row level security;
 alter table api_request_metrics enable row level security;
+alter table share_events enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
 grant select, insert, update on public.job_runs to service_role;
 grant select, insert, update on public.push_delivery_attempts to service_role;
 grant select, insert, delete on public.api_request_metrics to service_role;
+grant select, insert, delete on public.share_events to service_role;
 grant select, update on public.users to service_role;
 grant select, insert, update, delete on public.user_identities to service_role;
 
@@ -259,6 +310,9 @@ create index if not exists idx_job_runs_started_at on job_runs(started_at desc);
 create index if not exists idx_api_request_metrics_recorded_at on api_request_metrics(recorded_at desc);
 create index if not exists idx_api_request_metrics_error_recorded_at on api_request_metrics(is_error, recorded_at desc);
 create index if not exists idx_api_request_metrics_path_recorded_at on api_request_metrics(normalized_path, recorded_at desc);
+create index if not exists idx_share_events_recorded_at on share_events(recorded_at desc);
+create index if not exists idx_share_events_event_recorded_at on share_events(event_name, recorded_at desc);
+create index if not exists idx_share_events_entity_recorded_at on share_events(entity_type, recorded_at desc);
 create index if not exists idx_fields_added_by on fields(added_by);
 create index if not exists idx_fields_public_listing_spatial on fields(verified, approval_status, status, lat, lng);
 create index if not exists idx_fields_approval_status on fields(approval_status);
@@ -408,3 +462,73 @@ as $$
 $$;
 
 grant execute on function public.get_push_delivery_metrics(timestamptz, timestamptz) to service_role;
+
+create or replace function public.get_share_event_metrics(
+    window_start timestamptz,
+    window_end timestamptz
+)
+returns table (
+    event_name text,
+    entity_type text,
+    platform text,
+    mechanism text,
+    outcome text,
+    error_category text,
+    event_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select
+        share_events.event_name,
+        share_events.entity_type,
+        share_events.platform,
+        share_events.mechanism,
+        share_events.outcome,
+        share_events.error_category,
+        count(*)::bigint as event_count
+    from public.share_events
+    where recorded_at >= window_start
+      and recorded_at < window_end
+    group by
+        share_events.event_name,
+        share_events.entity_type,
+        share_events.platform,
+        share_events.mechanism,
+        share_events.outcome,
+        share_events.error_category
+    order by
+        share_events.event_name,
+        share_events.entity_type,
+        share_events.platform,
+        share_events.mechanism,
+        share_events.outcome,
+        share_events.error_category;
+$$;
+
+grant execute on function public.get_share_event_metrics(timestamptz, timestamptz) to service_role;
+
+create or replace function public.cleanup_share_events(retention_days integer default 90)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    deleted_count integer;
+begin
+    if retention_days is null or retention_days < 1 or retention_days > 365 then
+        raise exception 'retention_days must be between 1 and 365';
+    end if;
+
+    delete from public.share_events
+    where recorded_at < now() - make_interval(days => retention_days);
+
+    get diagnostics deleted_count = row_count;
+    return deleted_count;
+end;
+$$;
+
+grant execute on function public.cleanup_share_events(integer) to service_role;

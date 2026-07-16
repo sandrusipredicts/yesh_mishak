@@ -40,6 +40,7 @@ from app.services.api_request_metrics import (
     get_api_response_time_metrics,
 )
 from app.services.push_delivery_metrics import get_push_delivery_metrics
+from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -375,6 +376,45 @@ def _get_push_notification_metrics(
         "failed_count": metrics["failed_count"],
         "invalid_token_count": metrics["invalid_token_count"],
         "acceptance_rate": metrics["acceptance_rate"],
+    }
+
+
+def _get_share_event_monitoring(
+    *,
+    window_minutes: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    try:
+        rows = get_share_event_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+        )
+    except Exception as exc:
+        logger.warning(
+            "share event metrics unavailable",
+            extra={
+                "event": "admin.monitoring.share_events.unavailable",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+        return {
+            "source_available": False,
+            "reason": "Share analytics metrics are temporarily unavailable.",
+        }
+
+    total_events = sum(row["event_count"] for row in rows)
+    return {
+        "source_available": True,
+        "source": "database",
+        "semantics": "first_party_mechanism_only",
+        "window_minutes": window_minutes,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": window_ended_at.isoformat(),
+        "total_events": total_events,
+        "groups": rows,
     }
 
 
@@ -1527,6 +1567,11 @@ def get_monitoring(
         ),
         "scheduled_jobs": _get_recent_job_runs(),
         "push_notifications": _get_push_notification_metrics(
+            window_minutes=window_minutes,
+            window_started_at=window_started_at,
+            window_ended_at=now,
+        ),
+        "share_events": _get_share_event_monitoring(
             window_minutes=window_minutes,
             window_started_at=window_started_at,
             window_ended_at=now,

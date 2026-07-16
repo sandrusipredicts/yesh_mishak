@@ -13,6 +13,7 @@ import NotificationInboxModal from '../components/NotificationInboxModal'
 import NotificationsModal from '../components/NotificationsModal'
 import { getStoredSessionUserId } from '../api/auth'
 import { getNotifications, getUnreadNotificationCount } from '../api/notifications'
+import { recordLinkOpen } from '../api/shareAnalytics'
 import { checkExistingPermission } from '../api/locationPermission'
 import { getCurrentLocation } from '../api/locationService'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
@@ -817,6 +818,9 @@ function MapPage({
 
         mergeResolvedField(field)
         setSelectedField(resolvedField)
+        if (!deepLinkTarget.analyticsDeferred) {
+          recordLinkOpen(deepLinkTarget, 'valid')
+        }
         setDeepLinkStatus('')
       } catch (resolveError) {
         if (isCancelled) {
@@ -824,6 +828,11 @@ function MapPage({
         }
 
         const statusCode = resolveError?.response?.status
+        if (!deepLinkTarget.analyticsDeferred) {
+          recordLinkOpen(deepLinkTarget, statusCode === 404 ? 'not_found' : 'invalid', {
+            errorCategory: statusCode === 404 ? 'resource_not_found' : 'resolution_failed',
+          })
+        }
         setDeepLinkStatus('unavailable')
         setDeepLinkMessage(
           statusCode === 404 ? t('game.deepLinkNotFound') : t('game.deepLinkLoadError'),
@@ -868,6 +877,9 @@ function MapPage({
 
         mergeResolvedField(field)
         setSelectedField(field)
+        if (!deepLinkTarget.analyticsDeferred) {
+          recordLinkOpen(deepLinkTarget, 'valid')
+        }
 
         const position = getFieldPosition(field)
         if (position) {
@@ -881,6 +893,11 @@ function MapPage({
         }
 
         const statusCode = resolveError?.response?.status
+        if (!deepLinkTarget.analyticsDeferred) {
+          recordLinkOpen(deepLinkTarget, statusCode === 404 ? 'not_found' : 'invalid', {
+            errorCategory: statusCode === 404 ? 'resource_not_found' : 'resolution_failed',
+          })
+        }
         setDeepLinkStatus('unavailable')
         setDeepLinkMessage(
           statusCode === 404 ? t('field.deepLinkNotFound') : t('field.deepLinkLoadError'),
