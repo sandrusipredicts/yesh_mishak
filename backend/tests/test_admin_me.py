@@ -157,6 +157,8 @@ class FakeSupabaseClient:
             return FakeRpcQuery([_calculate_response_time_rpc(self.tables.get("api_request_metrics", []), params)])
         if name == "get_push_delivery_metrics":
             return FakeRpcQuery([_calculate_push_delivery_rpc(self.tables.get("push_delivery_attempts", []), params)])
+        if name == "get_share_event_metrics":
+            return FakeRpcQuery(_calculate_share_event_rpc(self.tables.get("share_events", []), params))
         raise AssertionError(f"Unexpected RPC call: {name}")
 
 
@@ -209,6 +211,38 @@ def _calculate_push_delivery_rpc(rows: list[dict[str, Any]], params: dict[str, A
         "failed_count": failed,
         "invalid_token_count": invalid_token,
     }
+
+
+def _calculate_share_event_rpc(rows: list[dict[str, Any]], params: dict[str, Any]) -> list[dict[str, Any]]:
+    window_start = params["window_start"]
+    window_end = params["window_end"]
+    groups: dict[tuple[Any, ...], int] = {}
+    for row in rows:
+        recorded_at = row.get("recorded_at") or ""
+        if not (window_start <= recorded_at < window_end):
+            continue
+        key = (
+            row.get("event_name"),
+            row.get("entity_type"),
+            row.get("platform"),
+            row.get("mechanism"),
+            row.get("outcome"),
+            row.get("error_category"),
+        )
+        groups[key] = groups.get(key, 0) + 1
+
+    return [
+        {
+            "event_name": key[0],
+            "entity_type": key[1],
+            "platform": key[2],
+            "mechanism": key[3],
+            "outcome": key[4],
+            "error_category": key[5],
+            "event_count": count,
+        }
+        for key, count in sorted(groups.items())
+    ]
 
 
 def _percentile_cont(sorted_values: list[int], percentile: float) -> float:
@@ -308,6 +342,7 @@ def make_admin_matrix_client(
             ],
             "notifications": [],
             "api_request_metrics": [],
+            "share_events": [],
         },
     )
 
@@ -691,6 +726,7 @@ def test_admin_can_move_open_field_report_to_in_review(monkeypatch) -> None:
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
 
     response = TestClient(app).patch(
         "/admin/field-reports/report-open/status",
@@ -741,6 +777,7 @@ def test_admin_can_mark_field_report_terminal_status(monkeypatch, review_status:
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
 
     response = TestClient(app).patch(
         "/admin/field-reports/report-in-review/status",
@@ -778,6 +815,7 @@ def test_admin_field_report_status_rejects_invalid_status(monkeypatch) -> None:
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
 
     response = TestClient(app).patch(
         "/admin/field-reports/report-open/status",
@@ -819,6 +857,7 @@ def test_admin_field_report_status_rejects_regular_user(monkeypatch) -> None:
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
 
     response = TestClient(app).patch(
         "/admin/field-reports/report-open/status",
@@ -868,6 +907,7 @@ def test_admin_field_report_status_saves_review_metadata(monkeypatch) -> None:
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
 
     response = TestClient(app).patch(
         "/admin/field-reports/report-open/status",
@@ -1165,8 +1205,9 @@ def test_monitoring_admin_succeeds(monkeypatch) -> None:
         "api_errors",
         "response_time",
         "scheduled_jobs",
-        "push_notifications",
-    }
+            "push_notifications",
+            "share_events",
+        }
     assert set(data.keys()) == expected_keys
 
 
@@ -1384,6 +1425,7 @@ def _make_metric_monitoring_client(
     monkeypatch,
     metrics_rows=None,
     push_delivery_rows=None,
+    share_event_rows=None,
 ) -> tuple[dict[str, Any], FakeSupabaseClient]:
     configure_test_settings(monkeypatch)
     admin_user = {
@@ -1403,6 +1445,7 @@ def _make_metric_monitoring_client(
             "job_runs": [],
             "api_request_metrics": list(metrics_rows or []),
             "push_delivery_attempts": list(push_delivery_rows or []),
+            "share_events": list(share_event_rows or []),
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
@@ -1414,6 +1457,10 @@ def _make_metric_monitoring_client(
     )
     monkeypatch.setattr(
         "app.services.push_delivery_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.share_events.get_supabase_service_role_client",
         lambda: fake_client,
     )
     return admin_user, fake_client
@@ -1835,6 +1882,28 @@ def _push_row(
     }
 
 
+def _share_event_row(
+    *,
+    minutes_ago: int = 5,
+    event_name: str = "share_action",
+    entity_type: str = "game",
+    platform: str = "android",
+    mechanism: str | None = "native_share",
+    outcome: str = "shared",
+    error_category: str | None = None,
+) -> dict[str, Any]:
+    recorded_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return {
+        "event_name": event_name,
+        "entity_type": entity_type,
+        "platform": platform,
+        "mechanism": mechanism,
+        "outcome": outcome,
+        "error_category": error_category,
+        "recorded_at": recorded_at.isoformat(),
+    }
+
+
 def test_monitoring_push_zero_attempts(monkeypatch) -> None:
     admin_user, _ = _make_metric_monitoring_client(monkeypatch)
 
@@ -2058,3 +2127,83 @@ def test_monitoring_push_existing_metrics_unchanged(monkeypatch) -> None:
     assert "response_time" in data
     assert data["response_time"]["source_available"] is True
     assert "scheduled_jobs" in data
+    assert "share_events" in data
+
+
+def test_monitoring_share_events_groups_first_party_categories(monkeypatch) -> None:
+    admin_user, _ = _make_metric_monitoring_client(
+        monkeypatch,
+        share_event_rows=[
+            _share_event_row(event_name="share_action", entity_type="game", platform="android", mechanism="native_share", outcome="shared"),
+            _share_event_row(event_name="share_action", entity_type="game", platform="android", mechanism="native_share", outcome="shared"),
+            _share_event_row(event_name="link_open", entity_type="field", platform="web", mechanism=None, outcome="not_found", error_category="resource_not_found"),
+        ],
+    )
+
+    share_events = _get_admin_monitoring(admin_user).json()["share_events"]
+
+    assert share_events["source_available"] is True
+    assert share_events["semantics"] == "first_party_mechanism_only"
+    assert share_events["total_events"] == 3
+    assert {
+        (
+            group["event_name"],
+            group["entity_type"],
+            group["platform"],
+            group["mechanism"],
+            group["outcome"],
+            group["event_count"],
+        )
+        for group in share_events["groups"]
+    } == {
+        ("link_open", "field", "web", None, "not_found", 1),
+        ("share_action", "game", "android", "native_share", "shared", 2),
+    }
+
+
+def test_monitoring_share_events_rpc_failure_returns_unavailable(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    admin_user = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "role": "admin",
+        "status": "active",
+    }
+    fake_client = FakeSupabaseClient(
+        {},
+        tables={
+            "users": [admin_user],
+            "fields": [],
+            "games": [],
+            "notifications": [],
+            "job_runs": [],
+            "api_request_metrics": [],
+            "push_delivery_attempts": [],
+            "share_events": [],
+        },
+        rpc_responses={
+            "get_share_event_metrics": RuntimeError("db unavailable"),
+        },
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.push_delivery_metrics.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.share_events.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+
+    response = _get_admin_monitoring(admin_user)
+
+    assert response.status_code == 200
+    assert response.json()["share_events"]["source_available"] is False

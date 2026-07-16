@@ -8,7 +8,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.core.config import get_settings
 from app.middleware.request_metrics import request_metrics_middleware
-from app.routers import field_reports, fields, games, notifications
+from app.routers import field_reports, fields, games, notifications, share_events
 
 logger = logging.getLogger("app")
 
@@ -128,6 +128,7 @@ app.include_router(field_reports.router)
 app.include_router(fields.router)
 app.include_router(games.router)
 app.include_router(notifications.router)
+app.include_router(share_events.router)
 
 
 @app.get("/")

@@ -33,6 +33,7 @@ import {
   teardownNativePush,
 } from './api/nativePushNotifications'
 import { deletePushToken, savePushToken } from './api/notifications'
+import { recordLinkOpen } from './api/shareAnalytics'
 import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 
@@ -41,6 +42,15 @@ import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from '
 // mechanism instead of one per resource type (ISSUE-272, extended for
 // ISSUE-273). Target shape: { routeType: 'game' | 'field', resourceId, action }.
 const PENDING_DEEP_LINK_STORAGE_KEY = 'pending_deep_link'
+
+function buildDeepLinkTarget(resolved, { deferredForAuth = false } = {}) {
+  return {
+    routeType: resolved.routeType,
+    resourceId: resolved.resourceId,
+    action: resolved.action || '',
+    analyticsDeferred: deferredForAuth,
+  }
+}
 
 function readPendingDeepLink() {
   if (typeof sessionStorage === 'undefined') {
@@ -292,11 +302,13 @@ function App() {
     // through applyDeepLinkTarget + MapPage; this layer only validates the
     // external URL and hands off to the existing app routes.
     if ((normalized.routeType === 'game' || normalized.routeType === 'field') && normalized.resourceId) {
-      applyDeepLinkTarget({
-        routeType: normalized.routeType,
-        resourceId: normalized.resourceId,
-        action: normalized.action || '',
-      })
+      const deferredForAuth = !getToken()
+      if (deferredForAuth) {
+        recordLinkOpen(normalized, 'deferred_for_auth')
+      }
+      applyDeepLinkTarget(buildDeepLinkTarget(normalized, { deferredForAuth }))
+    } else if (normalized.routeType === 'fallback') {
+      recordLinkOpen(normalized, 'invalid')
     }
 
     navigateTo(normalized.navigationPath, { replace })
@@ -331,15 +343,17 @@ function App() {
         (resolved.routeType === 'game' || resolved.routeType === 'field') &&
         resolved.resourceId
       ) {
-        applyDeepLinkTarget({
-          routeType: resolved.routeType,
-          resourceId: resolved.resourceId,
-          action: resolved.action || '',
-        })
+        const deferredForAuth = !getToken()
+        if (deferredForAuth) {
+          recordLinkOpen(resolved, 'deferred_for_auth')
+        }
+        applyDeepLinkTarget(buildDeepLinkTarget(resolved, { deferredForAuth }))
 
         if (window.location.pathname !== '/') {
           navigateTo('/', { replace: true })
         }
+      } else if (resolved.ok && resolved.routeType === 'fallback') {
+        recordLinkOpen(resolved, 'invalid')
       }
     }
 
