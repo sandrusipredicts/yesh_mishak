@@ -26,7 +26,7 @@ import {
   initSessionStorage,
   isNativeRuntime,
 } from './api/sessionStorage'
-import { startForegroundPushNotifications } from './firebaseMessaging'
+import { requestFirebasePushToken, startForegroundPushNotifications } from './firebaseMessaging'
 import {
   getCurrentToken,
   initNativePush,
@@ -39,6 +39,7 @@ import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 import { getOrCreateInstallationId } from './utils/installationId'
 import { createPushTokenSync } from './utils/pushTokenSync'
+import { resolveOnboardingState } from './onboarding/onboardingStorage'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -109,9 +110,15 @@ function App() {
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [isSessionReady, setIsSessionReady] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
-  const [isOnboardingDone, setIsOnboardingDone] = useState(
-    () => localStorage.getItem('onboarding_done') === 'true',
+  const [onboardingState, setOnboardingState] = useState(
+    () => resolveOnboardingState().state,
   )
+  const [mapEntryIntent, setMapEntryIntent] = useState(() => {
+    const resolved = resolveOnboardingState().state
+    return resolved.status === 'completed' && resolved.city
+      ? { type: 'city', city: resolved.city }
+      : null
+  })
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
   const [loginNotice, setLoginNotice] = useState(
@@ -470,21 +477,10 @@ function App() {
     })
   }, [currentUser])
 
-  const currentUserId = currentUser?.id || null
-
-  useEffect(() => {
-    if (!currentUserId || !isNativePushSupported()) {
-      return undefined
-    }
-
-    let isDisposed = false
-
-    initNativePush({
+  async function handleEnableNotifications() {
+    if (isNativePushSupported()) {
+      const result = await initNativePush({
       onTokenReceived: (token) => {
-        if (isDisposed) {
-          console.info('[E04-01 PUSH DEBUG] token received but effect disposed, skipping upload')
-          return
-        }
         console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
         getPushTokenSync().sync(token, {
           platform: Capacitor.getPlatform(),
@@ -502,17 +498,25 @@ function App() {
           applyDeepLinkTarget(target)
         }
       },
-    }).then((result) => {
-      console.info('[E04-01 PUSH DEBUG] init result:', result?.outcome)
-    }).catch((initError) => {
-      console.warn('[E04-01 PUSH DEBUG] init failed:', initError?.message || initError)
-    })
-
-    return () => {
-      console.info('[E04-01 PUSH DEBUG] effect cleanup, isDisposed set to true')
-      isDisposed = true
+      })
+      console.info('[E04-01 PUSH DEBUG] explicit init result:', result?.outcome)
+      if (['registered', 'already-initialized'].includes(result?.outcome)) {
+        return { outcome: 'granted' }
+      }
+      if (result?.outcome === 'unsupported') return { outcome: 'unsupported' }
+      return { outcome: 'denied' }
     }
-  }, [currentUserId, applyDeepLinkTarget])
+
+    try {
+      const token = await requestFirebasePushToken()
+      await savePushToken(token, { installationId: getOrCreateInstallationId() })
+      return { outcome: 'granted' }
+    } catch (error) {
+      if (typeof Notification === 'undefined') return { outcome: 'unsupported' }
+      console.warn('Explicit web notification enable failed.', error?.message || error)
+      return { outcome: 'denied' }
+    }
+  }
 
   const handleLogout = useCallback(() => {
     // Snapshot the session token before anything below clears it. clearSession()
@@ -580,8 +584,9 @@ function App() {
     setPathname(window.location.pathname)
   }, [handleDeepLinkHandled])
 
-  const handleOnboardingComplete = useCallback(() => {
-    setIsOnboardingDone(true)
+  const handleOnboardingComplete = useCallback((intent, completedState) => {
+    setOnboardingState(completedState)
+    setMapEntryIntent(intent)
   }, [])
 
   const handleAdminForbidden = useCallback(() => {
@@ -658,8 +663,14 @@ function App() {
     )
   }
 
-  if (!isOnboardingDone) {
-    return renderWithOfflineBanner(<OnboardingPage onComplete={handleOnboardingComplete} />)
+  if (onboardingState.status !== 'completed') {
+    return renderWithOfflineBanner(
+      <OnboardingPage
+        initialState={onboardingState}
+        onComplete={handleOnboardingComplete}
+        onEnableNotifications={handleEnableNotifications}
+      />,
+    )
   }
 
   if (pathname === '/my-games') {
@@ -679,6 +690,8 @@ function App() {
       <MapPage
         currentUserId={currentUser.id}
         deepLinkTarget={deepLinkTarget}
+        initialEntryIntent={mapEntryIntent}
+        onEnableNotifications={handleEnableNotifications}
         onDeepLinkHandled={handleDeepLinkHandled}
       />
       <div className="auth-toolbar">

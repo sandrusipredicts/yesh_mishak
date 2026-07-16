@@ -228,10 +228,8 @@ export async function requestCurrentLocation({ highAccuracy = false } = {}) {
   return getPositionWeb(highAccuracy)
 }
 
-// Non-invasive re-check for app resume: returns whether we still hold a
-// grant. Uses the plugin's checkPermissions on native (no prompt), and
-// resolves to 'granted' on web whenever the browser API is present, since
-// browsers surface revocation only on the next call.
+// Non-invasive re-check for app resume/onboarding. Uses the Permissions API
+// where available on web; querying it never raises the browser prompt.
 export async function checkExistingPermission() {
   if (isNative()) {
     const geolocation = loadPlugin()
@@ -256,5 +254,16 @@ export async function checkExistingPermission() {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return { state: 'unsupported' }
   }
-  return { state: 'granted' }
+  if (navigator.permissions?.query) {
+    try {
+      const status = await navigator.permissions.query({ name: 'geolocation' })
+      if (status.state === 'granted') return { state: 'granted' }
+      if (status.state === 'denied') return { state: 'denied' }
+      return { state: 'prompt' }
+    } catch {
+      // Browsers that expose geolocation but not its permission descriptor
+      // still require an explicit user action before the position request.
+    }
+  }
+  return { state: 'prompt' }
 }

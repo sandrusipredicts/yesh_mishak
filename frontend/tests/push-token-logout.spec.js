@@ -104,6 +104,7 @@ async function registerFakePushTokenBackend(page) {
 async function prepareApp(page) {
   await page.addInitScript(() => {
     window.androidBridge = {}
+    window.__pushNativeCalls = { check: 0, request: 0, register: 0 }
 
     window.Capacitor = {
       PluginHeaders: [
@@ -157,10 +158,19 @@ async function prepareApp(page) {
           return Promise.resolve({ keys: [] })
         }
         if (plugin === 'PushNotifications') {
-          if (method === 'checkPermissions' || method === 'requestPermissions') {
+          if (method === 'checkPermissions') {
+            window.__pushNativeCalls.check += 1
             return Promise.resolve({ receive: 'granted' })
           }
-          if (method === 'register' || method === 'removeListener' || method === 'removeAllListeners') {
+          if (method === 'requestPermissions') {
+            window.__pushNativeCalls.request += 1
+            return Promise.resolve({ receive: 'granted' })
+          }
+          if (method === 'register') {
+            window.__pushNativeCalls.register += 1
+            return Promise.resolve()
+          }
+          if (method === 'removeListener' || method === 'removeAllListeners') {
             return Promise.resolve()
           }
         }
@@ -195,6 +205,8 @@ async function prepareApp(page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   await page.route('**/notifications/unread-count', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":0}' }))
+  await page.route('**/notifications/preferences', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.route('**/auth/logout', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":"ok"}' }))
   await page.route('**/auth/login', async (route) => {
@@ -233,14 +245,22 @@ async function registerFakeFcmToken(page, token) {
   }, token)
 }
 
+async function explicitlyEnableNotifications(page) {
+  await page.getByRole('button', { name: 'Notification preferences' }).click()
+  await page.getByRole('button', { name: 'Enable push' }).click()
+  await expect(page.getByText('Push notifications enabled on this browser.')).toBeVisible()
+  await page.getByRole('button', { name: 'Close' }).click()
+}
+
 const FAKE_TOKEN = 'fake-fcm-token-e2e-1'
 
-test('token registers with platform and installation id after login', async ({ page }) => {
+test('token registers with platform and installation id after explicit enable', async ({ page }) => {
   await prepareApp(page)
   const { rows } = await registerFakePushTokenBackend(page)
 
   await page.goto('/')
   await loginViaForm(page, userA)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
 
   await expect.poll(() => rows.size).toBe(1)
@@ -256,6 +276,7 @@ test('logout sends an authenticated unregister request before auth is cleared, a
 
   await page.goto('/')
   await loginViaForm(page, userA)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
   await expect.poll(() => rows.size).toBe(1)
 
@@ -285,6 +306,7 @@ test('re-login recreates exactly one row for the same installation', async ({ pa
 
   await page.goto('/')
   await loginViaForm(page, userA)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
   await expect.poll(() => rows.size).toBe(1)
 
@@ -292,6 +314,7 @@ test('re-login recreates exactly one row for the same installation', async ({ pa
   await expect.poll(() => rows.has(FAKE_TOKEN)).toBe(false)
 
   await loginViaForm(page, userA)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
 
   await expect.poll(() => rows.size).toBe(1)
@@ -304,6 +327,7 @@ test('switching accounts on the same device does not leave the token attached to
 
   await page.goto('/')
   await loginViaForm(page, userA)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
   await expect.poll(() => rows.get(FAKE_TOKEN)?.userId).toBe(userA.id)
 
@@ -311,8 +335,20 @@ test('switching accounts on the same device does not leave the token attached to
   await expect.poll(() => rows.has(FAKE_TOKEN)).toBe(false)
 
   await loginViaForm(page, userB)
+  await explicitlyEnableNotifications(page)
   await registerFakeFcmToken(page, FAKE_TOKEN)
 
   await expect.poll(() => rows.get(FAKE_TOKEN)?.userId).toBe(userB.id)
   expect(rows.size).toBe(1)
+})
+
+test('login alone does not check, request, or register native push', async ({ page }) => {
+  await prepareApp(page)
+  await page.goto('/')
+  await loginViaForm(page, userA)
+  await expect.poll(() => page.evaluate(() => window.__pushNativeCalls)).toEqual({
+    check: 0,
+    request: 0,
+    register: 0,
+  })
 })

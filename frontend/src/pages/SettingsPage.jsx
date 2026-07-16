@@ -12,6 +12,10 @@ import {
 import { initNativeGoogleAuth, signInWithGoogleNative } from '../api/nativeGoogleAuth'
 import { isNativeRuntime } from '../api/sessionStorage'
 import Modal from '../components/Modal'
+import CityAutocomplete from '../components/CityAutocomplete'
+import LanguageSwitcher from '../components/LanguageSwitcher'
+import { israelCities } from '../data/israelCities'
+import { resolveOnboardingState, saveOnboardingState } from '../onboarding/onboardingStorage'
 import { getPasswordValidationError } from '../utils/passwordValidation'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
@@ -401,6 +405,8 @@ function SettingsPage({ onBack }) {
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [activeModal, setActiveModal] = useState(null)
+  const [startingCity, setStartingCity] = useState(() => resolveOnboardingState().state.city)
+  const [preferenceMessage, setPreferenceMessage] = useState('')
   const linkingRef = useRef(false)
 
   // Retry-button path: setIsLoading(true) runs from a click handler, not an
@@ -473,6 +479,15 @@ function SettingsPage({ onBack }) {
     setActiveModal(null)
   }
 
+  function handleStartingCityChange(city) {
+    setStartingCity(city)
+    setPreferenceMessage('')
+    if (!israelCities.includes(city)) return
+    const current = resolveOnboardingState().state
+    const result = saveOnboardingState({ ...current, city })
+    setPreferenceMessage(result.ok ? t('accountLinking.preferencesSaved') : t('accountLinking.preferencesSaveFailed'))
+  }
+
   function handleUnlinked(updatedMethods) {
     setMethods(updatedMethods)
     setStatusMessage(t('accountLinking.googleUnlinked'))
@@ -500,6 +515,23 @@ function SettingsPage({ onBack }) {
         </button>
         <h2 className="my-games-title">{t('accountLinking.title')}</h2>
       </header>
+
+      <section className="settings-section settings-preferences" aria-labelledby="app-preferences-title">
+        <h3 id="app-preferences-title">{t('accountLinking.appPreferences')}</h3>
+        <div className="language-settings-section">
+          <div><strong>{t('language.label')}</strong></div>
+          <LanguageSwitcher />
+        </div>
+        <label htmlFor="settings-starting-city">{t('accountLinking.startingCity')}</label>
+        <CityAutocomplete
+          id="settings-starting-city"
+          value={startingCity}
+          onChange={handleStartingCityChange}
+          cities={israelCities}
+          placeholder={t('onboarding.cityPlaceholder')}
+        />
+        {preferenceMessage ? <p role="status">{preferenceMessage}</p> : null}
+      </section>
 
       {isLoading ? <p className="my-games-loading">{t('accountLinking.loading')}</p> : null}
 

@@ -14,6 +14,7 @@
   --z-map-floating-controls: 1000;
   --z-field-details-panel: 1100;
   --z-auth-toolbar: 1200;
+  --z-map-notice: 1210;
   --z-modal-backdrop: 1250;
   --z-confirm-modal-backdrop: 1300;
   --z-offline-banner: 3000;
@@ -507,6 +508,167 @@ select {
   font-size: 14px;
 }
 
+.onboarding-shell {
+  display: flex;
+  flex-direction: column;
+  min-block-size: min(680px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));
+  max-inline-size: 640px;
+  padding-block: 28px;
+  padding-inline: 32px;
+}
+
+.onboarding-step-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.onboarding-step-content h1:focus {
+  outline: none;
+}
+
+.onboarding-description {
+  color: #475569;
+  line-height: 1.6;
+}
+
+.onboarding-progress-wrap {
+  margin-block-end: 20px;
+}
+
+.onboarding-progress {
+  block-size: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.onboarding-progress span {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: inline-size 180ms ease;
+}
+
+.onboarding-progress-label {
+  margin-block: 8px 0;
+  color: #475569;
+  font-size: 0.875rem;
+}
+
+.onboarding-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-start: 20px;
+}
+
+.onboarding-navigation button {
+  min-block-size: 44px;
+}
+
+.onboarding-navigation .secondary-panel-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-hero-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 88px;
+  block-size: 88px;
+  margin: 24px auto;
+  border-radius: 28px;
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.onboarding-benefits {
+  display: grid;
+  gap: 12px;
+  padding-inline-start: 24px;
+  line-height: 1.5;
+}
+
+.onboarding-city-field {
+  display: grid;
+  gap: 8px;
+  margin-block: 24px;
+  text-align: start;
+}
+
+.onboarding-city-field .city-autocomplete input {
+  inline-size: 100%;
+}
+
+.onboarding-text-button {
+  min-block-size: 44px;
+  align-self: flex-start;
+  border: 0;
+  color: #1d4ed8;
+  background: transparent;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.onboarding-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 20px;
+}
+
+.onboarding-guide-grid article {
+  padding: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.onboarding-guide-grid h2 {
+  margin-block: 8px 4px;
+  font-size: 1rem;
+}
+
+.onboarding-guide-grid p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.settings-preferences {
+  max-inline-size: 720px;
+  margin: 20px auto;
+}
+
+@media (max-width: 640px), (max-height: 620px) {
+  .onboarding-page {
+    align-items: stretch;
+    padding: calc(12px + var(--safe-area-top)) calc(12px + var(--safe-area-right)) calc(12px + var(--safe-area-bottom)) calc(12px + var(--safe-area-left));
+  }
+
+  .onboarding-shell {
+    min-block-size: calc(100dvh - 24px - var(--safe-area-top) - var(--safe-area-bottom));
+    max-block-size: none;
+    padding: 20px;
+  }
+
+  .onboarding-guide-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-progress span {
+    transition: none;
+  }
+}
+
 .auth-toolbar {
   position: absolute;
   z-index: var(--z-auth-toolbar);
@@ -822,7 +984,7 @@ select {
 
 .location-notice {
   position: absolute;
-  z-index: var(--z-map-floating-controls);
+  z-index: var(--z-map-notice);
   top: calc(20px + var(--safe-area-top));
   inset-inline-end: calc(20px + var(--safe-area-inline-end));
   display: inline-flex;

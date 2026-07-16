@@ -5,12 +5,10 @@ import { getFields } from '../api/fields'
 import {
   deletePushToken,
   getNotificationPreferences,
-  savePushToken,
   updateNotificationPreferences,
 } from '../api/notifications'
 import { israelCities } from '../data/israelCities'
-import { requestFirebasePushToken } from '../firebaseMessaging'
-import { getCurrentToken, isNativePushSupported, requestPushPermission } from '../api/nativePushNotifications'
+import { getCurrentToken, isNativePushSupported } from '../api/nativePushNotifications'
 import CityAutocomplete from './CityAutocomplete'
 import LanguageSwitcher from './LanguageSwitcher'
 import Modal from './Modal'
@@ -95,6 +93,7 @@ function parsePreferences(preferences) {
 
 function NotificationsModal({
   fields = [],
+  onEnableNotifications,
   onClose,
   onPreferencesSaved,
 }) {
@@ -307,24 +306,19 @@ function NotificationsModal({
     setPushMessage('')
 
     try {
-      let token
-
-      if (isNativePushSupported()) {
-        const permission = await requestPushPermission()
-        if (permission !== 'granted') {
-          throw new Error(t('notifications.pushPermissionDenied'))
-        }
-        token = getCurrentToken()
-        if (!token) {
-          throw new Error(t('notifications.pushEnableFailed'))
-        }
-      } else {
-        token = await requestFirebasePushToken()
+      const result = await onEnableNotifications?.()
+      if (result?.outcome !== 'granted') {
+        throw new Error(
+          result?.outcome === 'unsupported'
+            ? t('onboarding.notifications.unavailableMessage')
+            : t('notifications.pushPermissionDenied'),
+        )
       }
-
-      await savePushToken(token)
-      localStorage.setItem(STORED_PUSH_TOKEN_KEY, token)
-      setPushToken(token)
+      const token = getCurrentToken()
+      if (token) {
+        localStorage.setItem(STORED_PUSH_TOKEN_KEY, token)
+        setPushToken(token)
+      }
       setPushMessage(t('notifications.pushEnabled'))
     } catch (pushError) {
       setError(pushError.message || t('notifications.pushEnableFailed'))
