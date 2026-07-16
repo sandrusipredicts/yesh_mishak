@@ -11,6 +11,7 @@ import { getLastKnownLocation } from '../api/locationService'
 import { launchWazeNavigation } from '../api/wazeNavigation'
 import { evaluateLocationAccuracy, USE_CASES } from '../utils/locationAccuracy'
 import { isFieldShareable } from '../utils/fieldShareability'
+import { parseValidCoordinates } from '../utils/coordinates'
 
 function getActiveGame(field) {
   return field?.active_game ?? field?.activeGame ?? null
@@ -29,32 +30,7 @@ function getNavigationCoordinates(field) {
   const rawLatitude = field?.lat ?? field?.latitude
   const rawLongitude = field?.lng ?? field?.longitude
 
-  if (
-    rawLatitude === null ||
-    rawLatitude === undefined ||
-    rawLongitude === null ||
-    rawLongitude === undefined ||
-    (typeof rawLatitude === 'string' && rawLatitude.trim() === '') ||
-    (typeof rawLongitude === 'string' && rawLongitude.trim() === '')
-  ) {
-    return null
-  }
-
-  const latitude = Number(rawLatitude)
-  const longitude = Number(rawLongitude)
-
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return null
-  }
-
-  return { latitude, longitude }
+  return parseValidCoordinates(rawLatitude, rawLongitude)
 }
 
 function FieldDetailsPanel({ field, onClose, onGameCreated, currentUserId }) {

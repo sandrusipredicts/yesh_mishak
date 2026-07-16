@@ -1,35 +1,16 @@
 import { AppLauncher } from '@capacitor/app-launcher'
 import { Capacitor } from '@capacitor/core'
+import { parseValidCoordinates } from '../utils/coordinates'
 
 const WAZE_SCHEME = 'waze://'
 
 function getValidatedDestination(latitude, longitude) {
-  if (
-    latitude === null ||
-    latitude === undefined ||
-    longitude === null ||
-    longitude === undefined ||
-    (typeof latitude === 'string' && latitude.trim() === '') ||
-    (typeof longitude === 'string' && longitude.trim() === '')
-  ) {
+  const coordinates = parseValidCoordinates(latitude, longitude)
+  if (!coordinates) {
     return null
   }
 
-  const parsedLatitude = Number(latitude)
-  const parsedLongitude = Number(longitude)
-
-  if (
-    !Number.isFinite(parsedLatitude) ||
-    !Number.isFinite(parsedLongitude) ||
-    parsedLatitude < -90 ||
-    parsedLatitude > 90 ||
-    parsedLongitude < -180 ||
-    parsedLongitude > 180
-  ) {
-    return null
-  }
-
-  return `${parsedLatitude},${parsedLongitude}`
+  return `${coordinates.latitude},${coordinates.longitude}`
 }
 
 export function buildWazeNavigationUrls(latitude, longitude) {
