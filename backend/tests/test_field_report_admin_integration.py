@@ -70,6 +70,12 @@ class FakeQuery:
             return FakeResponse([dict(row)])
 
         if self.update_payload is not None:
+            if self.database.fail_field_report_update and self.table_name == "field_reports":
+                raise RuntimeError("field report update failed")
+            if self.database.malformed_field_report_update and self.table_name == "field_reports":
+                return FakeResponse({"bad": "shape"})  # type: ignore[arg-type]
+            if self.database.zero_row_field_report_update and self.table_name == "field_reports":
+                return FakeResponse([])
             rows = self._filtered_rows()
             for row in rows:
                 row.update(self.update_payload)
@@ -97,6 +103,9 @@ class FakeSupabase:
     def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
         self.tables = tables
         self.fail_notification_insert = False
+        self.fail_field_report_update = False
+        self.zero_row_field_report_update = False
+        self.malformed_field_report_update = False
 
     def table(self, table_name: str) -> FakeQuery:
         self.tables.setdefault(table_name, [])
@@ -182,6 +191,46 @@ def test_admin_can_update_status_and_set_admin_note(monkeypatch):
     assert data["report"]["status"] == "resolved"
     assert data["report"]["admin_note"] == "Fixed the location."
     assert data["report"]["reviewed_by"] == ADMIN_ID
+
+
+def test_status_update_uses_service_role_client_for_field_report_write(monkeypatch):
+    configure(monkeypatch)
+    admin = make_admin()
+    user = make_user()
+    report = make_report()
+    anon_fake = FakeSupabase(
+        {
+            "users": [admin],
+            "fields": [],
+            "field_reports": [],
+            "notifications": [],
+            "push_subscriptions": [],
+        }
+    )
+    service_fake = FakeSupabase(
+        {
+            "users": [admin, user],
+            "fields": [{"id": FIELD_ID, "name": "Central Court"}],
+            "field_reports": [report],
+            "notifications": [],
+            "push_subscriptions": [],
+        }
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: anon_fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: anon_fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: service_fake)
+    monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: service_fake)
+    client = TestClient(app)
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/status",
+        json={"status": "in_review"},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert service_fake.tables["field_reports"][0]["status"] == "in_review"
+    assert anon_fake.tables["field_reports"] == []
 
 
 def test_non_admin_receives_403(monkeypatch):
@@ -371,3 +420,276 @@ def test_admin_note_nonempty_replaces(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.json()["report"]["admin_note"] == "New feedback."
+
+
+def test_admin_can_resolve_open_report(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, fake = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={"admin_note": "Fixed the location."},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["message"] == "Field report resolved"
+    assert data["report"]["status"] == "resolved"
+    assert data["report"]["admin_note"] == "Fixed the location."
+    assert data["report"]["reviewed_by"] == ADMIN_ID
+    assert data["report"]["reviewed_at"]
+    assert fake.tables["field_reports"][0]["status"] == "resolved"
+    assert fake.tables["field_reports"][0]["reviewed_by"] == ADMIN_ID
+
+
+def test_resolve_uses_service_role_client_for_field_report_write(monkeypatch):
+    configure(monkeypatch)
+    admin = make_admin()
+    user = make_user()
+    report = make_report()
+    anon_fake = FakeSupabase(
+        {
+            "users": [admin],
+            "fields": [],
+            "field_reports": [],
+            "notifications": [],
+            "push_subscriptions": [],
+        }
+    )
+    service_fake = FakeSupabase(
+        {
+            "users": [admin, user],
+            "fields": [{"id": FIELD_ID, "name": "Central Court"}],
+            "field_reports": [report],
+            "notifications": [],
+            "push_subscriptions": [],
+        }
+    )
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: anon_fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: anon_fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: service_fake)
+    monkeypatch.setattr("app.routers.notifications.get_supabase_service_role_client", lambda: service_fake)
+    client = TestClient(app)
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert service_fake.tables["field_reports"][0]["status"] == "resolved"
+    assert anon_fake.tables["field_reports"] == []
+
+
+def test_admin_can_resolve_in_review_report(monkeypatch):
+    admin = make_admin()
+    report = make_report(status="in_review")
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["report"]["status"] == "resolved"
+
+
+def test_resolve_preserves_admin_note_when_omitted(monkeypatch):
+    admin = make_admin()
+    report = make_report(admin_note="Existing note")
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["report"]["admin_note"] == "Existing note"
+
+
+def test_resolve_whitespace_note_normalized_to_null(monkeypatch):
+    admin = make_admin()
+    report = make_report(admin_note="Existing note")
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={"admin_note": "   "},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["report"]["admin_note"] is None
+
+
+def test_non_admin_cannot_resolve_report(monkeypatch):
+    admin = make_admin()
+    user = make_user()
+    report = make_report()
+    client, _ = setup_client(monkeypatch, admin, [user], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(user),
+    )
+
+    assert resp.status_code == 403
+
+
+def test_unauthenticated_cannot_resolve_report(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+    )
+
+    assert resp.status_code == 401
+
+
+def test_resolve_missing_report_returns_404(monkeypatch):
+    admin = make_admin()
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "REPORT_NOT_FOUND"
+
+
+def test_resolve_already_resolved_report_returns_409(monkeypatch):
+    admin = make_admin()
+    report = make_report(status="resolved")
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "REPORT_ALREADY_RESOLVED"
+
+
+def test_resolve_rejected_report_returns_409(monkeypatch):
+    admin = make_admin()
+    report = make_report(status="rejected")
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "REPORT_NOT_RESOLVABLE"
+
+
+def test_resolve_invalid_payload_rejected(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={"status": "resolved"},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 422
+
+
+def test_resolve_long_note_rejected(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, _ = setup_client(monkeypatch, admin, [make_user()], [report])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={"admin_note": "x" * 1001},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 422
+
+
+def test_resolve_database_failure_does_not_return_success(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, fake = setup_client(monkeypatch, admin, [make_user()], [report])
+    fake.fail_field_report_update = True
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["code"] == "DATABASE_ERROR"
+    assert fake.tables["field_reports"][0]["status"] == "open"
+
+
+def test_resolve_zero_row_update_does_not_return_success(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, fake = setup_client(monkeypatch, admin, [make_user()], [report])
+    fake.zero_row_field_report_update = True
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["code"] == "DATABASE_ERROR"
+    assert fake.tables["field_reports"][0]["status"] == "open"
+
+
+def test_resolve_malformed_update_response_does_not_return_success(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, fake = setup_client(monkeypatch, admin, [make_user()], [report])
+    fake.malformed_field_report_update = True
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["code"] == "INTERNAL_SERVER_ERROR"
+
+
+def test_resolve_does_not_modify_related_field(monkeypatch):
+    admin = make_admin()
+    report = make_report()
+    client, fake = setup_client(monkeypatch, admin, [make_user()], [report])
+    original_field = dict(fake.tables["fields"][0])
+
+    resp = client.patch(
+        f"/admin/field-reports/{REPORT_ID}/resolve",
+        json={},
+        headers=auth_headers(admin),
+    )
+
+    assert resp.status_code == 200
+    assert fake.tables["fields"][0] == original_field

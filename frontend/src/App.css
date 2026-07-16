@@ -2586,6 +2586,35 @@ select {
   color: #b42318;
 }
 
+.admin-field-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.admin-resolve-report-button {
+  border: 1px solid #16a34a;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-resolve-report-button:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+.admin-report-terminal-action {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .admin-manage-report-button {
   border: 1px solid #cbd5e1;
   border-radius: 6px;

@@ -126,10 +126,11 @@ async function mockMapRequests(page) {
 
 async function mockAdminApi(
   page,
-  { user = adminUser, stats = adminStats, fieldReports = makeFieldReports() } = {},
+  { user = adminUser, stats = adminStats, fieldReports = makeFieldReports(), resolveHandler = null } = {},
 ) {
   await page.route('**/admin/**', (route) => {
     const url = new URL(route.request().url())
+    const method = route.request().method()
 
     if (!url.pathname.startsWith('/admin/')) {
       return route.continue()
@@ -149,6 +150,26 @@ async function mockAdminApi(
 
     if (url.pathname === '/admin/field-reports') {
       return fulfillJson(route, fieldReports)
+    }
+
+    if (url.pathname.match(/^\/admin\/field-reports\/[^/]+\/resolve$/) && method === 'PATCH') {
+      if (resolveHandler) {
+        return resolveHandler(route)
+      }
+
+      const reportId = url.pathname.split('/')[3]
+      const payload = route.request().postDataJSON()
+      const report = fieldReports.find((item) => item.id === reportId)
+      return fulfillJson(route, {
+        message: 'Field report resolved',
+        report: {
+          ...report,
+          status: 'resolved',
+          admin_note: payload.admin_note ?? report?.admin_note ?? null,
+          reviewed_at: '2026-06-30T12:00:00.000Z',
+          reviewed_by: adminUser.id,
+        },
+      })
     }
 
     if (url.pathname === '/admin/fields/pending') {
@@ -353,4 +374,196 @@ test('admin field reports queue displays 20 reports sorted newest first and filt
   await expect(rows).toHaveCount(5)
   await expect(rows.first()).toContainText('Court 18')
   await expect(rows.first()).toContainText('In Review')
+})
+
+test('field reports show resolve action only for unresolved reports', async ({ page }) => {
+  const fieldReports = [
+    {
+      id: 'report-open',
+      field_id: 'field-open',
+      field_name: 'Open Court',
+      user_id: 'reporter-open',
+      reporter_name: 'Open Reporter',
+      reporter_email: 'open@example.com',
+      category: 'wrong_information',
+      description: 'Needs review',
+      status: 'open',
+      created_at: '2026-06-22T10:00:00.000Z',
+      reviewed_at: null,
+      reviewed_by: null,
+    },
+    {
+      id: 'report-resolved',
+      field_id: 'field-resolved',
+      field_name: 'Resolved Court',
+      user_id: 'reporter-resolved',
+      reporter_name: 'Resolved Reporter',
+      reporter_email: 'resolved@example.com',
+      category: 'field_closed',
+      description: 'Already fixed',
+      status: 'resolved',
+      created_at: '2026-06-21T10:00:00.000Z',
+      reviewed_at: '2026-06-22T10:00:00.000Z',
+      reviewed_by: adminUser.id,
+    },
+  ]
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, { fieldReports })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports' }).click()
+
+  const openRow = page.getByRole('row', { name: /Open Court/ })
+  await expect(openRow.getByRole('button', { name: 'Resolve' })).toBeVisible()
+
+  const resolvedRow = page.getByRole('row', { name: /Resolved Court/ })
+  await expect(resolvedRow.getByRole('button', { name: 'Resolve' })).toHaveCount(0)
+  await expect(resolvedRow).toContainText('Resolved')
+})
+
+test('resolving a field report calls the resolve endpoint and updates the row', async ({ page }) => {
+  const fieldReports = [
+    {
+      id: 'report-open',
+      field_id: 'field-open',
+      field_name: 'Open Court',
+      user_id: 'reporter-open',
+      reporter_name: 'Open Reporter',
+      reporter_email: 'open@example.com',
+      category: 'wrong_information',
+      description: 'Needs review',
+      status: 'open',
+      created_at: '2026-06-22T10:00:00.000Z',
+      reviewed_at: null,
+      reviewed_by: null,
+    },
+  ]
+  let requestPayload
+  let requestPath
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    fieldReports,
+    resolveHandler: (route) => {
+      requestPath = new URL(route.request().url()).pathname
+      requestPayload = route.request().postDataJSON()
+      return fulfillJson(route, {
+        message: 'Field report resolved',
+        report: {
+          ...fieldReports[0],
+          status: 'resolved',
+          admin_note: requestPayload.admin_note,
+          reviewed_at: '2026-06-30T12:00:00.000Z',
+          reviewed_by: adminUser.id,
+        },
+      })
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports' }).click()
+  await page.getByRole('row', { name: /Open Court/ }).getByRole('button', { name: 'Resolve' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Resolve Report' })).toBeVisible()
+  await page.getByLabel(/Resolution note/).fill('Fixed from admin panel')
+  await page.getByRole('button', { name: 'Resolve', exact: true }).last().click()
+
+  expect(requestPath).toBe('/admin/field-reports/report-open/resolve')
+  expect(requestPayload).toEqual({ admin_note: 'Fixed from admin panel' })
+  await expect(page.getByText('Report resolved successfully.')).toBeVisible()
+  const row = page.getByRole('row', { name: /Open Court/ })
+  await expect(row).toContainText('Resolved')
+  await expect(row.getByRole('button', { name: 'Resolve' })).toHaveCount(0)
+})
+
+test('resolve loading state prevents duplicate submission', async ({ page }) => {
+  const fieldReports = [
+    {
+      id: 'report-open',
+      field_id: 'field-open',
+      field_name: 'Open Court',
+      user_id: 'reporter-open',
+      reporter_name: 'Open Reporter',
+      reporter_email: 'open@example.com',
+      category: 'wrong_information',
+      description: 'Needs review',
+      status: 'open',
+      created_at: '2026-06-22T10:00:00.000Z',
+      reviewed_at: null,
+      reviewed_by: null,
+    },
+  ]
+  let releaseResolve
+  const resolvePending = new Promise((resolve) => {
+    releaseResolve = resolve
+  })
+  let requestCount = 0
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    fieldReports,
+    resolveHandler: async (route) => {
+      requestCount += 1
+      await resolvePending
+      return fulfillJson(route, {
+        message: 'Field report resolved',
+        report: {
+          ...fieldReports[0],
+          status: 'resolved',
+          reviewed_at: '2026-06-30T12:00:00.000Z',
+          reviewed_by: adminUser.id,
+        },
+      })
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports' }).click()
+  await page.getByRole('row', { name: /Open Court/ }).getByRole('button', { name: 'Resolve' }).click()
+  await page.getByRole('button', { name: 'Resolve', exact: true }).last().click()
+
+  const resolvingButton = page.getByRole('button', { name: 'Resolving...' })
+  await expect(resolvingButton).toBeDisabled()
+  await resolvingButton.click({ force: true })
+  expect(requestCount).toBe(1)
+
+  releaseResolve()
+  await expect(page.getByText('Report resolved successfully.')).toBeVisible()
+})
+
+test('resolve failure displays an error and leaves report unresolved', async ({ page }) => {
+  const fieldReports = [
+    {
+      id: 'report-open',
+      field_id: 'field-open',
+      field_name: 'Open Court',
+      user_id: 'reporter-open',
+      reporter_name: 'Open Reporter',
+      reporter_email: 'open@example.com',
+      category: 'wrong_information',
+      description: 'Needs review',
+      status: 'open',
+      created_at: '2026-06-22T10:00:00.000Z',
+      reviewed_at: null,
+      reviewed_by: null,
+    },
+  ]
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    fieldReports,
+    resolveHandler: (route) =>
+      fulfillJson(route, { error: true, code: 'DATABASE_ERROR', message: 'Failed to resolve field report' }, 500),
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports' }).click()
+  await page.getByRole('row', { name: /Open Court/ }).getByRole('button', { name: 'Resolve' }).click()
+  await page.getByRole('button', { name: 'Resolve', exact: true }).last().click()
+
+  await expect(page.getByText('Failed to resolve field report')).toBeVisible()
+  const row = page.getByRole('row', { name: /Open Court/ })
+  await expect(row).toContainText('Open')
+  await expect(row.getByRole('button', { name: 'Resolve' })).toBeVisible()
 })
