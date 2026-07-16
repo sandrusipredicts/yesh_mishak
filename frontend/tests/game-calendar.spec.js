@@ -131,6 +131,34 @@ test.beforeEach(async ({ page }) => {
 // simulation needed, same reasoning as mockNativeShare() in
 // game-sharing.spec.js for @capacitor/share's web implementation.
 
+test('shows the Add to calendar button for an upcoming/scheduled game (manual-verification regression)', async ({ page }) => {
+  // Reproduces the exact scenario from manual Android verification: a field
+  // with no active_game, only a scheduled game in upcoming_games, rendered
+  // through FieldDetailsPanel's second GamePanel call site (the
+  // `.upcoming-games-section` / `.upcoming-game-card` list), not the
+  // `.active-game-summary` one used by every other test in this file.
+  const scheduledGame = {
+    ...openGame,
+    scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  }
+  await mockMapPageRequests(page, {
+    fields: [{ ...baseField, active_game: null, upcoming_games: [scheduledGame] }],
+  })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('heading', { name: 'Upcoming games' })).toBeVisible()
+  await expect(
+    page.locator('.upcoming-game-card').getByRole('button', { name: 'Add to calendar' }),
+  ).toBeVisible()
+  // Same regression coverage for the two pre-existing actions that share
+  // isGameShareable() with the calendar button, to distinguish a real
+  // code regression from a stale/old build missing all three equally.
+  await expect(
+    page.locator('.upcoming-game-card').getByRole('button', { name: 'Copy game link' }),
+  ).toBeVisible()
+})
+
 test('shows the Add to calendar button for an open game', async ({ page }) => {
   await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
 
