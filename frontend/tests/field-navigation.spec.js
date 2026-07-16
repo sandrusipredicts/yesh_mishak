@@ -94,7 +94,7 @@ async function makeWindowOpenFail(page) {
 
 async function mockNativeWazeLauncher(
   page,
-  { canOpenNative = true, nativeCompleted = true, httpsCompleted = true } = {},
+  { openUrlCompleted = true, openUrlRejects = false } = {},
 ) {
   await page.addInitScript((config) => {
     window.androidBridge = {}
@@ -145,12 +145,12 @@ async function mockNativeWazeLauncher(
         if (plugin === 'AppLauncher') {
           window.__appLauncherCalls.push({ method, url: options.url })
           if (method === 'canOpenUrl') {
-            return Promise.resolve({ value: config.canOpenNative })
+            return Promise.resolve({ value: true })
           }
-          if (options.url.startsWith('waze://')) {
-            return Promise.resolve({ completed: config.nativeCompleted })
+          if (config.openUrlRejects) {
+            return Promise.reject(new Error('Launch rejected'))
           }
-          return Promise.resolve({ completed: config.httpsCompleted })
+          return Promise.resolve({ completed: config.openUrlCompleted })
         }
         return Promise.resolve()
       },
@@ -161,7 +161,7 @@ async function mockNativeWazeLauncher(
         return ''
       },
     }
-  }, { canOpenNative, nativeCompleted, httpsCompleted })
+  }, { openUrlCompleted, openUrlRejects })
 }
 
 async function mockMapPageRequests(page, fields) {
@@ -207,7 +207,7 @@ test('opens Waze and Google Maps navigation links for a field', async ({ page })
     .poll(() => page.evaluate(() => window.__openedUrls))
     .toEqual([
       {
-        url: 'https://waze.com/ul?ll=31.225172,34.777498&navigate=yes',
+        url: 'https://waze.com/ul?ll=31.225172%2C34.777498&navigate=yes',
         target: '_blank',
         features: 'noopener,noreferrer',
       },
@@ -245,7 +245,7 @@ test('rejects invalid Google Maps coordinates without attempting a launch', asyn
   await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
-test('launches Waze with the native scheme when it is available', async ({ page }) => {
+test('launches Waze natively with the universal-link destination populated', async ({ page }) => {
   await mockNativeWazeLauncher(page)
   await page.goto('/')
   const result = await page.evaluate(async ({ latitude, longitude }) => {
@@ -257,37 +257,37 @@ test('launches Waze with the native scheme when it is available', async ({ page 
   await expect
     .poll(() => page.evaluate(() => window.__appLauncherCalls))
     .toEqual([
-      { method: 'canOpenUrl', url: 'waze://' },
       {
         method: 'openUrl',
-        url: 'waze://?ll=31.225172,34.777498&navigate=yes',
+        url: 'https://waze.com/ul?ll=31.225172%2C34.777498&navigate=yes',
       },
     ])
   await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
 })
 
-test('falls back to the Waze HTTPS URL when the native app is unavailable', async ({ page }) => {
-  await mockNativeWazeLauncher(page, { canOpenNative: false })
+test('launches Waze natively with numeric-string coordinates', async ({ page }) => {
+  await mockNativeWazeLauncher(page)
   await page.goto('/')
-  const result = await page.evaluate(async ({ latitude, longitude }) => {
+  const result = await page.evaluate(async () => {
     const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
-    return launchWazeNavigation(latitude, longitude)
-  }, navigableField)
+    return launchWazeNavigation('31.225172', '34.777498')
+  })
 
-  expect(result).toEqual({ opened: true, mechanism: 'https' })
+  expect(result).toEqual({ opened: true, mechanism: 'native' })
   await expect
     .poll(() => page.evaluate(() => window.__appLauncherCalls))
     .toEqual([
-      { method: 'canOpenUrl', url: 'waze://' },
       {
         method: 'openUrl',
-        url: 'https://waze.com/ul?ll=31.225172,34.777498&navigate=yes',
+        url: 'https://waze.com/ul?ll=31.225172%2C34.777498&navigate=yes',
       },
     ])
 })
 
-test('keeps the navigation flow open when Waze cannot be launched', async ({ page }) => {
-  await mockNativeWazeLauncher(page, { nativeCompleted: false, httpsCompleted: false })
+test('keeps the navigation flow open when the native Waze launch does not complete', async ({
+  page,
+}) => {
+  await mockNativeWazeLauncher(page, { openUrlCompleted: false })
   await page.goto('/')
   const result = await page.evaluate(async ({ latitude, longitude }) => {
     const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
@@ -298,16 +298,42 @@ test('keeps the navigation flow open when Waze cannot be launched', async ({ pag
   await expect
     .poll(() => page.evaluate(() => window.__appLauncherCalls))
     .toEqual([
-      { method: 'canOpenUrl', url: 'waze://' },
       {
         method: 'openUrl',
-        url: 'waze://?ll=31.225172,34.777498&navigate=yes',
-      },
-      {
-        method: 'openUrl',
-        url: 'https://waze.com/ul?ll=31.225172,34.777498&navigate=yes',
+        url: 'https://waze.com/ul?ll=31.225172%2C34.777498&navigate=yes',
       },
     ])
+})
+
+test('keeps the navigation flow open when the native Waze launch rejects', async ({ page }) => {
+  await mockNativeWazeLauncher(page, { openUrlRejects: true })
+  await page.goto('/')
+  const result = await page.evaluate(async ({ latitude, longitude }) => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(latitude, longitude)
+  }, navigableField)
+
+  expect(result).toEqual({ opened: false, reason: 'launch_failed' })
+  await expect
+    .poll(() => page.evaluate(() => window.__appLauncherCalls))
+    .toEqual([
+      {
+        method: 'openUrl',
+        url: 'https://waze.com/ul?ll=31.225172%2C34.777498&navigate=yes',
+      },
+    ])
+  await expect.poll(() => page.evaluate(() => window.__openedUrls)).toEqual([])
+})
+
+test('returns launch_failed when the Waze browser popup cannot be opened', async ({ page }) => {
+  await makeWindowOpenFail(page)
+  await page.goto('/')
+  const result = await page.evaluate(async ({ latitude, longitude }) => {
+    const { launchWazeNavigation } = await import('/src/api/wazeNavigation.js')
+    return launchWazeNavigation(latitude, longitude)
+  }, navigableField)
+
+  expect(result).toEqual({ opened: false, reason: 'launch_failed' })
 })
 
 test('rejects invalid Waze coordinates without attempting a launch', async ({ page }) => {

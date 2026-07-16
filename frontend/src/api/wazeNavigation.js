@@ -1,8 +1,6 @@
 import { AppLauncher } from '@capacitor/app-launcher'
 import { Capacitor } from '@capacitor/core'
-import { parseValidCoordinates } from '../utils/coordinates'
-
-const WAZE_SCHEME = 'waze://'
+import { parseValidCoordinates } from '../utils/coordinates.js'
 
 function getValidatedDestination(latitude, longitude) {
   const coordinates = parseValidCoordinates(latitude, longitude)
@@ -19,10 +17,11 @@ export function buildWazeNavigationUrls(latitude, longitude) {
     return null
   }
 
-  const query = `ll=${destination}&navigate=yes`
+  // Waze's documented universal link is the only launch target. Android routes
+  // it into the installed Waze app with the destination intact; the waze://
+  // custom scheme opens the app but drops the ll/navigate parameters.
   return {
-    nativeUrl: `${WAZE_SCHEME}?${query}`,
-    httpsUrl: `https://waze.com/ul?${query}`,
+    httpsUrl: `https://waze.com/ul?ll=${encodeURIComponent(destination)}&navigate=yes`,
   }
 }
 
@@ -48,21 +47,9 @@ export async function launchWazeNavigation(latitude, longitude) {
   }
 
   try {
-    const { value: canOpenNative } = await AppLauncher.canOpenUrl({ url: WAZE_SCHEME })
-    if (canOpenNative) {
-      const { completed } = await AppLauncher.openUrl({ url: urls.nativeUrl })
-      if (completed) {
-        return { opened: true, mechanism: 'native' }
-      }
-    }
-  } catch {
-    // Continue to the supported Waze HTTPS fallback.
-  }
-
-  try {
     const { completed } = await AppLauncher.openUrl({ url: urls.httpsUrl })
     return completed
-      ? { opened: true, mechanism: 'https' }
+      ? { opened: true, mechanism: 'native' }
       : { opened: false, reason: 'launch_failed' }
   } catch {
     return { opened: false, reason: 'launch_failed' }
