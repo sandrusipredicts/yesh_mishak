@@ -501,6 +501,13 @@ function App() {
   }, [currentUserId, applyDeepLinkTarget])
 
   const handleLogout = useCallback(() => {
+    // Snapshot the session token before anything below clears it. clearSession()
+    // (called later in this function) nulls the in-memory token synchronously,
+    // before axios's request interceptor — a deferred microtask — ever reads it
+    // for the push-token unregister call, so that call needs its own pinned
+    // Authorization header instead of relying on the interceptor.
+    const logoutAuthToken = getToken()
+
     // Invalidate any in-flight or deduplicated session validation before
     // clearing storage so a late /games/me success cannot restore the user.
     sessionEpochRef.current += 1
@@ -522,8 +529,12 @@ function App() {
     const pushToken = getCurrentToken()
     if (pushToken) {
       console.info('[E04-01 PUSH DEBUG] logout: deleting push token')
-      deletePushToken(pushToken).catch((deleteError) => {
+      deletePushToken(pushToken, { authToken: logoutAuthToken }).catch((deleteError) => {
         console.warn('[E04-01 PUSH DEBUG] logout: token delete failed', deleteError)
+        // The row is not orphaned indefinitely: the next login/account switch
+        // re-registers this installation's token, and the backend reassigns
+        // ownership by token identity regardless of whether this delete
+        // ever landed (backend/app/routers/notifications.py:save_push_token).
       })
     }
     teardownNativePush()
