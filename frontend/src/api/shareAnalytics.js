@@ -108,7 +108,7 @@ function submitEvent(payload, options = {}) {
         return options.post('/analytics/share-events', payload)
       }
       const { api } = await import('./client.js')
-      return api.post('/analytics/share-events', payload)
+      return api.post('/analytics/share-events', payload, { skipAuthSessionCleanup: true })
     })
     .catch((error) => {
       console.warn('Share analytics submission failed.', error?.response?.status || error?.message || error)
