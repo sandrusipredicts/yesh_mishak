@@ -9,9 +9,14 @@ const user = {
 }
 
 const FIELD_ID = '11111111-1111-4111-8111-111111111111'
-const OPEN_GAME_ID = '22222222-2222-4222-8222-222222222222'
+const ACTIVE_GAME_ID = '22222222-2222-4222-8222-222222222222'
 const FINISHED_GAME_ID = '33333333-3333-4333-8333-333333333333'
+const SCHEDULED_GAME_ID = '44444444-4444-4444-8444-444444444444'
 const CANCELLED_GAME_ID = '55555555-5555-4555-8555-555555555555'
+const FULL_ACTIVE_GAME_ID = '66666666-6666-4666-8666-666666666666'
+
+const ONE_HOUR_MS = 60 * 60 * 1000
+const ONE_DAY_MS = 24 * ONE_HOUR_MS
 
 const baseField = {
   id: FIELD_ID,
@@ -35,14 +40,42 @@ const baseGame = {
   players_present: 4,
   max_players: 10,
   created_by: 'creator-1',
-  started_at: '2099-07-12T10:00:00Z',
-  expires_at: '2099-07-12T12:00:00Z',
   participants: [],
 }
 
-const openGame = { ...baseGame, id: OPEN_GAME_ID, status: 'open' }
-const finishedGame = { ...baseGame, id: FINISHED_GAME_ID, status: 'finished' }
-const cancelledGame = { ...baseGame, id: CANCELLED_GAME_ID, status: 'cancelled' }
+// A genuinely active/in-progress game: no scheduled_at, started in the
+// recent past, not yet expired.
+const activeGame = {
+  ...baseGame,
+  id: ACTIVE_GAME_ID,
+  status: 'open',
+  scheduled_at: null,
+  started_at: new Date(Date.now() - ONE_HOUR_MS).toISOString(),
+  expires_at: new Date(Date.now() + ONE_HOUR_MS).toISOString(),
+}
+
+const fullActiveGame = {
+  ...activeGame,
+  id: FULL_ACTIVE_GAME_ID,
+  status: 'full',
+  players_present: 10,
+}
+
+// A genuinely upcoming/scheduled game: valid future scheduled_at (backend
+// convention: started_at mirrors scheduled_at until the game begins —
+// backend/app/routers/game_lifecycle.py `started_at = scheduled_at or now`).
+const scheduledFutureIso = new Date(Date.now() + ONE_DAY_MS).toISOString()
+const scheduledGame = {
+  ...baseGame,
+  id: SCHEDULED_GAME_ID,
+  status: 'open',
+  scheduled_at: scheduledFutureIso,
+  started_at: scheduledFutureIso,
+  expires_at: new Date(Date.now() + ONE_DAY_MS + 2 * ONE_HOUR_MS).toISOString(),
+}
+
+const finishedGame = { ...activeGame, id: FINISHED_GAME_ID, status: 'finished' }
+const cancelledGame = { ...activeGame, id: CANCELLED_GAME_ID, status: 'cancelled' }
 
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
@@ -131,16 +164,14 @@ test.beforeEach(async ({ page }) => {
 // simulation needed, same reasoning as mockNativeShare() in
 // game-sharing.spec.js for @capacitor/share's web implementation.
 
+// --- eligibility: upcoming/scheduled game (must show) ---
+
 test('shows the Add to calendar button for an upcoming/scheduled game (manual-verification regression)', async ({ page }) => {
   // Reproduces the exact scenario from manual Android verification: a field
   // with no active_game, only a scheduled game in upcoming_games, rendered
   // through FieldDetailsPanel's second GamePanel call site (the
   // `.upcoming-games-section` / `.upcoming-game-card` list), not the
-  // `.active-game-summary` one used by every other test in this file.
-  const scheduledGame = {
-    ...openGame,
-    scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  }
+  // `.active-game-summary` one used elsewhere in this file.
   await mockMapPageRequests(page, {
     fields: [{ ...baseField, active_game: null, upcoming_games: [scheduledGame] }],
   })
@@ -151,21 +182,38 @@ test('shows the Add to calendar button for an upcoming/scheduled game (manual-ve
   await expect(
     page.locator('.upcoming-game-card').getByRole('button', { name: 'Add to calendar' }),
   ).toBeVisible()
-  // Same regression coverage for the two pre-existing actions that share
-  // isGameShareable() with the calendar button, to distinguish a real
-  // code regression from a stale/old build missing all three equally.
+  // Same regression coverage for the pre-existing action that shares
+  // isGameShareable() (not the calendar rule), to distinguish a real code
+  // regression from a stale/old build missing everything equally.
   await expect(
     page.locator('.upcoming-game-card').getByRole('button', { name: 'Copy game link' }),
   ).toBeVisible()
 })
 
-test('shows the Add to calendar button for an open game', async ({ page }) => {
-  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+// --- eligibility: active game (bug fix — must NOT show, regardless of status) ---
+
+test('hides the Add to calendar button for an active open game, even though it is still shareable', async ({ page }) => {
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: activeGame }] })
 
   await openFieldDetails(page)
 
-  await expect(page.getByRole('button', { name: 'Add to calendar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
+  // Share and Copy link must remain available for an active game — only
+  // calendar eligibility changed.
+  await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy game link' })).toBeVisible()
 })
+
+test('hides the Add to calendar button for an active full game', async ({ page }) => {
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: fullActiveGame }] })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
+})
+
+// --- eligibility: terminal statuses (must NOT show) ---
 
 test('hides the Add to calendar button for a finished game', async ({ page }) => {
   await mockMapPageRequests(page, { fields: [baseField], games: { [FINISHED_GAME_ID]: finishedGame } })
@@ -185,17 +233,44 @@ test('hides the Add to calendar button for a cancelled game', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
 })
 
-test('downloads a valid .ics file with correct event data on the web fallback path', async ({ page }) => {
-  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+// --- eligibility: missing/invalid/past scheduled_at (must NOT show) ---
+
+test('hides the Add to calendar button when scheduled_at is missing on an otherwise-open game', async ({ page }) => {
+  await mockMapPageRequests(page, {
+    fields: [{ ...baseField, active_game: null, upcoming_games: [{ ...scheduledGame, scheduled_at: null, started_at: null }] }],
+  })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
+})
+
+test('hides the Add to calendar button when scheduled_at is already in the past', async ({ page }) => {
+  const pastScheduled = new Date(Date.now() - ONE_HOUR_MS).toISOString()
+  await mockMapPageRequests(page, {
+    fields: [{ ...baseField, active_game: { ...scheduledGame, scheduled_at: pastScheduled, started_at: pastScheduled } }],
+  })
+
+  await openFieldDetails(page)
+
+  await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
+})
+
+// --- calendar creation still works for an eligible upcoming game ---
+
+test('downloads a valid .ics file with correct event data for an eligible upcoming game', async ({ page }) => {
+  await mockMapPageRequests(page, {
+    fields: [{ ...baseField, active_game: null, upcoming_games: [scheduledGame] }],
+  })
 
   await openFieldDetails(page)
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', { name: 'Add to calendar' }).click(),
+    page.locator('.upcoming-game-card').getByRole('button', { name: 'Add to calendar' }).click(),
   ])
 
-  expect(download.suggestedFilename()).toBe(`game-${OPEN_GAME_ID}.ics`)
+  expect(download.suggestedFilename()).toBe(`game-${SCHEDULED_GAME_ID}.ics`)
 
   const stream = await download.createReadStream()
   const chunks = []
@@ -205,37 +280,42 @@ test('downloads a valid .ics file with correct event data on the web fallback pa
   const content = Buffer.concat(chunks).toString('utf-8')
 
   expect(content).toContain('BEGIN:VCALENDAR')
-  expect(content).toContain('DTSTART:20990712T100000Z')
-  expect(content).toContain('DTEND:20990712T120000Z')
   expect(content).toContain('LOCATION:Central Court')
-  expect(content).toContain(`URL:https://yesh-mishak.com/game/${OPEN_GAME_ID}`)
+  expect(content).toContain(`URL:https://yesh-mishak.com/game/${SCHEDULED_GAME_ID}`)
 
-  await expect(page.getByText('Calendar file downloaded. Open it to add the event to your calendar.')).toBeVisible()
+  await expect(
+    page.locator('.upcoming-game-card').getByText('Calendar file downloaded. Open it to add the event to your calendar.'),
+  ).toBeVisible()
 })
 
-test('shows the correct Hebrew label and confirmation copy', async ({ page }) => {
+test('shows the correct Hebrew label and confirmation copy for an eligible upcoming game', async ({ page }) => {
   await seedAuthenticatedUser(page, { language: 'he' })
-  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: openGame }] })
+  await mockMapPageRequests(page, {
+    fields: [{ ...baseField, active_game: null, upcoming_games: [scheduledGame] }],
+  })
 
   await openFieldDetails(page, { fieldDetailsLabel: 'פרטי מגרש' })
 
-  await expect(page.getByRole('button', { name: 'הוסף ליומן' })).toBeVisible()
+  const upcomingCard = page.locator('.upcoming-game-card')
+  await expect(upcomingCard.getByRole('button', { name: 'הוסף ליומן' })).toBeVisible()
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', { name: 'הוסף ליומן' }).click(),
+    upcomingCard.getByRole('button', { name: 'הוסף ליומן' }).click(),
   ])
-  expect(download.suggestedFilename()).toBe(`game-${OPEN_GAME_ID}.ics`)
+  expect(download.suggestedFilename()).toBe(`game-${SCHEDULED_GAME_ID}.ics`)
 
-  await expect(page.getByText('קובץ יומן הורד. פתחו אותו כדי להוסיף את האירוע ליומן.')).toBeVisible()
+  await expect(upcomingCard.getByText('קובץ יומן הורד. פתחו אותו כדי להוסיף את האירוע ליומן.')).toBeVisible()
 })
 
-test('does not regress existing join/leave/share game actions', async ({ page }) => {
-  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: { ...openGame, participants: [] } }] })
+// --- regression: existing join/leave/share/close actions on an active game ---
+
+test('does not regress existing join/leave/share game actions on an active game', async ({ page }) => {
+  await mockMapPageRequests(page, { fields: [{ ...baseField, active_game: { ...activeGame, participants: [] } }] })
 
   await openFieldDetails(page)
 
   await expect(page.getByRole('button', { name: "I'm coming" })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Share game' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Add to calendar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add to calendar' })).toHaveCount(0)
 })

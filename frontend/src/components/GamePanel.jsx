@@ -10,6 +10,7 @@ import { cancelGameReminder, getStoredGameReminder, scheduleGameReminder } from 
 import { addGameToCalendar } from '../api/gameCalendar'
 import { isNativeRuntime } from '../api/sessionStorage'
 import { isGameShareable } from '../utils/gameShareability'
+import { isGameCalendarEligible } from '../utils/gameCalendarEligibility'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -163,6 +164,12 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
   // about a game you're not attending, or one already underway, is not
   // useful and would need different eligibility rules.
   const canOfferReminder = Boolean(gameId) && isUpcomingGame && isParticipant && isNativeRuntime()
+  // Calendar eligibility (E07-01) is deliberately its own rule, not
+  // isGameShareable(): a calendar event is only useful before a game
+  // happens, so it must be offered for a genuinely upcoming/scheduled game
+  // only — never once the game is active, regardless of its open/full
+  // status.
+  const canOfferCalendar = Boolean(gameId) && isGameCalendarEligible(game, { now })
   // Derived, not synced: read directly from storage during render, the same
   // way normalizedCurrentUserId reads getStoredSessionUserId() above — a
   // cheap localStorage lookup needs no memoization, and any setState call
@@ -557,7 +564,7 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
           </button>
         ) : null}
 
-        {gameId && isGameShareable(game) ? (
+        {canOfferCalendar ? (
           <button
             type="button"
             className="secondary-panel-button"
