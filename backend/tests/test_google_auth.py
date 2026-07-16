@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -141,6 +143,18 @@ class FakeUserIdentitiesQuery:
         return {column: row.get(column) for column in self.selected_columns}
 
 
+class FakeRpc:
+    def __init__(self, client: "FakeSupabaseClient", name: str, params: dict[str, Any]) -> None:
+        self.client = client
+        self.name = name
+        self.params = params
+
+    def execute(self) -> FakeResponse:
+        if self.name != "resolve_google_login":
+            raise AssertionError(f"Unexpected RPC: {self.name}")
+        return FakeResponse([self.client.resolve_google_login(self.params)])
+
+
 class FakeSupabaseClient:
     def __init__(
         self,
@@ -152,6 +166,7 @@ class FakeSupabaseClient:
         self.users = users or []
         self.identities = identities or []
         self.fail_last_login_without_phone = fail_last_login_without_phone
+        self._identity_lock = Lock()
 
     def table(self, table_name: str) -> Any:
         if table_name == "users":
@@ -164,10 +179,88 @@ class FakeSupabaseClient:
         else:
             raise ValueError(f"Unknown table: {table_name}")
 
+    def rpc(self, name: str, params: dict[str, Any]) -> FakeRpc:
+        return FakeRpc(self, name, params)
+
+    def resolve_google_login(self, params: dict[str, Any]) -> dict[str, Any]:
+        subject = params["p_provider_subject"].strip()
+        email = params["p_email"].strip().lower()
+
+        with self._identity_lock:
+            identity = next(
+                (
+                    row
+                    for row in self.identities
+                    if row["provider"] == "google" and row["provider_subject"] == subject
+                ),
+                None,
+            )
+            if identity:
+                identity["email_at_link"] = email
+                return {"result": "existing", "user_id": identity["user_id"]}
+
+            legacy_user = next((row for row in self.users if row.get("google_sub") == subject), None)
+            if legacy_user:
+                current_identity = next(
+                    (
+                        row
+                        for row in self.identities
+                        if row["provider"] == "google" and row["user_id"] == legacy_user["id"]
+                    ),
+                    None,
+                )
+                if current_identity and current_identity["provider_subject"] != subject:
+                    return {"result": "identity_data_conflict", "user_id": None}
+                if current_identity is None:
+                    self.identities.append(
+                        {
+                            "id": f"identity-id-{len(self.identities) + 1}",
+                            "user_id": legacy_user["id"],
+                            "provider": "google",
+                            "provider_subject": subject,
+                            "email_at_link": email,
+                            "email_verified_at_link": True,
+                        }
+                    )
+                return {"result": "existing", "user_id": legacy_user["id"]}
+
+            existing_email_user = next(
+                (row for row in self.users if (row.get("email") or "").strip().lower() == email),
+                None,
+            )
+            if existing_email_user:
+                return {"result": "account_link_required", "user_id": existing_email_user["id"]}
+
+            user = {
+                "id": f"user-id-{len(self.users) + 1}",
+                "role": "user",
+                "username": None,
+                "phone_number": None,
+                "password_hash": None,
+                "google_sub": subject,
+                "email": email,
+                "name": params["p_name"],
+                "picture": params.get("p_picture"),
+                "email_verified": True,
+            }
+            self.users.append(user)
+            self.identities.append(
+                {
+                    "id": f"identity-id-{len(self.identities) + 1}",
+                    "user_id": user["id"],
+                    "provider": "google",
+                    "provider_subject": subject,
+                    "email_at_link": email,
+                    "email_verified_at_link": True,
+                }
+            )
+            return {"result": "created", "user_id": user["id"]}
+
 
 def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
     monkeypatch.setenv("JWT_SECRET", "test-secret")
     get_settings.cache_clear()
@@ -176,6 +269,8 @@ def configure_test_settings(monkeypatch) -> None:
 def patch_google_token_verifier(monkeypatch, token_claims: dict[str, dict[str, str]]) -> None:
     def fake_verify_oauth2_token(token: str, request: Any, audience: str) -> dict[str, str]:
         assert audience == "test-google-client"
+        if token not in token_claims:
+            raise ValueError("invalid token")
         return token_claims[token]
 
     monkeypatch.setattr("app.auth.google.id_token.verify_oauth2_token", fake_verify_oauth2_token)
@@ -184,7 +279,7 @@ def patch_google_token_verifier(monkeypatch, token_claims: dict[str, dict[str, s
 def test_google_login_create_logout_and_login_again_without_phone_or_username(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -217,7 +312,7 @@ def test_google_login_create_logout_and_login_again_without_phone_or_username(mo
     assert second_response.json()["user"]["username"] is None
 
 
-def test_google_login_allows_existing_user_without_phone_username_or_google_sub(monkeypatch) -> None:
+def test_google_login_existing_email_without_identity_requires_explicit_link(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     existing_user = {
         "id": "00000000-0000-0000-0000-000000000202",
@@ -229,7 +324,7 @@ def test_google_login_allows_existing_user_without_phone_username_or_google_sub(
         "role": "user",
     }
     fake_client = FakeSupabaseClient([existing_user])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -244,15 +339,10 @@ def test_google_login_allows_existing_user_without_phone_username_or_google_sub(
 
     response = TestClient(app).post("/auth/google", json={"token": "valid-google-token"})
 
-    assert response.status_code == 200
-    assert response.json()["user"] == {
-        "id": existing_user["id"],
-        "email": existing_user["email"],
-        "name": existing_user["name"],
-        "username": None,
-        "phone_number": None,
-    }
-    assert existing_user["last_login"]
+    assert response.status_code == 409
+    assert response.json()["code"] == "ACCOUNT_LINK_REQUIRED"
+    assert fake_client.identities == []
+    assert existing_user["google_sub"] is None
 
 
 def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_phone(monkeypatch) -> None:
@@ -270,7 +360,7 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
         [existing_user],
         fail_last_login_without_phone=True,
     )
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -287,13 +377,14 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
 
     assert response.status_code == 200
     assert response.json()["user"]["id"] == existing_user["id"]
+    assert fake_client.identities[0]["provider_subject"] == "google-sub-1"
     assert "last_login" not in existing_user
 
 
 def test_google_login_rejects_unverified_email(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -317,7 +408,7 @@ def test_google_login_rejects_unverified_email(monkeypatch) -> None:
 def test_google_login_rejects_missing_email_verified(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -349,7 +440,7 @@ def test_google_login_rejects_unverified_email_for_existing_user(monkeypatch) ->
         "role": "user",
     }
     fake_client = FakeSupabaseClient([existing_user])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -372,7 +463,7 @@ def test_google_login_rejects_unverified_email_for_existing_user(monkeypatch) ->
 def test_google_login_accepts_verified_email(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -412,7 +503,7 @@ def test_google_login_existing_linked_subject_logs_in(monkeypatch) -> None:
         "provider_subject": "google-sub-existing",
     }
     fake_client = FakeSupabaseClient([existing_user], [existing_identity])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -434,7 +525,7 @@ def test_google_login_existing_linked_subject_logs_in(monkeypatch) -> None:
 def test_google_login_new_user_creates_user_and_identity(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -458,7 +549,7 @@ def test_google_login_new_user_creates_user_and_identity(monkeypatch) -> None:
     assert fake_client.identities[0]["user_id"] == fake_client.users[0]["id"]
 
 
-def test_google_login_provider_only_user_links_identity(monkeypatch) -> None:
+def test_google_login_provider_only_email_match_still_requires_explicit_link(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     existing_user = {
         "id": "provider-only-uuid",
@@ -471,7 +562,7 @@ def test_google_login_provider_only_user_links_identity(monkeypatch) -> None:
         "role": "user",
     }
     fake_client = FakeSupabaseClient([existing_user], [])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -485,11 +576,10 @@ def test_google_login_provider_only_user_links_identity(monkeypatch) -> None:
     )
 
     response = TestClient(app).post("/auth/google", json={"token": "google-token"})
-    assert response.status_code == 200
-    assert len(fake_client.identities) == 1
-    assert fake_client.identities[0]["provider_subject"] == "google-sub-provider"
-    assert fake_client.identities[0]["user_id"] == "provider-only-uuid"
-    assert existing_user["google_sub"] == "google-sub-provider"
+    assert response.status_code == 409
+    assert response.json()["code"] == "ACCOUNT_LINK_REQUIRED"
+    assert fake_client.identities == []
+    assert existing_user["google_sub"] is None
 
 
 def test_google_login_manual_password_user_gets_409_conflict(monkeypatch) -> None:
@@ -505,7 +595,7 @@ def test_google_login_manual_password_user_gets_409_conflict(monkeypatch) -> Non
         "role": "user",
     }
     fake_client = FakeSupabaseClient([existing_user], [])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_google_token_verifier(
         monkeypatch,
@@ -522,9 +612,45 @@ def test_google_login_manual_password_user_gets_409_conflict(monkeypatch) -> Non
     assert response.status_code == 409
     body = response.json()
     assert body["error"] is True
-    assert body["code"] == "ACCOUNT_LINKING_REQUIRED"
-    assert "Please sign in with your password" in body["message"]
+    assert body["code"] == "ACCOUNT_LINK_REQUIRED"
+    assert "connect Google from Settings" in body["message"]
 
     # Verify no JWT was issued and no identities or google_sub were updated
     assert len(fake_client.identities) == 0
     assert existing_user["google_sub"] is None
+
+
+def test_google_login_rejects_invalid_token(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_token_verifier(monkeypatch, {})
+
+    response = TestClient(app).post("/auth/google", json={"token": "invalid-token"})
+
+    assert response.status_code == 401
+    assert fake_client.users == []
+    assert fake_client.identities == []
+
+
+def test_concurrent_google_login_resolution_creates_one_user_and_identity(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+
+    from app.auth.google import find_or_create_google_user
+
+    google_user = {
+        "google_sub": "concurrent-google-sub",
+        "email": "concurrent@example.com",
+        "name": "Concurrent User",
+        "picture": None,
+    }
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        users = list(executor.map(lambda _: find_or_create_google_user(google_user), range(16)))
+
+    assert {user["id"] for user in users} == {fake_client.users[0]["id"]}
+    assert len(fake_client.users) == 1
+    assert len(fake_client.identities) == 1

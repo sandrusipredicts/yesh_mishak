@@ -65,9 +65,9 @@ revoke all on function public.revoke_user_tokens(uuid) from public, anon, authen
 grant execute on function public.revoke_user_tokens(uuid) to service_role;
 
 
--- Redefine the E01-04 account-linking mutations so their tokens_valid_after
--- write is monotonic too. Bodies are otherwise unchanged from
--- account_linking_actions.sql.
+-- Redefine the E01-04 account mutations. Linking is additive and deliberately
+-- does not revoke sessions; unlink/password changes below keep monotonic
+-- tokens_valid_after updates.
 
 create or replace function public.link_google_identity(
     p_user_id uuid,
@@ -79,25 +79,94 @@ language plpgsql
 security definer
 set search_path = pg_catalog
 as $$
+declare
+    v_user public.users%rowtype;
+    v_subject text := pg_catalog.btrim(p_provider_subject);
+    v_email text := pg_catalog.lower(pg_catalog.btrim(p_email_at_link));
+    v_identity_user_id uuid;
+    v_current_subject text;
 begin
-    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_user_id::text, 3));
+    if v_subject = '' or v_email = '' then
+        return query select 'invalid_claims'::text;
+        return;
+    end if;
 
-    if not exists (select 1 from public.users where id = p_user_id) then
+    perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('user:' || p_user_id::text, 3)
+    );
+    perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('google-sub:' || v_subject, 7)
+    );
+    perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('google-email:' || v_email, 7)
+    );
+
+    select * into v_user
+    from public.users
+    where id = p_user_id
+    for update;
+
+    if not found then
         return query select 'user_not_found'::text;
         return;
     end if;
 
-    if exists (
-        select 1 from public.user_identities
-        where user_id = p_user_id and provider = 'google'
-    ) then
+    select ui.user_id into v_identity_user_id
+    from public.user_identities ui
+    where ui.provider = 'google' and ui.provider_subject = v_subject
+    for update;
+
+    if found then
+        if v_identity_user_id <> p_user_id then
+            return query select 'conflict_other_user'::text;
+            return;
+        end if;
+
+        if v_user.google_sub is not null and v_user.google_sub <> v_subject then
+            return query select 'identity_data_conflict'::text;
+            return;
+        end if;
+
+        if exists (
+            select 1 from public.users
+            where google_sub = v_subject and id <> p_user_id
+        ) then
+            return query select 'identity_data_conflict'::text;
+            return;
+        end if;
+
+        update public.users
+        set google_sub = v_subject
+        where id = p_user_id and google_sub is null;
+
+        update public.user_identities
+        set last_used_at = pg_catalog.now(),
+            email_at_link = v_email,
+            email_verified_at_link = true
+        where provider = 'google' and provider_subject = v_subject;
+
+        return query select 'already_linked_same'::text;
+        return;
+    end if;
+
+    select ui.provider_subject into v_current_subject
+    from public.user_identities ui
+    where ui.user_id = p_user_id and ui.provider = 'google'
+    for update;
+
+    if found then
+        return query select 'already_linked'::text;
+        return;
+    end if;
+
+    if v_user.google_sub is not null and v_user.google_sub <> v_subject then
         return query select 'already_linked'::text;
         return;
     end if;
 
     if exists (
-        select 1 from public.user_identities
-        where provider = 'google' and provider_subject = p_provider_subject
+        select 1 from public.users
+        where google_sub = v_subject and id <> p_user_id
     ) then
         return query select 'conflict_other_user'::text;
         return;
@@ -105,21 +174,23 @@ begin
 
     if exists (
         select 1 from public.users
-        where google_sub = p_provider_subject and id <> p_user_id
+        where pg_catalog.lower(pg_catalog.btrim(email)) = v_email
+          and id <> p_user_id
     ) then
-        return query select 'conflict_other_user'::text;
+        return query select 'email_conflict_other_user'::text;
         return;
     end if;
 
     insert into public.user_identities (
         user_id, provider, provider_subject, email_at_link, email_verified_at_link
     ) values (
-        p_user_id, 'google', p_provider_subject, p_email_at_link, true
+        p_user_id, 'google', v_subject, v_email, true
     );
 
+    -- Linking is additive; unlike unlink/password changes it must not revoke
+    -- the authenticated session that authorized it.
     update public.users
-    set google_sub = p_provider_subject,
-        tokens_valid_after = greatest(coalesce(tokens_valid_after, to_timestamp(0)), pg_catalog.now())
+    set google_sub = v_subject
     where id = p_user_id;
 
     return query select 'linked'::text;

@@ -52,15 +52,21 @@ const AUTH_ERROR_RESULTS = {
 const NETWORK_ERROR_CODES = new Set(['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'])
 const VERIFICATION_STATUSES = new Set([400, 401, 403])
 
+export function isAccountLinkRequiredError(error) {
+  const status = error?.response?.status
+  const data = error?.response?.data
+  const code = data?.code || data?.detail?.code
+
+  return status === 409 && ['ACCOUNT_LINK_REQUIRED', 'ACCOUNT_LINKING_REQUIRED'].includes(code)
+}
+
 export function mapNativeAuthError(error) {
   if (error?.code === 'USER_CANCELLED') {
     return AUTH_ERROR_RESULTS.cancelled
   }
 
   const status = error?.response?.status
-  const detail = error?.response?.data?.detail
-
-  if (status === 409 && detail?.code === 'ACCOUNT_LINKING_REQUIRED') {
+  if (isAccountLinkRequiredError(error)) {
     return AUTH_ERROR_RESULTS.accountLinkingRequired
   }
 

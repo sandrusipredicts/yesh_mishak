@@ -6,8 +6,8 @@ export async function getAccountMethods() {
   return response.data
 }
 
-// Every mutation below reissues an access token: apply it immediately so the
-// current session keeps working even though other sessions were revoked.
+// Mutations may return a fresh access token. Apply it immediately; linking is
+// additive, while unlinking/password changes may revoke older sessions.
 async function applyMutationResult(response) {
   if (response.data?.access_token) {
     await setToken(response.data.access_token)
