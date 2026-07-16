@@ -155,6 +155,20 @@ class FieldReportStatusUpdate(BaseModel):
         return stripped if stripped else None
 
 
+class FieldReportResolveBody(BaseModel):
+    admin_note: Optional[str] = Field(default=None, max_length=1000)
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("admin_note")
+    @classmethod
+    def normalize_admin_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
+
+
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
     query = get_supabase_client().table(table_name).select("id", count="exact")
 
@@ -616,6 +630,7 @@ def update_admin_field_report_status(
     current_user: dict[str, Any] = Depends(require_admin),
 ):
     report_id = validate_uuid_id(report_id, "report_id")
+    supabase = get_supabase_service_role_client()
     if body.status not in FIELD_REPORT_REVIEW_STATUSES:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -632,7 +647,7 @@ def update_admin_field_report_status(
         update_payload["admin_note"] = body.admin_note
 
     response = (
-        get_supabase_client()
+        supabase
         .table("field_reports")
         .update(update_payload)
         .eq("id", report_id)
@@ -669,6 +684,173 @@ def update_admin_field_report_status(
         )
 
     return {"message": "Field report status updated", "report": report}
+
+
+@router.patch("/field-reports/{report_id}/resolve")
+def resolve_admin_field_report(
+    report_id: str,
+    body: FieldReportResolveBody = FieldReportResolveBody(),
+    current_user: dict[str, Any] = Depends(require_admin),
+):
+    report_id = validate_uuid_id(report_id, "report_id")
+    supabase = get_supabase_service_role_client()
+
+    try:
+        current_response = (
+            supabase
+            .table("field_reports")
+            .select(ADMIN_FIELD_REPORT_COLUMNS)
+            .eq("id", report_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception(
+            "field report resolve lookup failed",
+            extra={
+                "event": "field_reports.resolve.lookup_failure",
+                "endpoint": "/admin/field-reports/{report_id}/resolve",
+                "method": "PATCH",
+                "actor_user_id": current_user.get("id"),
+                "field_report_id": report_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to resolve field report",
+        )
+
+    current_rows = current_response.data or []
+    if not isinstance(current_rows, list):
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="INTERNAL_SERVER_ERROR",
+            message="Malformed field report response",
+        )
+
+    if not current_rows:
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="REPORT_NOT_FOUND",
+            message="Field report not found",
+        )
+
+    current_report = current_rows[0]
+    current_status = current_report.get("status")
+    if current_status == "resolved":
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="REPORT_ALREADY_RESOLVED",
+            message="Field report is already resolved",
+        )
+    if current_status not in {"open", "in_review"}:
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="REPORT_NOT_RESOLVABLE",
+            message="Only open or in-review field reports can be resolved",
+        )
+
+    update_payload: dict[str, Any] = {
+        "status": "resolved",
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": current_user["id"],
+    }
+    if "admin_note" in body.model_fields_set:
+        update_payload["admin_note"] = body.admin_note
+
+    try:
+        update_response = (
+            supabase
+            .table("field_reports")
+            .update(update_payload)
+            .eq("id", report_id)
+            .in_("status", ["open", "in_review"])
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception(
+            "field report resolve update failed",
+            extra={
+                "event": "field_reports.resolve.update_failure",
+                "endpoint": "/admin/field-reports/{report_id}/resolve",
+                "method": "PATCH",
+                "actor_user_id": current_user.get("id"),
+                "field_report_id": report_id,
+                "error_code": "DATABASE_ERROR",
+                "exception_type": exc.__class__.__name__,
+                "result": "failure",
+            },
+        )
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to resolve field report",
+        )
+
+    updated_rows = update_response.data or []
+    if not isinstance(updated_rows, list):
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="INTERNAL_SERVER_ERROR",
+            message="Malformed field report response",
+        )
+
+    if not updated_rows:
+        latest_response = (
+            supabase
+            .table("field_reports")
+            .select("id,status")
+            .eq("id", report_id)
+            .limit(1)
+            .execute()
+        )
+        latest_rows = latest_response.data or []
+        latest_status = latest_rows[0].get("status") if latest_rows else None
+        if latest_status == "resolved":
+            raise_api_error(
+                status_code=status.HTTP_409_CONFLICT,
+                code="REPORT_ALREADY_RESOLVED",
+                message="Field report is already resolved",
+            )
+        if latest_status and latest_status not in {"open", "in_review"}:
+            raise_api_error(
+                status_code=status.HTTP_409_CONFLICT,
+                code="REPORT_NOT_RESOLVABLE",
+                message="Only open or in-review field reports can be resolved",
+            )
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to resolve field report",
+        )
+
+    report = updated_rows[0]
+
+    try:
+        create_field_report_status_notification(
+            report=report,
+            new_status="resolved",
+        )
+    except Exception:
+        logger.warning(
+            "Failed to create field report status notification",
+            extra={
+                "event": "notifications.generate.failure",
+                "notification_type": "field_report_status_changed",
+                "field_report_id": report_id,
+                "actor_user_id": current_user.get("id"),
+                "new_status": "resolved",
+                "error_code": "NOTIFICATION_GENERATION_FAILED",
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+
+    return {"message": "Field report resolved", "report": report}
 
 
 @router.get("/stats")

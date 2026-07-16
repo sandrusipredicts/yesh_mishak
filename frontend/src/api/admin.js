@@ -100,6 +100,15 @@ export async function updateAdminFieldReportStatus(reportId, { status, admin_not
   return response.data
 }
 
+export async function resolveAdminFieldReport(reportId, { admin_note } = {}) {
+  const body = {}
+  if (admin_note !== undefined) {
+    body.admin_note = admin_note
+  }
+  const response = await api.patch(`/admin/field-reports/${reportId}/resolve`, body)
+  return response.data
+}
+
 export async function getAdminStats() {
   const response = await api.get('/admin/stats')
   return response.data

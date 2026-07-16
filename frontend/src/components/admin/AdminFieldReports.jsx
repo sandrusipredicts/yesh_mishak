@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getAdminFieldReports, updateAdminFieldReportStatus } from '../../api/admin'
+import { getAdminFieldReports, resolveAdminFieldReport, updateAdminFieldReportStatus } from '../../api/admin'
 import { getApiErrorMessage } from '../../api/errors'
 import Modal from '../Modal'
 
 const STATUS_FILTERS = ['all', 'open', 'in_review', 'resolved', 'rejected']
 const REVIEW_STATUSES = ['open', 'in_review', 'resolved', 'rejected']
+const RESOLVABLE_STATUSES = new Set(['open', 'in_review'])
 
 const CATEGORY_LABEL_KEYS = {
   wrong_location: 'fieldReport.categories.wrongLocation',
@@ -36,6 +37,12 @@ function AdminFieldReports() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saveSuccess, setSaveSuccess] = useState('')
+
+  const [resolvingReport, setResolvingReport] = useState(null)
+  const [resolveNote, setResolveNote] = useState('')
+  const [isResolving, setIsResolving] = useState(false)
+  const [resolveError, setResolveError] = useState('')
+  const [resolveSuccess, setResolveSuccess] = useState('')
 
   useEffect(() => {
     let isMounted = true
@@ -115,6 +122,54 @@ function AdminFieldReports() {
     setManagingReport(null)
     setSaveError('')
     setSaveSuccess('')
+  }
+
+  function openResolve(report) {
+    setResolvingReport(report)
+    setResolveNote('')
+    setResolveError('')
+    setResolveSuccess('')
+  }
+
+  function closeResolve() {
+    setResolvingReport(null)
+    setResolveNote('')
+    setResolveError('')
+    setResolveSuccess('')
+  }
+
+  async function handleResolve() {
+    if (!resolvingReport || isResolving) return
+
+    setIsResolving(true)
+    setResolveError('')
+    setResolveSuccess('')
+
+    const trimmedNote = resolveNote.trim()
+    const payload = trimmedNote ? { admin_note: trimmedNote } : {}
+
+    try {
+      const result = await resolveAdminFieldReport(resolvingReport.id, payload)
+      const updatedReport = result.report || result
+
+      setReports((prev) =>
+        prev.map((r) =>
+          r.id === resolvingReport.id
+            ? { ...r, ...updatedReport }
+            : r,
+        ),
+      )
+
+      setResolveSuccess(t('admin.fieldReportResolve.success'))
+
+      setTimeout(() => {
+        closeResolve()
+      }, 1200)
+    } catch (err) {
+      setResolveError(getApiErrorMessage(err, t('admin.fieldReportResolve.error')))
+    } finally {
+      setIsResolving(false)
+    }
   }
 
   async function handleSave() {
@@ -226,7 +281,20 @@ function AdminFieldReports() {
                     </span>
                   </td>
                   <td>{formatValue(report.description)}</td>
-                  <td>
+                  <td className="admin-field-report-actions">
+                    {RESOLVABLE_STATUSES.has(report.status) ? (
+                      <button
+                        type="button"
+                        className="admin-resolve-report-button"
+                        onClick={() => openResolve(report)}
+                      >
+                        {t('admin.fieldReportResolve.resolve')}
+                      </button>
+                    ) : (
+                      <span className="admin-report-terminal-action">
+                        {t(`admin.fieldReportResolve.${report.status === 'resolved' ? 'resolved' : 'notAvailable'}`)}
+                      </span>
+                    )}
                     <button
                       type="button"
                       className="admin-manage-report-button"
@@ -309,6 +377,61 @@ function AdminFieldReports() {
             disabled={isSaving}
           >
             {isSaving ? t('admin.fieldReportManage.saving') : t('admin.fieldReportManage.save')}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!resolvingReport}
+        onClose={isResolving ? undefined : closeResolve}
+        isConfirm
+        ariaLabelledBy="admin-resolve-report-title"
+      >
+        <h3 id="admin-resolve-report-title">{t('admin.fieldReportResolve.title')}</h3>
+        <p>
+          {resolvingReport
+            ? `${formatValue(resolvingReport.field_name, resolvingReport.field_id)} — ${formatCategory(resolvingReport.category)}`
+            : ''}
+        </p>
+
+        <label className="confirm-modal-label">
+          <span>
+            {t('admin.fieldReportResolve.noteLabel')}
+            {' '}
+            <span className="admin-note-counter">
+              {resolveNote.length}/{ADMIN_NOTE_MAX}
+            </span>
+          </span>
+          <textarea
+            className="confirm-modal-input"
+            rows={3}
+            maxLength={ADMIN_NOTE_MAX}
+            value={resolveNote}
+            onChange={(e) => setResolveNote(e.target.value)}
+            disabled={isResolving}
+            placeholder={t('admin.fieldReportResolve.notePlaceholder')}
+          />
+        </label>
+
+        {resolveError ? <p className="modal-error" role="alert">{resolveError}</p> : null}
+        {resolveSuccess ? <p className="modal-success" role="status">{resolveSuccess}</p> : null}
+
+        <div className="confirm-modal-actions">
+          <button
+            type="button"
+            className="secondary-modal-button"
+            onClick={closeResolve}
+            disabled={isResolving}
+          >
+            {t('admin.fieldReportResolve.cancel')}
+          </button>
+          <button
+            type="button"
+            className="primary-modal-button"
+            onClick={handleResolve}
+            disabled={isResolving}
+          >
+            {isResolving ? t('admin.fieldReportResolve.resolving') : t('admin.fieldReportResolve.confirm')}
           </button>
         </div>
       </Modal>
