@@ -68,18 +68,13 @@ test('maps unknown failures to the safe fallback', () => {
   )
 })
 
-test('maps 409 conflict with ACCOUNT_LINKING_REQUIRED to account linking required error', () => {
-  const err = {
-    response: {
-      status: 409,
-      data: {
-        detail: {
-          code: 'ACCOUNT_LINKING_REQUIRED',
-        },
-      },
-    },
+test('maps canonical and legacy account-link-required conflicts to the actionable message', () => {
+  for (const data of [
+    { code: 'ACCOUNT_LINK_REQUIRED' },
+    { detail: { code: 'ACCOUNT_LINKING_REQUIRED' } },
+  ]) {
+    expect(mapNativeAuthError({ response: { status: 409, data } })).toEqual(
+      expected('account_linking_required', 'auth.accountLinkingRequired'),
+    )
   }
-  expect(mapNativeAuthError(err)).toEqual(
-    expected('account_linking_required', 'auth.accountLinkingRequired'),
-  )
 })

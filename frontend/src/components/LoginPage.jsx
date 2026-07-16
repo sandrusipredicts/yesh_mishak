@@ -13,7 +13,7 @@ import {
   initNativeGoogleAuth,
   signInWithGoogleNative,
 } from '../api/nativeGoogleAuth'
-import { mapNativeAuthError } from '../api/authErrorMapping'
+import { isAccountLinkRequiredError, mapNativeAuthError } from '../api/authErrorMapping'
 import { clearSession, isNativeRuntime } from '../api/sessionStorage'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
@@ -184,8 +184,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
               const authData = await loginWithGoogle(response.credential)
               await handleAuthSuccess(authData)
             } catch (apiError) {
-              const detail = apiError?.response?.data?.detail
-              if (apiError?.response?.status === 409 && detail?.code === 'ACCOUNT_LINKING_REQUIRED') {
+              if (isAccountLinkRequiredError(apiError)) {
                 setError(t('auth.accountLinkingRequired'))
               } else {
                 setError(t('auth.googleSignInFailed'))

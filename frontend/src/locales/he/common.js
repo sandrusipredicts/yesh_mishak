@@ -54,7 +54,7 @@ const he = {
     passwordTooShort: 'הסיסמה חייבת להכיל לפחות {{count}} תווים.',
     passwordTooLong: 'הסיסמה חייבת להכיל לכל היותר {{count}} תווים.',
     passwordMismatch: 'הסיסמאות לא תואמות.',
-    accountLinkingRequired: 'כבר קיים חשבון עם האימייל הזה. התחבר עם סיסמה כדי להמשיך.',
+    accountLinkingRequired: 'כבר קיים חשבון עם האימייל הזה. יש להתחבר עם הסיסמה ואז לחבר את Google בהגדרות.',
     forgotPasswordLink: 'שכחת סיסמה?',
     forgotPasswordTitle: 'איפוס סיסמה',
     forgotPasswordDescription: 'הזינו אימייל ונשלח הוראות איפוס אם החשבון יכול להתחבר עם סיסמה.',

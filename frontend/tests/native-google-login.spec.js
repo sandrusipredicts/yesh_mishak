@@ -661,7 +661,7 @@ test('Google login succeeds again after logout with a fresh session', async ({ p
   expect(state.plaintext).toBeNull()
 })
 
-test('native Google login returns 409 conflict for manual accounts (Hebrew)', async ({ page }) => {
+test('native Google login explains how manual accounts can link Google (Hebrew)', async ({ page }) => {
   await prepareApp(page)
   await page.addInitScript(() => {
     localStorage.setItem('app_language', 'he')
@@ -672,11 +672,9 @@ test('native Google login returns 409 conflict for manual accounts (Hebrew)', as
       status: 409,
       contentType: 'application/json',
       body: JSON.stringify({
-        detail: {
-          error: true,
-          code: 'ACCOUNT_LINKING_REQUIRED',
-          message: 'Account linking required',
-        },
+        error: true,
+        code: 'ACCOUNT_LINK_REQUIRED',
+        message: 'Account linking required',
       }),
     })
   })
@@ -686,9 +684,9 @@ test('native Google login returns 409 conflict for manual accounts (Hebrew)', as
   await seedPartialSession(page)
   await page.locator('.google-native-button').click()
 
-  // Hebrew message must be visible
   await expect(page.locator('.login-error')).toHaveText(
-    'כבר קיים חשבון עם האימייל הזה. התחבר עם סיסמה כדי להמשיך.',
+    'כבר קיים חשבון עם האימייל הזה. יש להתחבר עם הסיסמה ואז לחבר את Google בהגדרות.',
   )
+  await expect(page.locator('.login-info')).toHaveCount(0)
   await expectFailedAttemptCleanedUp(page)
 })

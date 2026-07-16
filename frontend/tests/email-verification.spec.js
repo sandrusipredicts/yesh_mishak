@@ -15,13 +15,19 @@ async function installGoogleIdentityMock(page) {
     window.google = {
       accounts: {
         id: {
-          initialize: () => { window.__googleIdentityCalls.initialize += 1 },
+          initialize: (options) => {
+            window.__googleIdentityCalls.initialize += 1
+            window.__googleIdentityCallback = options.callback
+          },
           renderButton: (container) => {
             window.__googleIdentityCalls.renderButton += 1
             const button = document.createElement('button')
             button.type = 'button'
             button.setAttribute('aria-label', 'Sign in with Google')
             button.textContent = 'Continue with Google'
+            button.addEventListener('click', () => {
+              window.__googleIdentityCallback?.({ credential: 'fake-google-token' })
+            })
             container.appendChild(button)
           },
         },
@@ -96,6 +102,28 @@ test('Google button initializes on a direct login refresh', async ({ page }) => 
   await expectGoogleButtonRenderedOnce(page)
   await page.reload()
   await expectGoogleButtonRenderedOnce(page)
+})
+
+
+test('web Google login displays the account-linking-required guidance', async ({ page }) => {
+  await seedEnglishReturningUser(page)
+  await installGoogleIdentityMock(page)
+  await page.route('**/auth/google', (route) => route.fulfill({
+    status: 409,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: true,
+      code: 'ACCOUNT_LINK_REQUIRED',
+      message: 'Account linking required',
+    }),
+  }))
+
+  await page.goto('/')
+  await page.locator('.google-login-button button').click()
+
+  await expect(page.locator('.login-error')).toHaveText(
+    'An account with this email already exists. Sign in with your password, then connect Google from Settings.',
+  )
 })
 
 

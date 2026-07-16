@@ -54,7 +54,7 @@ const en = {
     passwordTooShort: 'Password must be at least {{count}} characters.',
     passwordTooLong: 'Password must be at most {{count}} characters.',
     passwordMismatch: 'Passwords do not match.',
-    accountLinkingRequired: 'An account with this email already exists. Please sign in with your password to continue.',
+    accountLinkingRequired: 'An account with this email already exists. Sign in with your password, then connect Google from Settings.',
     forgotPasswordLink: 'Forgot password?',
     forgotPasswordTitle: 'Reset your password',
     forgotPasswordDescription: 'Enter your email and we will send reset instructions if the account can use password login.',
