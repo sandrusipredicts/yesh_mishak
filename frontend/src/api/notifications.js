@@ -30,14 +30,24 @@ export async function markAllNotificationsRead() {
   return response.data
 }
 
-export async function savePushToken(token) {
-  const response = await api.post('/notifications/push-token', { token })
+export async function savePushToken(token, { platform, installationId } = {}) {
+  const response = await api.post('/notifications/push-token', {
+    token,
+    ...(platform ? { platform } : {}),
+    ...(installationId ? { installation_id: installationId } : {}),
+  })
   return response.data
 }
 
-export async function deletePushToken(token) {
+export async function deletePushToken(token, { authToken } = {}) {
   const response = await api.delete('/notifications/push-token', {
     data: token ? { token } : {},
+    // Logout clears the in-memory session token synchronously (sessionStorage.js),
+    // before axios's request interceptor (a deferred microtask) ever reads it for
+    // this call — pinning the caller's own snapshot here is what makes the
+    // unregister request still reach the server authenticated, mirroring
+    // logoutFromServer's identical fix for the same race (api/auth.js).
+    ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
   })
   return response.data
 }

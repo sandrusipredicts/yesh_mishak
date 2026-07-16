@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { useTranslation } from 'react-i18next'
 
 import './App.css'
@@ -36,6 +37,8 @@ import { deletePushToken, savePushToken } from './api/notifications'
 import { recordLinkOpen } from './api/shareAnalytics'
 import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
+import { getOrCreateInstallationId } from './utils/installationId'
+import { createPushTokenSync } from './utils/pushTokenSync'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -120,6 +123,20 @@ function App() {
   const [deepLinkTarget, setDeepLinkTarget] = useState(() => readPendingDeepLink())
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
+  const pushTokenSyncRef = useRef(null)
+
+  function getPushTokenSync() {
+    if (!pushTokenSyncRef.current) {
+      pushTokenSyncRef.current = createPushTokenSync({
+        save: (token, options) => savePushToken(token, options),
+        onSyncFailed: (error) => {
+          console.warn('[E04-05 PUSH DEBUG] token sync exhausted retries',
+            error?.response?.status || error?.message || error)
+        },
+      })
+    }
+    return pushTokenSyncRef.current
+  }
 
   const validateStoredSession = useCallback(async () => {
     if (validationPromiseRef.current) {
@@ -244,6 +261,7 @@ function App() {
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive && getToken()) {
         validateStoredSession()
+        pushTokenSyncRef.current?.retryPending()
       }
     }).then((handle) => {
       if (isDisposed) {
@@ -468,14 +486,10 @@ function App() {
           return
         }
         console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
-        savePushToken(token)
-          .then(() => {
-            console.info('[E04-01 PUSH DEBUG] token upload succeeded')
-          })
-          .catch((tokenError) => {
-            console.warn('[E04-01 PUSH DEBUG] token upload failed',
-              tokenError?.response?.status || tokenError?.message || tokenError)
-          })
+        getPushTokenSync().sync(token, {
+          platform: Capacitor.getPlatform(),
+          installationId: getOrCreateInstallationId(),
+        })
       },
       onTokenError: (error) => {
         console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
@@ -501,6 +515,13 @@ function App() {
   }, [currentUserId, applyDeepLinkTarget])
 
   const handleLogout = useCallback(() => {
+    // Snapshot the session token before anything below clears it. clearSession()
+    // (called later in this function) nulls the in-memory token synchronously,
+    // before axios's request interceptor — a deferred microtask — ever reads it
+    // for the push-token unregister call, so that call needs its own pinned
+    // Authorization header instead of relying on the interceptor.
+    const logoutAuthToken = getToken()
+
     // Invalidate any in-flight or deduplicated session validation before
     // clearing storage so a late /games/me success cannot restore the user.
     sessionEpochRef.current += 1
@@ -514,11 +535,20 @@ function App() {
       signOutGoogleNative()
     }
 
+    // Stop any in-flight/backoff-scheduled token sync before tearing down so
+    // a pending retry can't upload a token for the user who just logged out.
+    pushTokenSyncRef.current?.dispose()
+    pushTokenSyncRef.current = null
+
     const pushToken = getCurrentToken()
     if (pushToken) {
       console.info('[E04-01 PUSH DEBUG] logout: deleting push token')
-      deletePushToken(pushToken).catch((deleteError) => {
+      deletePushToken(pushToken, { authToken: logoutAuthToken }).catch((deleteError) => {
         console.warn('[E04-01 PUSH DEBUG] logout: token delete failed', deleteError)
+        // The row is not orphaned indefinitely: the next login/account switch
+        // re-registers this installation's token, and the backend reassigns
+        // ownership by token identity regardless of whether this delete
+        // ever landed (backend/app/routers/notifications.py:save_push_token).
       })
     }
     teardownNativePush()
