@@ -300,6 +300,18 @@ const en = {
     remindFailed: 'Could not set a reminder. Please try again.',
     remindNotificationTitle: 'Game starting soon',
     remindNotificationBody: '{{sport}} at {{field}} starts in about 1 hour.',
+    calendarButton: 'Add to calendar',
+    calendarOpened: 'Calendar event editor opened.',
+    calendarDownloaded: 'Calendar file downloaded. Open it to add the event to your calendar.',
+    calendarUnavailable: 'No compatible calendar app was found on this device.',
+    calendarDenied: 'Calendar permission was denied. You can enable it in your device settings.',
+    calendarFailed: 'Could not add this game to the calendar. Please try again.',
+    calendarIncomplete: 'This game’s details are incomplete to add it to the calendar.',
+    calendar: {
+      eventTitle: '{{sport}} game — {{field}}',
+      descriptionSummary: '{{sport}} at {{field}} — {{date}}',
+      descriptionAppMessage: 'Added from Yesh Mishak',
+    },
     share: {
       title: '{{sport}} game at {{field}} - Yesh Mishak',
       textOpen: '{{emoji}} Game on!\n\n📍 {{field}}\n👥 {{capacity}}\n\nJoin through Yesh Mishak:',

@@ -301,6 +301,18 @@ const he = {
     remindFailed: 'לא ניתן לקבוע תזכורת. נסו שוב.',
     remindNotificationTitle: 'המשחק מתחיל בקרוב',
     remindNotificationBody: 'משחק {{sport}} ב{{field}} מתחיל בעוד כשעה.',
+    calendarButton: 'הוסף ליומן',
+    calendarOpened: 'נפתח מסך יצירת האירוע ביומן.',
+    calendarDownloaded: 'קובץ יומן הורד. פתחו אותו כדי להוסיף את האירוע ליומן.',
+    calendarUnavailable: 'לא נמצאה אפליקציית יומן מתאימה במכשיר זה.',
+    calendarDenied: 'הרשאת היומן נדחתה. ניתן לאפשר אותה בהגדרות המכשיר.',
+    calendarFailed: 'לא ניתן להוסיף את המשחק ליומן. נסו שוב.',
+    calendarIncomplete: 'פרטי המשחק אינם מלאים כדי להוסיפו ליומן.',
+    calendar: {
+      eventTitle: 'משחק {{sport}} — {{field}}',
+      descriptionSummary: '{{sport}} ב{{field}} — {{date}}',
+      descriptionAppMessage: 'נוסף מתוך יש מישחק',
+    },
     share: {
       title: 'משחק {{sport}} ב{{field}} - יש מישחק',
       textOpen: '{{emoji}} יש משחק!\n\n📍 {{field}}\n👥 {{capacity}}\n\nמצטרפים דרך יש מישחק?',
