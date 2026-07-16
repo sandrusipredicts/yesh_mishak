@@ -138,7 +138,7 @@ test('Field details panel content remains scrollable and child modals stack prop
   await expect(panel).toBeInViewport()
 
   // Open Report Field Modal from panel
-  await page.getByRole('button', { name: 'Report' }).click()
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
 
   const reportDialog = page.getByRole('dialog', { name: 'Report field' })
   await expect(reportDialog).toBeVisible()

@@ -378,7 +378,7 @@ test('submits a field report from field details', async ({ page }) => {
   })
 
   await openFieldDetails(page)
-  await page.getByRole('button', { name: 'Report' }).click()
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Report field' })
   await expect(dialog).toBeVisible()
@@ -408,7 +408,7 @@ test('cancels the field report modal without sending a report', async ({ page })
   })
 
   await openFieldDetails(page)
-  await page.getByRole('button', { name: 'Report' }).click()
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Report field' })
   await expect(dialog).toBeVisible()
@@ -510,7 +510,9 @@ test('shows cached fields immediately while refreshing fields in the background'
   await page.goto('/')
 
   await expect(page.locator('.field-marker-icon')).toHaveCount(1)
-  await page.locator('.field-marker-icon').first().click()
+  // Like openFieldDetails: the marker sits far outside the viewport at the
+  // default map center/zoom, so viewport hit-testing can never reach it.
+  await page.locator('.field-marker-icon').first().evaluate((marker) => marker.click())
   await expect(
     page.getByLabel('Field details').getByRole('heading', { name: cachedNavigableField.name }),
   ).toBeVisible()
