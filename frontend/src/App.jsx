@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { useTranslation } from 'react-i18next'
 
 import './App.css'
@@ -35,6 +36,8 @@ import {
 import { deletePushToken, savePushToken } from './api/notifications'
 import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
+import { getOrCreateInstallationId } from './utils/installationId'
+import { createPushTokenSync } from './utils/pushTokenSync'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -110,6 +113,20 @@ function App() {
   const [deepLinkTarget, setDeepLinkTarget] = useState(() => readPendingDeepLink())
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
+  const pushTokenSyncRef = useRef(null)
+
+  function getPushTokenSync() {
+    if (!pushTokenSyncRef.current) {
+      pushTokenSyncRef.current = createPushTokenSync({
+        save: (token, options) => savePushToken(token, options),
+        onSyncFailed: (error) => {
+          console.warn('[E04-05 PUSH DEBUG] token sync exhausted retries',
+            error?.response?.status || error?.message || error)
+        },
+      })
+    }
+    return pushTokenSyncRef.current
+  }
 
   const validateStoredSession = useCallback(async () => {
     if (validationPromiseRef.current) {
@@ -234,6 +251,7 @@ function App() {
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive && getToken()) {
         validateStoredSession()
+        pushTokenSyncRef.current?.retryPending()
       }
     }).then((handle) => {
       if (isDisposed) {
@@ -454,14 +472,10 @@ function App() {
           return
         }
         console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
-        savePushToken(token)
-          .then(() => {
-            console.info('[E04-01 PUSH DEBUG] token upload succeeded')
-          })
-          .catch((tokenError) => {
-            console.warn('[E04-01 PUSH DEBUG] token upload failed',
-              tokenError?.response?.status || tokenError?.message || tokenError)
-          })
+        getPushTokenSync().sync(token, {
+          platform: Capacitor.getPlatform(),
+          installationId: getOrCreateInstallationId(),
+        })
       },
       onTokenError: (error) => {
         console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
@@ -499,6 +513,11 @@ function App() {
       // account picker; never affects app logout (handled inside).
       signOutGoogleNative()
     }
+
+    // Stop any in-flight/backoff-scheduled token sync before tearing down so
+    // a pending retry can't upload a token for the user who just logged out.
+    pushTokenSyncRef.current?.dispose()
+    pushTokenSyncRef.current = null
 
     const pushToken = getCurrentToken()
     if (pushToken) {

@@ -30,8 +30,12 @@ export async function markAllNotificationsRead() {
   return response.data
 }
 
-export async function savePushToken(token) {
-  const response = await api.post('/notifications/push-token', { token })
+export async function savePushToken(token, { platform, installationId } = {}) {
+  const response = await api.post('/notifications/push-token', {
+    token,
+    ...(platform ? { platform } : {}),
+    ...(installationId ? { installation_id: installationId } : {}),
+  })
   return response.data
 }
 

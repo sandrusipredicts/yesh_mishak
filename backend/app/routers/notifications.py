@@ -57,8 +57,14 @@ class NotificationSettings(BaseModel):
         return self
 
 
+PUSH_TOKEN_MAX_LENGTH = 4096
+INSTALLATION_ID_MAX_LENGTH = 200
+
+
 class PushTokenRequest(BaseModel):
-    token: str = Field(min_length=1)
+    token: str = Field(min_length=1, max_length=PUSH_TOKEN_MAX_LENGTH)
+    platform: Literal["android", "ios", "web"] | None = None
+    installation_id: str | None = Field(default=None, max_length=INSTALLATION_ID_MAX_LENGTH)
 
 
 class PushTokenDeleteRequest(BaseModel):
@@ -1097,6 +1103,12 @@ def save_push_token(
     payload: PushTokenRequest,
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "notifications_push_token_write", [(30, 60)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     client = get_supabase_service_role_client()
     token = payload.token.strip()
     user_id = str(current_user["id"])
@@ -1104,6 +1116,7 @@ def save_push_token(
     if not token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Push token is required")
 
+    now = datetime.now(timezone.utc).isoformat()
     existing = (
         client.table("push_tokens")
         .select("*")
@@ -1116,6 +1129,9 @@ def save_push_token(
     row = {
         "user_id": user_id,
         "token": token,
+        "platform": payload.platform,
+        "installation_id": payload.installation_id,
+        "updated_at": now,
     }
 
     if existing:
@@ -1128,6 +1144,19 @@ def save_push_token(
     else:
         response = client.table("push_tokens").insert(row).execute()
 
+    if payload.installation_id:
+        # FCM rotated this installation's token: supersede this user's other
+        # rows for the same installation so a stale token doesn't linger as a
+        # duplicate row until a delivery attempt against it eventually fails.
+        (
+            client.table("push_tokens")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("installation_id", payload.installation_id)
+            .neq("token", token)
+            .execute()
+        )
+
     return {"message": "Push token saved", "push_token": response.data[0]}
 
 
@@ -1136,6 +1165,12 @@ def delete_push_token(
     payload: PushTokenDeleteRequest | None = Body(default=None),
     current_user: dict[str, Any] = Depends(require_active_user),
 ):
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "notifications_push_token_write", [(30, 60)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
     token = payload.token.strip() if payload and payload.token else ""
     if not token:
         # Without a token we cannot tell which device to remove. Refuse rather

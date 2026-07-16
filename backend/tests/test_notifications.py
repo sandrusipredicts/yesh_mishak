@@ -37,6 +37,7 @@ class FakeQuery:
         self.database = database
         self.table_name = table_name
         self.filters: list[tuple[str, Any]] = []
+        self.neq_filters: list[tuple[str, Any]] = []
         self.in_filters: list[tuple[str, list[Any]]] = []
         self.selected_columns: list[str] | None = None
         self.order_by: tuple[str, bool] | None = None
@@ -69,6 +70,11 @@ class FakeQuery:
             self.filters.append((column, None))
         else:
             self.filters.append((column, value))
+        return self
+
+    def neq(self, column: str, value: Any) -> "FakeQuery":
+        self.database.raise_if_missing_column(self.table_name, column)
+        self.neq_filters.append((column, value))
         return self
 
     def lt(self, column: str, value: Any) -> "FakeQuery":
@@ -166,6 +172,8 @@ class FakeQuery:
                 rows = [row for row in rows if row.get(column) == value]
         for column, values in self.in_filters:
             rows = [row for row in rows if row.get(column) in values]
+        for column, value in self.neq_filters:
+            rows = [row for row in rows if row.get(column) != value]
         if self.order_by:
             column, desc = self.order_by
             rows = sorted(rows, key=lambda row: row.get(column) or "", reverse=desc)
@@ -928,13 +936,14 @@ def test_save_push_token_stores_token_for_current_user(
     )
 
     assert response.status_code == 200
-    assert fake_supabase.tables["push_tokens"] == [
-        {
-            "id": "push_tokens-1",
-            "user_id": users["candidate"]["id"],
-            "token": "fcm-token-1",
-        }
-    ]
+    saved = fake_supabase.tables["push_tokens"]
+    assert len(saved) == 1
+    assert saved[0]["id"] == "push_tokens-1"
+    assert saved[0]["user_id"] == users["candidate"]["id"]
+    assert saved[0]["token"] == "fcm-token-1"
+    assert saved[0]["platform"] is None
+    assert saved[0]["installation_id"] is None
+    assert saved[0]["updated_at"]
 
 
 def test_save_push_token_supports_multiple_devices_for_same_user(
@@ -1027,6 +1036,190 @@ def test_delete_push_token_requires_token_and_keeps_all_when_missing(
     assert response.status_code == 400
     # Nothing deleted when no token is supplied.
     assert len(fake_supabase.tables["push_tokens"]) == 2
+
+
+def test_save_push_token_requires_authentication(fake_supabase: FakeSupabase) -> None:
+    response = TestClient(app).post(
+        "/notifications/push-token", json={"token": "unauth-token"}
+    )
+
+    assert response.status_code == 401
+    assert fake_supabase.tables["push_tokens"] == []
+
+
+def test_delete_push_token_requires_authentication(fake_supabase: FakeSupabase) -> None:
+    response = TestClient(app).request(
+        "DELETE", "/notifications/push-token", json={"token": "unauth-token"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_save_push_token_rejects_empty_token(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    response = TestClient(app).post(
+        "/notifications/push-token",
+        json={"token": ""},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 422
+    assert fake_supabase.tables["push_tokens"] == []
+
+
+def test_save_push_token_rejects_oversized_token(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    oversized_token = "a" * 5000
+
+    response = TestClient(app).post(
+        "/notifications/push-token",
+        json={"token": oversized_token},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 422
+    assert fake_supabase.tables["push_tokens"] == []
+
+
+def test_save_push_token_rejects_unsupported_platform(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    response = TestClient(app).post(
+        "/notifications/push-token",
+        json={"token": "fcm-token-1", "platform": "windows"},
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 422
+    assert fake_supabase.tables["push_tokens"] == []
+
+
+def test_save_push_token_accepts_android_platform_and_installation_id(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    response = TestClient(app).post(
+        "/notifications/push-token",
+        json={
+            "token": "android-fcm-token",
+            "platform": "android",
+            "installation_id": "install-uuid-1",
+        },
+        headers=auth_headers(users["candidate"]),
+    )
+
+    assert response.status_code == 200
+    saved = fake_supabase.tables["push_tokens"][0]
+    assert saved["platform"] == "android"
+    assert saved["installation_id"] == "install-uuid-1"
+
+
+def test_save_push_token_rotation_supersedes_stale_token_for_same_installation(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    client.post(
+        "/notifications/push-token",
+        json={
+            "token": "old-fcm-token",
+            "platform": "android",
+            "installation_id": "install-uuid-1",
+        },
+        headers=headers,
+    )
+    client.post(
+        "/notifications/push-token",
+        json={
+            "token": "new-fcm-token",
+            "platform": "android",
+            "installation_id": "install-uuid-1",
+        },
+        headers=headers,
+    )
+
+    tokens = fake_supabase.tables["push_tokens"]
+    assert [row["token"] for row in tokens] == ["new-fcm-token"]
+
+
+def test_save_push_token_rotation_does_not_touch_other_installations(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    client.post(
+        "/notifications/push-token",
+        json={
+            "token": "phone-token",
+            "platform": "android",
+            "installation_id": "install-phone",
+        },
+        headers=headers,
+    )
+    client.post(
+        "/notifications/push-token",
+        json={
+            "token": "tablet-token",
+            "platform": "android",
+            "installation_id": "install-tablet",
+        },
+        headers=headers,
+    )
+
+    tokens = {row["token"] for row in fake_supabase.tables["push_tokens"]}
+    assert tokens == {"phone-token", "tablet-token"}
+
+
+def test_save_push_token_reregistering_updates_last_seen_timestamp(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    client.post(
+        "/notifications/push-token",
+        json={"token": "stable-token"},
+        headers=headers,
+    )
+    first_updated_at = fake_supabase.tables["push_tokens"][0]["updated_at"]
+
+    client.post(
+        "/notifications/push-token",
+        json={"token": "stable-token"},
+        headers=headers,
+    )
+    second_updated_at = fake_supabase.tables["push_tokens"][0]["updated_at"]
+
+    assert second_updated_at >= first_updated_at
+
+
+def test_save_push_token_rate_limited_after_threshold(
+    fake_supabase: FakeSupabase,
+    users: dict[str, dict[str, Any]],
+) -> None:
+    client = TestClient(app)
+    headers = auth_headers(users["candidate"])
+
+    responses = [
+        client.post(
+            "/notifications/push-token",
+            json={"token": f"token-{i}"},
+            headers=headers,
+        )
+        for i in range(31)
+    ]
+
+    assert responses[-1].status_code == 429
 
 
 def test_test_push_requires_authentication(fake_supabase: FakeSupabase) -> None:
