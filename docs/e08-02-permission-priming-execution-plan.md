@@ -523,3 +523,24 @@ The existing one-shot legacy-city migration (`resolveAccountCity`'s `CITY_MIGRAT
 **Test-suite-wide consequence**: ~30 unrelated Playwright spec files across the app seeded a "device onboarding complete" state without ever seeding a city (a state the real app flow cannot actually produce, since the six-step wizard's own city step is mandatory). Before this fix, that gap was invisible because the old code never gated map access on having a city at all. After this fix, correctly, it does — so those files' seed data needed a one-line city seed added (either the legacy `userCity` key, migrated automatically, or a direct `starting_city:{userId}` seed for multi-account files) to keep testing what they were actually meant to test. This is documented in full in the completion report for this fix, including which failures were confirmed pre-existing (reproduced independently on the unmodified pre-fix commit) versus caused by this change.
 
 No claim of iOS completion, iOS test coverage, or iOS QA is made anywhere in this implementation's completion report.
+
+---
+
+## 32. Android Physical-Device QA Result — PASSED (final status update)
+
+Android manual QA for E08-02 (§19 of this document, exercising the account-city-isolation fix from §31) was performed on a physical Android device and **passed**. Confirmed behavior:
+
+- Device onboarding did not restart unnecessarily for a second account on the same device.
+- Location and notification permission priming did not replay for the second account — no six-step walkthrough, no native permission prompts.
+- The second account was shown only the dedicated city-selection step (`AccountCityStep`), nothing else.
+- The second account did not inherit the first account's city.
+- The map did not use the first account's city before the second account selected its own.
+- The second account's selected city appeared correctly in Settings and was used by the app (map entry) after selection.
+- Logging back into the first account restored its original city correctly, in both Settings and on the map.
+- No regression was found in the tested onboarding flow.
+
+This satisfies the Android-side manual-QA requirement that was the sole open blocker in §28's original "READY WITH BLOCKERS" / the Android-first implementation phase's "ANDROID IMPLEMENTATION COMPLETE WITH BLOCKERS" status. That blocker is now closed.
+
+**Final status: `ANDROID IMPLEMENTATION COMPLETE — IOS DEFERRED`.**
+
+This status applies to the Android-first implementation phase only. It does **not** claim iOS completion, iOS test coverage, or iOS QA of any kind — every item in §30 ("iOS — Deferred Requirements") remains open and deferred to a dedicated future iOS implementation phase; no native iOS file (`Info.plist`, Xcode project, APNs/`GoogleService-Info.plist` configuration) has been modified at any point across this task's Android-first work. §28's "READY WITH BLOCKERS" verdict and §29's "ANDROID IMPLEMENTATION COMPLETE WITH BLOCKERS — IOS DEFERRED" verdict are both superseded by this section for the Android platform; they remain accurate historical records of the state at the time they were written and are left unmodified above.
