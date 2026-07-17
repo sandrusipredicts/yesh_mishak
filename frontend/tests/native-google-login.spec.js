@@ -196,6 +196,7 @@ async function prepareApp(page, {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
   }, { cfg: { googleMode, providerLogoutFails, launchUrl }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
 
   await page.route(/\/analytics\/share-events$/, async (route) => {
@@ -587,6 +588,7 @@ test('logout after native Google login signs out of the provider and clears the 
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toBeVisible({ timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
   await expect(page.locator('.login-page')).toBeVisible()
 
@@ -607,6 +609,7 @@ test('provider sign-out failure does not block local logout cleanup', async ({ p
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
 
   // Local logout completes fully despite the provider rejection: logged-out
@@ -640,6 +643,7 @@ test('Google login succeeds again after logout with a fresh session', async ({ p
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
   await expect(page.locator('.login-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('__test_secure_token'))).toBe(null)

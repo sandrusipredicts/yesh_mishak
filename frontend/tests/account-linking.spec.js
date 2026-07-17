@@ -16,6 +16,7 @@ async function prepareApp(page, { language = 'en' } = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', lang)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
     localStorage.setItem('access_token', token)
     localStorage.setItem('currentUserId', storedUser.id)
     localStorage.setItem('currentUserName', storedUser.name)
@@ -86,6 +87,7 @@ test('settings requires login and does not render for a logged-out user', async 
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
   })
   await page.goto('/settings')
 

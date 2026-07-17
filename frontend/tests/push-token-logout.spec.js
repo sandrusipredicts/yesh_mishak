@@ -193,6 +193,14 @@ async function prepareApp(page) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    // This file exercises both userA and userB reaching the map, so each
+    // account's own city is seeded directly rather than relying on the
+    // one-shot legacy migration (which only ever claims the legacy city
+    // for whichever account loads first) — otherwise the second account
+    // would be routed to the city-only requiredStep instead of the map
+    // (E08-02 follow-up fix), which is unrelated to what this file tests.
+    localStorage.setItem('starting_city:31b6ac09-74f0-49f4-8916-c216842a3498', 'ירושלים')
+    localStorage.setItem('starting_city:9c2f6f2e-df0b-4c39-8f42-9e2d0a2b7ce1', 'תל אביב-יפו')
   })
 
   await page.route('**/fields/**', (route) =>
@@ -231,6 +239,11 @@ async function loginViaForm(page, user) {
 }
 
 async function logout(page) {
+  // A "no known fields" notice banner can overlap the toolbar once the map
+  // actually resolves a real city (E08-02 follow-up fix seeded a real
+  // starting_city for these accounts) — dismiss it before interacting
+  // with Logout, matching the pattern used elsewhere for the same banner.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.getByRole('button', { name: 'Logout' }).click()
   await expect(page.locator('.login-page')).toBeVisible()
 }

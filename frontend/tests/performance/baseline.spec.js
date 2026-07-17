@@ -42,6 +42,8 @@ async function seedAuthenticatedUser(page) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    // E08-02 follow-up fix: account needs a resolved city to reach the map.
+    localStorage.setItem('userCity', 'ירושלים')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('language_selected', 'true')
   }, { ...user, token: makeJwtWithSubject(user.id) })

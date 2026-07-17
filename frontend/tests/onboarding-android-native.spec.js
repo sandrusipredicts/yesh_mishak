@@ -231,11 +231,10 @@ test('second account on the same device skips onboarding and does not inherit th
 
   // A "no known fields" notice banner (location is mocked as always-denied
   // in this suite, so the map falls back to the selected city) can overlap
-  // the toolbar — dismiss it before interacting with Logout.
-  const dismissNotice = page.getByRole('button', { name: 'Dismiss notice' })
-  if (await dismissNotice.isVisible().catch(() => false)) {
-    await dismissNotice.click()
-  }
+  // the toolbar — dismiss it before interacting with Logout. Wait-based,
+  // not a point-in-time isVisible check, since the notice can render
+  // asynchronously right after the toolbar appears.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
 
   // Log out and log in as a different account on the same device.
   await page.getByRole('button', { name: 'Logout' }).click()
@@ -244,14 +243,32 @@ test('second account on the same device skips onboarding and does not inherit th
 
   // Onboarding is device-scoped and already completed — account B must not
   // see the six-step walkthrough again, and therefore gets no redundant
-  // native permission prompt either.
-  await expect(page.locator('.map-page')).toBeVisible({ timeout: 15000 })
-  const pushChecksAfterSwitch = await page.evaluate(() => window.__nativeCalls.pushCheck)
-  expect(pushChecksAfterSwitch).toBe(pushChecksBeforeSwitch)
+  // native permission prompt either. B has no city of its own yet, though,
+  // so it lands on the dedicated city-only requiredStep, never the map
+  // (E08-02 follow-up fix — the map must never show account A's city here).
+  await expect(page.locator('.map-page')).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Where do you want to play?' })).toBeVisible({ timeout: 15000 })
 
   const userBOwnCity = await page.evaluate((userId) => localStorage.getItem(`starting_city:${userId}`), USER_B.id)
   expect(userBOwnCity).toBeNull()
 
   const deviceCityAfterSwitch = await page.evaluate(() => JSON.parse(localStorage.getItem('onboarding_state')).city)
   expect(deviceCityAfterSwitch).not.toBe('ירוחם')
+
+  const pushChecksAtCityStep = await page.evaluate(() => window.__nativeCalls.pushCheck)
+  expect(pushChecksAtCityStep).toBe(pushChecksBeforeSwitch)
+
+  // B picks its own city — still no native permission call, and only then
+  // does the map appear.
+  const cityInput = page.locator('#account-city-input')
+  await cityInput.fill('תל אביב-יפו')
+  await page.getByRole('option', { name: 'תל אביב-יפו' }).click()
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  await expect(page.locator('.map-page')).toBeVisible()
+  const pushChecksAfterSwitch = await page.evaluate(() => window.__nativeCalls.pushCheck)
+  expect(pushChecksAfterSwitch).toBe(pushChecksBeforeSwitch)
+
+  const userBCityAfterSelection = await page.evaluate((userId) => localStorage.getItem(`starting_city:${userId}`), USER_B.id)
+  expect(userBCityAfterSelection).toBe('תל אביב-יפו')
 })

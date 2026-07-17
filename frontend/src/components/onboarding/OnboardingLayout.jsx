@@ -30,7 +30,7 @@ function OnboardingLayout({
   return (
     <main className="onboarding-page" aria-busy={isBusy}>
       <section className="onboarding-panel onboarding-shell" aria-labelledby="onboarding-title">
-        <OnboardingProgress current={step} total={total} label={title} />
+        {total ? <OnboardingProgress current={step} total={total} label={title} /> : null}
         <div className="onboarding-step-content">
           <h1 id="onboarding-title" ref={headingRef} tabIndex={-1}>{title}</h1>
           {description ? <p className="onboarding-description">{description}</p> : null}

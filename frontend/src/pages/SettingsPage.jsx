@@ -15,7 +15,7 @@ import Modal from '../components/Modal'
 import CityAutocomplete from '../components/CityAutocomplete'
 import LanguageSwitcher from '../components/LanguageSwitcher'
 import { israelCities } from '../data/israelCities'
-import { resolveOnboardingState, saveOnboardingState, setAccountCity } from '../onboarding/onboardingStorage'
+import { getAccountCity, resolveOnboardingState, saveOnboardingState, setAccountCity } from '../onboarding/onboardingStorage'
 import { getPasswordValidationError } from '../utils/passwordValidation'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
@@ -405,7 +405,10 @@ function SettingsPage({ onBack, userId }) {
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [activeModal, setActiveModal] = useState(null)
-  const [startingCity, setStartingCity] = useState(() => resolveOnboardingState().state.city)
+  // Authoritative source is the account-scoped store, not the device-scoped
+  // onboarding blob (E08-02 follow-up fix) — Settings and the map must
+  // always agree on the same resolved value for the current account.
+  const [startingCity, setStartingCity] = useState(() => getAccountCity(userId))
   const [preferenceMessage, setPreferenceMessage] = useState('')
   const linkingRef = useRef(false)
 

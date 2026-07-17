@@ -44,6 +44,7 @@ import {
   resolveOnboardingState,
   saveOnboardingState,
 } from './onboarding/onboardingStorage'
+import AccountCityStep from './components/onboarding/AccountCityStep'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -117,12 +118,18 @@ function App() {
   const [onboardingState, setOnboardingState] = useState(
     () => resolveOnboardingState().state,
   )
-  const [mapEntryIntent, setMapEntryIntent] = useState(() => {
-    const resolved = resolveOnboardingState().state
-    return resolved.status === 'completed' && resolved.city
-      ? { type: 'city', city: resolved.city }
-      : null
-  })
+  // Tracks which userId the resolved city below actually belongs to, so a
+  // stale value from a just-logged-out account can never leak into a
+  // render for a newly-logged-in one (E08-02 follow-up fix): resolution is
+  // async (deferred a tick), but `currentUser` can change synchronously in
+  // the same tick, so `resolvedAccountCity` is *derived* — comparing
+  // `cityResolution.forUserId` against the live `currentUser.id` — rather
+  // than trusted as its own always-current piece of state.
+  const [cityResolution, setCityResolution] = useState({ forUserId: null, city: undefined })
+  const resolvedAccountCity = currentUser && cityResolution.forUserId === currentUser.id
+    ? cityResolution.city
+    : undefined
+  const [mapEntryIntent, setMapEntryIntent] = useState(null)
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
   const [loginNotice, setLoginNotice] = useState(
@@ -481,44 +488,56 @@ function App() {
     })
   }, [currentUser])
 
-  // E08-02: onboarding completion/permission-education flags are
-  // device-scoped by design (a second account must not repeat the
+  // E08-02 follow-up fix: onboarding completion/permission-education flags
+  // are device-scoped by design (a second account must not repeat the
   // walkthrough or be re-prompted for permissions Android already knows
-  // about), but the starting city is personal data. Re-derive it for
+  // about), but the starting city is personal data. Re-resolve it for
   // *this* account on every login/session-restore, reading storage fresh
-  // rather than from React state to avoid acting on a stale onboarding
-  // snapshot from before the user was known.
+  // rather than from React state. Every route below that is specific to an
+  // authenticated account (map, settings, my-games, my-reports) is gated
+  // behind `resolvedAccountCity !== undefined`, so — unlike a plain
+  // "correct it after the fact" effect — nothing can mount and consume a
+  // stale or another account's city while this resolution is in flight.
   useEffect(() => {
     if (!currentUser) {
       return undefined
     }
 
     // Deferred a tick (matching the deep-link effects above) so setState
-    // isn't called synchronously within the effect body itself.
+    // isn't called synchronously within the effect body itself. Safe to
+    // defer: the render gate below means nothing consumes the old value
+    // in the meantime.
     const timeoutId = window.setTimeout(() => {
       const freshState = resolveOnboardingState().state
-      const accountCity = resolveAccountCity(currentUser.id, freshState)
+      const resolvedCity = resolveAccountCity(currentUser.id, freshState)
 
-      if (freshState.city === accountCity) {
-        return
+      if (freshState.city !== resolvedCity) {
+        const corrected = saveOnboardingState({ ...freshState, city: resolvedCity })
+        if (corrected.ok) {
+          setOnboardingState(corrected.state)
+        }
       }
 
-      const corrected = saveOnboardingState({ ...freshState, city: accountCity })
-      if (!corrected.ok) {
-        return
-      }
-
-      setOnboardingState(corrected.state)
-      setMapEntryIntent((current) => (
-        current?.type === 'city'
-          ? (accountCity ? { type: 'city', city: accountCity } : null)
-          : current
-      ))
+      setCityResolution({ forUserId: currentUser.id, city: resolvedCity })
+      setMapEntryIntent(resolvedCity ? { type: 'city', city: resolvedCity } : null)
     }, 0)
 
     return () => {
       window.clearTimeout(timeoutId)
     }
+  }, [currentUser])
+
+  // Called once the current account (which had no city of its own) picks
+  // one via the city-only requiredStep flow (AccountCityStep). The city is
+  // already persisted to the account-scoped store by AccountCityStep
+  // itself; this just unblocks the render gate immediately with the fresh
+  // value instead of waiting for the next currentUser-keyed resolution.
+  const handleAccountCitySelected = useCallback((city) => {
+    if (!currentUser) {
+      return
+    }
+    setCityResolution({ forUserId: currentUser.id, city })
+    setMapEntryIntent({ type: 'city', city })
   }, [currentUser])
 
   async function handleEnableNotifications() {
@@ -640,7 +659,15 @@ function App() {
   const handleOnboardingComplete = useCallback((intent, completedState) => {
     setOnboardingState(completedState)
     setMapEntryIntent(intent)
-  }, [])
+    // The wizard's own city step already saved this account's city to the
+    // account-scoped store (OnboardingPage calls setAccountCity directly);
+    // sync the resolution gate immediately with the same value instead of
+    // leaving it unresolved until the next currentUser-keyed effect run,
+    // which wouldn't otherwise fire again since currentUser hasn't changed.
+    if (currentUser) {
+      setCityResolution({ forUserId: currentUser.id, city: completedState.city })
+    }
+  }, [currentUser])
 
   const handleAdminForbidden = useCallback(() => {
     window.history.replaceState(null, '', '/')
@@ -724,6 +751,24 @@ function App() {
         onEnableNotifications={handleEnableNotifications}
         userId={currentUser.id}
       />,
+    )
+  }
+
+  // Device-level onboarding is complete, but this specific account's own
+  // city has not been resolved yet — brief, no perceptible loading state
+  // needed in practice (a synchronous localStorage read deferred one
+  // tick), but nothing account-specific may render until it settles.
+  if (resolvedAccountCity === undefined) {
+    return null
+  }
+
+  // requiredStep = city: device onboarding never repeats (no welcome,
+  // location, or notification priming replay, no native permission APIs),
+  // but this account has no city of its own — ask for only that, and
+  // block every other authenticated route until it's chosen.
+  if (resolvedAccountCity === '') {
+    return renderWithOfflineBanner(
+      <AccountCityStep userId={currentUser.id} onSelected={handleAccountCitySelected} />,
     )
   }
 
