@@ -11,19 +11,48 @@ import { israelCities } from '../data/israelCities'
 import {
   completeOnboardingState,
   saveOnboardingState,
+  setAccountCity,
 } from '../onboarding/onboardingStorage'
 import { ONBOARDING_STEPS } from '../onboarding/onboardingSteps'
 
 const TOTAL_STEPS = ONBOARDING_STEPS.length
 
-function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
+function OnboardingPage({ initialState, onComplete, onEnableNotifications, userId }) {
   const { t } = useTranslation()
   const [state, setState] = useState(initialState)
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState('')
   const actionPendingRef = useRef(false)
+  // Guards late async permission results: a result that resolves after
+  // unmount, or after the user has already navigated to a different step,
+  // must not update state (E08-02 — prevents both a React
+  // set-state-on-unmounted-component warning and an obsolete result
+  // silently overwriting a newer, user-driven onboarding state).
+  const isMountedRef = useRef(true)
   const stepIndex = Math.max(0, ONBOARDING_STEPS.indexOf(state.currentStep))
   const step = ONBOARDING_STEPS[stepIndex]
+  // Kept in sync after every commit (an effect, not a render-time ref
+  // write) so an in-flight async handler can compare against the *current*
+  // step rather than the step captured in its own closure at call time.
+  // Effects always run before the next user interaction can fire another
+  // click, so this is up to date by the time any handler reads it.
+  const stepRef = useRef(step)
+  useEffect(() => {
+    stepRef.current = step
+  }, [step])
+
+  useEffect(() => {
+    // The mount phase must explicitly reset this to true, not just rely on
+    // the useRef(true) initial value: React 18 StrictMode's dev-mode
+    // mount->cleanup->remount double-invoke would otherwise run the cleanup
+    // below once (setting this false) and never flip it back, permanently
+    // wedging every guarded state update even though the component is
+    // genuinely still mounted.
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const updateState = (updates) => {
     const next = { ...state, ...updates }
@@ -52,7 +81,14 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
       checkExistingPermission().then(({ state: permission }) => {
         if (!active) return
         if (permission === 'granted') updateState({ locationPermission: 'granted' })
-        else if (permission === 'unsupported') updateState({ locationPermission: 'unavailable' })
+        // 'unavailable' covers device location services being off; 'unsupported'
+        // covers a missing plugin/API. Neither is a denial, so both route to
+        // the same non-blocking "unavailable" onboarding outcome. A bare
+        // 'error' (unclassified plugin failure) is left as 'pending' so the
+        // primary button stays actionable and a real attempt can still run.
+        else if (permission === 'unsupported' || permission === 'unavailable') {
+          updateState({ locationPermission: 'unavailable' })
+        }
       })
     }
     if (step === 'notifications' && state.notificationPermission === 'pending') {
@@ -73,8 +109,10 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
     actionPendingRef.current = true
     setIsBusy(true)
     setError('')
+    const requestedForStep = step
     try {
       const result = await getCurrentLocation({ highAccuracy: true, maxAge: 0 })
+      if (!isMountedRef.current || stepRef.current !== requestedForStep) return
       const outcome = result.ok
         ? 'granted'
         : result.error === 'unsupported' || result.error === 'unavailable'
@@ -87,13 +125,22 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
           completedSteps: [...new Set([...state.completedSteps, 'location'])],
         } : {}),
       })
-      if (!result.ok) setError(t(`onboarding.location.${outcome}Message`))
+      if (!result.ok) {
+        // A repeat denial the shared location service has already flagged
+        // as needing OS-settings recovery gets settings-specific guidance
+        // instead of the generic first-denial message (E08-02).
+        const messageKey = outcome === 'denied' && result.needsSettings
+          ? 'onboarding.location.deniedSettingsMessage'
+          : `onboarding.location.${outcome}Message`
+        setError(t(messageKey))
+      }
     } catch {
+      if (!isMountedRef.current || stepRef.current !== requestedForStep) return
       updateState({ locationPermission: 'unavailable' })
       setError(t('onboarding.location.unavailableMessage'))
     } finally {
       actionPendingRef.current = false
-      setIsBusy(false)
+      if (isMountedRef.current) setIsBusy(false)
     }
   }
 
@@ -102,8 +149,10 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
     actionPendingRef.current = true
     setIsBusy(true)
     setError('')
+    const requestedForStep = step
     try {
       const result = await onEnableNotifications?.()
+      if (!isMountedRef.current || stepRef.current !== requestedForStep) return
       const outcome = result?.outcome === 'granted' ? 'granted'
         : result?.outcome === 'unsupported' ? 'unavailable'
           : 'denied'
@@ -116,11 +165,12 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
       })
       if (outcome !== 'granted') setError(t(`onboarding.notifications.${outcome}Message`))
     } catch {
+      if (!isMountedRef.current || stepRef.current !== requestedForStep) return
       updateState({ notificationPermission: 'unavailable' })
       setError(t('onboarding.notifications.unavailableMessage'))
     } finally {
       actionPendingRef.current = false
-      setIsBusy(false)
+      if (isMountedRef.current) setIsBusy(false)
     }
   }
 
@@ -132,7 +182,7 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
     try {
       const completion = completeOnboardingState(state)
       if (!completion.ok) {
-        setError(t('onboarding.completionSaveFailed'))
+        if (isMountedRef.current) setError(t('onboarding.completionSaveFailed'))
         return
       }
       let mapEntryIntent = { type: 'city', city: completion.state.city }
@@ -150,11 +200,12 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
           }
         }
       }
+      if (!isMountedRef.current) return
       setState(completion.state)
       onComplete?.(mapEntryIntent, completion.state)
     } finally {
       actionPendingRef.current = false
-      setIsBusy(false)
+      if (isMountedRef.current) setIsBusy(false)
     }
   }
 
@@ -175,7 +226,7 @@ function OnboardingPage({ initialState, onComplete, onEnableNotifications }) {
     <OnboardingLayout {...common} title={t('onboarding.cityStep.title')} description={t('onboarding.cityStep.description')} primaryLabel={t('onboarding.continue')} secondaryLabel={t('onboarding.back')} onPrimary={next} onSecondary={back} primaryDisabled={!selectedCityIsValid}>
       <div className="onboarding-city-field">
         <label htmlFor="onboarding-city-input">{t('onboarding.city')}</label>
-        <CityAutocomplete id="onboarding-city-input" value={state.city} onChange={(city) => updateState({ city })} cities={israelCities} placeholder={t('onboarding.cityPlaceholder')} />
+        <CityAutocomplete id="onboarding-city-input" value={state.city} onChange={(city) => { updateState({ city }); setAccountCity(userId, city) }} cities={israelCities} placeholder={t('onboarding.cityPlaceholder')} />
         {state.city && !selectedCityIsValid ? <p role="alert">{t('onboarding.chooseCity')}</p> : null}
       </div>
     </OnboardingLayout>

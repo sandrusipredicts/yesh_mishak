@@ -15,7 +15,7 @@ import Modal from '../components/Modal'
 import CityAutocomplete from '../components/CityAutocomplete'
 import LanguageSwitcher from '../components/LanguageSwitcher'
 import { israelCities } from '../data/israelCities'
-import { resolveOnboardingState, saveOnboardingState } from '../onboarding/onboardingStorage'
+import { resolveOnboardingState, saveOnboardingState, setAccountCity } from '../onboarding/onboardingStorage'
 import { getPasswordValidationError } from '../utils/passwordValidation'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
@@ -393,7 +393,7 @@ function RemovePasswordModal({ onClose, onPasswordRemoved }) {
   )
 }
 
-function SettingsPage({ onBack }) {
+function SettingsPage({ onBack, userId }) {
   const { i18n, t } = useTranslation()
   const isRtl = i18n.dir() === 'rtl'
   const BackArrow = isRtl ? ArrowRight : ArrowLeft
@@ -485,6 +485,7 @@ function SettingsPage({ onBack }) {
     if (!israelCities.includes(city)) return
     const current = resolveOnboardingState().state
     const result = saveOnboardingState({ ...current, city })
+    setAccountCity(userId, city)
     setPreferenceMessage(result.ok ? t('accountLinking.preferencesSaved') : t('accountLinking.preferencesSaveFailed'))
   }
 

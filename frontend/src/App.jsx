@@ -39,7 +39,11 @@ import { hasSelectedLanguage } from './i18n'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 import { getOrCreateInstallationId } from './utils/installationId'
 import { createPushTokenSync } from './utils/pushTokenSync'
-import { resolveOnboardingState } from './onboarding/onboardingStorage'
+import {
+  resolveAccountCity,
+  resolveOnboardingState,
+  saveOnboardingState,
+} from './onboarding/onboardingStorage'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -477,6 +481,46 @@ function App() {
     })
   }, [currentUser])
 
+  // E08-02: onboarding completion/permission-education flags are
+  // device-scoped by design (a second account must not repeat the
+  // walkthrough or be re-prompted for permissions Android already knows
+  // about), but the starting city is personal data. Re-derive it for
+  // *this* account on every login/session-restore, reading storage fresh
+  // rather than from React state to avoid acting on a stale onboarding
+  // snapshot from before the user was known.
+  useEffect(() => {
+    if (!currentUser) {
+      return undefined
+    }
+
+    // Deferred a tick (matching the deep-link effects above) so setState
+    // isn't called synchronously within the effect body itself.
+    const timeoutId = window.setTimeout(() => {
+      const freshState = resolveOnboardingState().state
+      const accountCity = resolveAccountCity(currentUser.id, freshState)
+
+      if (freshState.city === accountCity) {
+        return
+      }
+
+      const corrected = saveOnboardingState({ ...freshState, city: accountCity })
+      if (!corrected.ok) {
+        return
+      }
+
+      setOnboardingState(corrected.state)
+      setMapEntryIntent((current) => (
+        current?.type === 'city'
+          ? (accountCity ? { type: 'city', city: accountCity } : null)
+          : current
+      ))
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [currentUser])
+
   async function handleEnableNotifications() {
     if (isNativePushSupported()) {
       const result = await initNativePush({
@@ -500,7 +544,16 @@ function App() {
       },
       })
       console.info('[E04-01 PUSH DEBUG] explicit init result:', result?.outcome)
-      if (['registered', 'already-initialized'].includes(result?.outcome)) {
+      // 'registration-failed' means the OS permission was already granted —
+      // requestPushPermission() inside initNativePush() only reaches
+      // register() after a granted check — and only the native FCM/APNs
+      // handshake itself failed. That is a token-delivery problem, not a
+      // permission denial: report it as 'granted' so onboarding/UI never
+      // shows "notifications were not allowed" for a permission the user
+      // did allow. Delivery keeps retrying through the existing
+      // registration/registrationError listeners and createPushTokenSync
+      // (E08-02; previously this path was mis-reported as 'denied').
+      if (['registered', 'already-initialized', 'registration-failed'].includes(result?.outcome)) {
         return { outcome: 'granted' }
       }
       if (result?.outcome === 'unsupported') return { outcome: 'unsupported' }
@@ -669,6 +722,7 @@ function App() {
         initialState={onboardingState}
         onComplete={handleOnboardingComplete}
         onEnableNotifications={handleEnableNotifications}
+        userId={currentUser.id}
       />,
     )
   }
@@ -682,7 +736,7 @@ function App() {
   }
 
   if (pathname === '/settings') {
-    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} />)
+    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} userId={currentUser.id} />)
   }
 
   return renderWithOfflineBanner(

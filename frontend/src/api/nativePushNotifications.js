@@ -5,6 +5,22 @@ import { isUuidV4 } from '../utils/appLinkRoutes.js'
 
 const DEBUG_PREFIX = '[E04-01 PUSH DEBUG]'
 
+// Raw-to-app permission-state mapping (E08-02 audit): checkPermissions()/
+// requestPermissions().receive is typed as @capacitor/core's PermissionState
+// — exactly 'prompt' | 'prompt-with-rationale' | 'granted' | 'denied' on the
+// installed plugin version. There is no 'restricted'/'limited' value to
+// normalize on this platform, so none is invented here. checkPushPermission/
+// requestPushPermission below pass that value straight through (plus the
+// app-injected 'unsupported' when the plugin/native platform is absent) —
+// callers already treat anything other than 'granted' as "not yet usable".
+//
+// Android-version normalization is handled by the native plugin itself, not
+// here: per @capacitor/push-notifications' own documented behavior, on
+// Android 12 and below checkPermissions()/requestPermissions() always
+// resolve 'granted' (no runtime notification permission exists pre-13), so
+// this file never needs to branch on OS version to avoid showing an invalid
+// permission prompt on older Android.
+
 const CHECK_PERMISSIONS_TIMEOUT_MS = 8000
 const REQUEST_PERMISSIONS_TIMEOUT_MS = 120000
 const REGISTER_TIMEOUT_MS = 15000

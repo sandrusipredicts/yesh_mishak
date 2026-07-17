@@ -176,6 +176,7 @@ const en = {
       nearby: 'Find nearby fields and games',
       navigation: 'Navigate to fields more easily',
       deniedMessage: 'Location was not allowed. You can continue and enable it later from the map.',
+      deniedSettingsMessage: 'Location was blocked after a few attempts. To allow it, open your device settings and allow location access for yesh_mishak. You can continue for now with your selected city.',
       unavailableMessage: 'Location is unavailable right now. You can continue with your selected city.',
     },
     notifications: {
@@ -185,7 +186,7 @@ const en = {
       gameUpdates: 'Updates about games you joined or created',
       changes: 'Changes, cancellations, and relevant activity',
       reminders: 'Useful game reminders',
-      deniedMessage: 'Notifications were not allowed. You can enable them later in Settings.',
+      deniedMessage: 'Notifications were not allowed. You can enable them later from your device settings for yesh_mishak.',
       unavailableMessage: 'Notifications are not supported in this environment.',
     },
     guide: {

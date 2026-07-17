@@ -17,7 +17,13 @@ function mapError(permissionStatus) {
   if (permissionStatus === 'denied' || permissionStatus === 'settings') {
     return ERROR.PERMISSION_DENIED
   }
-  if (permissionStatus === 'unavailable') return ERROR.UNAVAILABLE
+  // 'services-disabled' (device location services are off) is deliberately
+  // folded into the same UNAVAILABLE bucket as a generic unavailable
+  // failure, not PERMISSION_DENIED — this is never the user declining a
+  // permission prompt, so it must never surface denial copy (E08-02).
+  if (permissionStatus === 'unavailable' || permissionStatus === 'services-disabled') {
+    return ERROR.UNAVAILABLE
+  }
   if (permissionStatus === 'unsupported') return ERROR.UNSUPPORTED
   return ERROR.UNKNOWN
 }

@@ -9,6 +9,20 @@ export const ONBOARDING_STORAGE_KEY = 'onboarding_state'
 export const LEGACY_ONBOARDING_DONE_KEY = 'onboarding_done'
 export const LEGACY_CITY_KEY = 'userCity'
 
+// E08-02 persistence model: onboarding completion and the location/
+// notification priming shown/skipped flags above are intentionally
+// device/installation-scoped (a single `onboarding_state` blob, not
+// namespaced by account) — the approved product decision is that a second
+// account on the same device must not be forced through the six-step
+// walkthrough again or re-prompted for OS permissions Android already knows
+// about. The starting *city*, however, is personal data: it must not be
+// silently inherited by a second account. It is tracked separately here,
+// namespaced per authenticated user id, while `onboarding_state.city`
+// remains the value actually rendered by the wizard/map for the current
+// session (kept in sync with the account-scoped copy by the callers below).
+const ACCOUNT_CITY_KEY_PREFIX = 'starting_city:'
+const CITY_MIGRATION_FLAG_KEY = 'starting_city_migrated'
+
 function storageAvailable(storage) {
   return storage && typeof storage.getItem === 'function' && typeof storage.setItem === 'function'
 }
@@ -124,4 +138,58 @@ export function completeOnboardingState(state, storage = globalThis.localStorage
     completedSteps: [...ONBOARDING_STEPS],
     completedAt: new Date().toISOString(),
   }, storage)
+}
+
+function accountCityKey(userId) {
+  return `${ACCOUNT_CITY_KEY_PREFIX}${userId}`
+}
+
+// Reads this specific account's own remembered starting city, never another
+// account's. Returns '' when this account has not set one on this device.
+export function getAccountCity(userId, storage = globalThis.localStorage) {
+  if (!userId || !storageAvailable(storage)) return ''
+  try {
+    const value = storage.getItem(accountCityKey(userId))
+    return isValidCity(value) ? value.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+export function setAccountCity(userId, city, storage = globalThis.localStorage) {
+  if (!userId || !storageAvailable(storage) || !isValidCity(city)) return false
+  try {
+    storage.setItem(accountCityKey(userId), city.trim())
+    return true
+  } catch {
+    return false
+  }
+}
+
+// One-time, best-effort migration for devices that already had a city
+// before per-account city scoping shipped: the device-scoped city is
+// attributed to whichever account is first to load post-upgrade, then the
+// migration flag prevents it from ever running again for a different
+// account. This correctly preserves the common single-account-per-device
+// case; for a device that already had multiple accounts before this
+// migration, it is an honest, bounded, one-shot heuristic rather than a
+// silent, repeatable cross-account inheritance — a perfect resolution needs
+// a backend per-user field, which is out of scope for this frontend-only
+// fix (see docs/e08-02-permission-priming-execution-plan.md).
+export function resolveAccountCity(userId, deviceState, storage = globalThis.localStorage) {
+  const existing = getAccountCity(userId, storage)
+  if (existing) return existing
+  if (!userId || !storageAvailable(storage)) return ''
+
+  try {
+    if (storage.getItem(CITY_MIGRATION_FLAG_KEY) === 'true') return ''
+    storage.setItem(CITY_MIGRATION_FLAG_KEY, 'true')
+    if (deviceState?.status === 'completed' && isValidCity(deviceState.city)) {
+      setAccountCity(userId, deviceState.city, storage)
+      return deviceState.city.trim()
+    }
+    return ''
+  } catch {
+    return ''
+  }
 }

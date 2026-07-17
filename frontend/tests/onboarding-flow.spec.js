@@ -114,6 +114,68 @@ test('login state alone never requests browser notification permission', async (
   await expect.poll(() => page.evaluate(() => window.__notificationRequests)).toBe(0)
 })
 
+test('location permission denied once shows non-blocking guidance and stays on the same step', async ({ page }) => {
+  await seedAuthenticatedUser(page, 'en')
+  await mockApplicationApis(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await chooseYeruham(page)
+
+  // No context permission was granted, so the browser auto-denies —
+  // the same signal a real user tapping "Block" produces.
+  await page.getByRole('button', { name: 'Allow location' }).click()
+
+  await expect(page.getByText('Location was not allowed. You can continue and enable it later from the map.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Find games near you' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('onboarding_state')).locationPermission))
+    .toBe('denied')
+
+  // Denial must not block progress — skipping still works.
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await expect(page.getByRole('heading', { name: 'Stay updated' })).toBeVisible()
+})
+
+test('repeated location denial escalates to settings guidance instead of the generic message', async ({ page }) => {
+  await seedAuthenticatedUser(page, 'en')
+  await mockApplicationApis(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await chooseYeruham(page)
+
+  await page.getByRole('button', { name: 'Allow location' }).click()
+  await expect(page.getByText('Location was not allowed. You can continue and enable it later from the map.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Allow location' }).click()
+  await expect(page.getByText(/Location was blocked after a few attempts/)).toBeVisible()
+})
+
+test('rapid double-tap on the location action fires only one permission request', async ({ page }) => {
+  await seedAuthenticatedUser(page, 'en')
+  await mockApplicationApis(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await chooseYeruham(page)
+
+  // Two synchronous click events dispatched in the same task — before React
+  // can re-render/disable the button between them — is the reliable way to
+  // exercise the in-handler re-entrancy guard rather than the disabled-DOM
+  // guard alone.
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((candidate) => candidate.textContent.includes('Allow location'))
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+
+  await expect(page.getByText('Location was not allowed. You can continue and enable it later from the map.')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('onboarding_state')).locationPermission))
+    .toBe('denied')
+  // A second, uncoalesced request would have advanced the repeat-denial
+  // counter and shown the settings-escalated message instead of the plain
+  // first-denial one — its absence proves only one request actually fired.
+  await expect(page.getByText(/blocked after a few attempts/)).not.toBeVisible()
+})
+
 test('pending field deep link overrides onboarding location and city handoff', async ({ page }) => {
   await seedAuthenticatedUser(page, 'en')
   await page.addInitScript(() => {
