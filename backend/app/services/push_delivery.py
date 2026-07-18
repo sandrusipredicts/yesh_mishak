@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import requests
 
+from app.monitoring import capture_unexpected_exception
 from app.services.firebase_push import FirebaseConfigError, send_fcm_notification
 from app.services.job_runs import sanitize_error_message, sanitize_error_type
 
@@ -207,6 +208,15 @@ def handle_attempt_result(
                     "exception_type": exc.__class__.__name__,
                 },
                 exc_info=True,
+            )
+            # Config/transient/permanent push failures are expected and
+            # already routed/retried appropriately above; an "unknown"
+            # classification means classify_push_error() couldn't place it
+            # in any of those known buckets, which is exactly the unexpected
+            # case worth surfacing.
+            capture_unexpected_exception(
+                exc,
+                code="PUSH_DELIVERY_UNKNOWN_ERROR",
             )
 
         if attempt_count >= effective_max:

@@ -5,6 +5,12 @@ const en = {
     logout: 'Logout',
     offlineMessage: 'No internet connection. Please check your network and try again.',
   },
+  errorBoundary: {
+    title: 'Something went wrong',
+    message: 'An unexpected error occurred. You can try reloading the page.',
+    reload: 'Reload',
+    eventIdLabel: 'Reference',
+  },
   language: {
     label: 'Language',
     current: 'Current language',

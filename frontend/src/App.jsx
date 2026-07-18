@@ -36,6 +36,12 @@ import {
 import { deletePushToken, savePushToken } from './api/notifications'
 import { recordLinkOpen } from './api/shareAnalytics'
 import { hasSelectedLanguage } from './i18n'
+import {
+  addBreadcrumb,
+  captureMessage,
+  clearUser as clearMonitoringUser,
+  setUser as setMonitoringUser,
+} from './monitoring/index.js'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 import { getOrCreateInstallationId } from './utils/installationId'
 import { createPushTokenSync } from './utils/pushTokenSync'
@@ -331,6 +337,8 @@ function App() {
 
     if (!normalized.ok) {
       console.warn('Rejected app link URL.', normalized.reason)
+      // Category only -- never the raw url, which may carry query params.
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'warning', data: { category: 'rejected', reason: normalized.reason } })
       return
     }
 
@@ -343,8 +351,10 @@ function App() {
         recordLinkOpen(normalized, 'deferred_for_auth')
       }
       applyDeepLinkTarget(buildDeepLinkTarget(normalized, { deferredForAuth }))
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'info', data: { category: normalized.routeType, deferredForAuth } })
     } else if (normalized.routeType === 'fallback') {
       recordLinkOpen(normalized, 'invalid')
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'warning', data: { category: 'invalid' } })
     }
 
     navigateTo(normalized.navigationPath, { replace })
@@ -488,6 +498,28 @@ function App() {
     })
   }, [currentUser])
 
+  // Monitoring user-context lifecycle: this single effect is the only place
+  // Sentry.setUser/clearUser is ever called, so every path that changes
+  // currentUser (login, logout, session restore, account switch) stays in
+  // sync automatically instead of needing a call at each call site.
+  // setUser() itself always clears before setting (see monitoring/client.js),
+  // so an account switch (A -> B) can never leak A's context into B's events.
+  useEffect(() => {
+    if (currentUser?.id) {
+      setMonitoringUser(currentUser.id)
+      addBreadcrumb({ category: 'auth', message: 'authentication state changed', level: 'info', data: { state: 'authenticated' } })
+    } else {
+      clearMonitoringUser()
+      addBreadcrumb({ category: 'auth', message: 'authentication state changed', level: 'info', data: { state: 'anonymous' } })
+    }
+  }, [currentUser?.id])
+
+  useEffect(() => {
+    if (isSessionReady) {
+      addBreadcrumb({ category: 'app', message: 'application startup completed', level: 'info' })
+    }
+  }, [isSessionReady])
+
   // E08-02 follow-up fix: onboarding completion/permission-education flags
   // are device-scoped by design (a second account must not repeat the
   // walkthrough or be re-prompted for permissions Android already knows
@@ -541,6 +573,7 @@ function App() {
   }, [currentUser])
 
   async function handleEnableNotifications() {
+    addBreadcrumb({ category: 'push', message: 'permission request started', level: 'info', data: { category: 'push_registration' } })
     if (isNativePushSupported()) {
       const result = await initNativePush({
       onTokenReceived: (token) => {
@@ -552,6 +585,11 @@ function App() {
       },
       onTokenError: (error) => {
         console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
+        // Permission was already granted by this point (see outcome mapping
+        // below) -- a token-delivery failure here is unexpected, not a
+        // normal denial, so it is reportable.
+        addBreadcrumb({ category: 'push', message: 'push registration failed unexpectedly', level: 'warning' })
+        captureMessage('Native push token registration failed after permission was granted', 'warning')
       },
       onForegroundNotification: () => {
         window.dispatchEvent(new CustomEvent('native-push-received'))

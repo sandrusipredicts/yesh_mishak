@@ -18,6 +18,7 @@ dependencies {
     implementation project(':capacitor-share')
     implementation project(':capgo-capacitor-social-login')
     implementation project(':ebarooni-capacitor-calendar')
+    implementation project(':sentry-capacitor')
 
 }
 

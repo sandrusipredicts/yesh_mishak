@@ -5,6 +5,12 @@ const he = {
     logout: 'התנתקות',
     offlineMessage: 'אין חיבור לאינטרנט. בדקו את הרשת ונסו שוב.',
   },
+  errorBoundary: {
+    title: 'משהו השתבש',
+    message: 'אירעה שגיאה בלתי צפויה. אפשר לנסות לטעון את הדף מחדש.',
+    reload: 'טעינה מחדש',
+    eventIdLabel: 'מספר אסמכתא',
+  },
   language: {
     label: 'שפה',
     current: 'שפה נוכחית',

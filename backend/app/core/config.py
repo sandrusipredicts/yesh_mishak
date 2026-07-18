@@ -67,6 +67,13 @@ class Settings(BaseSettings):
         default=60,
         alias="EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
     )
+    sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
+    sentry_environment: str | None = Field(default=None, alias="SENTRY_ENVIRONMENT")
+    sentry_release: str | None = Field(default=None, alias="SENTRY_RELEASE")
+    # Explicit local override for integration testing only -- see
+    # app/monitoring.py:is_monitoring_enabled. None (unset) is treated as
+    # False; local development reporting is disabled by default.
+    sentry_enabled: bool | None = Field(default=None, alias="SENTRY_ENABLED")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

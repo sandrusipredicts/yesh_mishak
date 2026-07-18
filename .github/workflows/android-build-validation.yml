@@ -54,6 +54,20 @@ jobs:
       ANDROID_DEBUG_KEYSTORE_PATH: ci-debug.keystore
       VITE_API_URL: ${{ vars.VITE_API_URL }}
       VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+      # Sentry (E09-01): optional. A missing DSN disables reporting for this
+      # branch-build APK (frontend/src/monitoring/config.js) without failing
+      # the build -- Sentry is not required infrastructure for a debug
+      # validation artifact. VITE_SENTRY_ENVIRONMENT/DIST are set explicitly
+      # here (not left to runtime heuristics) so a branch-build APK can never
+      # be misclassified as production in the dashboard.
+      VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+      VITE_SENTRY_ENVIRONMENT: branch-build
+      # Source-map upload (vite.config.js) is likewise optional: a missing
+      # SENTRY_AUTH_TOKEN makes the Sentry Vite plugin skip itself entirely,
+      # so this build still succeeds with unsymbolicated maps.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_MOBILE_PROJECT: ${{ vars.SENTRY_MOBILE_PROJECT }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -119,8 +133,37 @@ jobs:
           fi
           exit "$missing"
 
+      - name: Resolve Sentry release identifier
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          # Interim deterministic format (docs/e09-01-crash-reporting-execution-plan.md):
+          # Android versionName is still a static placeholder ("1.0", not yet
+          # bumped per release), so only the commit SHA is reliably available
+          # here. Once versionName reflects real releases this becomes
+          # yesh-mishak@<versionName>+<sha>.
+          echo "VITE_SENTRY_RELEASE=yesh-mishak@${SHORT_SHA}" >> "$GITHUB_ENV"
+          echo "VITE_SENTRY_DIST=android-branch-${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Validate optional Sentry configuration
+        run: |
+          if [ -z "${VITE_SENTRY_DSN:-}" ]; then
+            echo "::warning::VITE_SENTRY_DSN repository variable is not set. This branch-build APK will run with crash reporting disabled (frontend/src/monitoring/config.js fails safe -- this does not fail the build)."
+          fi
+
       - name: Build web assets for Android
         run: npm run build:android
+
+      - name: Verify no secrets leaked into the built web bundle
+        run: |
+          if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && grep -R -l -F -- "$SENTRY_AUTH_TOKEN" dist/ 2>/dev/null; then
+            echo "::error::SENTRY_AUTH_TOKEN value found in the built web bundle. Failing to avoid shipping a secret."
+            exit 1
+          fi
+          if grep -R -l "SENTRY_AUTH_TOKEN" dist/ 2>/dev/null; then
+            echo "::error::Literal string SENTRY_AUTH_TOKEN found in the built web bundle."
+            exit 1
+          fi
+          echo "No Sentry auth token material found in the built bundle."
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
