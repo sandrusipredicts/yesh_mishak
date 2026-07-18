@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "prebuild:android": "npm run android:google-client-id:validate",
     "build:android": "vite build --mode android",
     "build:ios": "vite build --mode ios",
+    "android:google-client-id:validate": "node scripts/validate-android-google-client-id.mjs",
     "android:google-services": "node scripts/materialize-google-services.mjs",
     "android:google-services:validate": "node scripts/materialize-google-services.mjs --validate-file android/app/google-services.json",
     "lint": "eslint .",
