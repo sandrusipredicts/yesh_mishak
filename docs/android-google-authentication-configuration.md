@@ -8,6 +8,13 @@ Implements the **NA-2 (Google Cloud console setup)** pre-implementation task def
 
 Collect and record everything required to create the Android OAuth Client in Google Cloud Console: package name, signing mode, SHA-1/SHA-256 fingerprints, the existing Web OAuth Client ID reference, and the exact console steps — plus the status of each configuration item.
 
+## Client ID invariant
+
+- `VITE_GOOGLE_CLIENT_ID` must be the **Web application** OAuth client ID used as Credential Manager's `serverClientId`.
+- It must exactly match the backend `GOOGLE_CLIENT_ID`, because that value is the expected Google ID-token audience.
+- An **Android** OAuth client must exist for every application package/signing SHA-1 pair used to install the app, including each developer debug key, CI key, release key, and Play App Signing key as applicable.
+- An Android OAuth client ID authorizes the signed Android app; it must never be substituted for `VITE_GOOGLE_CLIENT_ID`.
+
 ## Out of Scope
 
 Native Login implementation, plugin installation, any backend/frontend/native/package change, `cap sync`, push notifications, release-keystore creation, Play App Signing enrollment.
@@ -25,9 +32,9 @@ Native Login implementation, plugin installation, any backend/frontend/native/pa
 | Release SHA-1 / SHA-256 | **Do not exist yet** — no release keystore is configured. Must be collected separately when release signing is set up; **never assume they equal the debug values** |
 | Play App Signing SHA-1 / SHA-256 | **Not applicable yet** — app not enrolled; when enrolled, Google's app-signing certificate fingerprints (from Play Console → App integrity) must be added to the same Android OAuth Client |
 | Google Cloud project | Project number `936888694089` (identifiable from the existing client ID prefix; full project name intentionally not recorded here) |
-| Existing Web OAuth Client ID (the ISSUE-237 `serverClientId`) | `936888694089-fu96…h71.apps.googleusercontent.com` (partially redacted; full value lives in `frontend/.env` as `VITE_GOOGLE_CLIENT_ID` and mirrors backend `google_client_id`) — **must remain unchanged** |
-| Android OAuth Client ID | **CREATED (2026-07-03, by the account owner):** `936888694089-f3hrv6kpiotr9u8ggl7pd0mi2t987er1.apps.googleusercontent.com` |
-| SHA-1 added to Android OAuth Client | **YES** — the debug SHA-1 above was entered at client creation (the Android client form requires it) |
+| Existing Web OAuth Client ID (the ISSUE-237 `serverClientId`) | Supplied through the local/CI `VITE_GOOGLE_CLIENT_ID` environment and required to exactly match the backend `GOOGLE_CLIENT_ID`; the full value is intentionally not duplicated here |
+| Android OAuth Client ID | **CREATED AND REVERIFIED (2026-07-18):** an Android-type client exists in project `936888694089` for the package and debug SHA-1 above; its client ID is not used by app code |
+| SHA-1 added to Android OAuth Client | **YES — REVERIFIED 2026-07-18.** The current debug SHA-1 above exactly matches the Android client registration |
 | OAuth consent screen status | **Testing** (publishing status) |
 | Test users configured | **YES** (emails redacted — managed in the console by the account owner) |
 | OAuth access restricted to test users | **YES** — while in Testing, only the configured test users can complete Google sign-in |
@@ -47,11 +54,11 @@ Native Login implementation, plugin installation, any backend/frontend/native/pa
 7. Package name: `com.yeshmishak.app`
 8. SHA-1 certificate fingerprint: `44:74:72:31:C5:EF:83:3F:8F:9F:94:82:97:49:C6:E5:BE:48:84:9B`
 9. Save the Android OAuth Client.
-10. Record the resulting **Android OAuth Client ID** in this document — **DONE** (recorded above, 2026-07-03).
+10. Record that the Android OAuth Client exists for the required package/SHA-1 pair — **DONE and reverified 2026-07-18**. The client ID itself is not needed by app code and is intentionally not duplicated here.
 11. SHA-256: the Android client form does not take it; it is recorded in this document as the audit reference (step complete).
 12. Confirm the **existing Web OAuth Client ID remains unchanged** — **CONFIRMED**; it continues to serve as the `serverClientId` per ISSUE-237 ADR-3, and nothing about the web client was edited.
 
-**Runbook executed by the account owner on 2026-07-03.** Additional outcome: the OAuth consent screen publishing status is **Testing** with test users configured, so sign-in is restricted to those test users until the app is moved to Production.
+**Runbook executed by the account owner on 2026-07-03 and the current package/SHA-1 registration was reverified on 2026-07-18.** Additional outcome: the OAuth consent screen publishing status is **Testing** with test users configured, so sign-in is restricted to those test users until the app is moved to Production.
 
 Fingerprint re-collection commands (for future keys/machines):
 
@@ -68,11 +75,11 @@ Note: this machine's debug keystore alias reports as `AndroidDebugKey` (case-ins
 
 ## Risks / follow-up items
 
-1. ~~BLOCKING: Android OAuth Client creation~~ — **RESOLVED 2026-07-03:** the Android OAuth Client was created by the account owner and is recorded above. NA-3 is no longer blocked by NA-2.
+1. ~~BLOCKING: Android OAuth Client creation~~ — **RESOLVED and reverified 2026-07-18:** the Android OAuth Client exists for the current package/debug SHA-1 pair. NA-3 is no longer blocked by NA-2.
 2. **Testing-mode restriction (accepted for this phase):** the consent screen is in **Testing**, so only configured test users can sign in. This is sufficient for NA-3 development and NA-V Samsung validation (which must use a test user), but **the publishing status must move to Production before native Google login ships to real users** — carry this as a release-gate follow-up item.
 3. **Debug-keystore locality:** the debug SHA-1 above belongs to *this development machine's* keystore. Building the APK on another machine/CI produces a different debug fingerprint that must be added to the same Android OAuth Client as an additional fingerprint entry.
 4. **Release signing (future):** before any release build ships with native Google login, a release keystore (or Play App Signing) must be created and its SHA-1 added to the Android OAuth Client. Tracked as part of the existing release-readiness work, not this phase.
-5. `.env` remains the source of truth for the full web client ID; do not duplicate the full value into more places than necessary.
+5. The backend deployment's `GOOGLE_CLIENT_ID` is the production token audience. Every local or CI Android build must supply that same Web client ID as `VITE_GOOGLE_CLIENT_ID`; do not duplicate the full value in documentation.
 
 ## Stable GitHub Actions debug signing
 
@@ -144,4 +151,4 @@ the backend.
 
 ## Final verdict
 
-**GO.** The NA-2 configuration is complete: package name, debug SHA-1/SHA-256, and signing mode are verified and recorded; the Android OAuth Client exists with the debug SHA-1 registered and its client ID recorded above; the existing Web OAuth Client ID is confirmed unchanged as the `serverClientId`; the OAuth consent screen is in **Testing** with test users configured, which is sufficient for development and device validation. **NA-3 (native Google login implementation) is unblocked**, subject to two standing constraints: (1) Samsung SM-S928B validation must sign in with one of the configured test users while the consent screen remains in Testing; (2) moving the publishing status to Production is a release-gate follow-up before native Google login ships to real users.
+**GO.** The NA-2 configuration is complete: package name, debug SHA-1/SHA-256, and signing mode are verified and recorded; the Android OAuth Client exists with the debug SHA-1 registered; the existing Web OAuth Client ID remains the `serverClientId` and must match the backend token audience; the OAuth consent screen is in **Testing** with test users configured, which is sufficient for development and device validation. **NA-3 (native Google login implementation) is unblocked**, subject to two standing constraints: (1) Samsung SM-S928B validation must sign in with one of the configured test users while the consent screen remains in Testing; (2) moving the publishing status to Production is a release-gate follow-up before native Google login ships to real users.
