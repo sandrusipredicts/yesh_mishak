@@ -1,6 +1,6 @@
 # E09-01 — Crash Reporting & Error Monitoring: Execution Plan
 
-Status: **CROSS-PLATFORM IMPLEMENTATION COMPLETE — ANDROID VERIFIED — IOS VERIFICATION PENDING.** Sections 1–58 below are the planning document as finalized before implementation (carried over verbatim from the planning branch, `codex/e09-01-crash-reporting-plan`, since this implementation branch was created from `main` and never had this file). **See [§59, Implementation Report](#59-implementation-report-post-planning-update) at the end for what was actually built, actual package versions, files changed, test results, and current verification status.**
+Status: **CROSS-PLATFORM IMPLEMENTATION COMPLETE WITH BLOCKERS — ANDROID PHYSICAL VERIFICATION PENDING — IOS VERIFICATION PENDING.** (Corrected — an earlier version of this status line read "ANDROID VERIFIED," which overstated what had actually been checked: build/configuration correctness was verified, but no real Sentry organization/DSN exists, so no JavaScript or Android-native event has ever actually been delivered to and confirmed in a Sentry dashboard, and no physical Android device was used. See [§59.1](#591-implementation-status) for the corrected, itemized breakdown.) Sections 1–58 below are the planning document as finalized before implementation (carried over verbatim from the planning branch, `codex/e09-01-crash-reporting-plan`, since this implementation branch was created from `main` and never had this file). **See [§59, Implementation Report](#59-implementation-report-post-planning-update) at the end for what was actually built, actual package versions, files changed, test results, and current verification status.**
 
 Planning branch: `codex/e09-01-crash-reporting-plan` (created from `main` at commit `04af30d`).
 Implementation branch: `codex/e09-01-crash-reporting` (created from `main` at commit `04af30d`, independent of the planning branch, per the task's branch rules).
@@ -574,6 +574,10 @@ The architecture is decided and now explicitly cross-platform. The design is ful
 - `CROSS-PLATFORM IMPLEMENTATION COMPLETE — ANDROID VERIFIED — IOS VERIFIED` (only after [§47](#47-manual-ios-verification-deferred-to-the-active-ios-phase) has actually run on physical hardware)
 - `CROSS-PLATFORM IMPLEMENTATION INCOMPLETE` (if any of the "must implement now" items in [§15](#15-must-be-implemented-during-e09-01) were skipped)
 
+**Post-implementation correction**: neither of the first two options anticipated the case actually reached — implementation complete, Android *build/configuration* verified, but no real Sentry organization/DSN exists yet, so no event (JS or native) has ever actually reached a Sentry dashboard, and no physical Android device was used. "Android verified" turned out to conflate "the wiring is correct" with "a real crash was delivered and confirmed," which are not the same claim. A fourth, more precise value was needed and is now the one actually reported:
+
+- `CROSS-PLATFORM IMPLEMENTATION COMPLETE WITH BLOCKERS — ANDROID PHYSICAL VERIFICATION PENDING — IOS VERIFICATION PENDING` (implementation and Android build/configuration are done and automated-test-verified; a real Sentry event from a physical Android device, and all iOS verification, remain pending) — **this is the current, correct status.** See [§59.1](#591-implementation-status).
+
 This is distinct from — and does not replace — this planning document's own three-value readiness decision (`READY FOR IMPLEMENTATION` / `READY WITH BLOCKERS` / `NOT READY`), which governs whether implementation should *start*, not how its completion should be *reported*.
 
 ---
@@ -596,11 +600,21 @@ Everything below reflects the actual implementation on branch `codex/e09-01-cras
 
 ### 59.1 Implementation Status
 
-**`CROSS-PLATFORM IMPLEMENTATION COMPLETE — ANDROID VERIFIED — IOS VERIFICATION PENDING`**
+**`CROSS-PLATFORM IMPLEMENTATION COMPLETE WITH BLOCKERS — ANDROID PHYSICAL VERIFICATION PENDING — IOS VERIFICATION PENDING`**
 
-- **Cross-platform implementation**: complete. The shared JS monitoring module, Error Boundary, user-context lifecycle, redaction, filtering, breadcrumbs, and source-map pipeline are all platform-neutral and active on web, Android, and (once `cap sync ios` runs on a macOS/Xcode toolchain) iOS, without any Android-only code path.
-- **Android verified**: `npx cap sync android` was actually run and confirmed `@sentry/capacitor` auto-registers its native Android module (`sentry-android` bundled transitively); the app builds successfully with the new dependency; automated tests covering the wiring pass. **Physical-device crash/ANR verification was not performed** (no physical Android device available in this environment) — this remains an owner action (§59.7).
-- **iOS verification pending**: by design. Native iOS dependency resolution (`cap sync ios`), compilation, dSYM generation/upload, and all physical-device checks require a macOS/Xcode toolchain and, ultimately, a physical iPhone — neither is available in this environment. Nothing here is claimed as verified.
+*(Corrected. An earlier version of this report used `CROSS-PLATFORM IMPLEMENTATION COMPLETE — ANDROID VERIFIED — IOS VERIFICATION PENDING`, which was inaccurate: it described Android build/configuration correctness as if it were equivalent to confirmed crash-reporting delivery. It is not — no real Sentry organization, project, or DSN has ever been configured anywhere in this implementation (by design — creating one was out of scope, per the task's explicit prohibition), so no event of any kind, from any platform, has ever actually been delivered to and confirmed in a Sentry dashboard. "Verified" is reserved below for things that were actually checked and observed to work, not for things that are merely correctly wired.)*
+
+The status breaks down into five distinct claims, which must not be conflated:
+
+| Dimension | Status | What that means concretely |
+|---|---|---|
+| **Automated implementation verification** | **Passed** | 49 frontend unit tests, 5 frontend Playwright tests, 24 backend tests — all newly added for this task — pass. Full pre-existing test suites (1088 backend tests, 341+ frontend Playwright tests) show zero regressions (confirmed against a clean `main` worktree — see §59.19). This verifies the *code is wired correctly and doesn't break anything else*; it does not verify that a real Sentry event was ever produced or received. |
+| **Android build/configuration verification** | **Passed** | `npx cap sync android` was actually run and confirmed `@sentry/capacitor` auto-registers its native Android module (`sentry-android` bundled transitively, no custom `Application` class needed); `npm run build:android` (the exact command the CI workflow runs) succeeds with the new dependency present. This verifies the *Android project is configured correctly and builds*; it is a build/config check, not a crash-delivery check. |
+| **Real Sentry event-delivery verification (JavaScript)** | **Pending** | No JavaScript error has ever been sent to and confirmed inside an actual Sentry dashboard, on any platform (web, Android WebView, or otherwise), because no real Sentry DSN exists yet. The dev-only test trigger (`window.__monitoringTest.triggerReactRenderError()`) was exercised and confirmed to correctly *invoke* `captureException` and render the correct fallback UI (via the Playwright spec), but with monitoring disabled (no DSN configured in this environment), so nothing was actually transmitted anywhere. Source-map symbolication against a real Sentry-hosted event has likewise never been checked — only that a local build with no auth token correctly omits a `sourceMappingURL` reference. |
+| **Physical Android verification** | **Pending** | No physical (or emulated) Android device was used at any point in this implementation — no APK was installed on a device, no native crash was triggered via `Sentry.nativeCrash()` on real hardware, and no ANR was triggered. This is an explicit, unmet prerequisite for any claim of "Android verified." |
+| **iOS native verification** | **Pending** | Unchanged from before — blocked on a macOS/Xcode toolchain and, beyond that, a physical iPhone, neither of which exists in this environment. Preparation (dependency declaration, native-init research) is complete; nothing beyond preparation is claimed. |
+
+**Android is not to be described as "verified" until both of the following have actually happened and been confirmed**: (1) a real JavaScript error, triggered from the app, has appeared correctly (with correct release/environment/redaction) in a real Sentry dashboard, and (2) a real Android-native event, triggered from a physical-device branch-build APK, has likewise appeared correctly in that same dashboard. Neither has happened yet.
 
 ### 59.2 Actual Architecture Implemented
 
@@ -740,7 +754,7 @@ A genuine testing gotcha was discovered and fixed during backend test-writing: `
 
 - Frontend: the dev-only crash triggers (`window.__monitoringTest.triggerReactRenderError()`/`triggerTestMessage()`) were exercised live against a running dev server via the Playwright spec (§59.19) — this constitutes a real, automated manual-verification-equivalent pass (HE/EN fallback rendering, no stack trace shown, reload recovers the app, no fabricated event id when monitoring is disabled).
 - Backend: the `GET /__test/sentry-trigger` route's presence/absence logic was verified directly against a running process in both the default (non-production) and `SENTRY_ENVIRONMENT=production` configurations.
-- Android: `cap sync android` + `build:android` build path verified. **Not performed**: installing an APK on a physical or emulated Android device and triggering `window.__monitoringTest.triggerTestNativeCrash()` there — no Android device/emulator was available in this environment.
+- Android: `cap sync android` + `build:android` build/configuration path verified — this confirms the project is wired correctly and builds, **not** that a crash report was ever delivered. **Not performed**: installing an APK on a physical or emulated Android device, triggering a real JavaScript error or `window.__monitoringTest.triggerTestNativeCrash()` there, or confirming any resulting event in a real Sentry dashboard — no Android device/emulator and no real Sentry account were available in this environment.
 
 ### 59.21 Manual Verification Blocked
 
@@ -758,7 +772,7 @@ No Sentry organization, project, DSN, or auth token exists yet for this project 
 
 ### 59.24 Android Verification Status
 
-**CI-build verified; physical-device verification pending.** `cap sync android` and the Android web-asset build both succeed with the new dependency present. No physical or emulated device test was performed (none available in this environment).
+**Build/configuration verified; real event-delivery and physical-device verification both pending.** (Corrected — see §59.1 for why "Android verified" alone is no longer used.) `cap sync android` and the Android web-asset build both succeed with the new dependency present — this is a build/configuration check only. Separately and still pending: (a) a real JavaScript event delivered from the app and confirmed inside an actual Sentry dashboard, (b) a real Android-native event delivered from a physical device and confirmed inside that same dashboard. Neither (a) nor (b) has happened, because no real Sentry organization/DSN exists yet and no physical or emulated Android device was available in this environment. Android should not be described as "verified" until both (a) and (b) are complete.
 
 ### 59.25 iOS Verification Status
 
@@ -782,7 +796,9 @@ Unchanged from the plan's §52, still valid: full performance/APM tracing; Andro
 
 ### 59.29 Final Blockers
 
-1. No real Sentry organization/project/DSN/auth token exists yet (owner action, §59.22) — required before any live event can be verified in a real dashboard.
+1. No real Sentry organization/project/DSN/auth token exists yet (owner action, §59.22) — required before **any** live event, JavaScript or native, on **any** platform, can be delivered to and confirmed in a real dashboard. This alone blocks the "real Sentry event-delivery verification" dimension in §59.1 for both the frontend and Android.
 2. No macOS/Xcode toolchain or physical iPhone is available in this implementation environment — iOS verification cannot proceed further here regardless of owner action on Sentry configuration.
-3. No physical or emulated Android device is available in this implementation environment — Android's remaining verification step (physical crash/ANR trigger) is likewise blocked here, though the CI-build path is fully verified.
+3. No physical or emulated Android device is available in this implementation environment — a real Android-native event (physical crash/ANR trigger) can only be delivered from real hardware, so this blocks "physical Android verification" in §59.1 independently of blocker 1. Only the build/configuration path was checked here, not delivery.
 4. Neither Vercel nor Railway configuration exists in-repo, so `VITE_SENTRY_RELEASE`/`SENTRY_RELEASE` auto-injection for production deploys is not yet wired — an owner action, not a code gap in what was requested (the task's own release-format guidance anticipated this exact situation).
+
+**Bottom line: Android cannot be marked "verified" until blockers 1 and 3 are both resolved and a real JS event plus a real Android-native event have both been confirmed in the Sentry dashboard.**
