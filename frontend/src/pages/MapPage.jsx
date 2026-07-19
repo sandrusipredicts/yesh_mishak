@@ -260,12 +260,12 @@ function mergeFieldsById(currentFields, loadedFields, bounds) {
   })
 }
 
-function RecenterMap({ center }) {
+function RecenterMap({ center, zoom }) {
   const map = useMap()
 
   useEffect(() => {
-    map.setView(center)
-  }, [center, map])
+    map.setView(center, zoom)
+  }, [center, map, zoom])
 
   return null
 }
@@ -407,12 +407,15 @@ const FieldMarker = memo(function FieldMarker({ field, markerIcons, onSelectFiel
 function MapPage({
   currentUserId: authenticatedUserId,
   deepLinkTarget = null,
+  initialEntryIntent = null,
+  onEnableNotifications,
   onDeepLinkHandled,
 }) {
   const { t, i18n } = useTranslation()
   const isRtl = i18n.resolvedLanguage === 'he'
   const zoomPosition = isRtl ? 'bottomleft' : 'bottomright'
   const [center, setCenter] = useState(DEFAULT_CENTER)
+  const [initialZoom, setInitialZoom] = useState(DEFAULT_ZOOM)
   const [userLocation, setUserLocation] = useState(null)
   const [userLocationRequestId, setUserLocationRequestId] = useState(0)
   const cachedFieldsState = useMemo(() => readCachedFields(), [])
@@ -445,6 +448,7 @@ function MapPage({
   const [tileLoadStatus, setTileLoadStatus] = useState('loading')
   const tileLoadStatusRef = useRef('loading')
   const initialTileStatsRef = useRef({ loaded: 0, failed: 0 })
+  const initialEntryAppliedRef = useRef(false)
 
   // Keep the merge base in sync with any future setFields caller that does
   // not go through commitFields.
@@ -651,6 +655,54 @@ function MapPage({
 
     return nextFields
   }, [])
+
+  useEffect(() => {
+    if (initialEntryAppliedRef.current || deepLinkTarget) return
+
+    if (initialEntryIntent?.type === 'location') {
+      const latitude = Number(initialEntryIntent.latitude)
+      const longitude = Number(initialEntryIntent.longitude)
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        const position = [latitude, longitude]
+        const timeoutId = window.setTimeout(() => {
+          initialEntryAppliedRef.current = true
+          setCenter(position)
+          setInitialZoom(USER_LOCATION_ZOOM)
+          setUserLocation({ position, accuracy: initialEntryIntent.accuracy ?? null })
+          setUserLocationRequestId((value) => value + 1)
+        }, 0)
+        return () => window.clearTimeout(timeoutId)
+      }
+    }
+
+    if (initialEntryIntent?.type === 'city' && initialEntryIntent.city) {
+      initialEntryAppliedRef.current = true
+      getFields()
+        .then((loadedFields) => {
+          const matchingPositions = (Array.isArray(loadedFields) ? loadedFields : [])
+            .filter((field) => field.city === initialEntryIntent.city)
+            .map(getFieldPosition)
+            .filter(Boolean)
+          if (!matchingPositions.length) {
+            setLocationNotice(t('map.selectedCityUnavailable', { city: initialEntryIntent.city }))
+            return
+          }
+          const cityCenter = matchingPositions.reduce(
+            (sum, position) => [sum[0] + position[0], sum[1] + position[1]],
+            [0, 0],
+          ).map((sum) => sum / matchingPositions.length)
+          setCenter(cityCenter)
+          setInitialZoom(matchingPositions.length > 1 ? 13 : DEFAULT_ZOOM)
+          commitFields(Array.isArray(loadedFields) ? loadedFields : [])
+        })
+        .catch(() => {
+          setLocationNotice(t('map.selectedCityUnavailable', { city: initialEntryIntent.city }))
+        })
+      return undefined
+    }
+    initialEntryAppliedRef.current = true
+    return undefined
+  }, [commitFields, deepLinkTarget, initialEntryIntent, t])
 
   const upsertFieldById = useCallback((field) => {
     const currentFields = fieldsRef.current
@@ -921,7 +973,10 @@ function MapPage({
     : t('map.notifications')
 
   return (
-    <main className={`map-page${currentUserId ? ' has-toolbar' : ''}`}>
+    <main
+      className={`map-page${currentUserId ? ' has-toolbar' : ''}`}
+      data-initial-entry-source={deepLinkTarget ? 'deep-link' : initialEntryIntent?.type || 'default'}
+    >
       {deepLinkStatus === 'unavailable' ? (
         <div className="location-notice" role="alert">
           <span>{deepLinkMessage}</span>
@@ -1012,14 +1067,14 @@ function MapPage({
         ) : null}
       </div>
 
-      <MapContainer center={center} zoom={DEFAULT_ZOOM} className="map-canvas" zoomControl={false}>
+      <MapContainer center={center} zoom={initialZoom} className="map-canvas" zoomControl={false}>
         <MapTileLayer
           onInitialTileError={handleInitialTileError}
           onInitialTileLoaded={handleInitialTileLoaded}
           onInitialTilesReady={handleInitialTilesReady}
         />
         <ZoomControl position={zoomPosition} key={zoomPosition} />
-        <RecenterMap center={center} />
+        <RecenterMap center={center} zoom={initialZoom} />
         <UserLocationFlyTo requestId={userLocationRequestId} userLocation={userLocation} />
         <FieldLoader
           onError={setError}
@@ -1108,6 +1163,7 @@ function MapPage({
       {isNotificationPreferencesOpen ? (
         <NotificationsModal
           fields={fields}
+          onEnableNotifications={onEnableNotifications}
           onClose={() => setIsNotificationPreferencesOpen(false)}
           onPreferencesSaved={refreshUnreadCount}
         />

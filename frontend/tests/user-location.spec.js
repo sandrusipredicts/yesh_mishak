@@ -41,6 +41,11 @@ async function seedAuthenticatedUser(page) {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    // Legacy-completed migration (onboardingStorage.js) needs a valid city
+    // to also migrate into this account's own starting_city:{userId} key
+    // (E08-02 follow-up fix); without one the account has no resolved city
+    // and gets routed to the city-only requiredStep instead of the map.
+    localStorage.setItem('userCity', 'ירושלים')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('language_selected', 'true')
   }, { ...user, token: makeJwtWithSubject(user.id) })

@@ -84,6 +84,10 @@ async function prepareApp(page, token) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    // Seeded directly for this account so it resolves straight to the map
+    // rather than the city-only requiredStep (E08-02 follow-up fix) —
+    // this file tests session restoration, not city selection.
+    localStorage.setItem('starting_city:31b6ac09-74f0-49f4-8916-c216842a3498', 'ירושלים')
 
     if (storedToken) {
       localStorage.setItem('currentUserId', storedUser.id)

@@ -82,7 +82,8 @@ class FakeRpc:
         handler = getattr(self.client, f"rpc_{self.name}", None)
         if handler is None:
             raise AssertionError(f"Unexpected RPC {self.name}")
-        return FakeResponse(data=[{"result": handler(self.params)}])
+        result = handler(self.params)
+        return FakeResponse(data=[result if isinstance(result, dict) else {"result": result}])
 
 
 class FakeSupabaseClient:
@@ -119,7 +120,10 @@ class FakeSupabaseClient:
         user = self._find_user(params["p_user_id"])
         if user is None:
             return "user_not_found"
-        if self._find_google_identity(params["p_user_id"]) is not None:
+        current_identity = self._find_google_identity(params["p_user_id"])
+        if current_identity is not None:
+            if current_identity["provider_subject"] == params["p_provider_subject"]:
+                return "already_linked_same"
             return "already_linked"
         for identity in self.tables["user_identities"]:
             if identity["provider"] == "google" and identity["provider_subject"] == params["p_provider_subject"]:
@@ -127,6 +131,12 @@ class FakeSupabaseClient:
         for other in self.tables["users"]:
             if other["id"] != params["p_user_id"] and other.get("google_sub") == params["p_provider_subject"]:
                 return "conflict_other_user"
+            if (
+                other["id"] != params["p_user_id"]
+                and (other.get("email") or "").strip().lower()
+                == params["p_email_at_link"].strip().lower()
+            ):
+                return "email_conflict_other_user"
 
         self.tables["user_identities"].append(
             {
@@ -139,8 +149,50 @@ class FakeSupabaseClient:
             }
         )
         user["google_sub"] = params["p_provider_subject"]
-        user["tokens_valid_after"] = "2026-01-01T00:00:00+00:00"
         return "linked"
+
+    def rpc_resolve_google_login(self, params: dict[str, Any]) -> dict[str, Any]:
+        subject = params["p_provider_subject"]
+        identity = next(
+            (
+                row
+                for row in self.tables["user_identities"]
+                if row["provider"] == "google" and row["provider_subject"] == subject
+            ),
+            None,
+        )
+        if identity:
+            return {"result": "existing", "user_id": identity["user_id"]}
+
+        legacy_user = next(
+            (row for row in self.tables["users"] if row.get("google_sub") == subject),
+            None,
+        )
+        if legacy_user:
+            self.tables["user_identities"].append(
+                {
+                    "id": f"identity-{len(self.tables['user_identities']) + 1}",
+                    "user_id": legacy_user["id"],
+                    "provider": "google",
+                    "provider_subject": subject,
+                    "email_at_link": params["p_email"],
+                    "email_verified_at_link": True,
+                }
+            )
+            return {"result": "existing", "user_id": legacy_user["id"]}
+
+        existing_email = next(
+            (
+                row
+                for row in self.tables["users"]
+                if (row.get("email") or "").lower() == params["p_email"].lower()
+            ),
+            None,
+        )
+        if existing_email:
+            return {"result": "account_link_required", "user_id": existing_email["id"]}
+
+        raise AssertionError("New-user Google login is not expected in account-linking tests")
 
     def rpc_unlink_google_identity(self, params: dict[str, Any]) -> str:
         user = self._find_user(params["p_user_id"])
@@ -192,8 +244,8 @@ def configure_test_settings(monkeypatch) -> None:
 def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     for target in (
         "app.auth.dependencies.get_supabase_client",
-        "app.services.account_linking.get_supabase_client",
         "app.services.account_linking.get_supabase_service_role_client",
+        "app.auth.google.get_supabase_service_role_client",
     ):
         monkeypatch.setattr(target, lambda: fake_client)
 
@@ -205,6 +257,13 @@ def patch_google_verifier(monkeypatch, claims_by_token: dict[str, dict[str, Any]
 
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
         claims = claims_by_token[token]
+        if claims.get("email_verified") is not True:
+            from fastapi import HTTPException, status
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Google email address is not verified",
+            )
         return {
             "google_sub": claims["sub"],
             "email": claims["email"],
@@ -379,6 +438,29 @@ def test_link_google_success(monkeypatch) -> None:
     assert fake_client.tables["user_identities"][0]["user_id"] == user["id"]
     # No new user was created; same user id owns the identity.
     assert len(fake_client.tables["users"]) == 1
+    # Additive linking does not revoke the session that authorized it.
+    assert user["tokens_valid_after"] is None
+
+
+def test_linking_same_google_identity_twice_is_idempotent(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = manual_user()
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    patch_google_verifier(
+        monkeypatch,
+        {"same-token": {"sub": "same-sub", "email": user["email"], "email_verified": True}},
+    )
+    headers = {"Authorization": f"Bearer {make_token(user)}"}
+
+    first = TestClient(app).post("/auth/link/google", json={"token": "same-token"}, headers=headers)
+    second = TestClient(app).post("/auth/link/google", json={"token": "same-token"}, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["account_methods"]["google"]["linked"] is True
+    assert len(fake_client.tables["users"]) == 1
+    assert len(fake_client.tables["user_identities"]) == 1
 
 
 def test_link_google_does_not_change_user_id_or_email(monkeypatch) -> None:
@@ -448,6 +530,29 @@ def test_link_google_identity_used_by_another_account_rejected(monkeypatch) -> N
     assert len(fake_client.tables["user_identities"]) == 1
 
 
+def test_link_google_email_owned_by_another_user_is_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    current_user = manual_user(id="current-user", email="current@example.com")
+    email_owner = manual_user(id="email-owner", email="google@example.com")
+    fake_client = FakeSupabaseClient([current_user, email_owner])
+    patch_all_supabase(monkeypatch, fake_client)
+    patch_google_verifier(
+        monkeypatch,
+        {"token": {"sub": "unclaimed-sub", "email": email_owner["email"], "email_verified": True}},
+    )
+
+    response = TestClient(app).post(
+        "/auth/link/google",
+        json={"token": "token"},
+        headers={"Authorization": f"Bearer {make_token(current_user)}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "ACCOUNT_METHOD_IN_USE_BY_ANOTHER_ACCOUNT"
+    assert fake_client.tables["user_identities"] == []
+    assert current_user["google_sub"] is None
+
+
 def test_link_google_invalid_token_rejected(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = manual_user()
@@ -464,6 +569,77 @@ def test_link_google_invalid_token_rejected(monkeypatch) -> None:
     # session" interceptor and force-log an otherwise validly logged-in user out.
     assert response.status_code == 403
     assert len(fake_client.tables["user_identities"]) == 0
+
+
+def test_link_google_unverified_email_rejected(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = manual_user()
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    patch_google_verifier(
+        monkeypatch,
+        {"unverified": {"sub": "sub", "email": user["email"], "email_verified": False}},
+    )
+
+    response = TestClient(app).post(
+        "/auth/link/google",
+        json={"token": "unverified"},
+        headers={"Authorization": f"Bearer {make_token(user)}"},
+    )
+
+    assert response.status_code == 403
+    assert fake_client.tables["user_identities"] == []
+
+
+def test_password_user_links_then_both_login_methods_return_original_user(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = manual_user(profile_id="profile-1", owned_game_ids=["game-1", "game-2"])
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_google_verifier(
+        monkeypatch,
+        {"link-token": {"sub": "linked-sub", "email": user["email"], "email_verified": True}},
+    )
+
+    original_session = make_token(user)
+    link_response = TestClient(app).post(
+        "/auth/link/google",
+        json={"token": "link-token"},
+        headers={"Authorization": f"Bearer {original_session}"},
+    )
+    assert link_response.status_code == 200
+
+    def fake_verify_oauth2_token(token: str, request: Any, audience: str) -> dict[str, Any]:
+        assert audience == "test-google-client"
+        return {
+            "sub": "linked-sub",
+            "email": user["email"],
+            "email_verified": True,
+            "name": user["name"],
+        }
+
+    monkeypatch.setattr("app.auth.google.id_token.verify_oauth2_token", fake_verify_oauth2_token)
+
+    google_login = TestClient(app).post("/auth/google", json={"token": "google-login-token"})
+    password_login = TestClient(app).post(
+        "/auth/login",
+        json={"username": user["email"], "password": "CorrectHorse123"},
+    )
+    original_session_check = TestClient(app).get(
+        "/auth/account-methods",
+        headers={"Authorization": f"Bearer {original_session}"},
+    )
+
+    assert google_login.status_code == 200
+    assert password_login.status_code == 200
+    assert original_session_check.status_code == 200
+    assert google_login.json()["user"]["id"] == user["id"]
+    assert password_login.json()["user"]["id"] == user["id"]
+    assert len(fake_client.tables["users"]) == 1
+    assert len(fake_client.tables["user_identities"]) == 1
+    assert user["profile_id"] == "profile-1"
+    assert user["owned_game_ids"] == ["game-1", "game-2"]
 
 
 def test_link_google_requires_auth(monkeypatch) -> None:
@@ -777,7 +953,7 @@ def test_remove_password_then_google_login_still_works(monkeypatch) -> None:
     user = manual_user(google_sub="sub-1")
     identity = google_identity_for(user)
     fake_client = FakeSupabaseClient([user], [identity])
-    monkeypatch.setattr("app.auth.google.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
     patch_all_supabase(monkeypatch, fake_client)
     patch_google_verifier(

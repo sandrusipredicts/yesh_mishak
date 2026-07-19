@@ -27,4 +27,13 @@ export default defineConfig([
       },
     },
   },
+  {
+    // Build-time config files execute in Node, not the browser (e.g.
+    // vite.config.js reads process.env.SENTRY_AUTH_TOKEN -- E09-01 -- a
+    // build-time secret that must never be read via import.meta.env/VITE_).
+    files: ['vite.config.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

@@ -7,8 +7,10 @@ import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
 import { copyGameLink, shareGame } from '../api/gameSharing'
 import { cancelGameReminder, getStoredGameReminder, scheduleGameReminder } from '../api/gameReminders'
+import { addGameToCalendar } from '../api/gameCalendar'
 import { isNativeRuntime } from '../api/sessionStorage'
 import { isGameShareable } from '../utils/gameShareability'
+import { isGameCalendarEligible } from '../utils/gameCalendarEligibility'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -104,7 +106,7 @@ function formatRemainingTime(milliseconds, t) {
   return t('game.minutes', { minutes })
 }
 
-function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
+function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLng }) {
   const { i18n, t } = useTranslation()
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -114,6 +116,9 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   const [isReminderBusy, setIsReminderBusy] = useState(false)
   const [reminderMessage, setReminderMessage] = useState('')
   const [reminderError, setReminderError] = useState('')
+  const [isAddingToCalendar, setIsAddingToCalendar] = useState(false)
+  const [calendarMessage, setCalendarMessage] = useState('')
+  const [calendarError, setCalendarError] = useState('')
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
@@ -159,6 +164,12 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
   // about a game you're not attending, or one already underway, is not
   // useful and would need different eligibility rules.
   const canOfferReminder = Boolean(gameId) && isUpcomingGame && isParticipant && isNativeRuntime()
+  // Calendar eligibility (E07-01) is deliberately its own rule, not
+  // isGameShareable(): a calendar event is only useful before a game
+  // happens, so it must be offered for a genuinely upcoming/scheduled game
+  // only — never once the game is active, regardless of its open/full
+  // status.
+  const canOfferCalendar = Boolean(gameId) && isGameCalendarEligible(game, { now })
   // Derived, not synced: read directly from storage during render, the same
   // way normalizedCurrentUserId reads getStoredSessionUserId() above — a
   // cheap localStorage lookup needs no memoization, and any setState call
@@ -350,6 +361,39 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
     }
   }
 
+  async function handleAddToCalendar() {
+    if (isAddingToCalendar) {
+      return
+    }
+
+    setIsAddingToCalendar(true)
+    setCalendarError('')
+    setCalendarMessage('')
+    try {
+      const result = await addGameToCalendar({ game, fieldName, fieldLat, fieldLng, locale, t })
+
+      if (result.outcome === 'opened') {
+        setCalendarMessage(t('game.calendarOpened'))
+      } else if (result.outcome === 'downloaded') {
+        setCalendarMessage(t('game.calendarDownloaded'))
+      } else if (result.outcome === 'cancelled') {
+        // Cancellation is a normal outcome, not an error — no message.
+      } else if (result.outcome === 'denied') {
+        setCalendarError(t('game.calendarDenied'))
+      } else if (result.outcome === 'unavailable' && result.reason === 'invalid-resource') {
+        setCalendarError(t('game.calendarIncomplete'))
+      } else if (result.outcome === 'unavailable') {
+        setCalendarError(t('game.calendarUnavailable'))
+      } else {
+        setCalendarError(t('game.calendarFailed'))
+      }
+    } catch {
+      setCalendarError(t('game.calendarFailed'))
+    } finally {
+      setIsAddingToCalendar(false)
+    }
+  }
+
   if (!game) return null
 
   return (
@@ -519,10 +563,24 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName }) {
             {hasReminder ? t('game.remindCancel') : t('game.remind')}
           </button>
         ) : null}
+
+        {canOfferCalendar ? (
+          <button
+            type="button"
+            className="secondary-panel-button"
+            onClick={handleAddToCalendar}
+            disabled={isAddingToCalendar}
+            aria-busy={isAddingToCalendar}
+          >
+            {t('game.calendarButton')}
+          </button>
+        ) : null}
       </div>
 
       {reminderMessage ? <p className="panel-success">{reminderMessage}</p> : null}
       {reminderError ? <p className="panel-error" role="alert">{reminderError}</p> : null}
+      {calendarMessage ? <p className="panel-success">{calendarMessage}</p> : null}
+      {calendarError ? <p className="panel-error" role="alert">{calendarError}</p> : null}
 
       <Modal
         isOpen={showCloseConfirm}

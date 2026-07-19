@@ -37,6 +37,14 @@ jobs:
       run:
         working-directory: frontend
 
+    env:
+      # Sentry (E09-01) dSYM upload -- see the "Upload iOS dSYMs to Sentry"
+      # step below. All optional: this workflow's primary purpose (Simulator
+      # launch validation) must never be blocked by monitoring configuration.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_MOBILE_PROJECT }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -75,6 +83,16 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "Selected simulator: $NAME ($UDID)"
+
+      - name: Resolve Sentry release identifier
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          # Same interim format as the Android branch-build workflow
+          # (docs/e09-01-crash-reporting-execution-plan.md): iOS
+          # MARKETING_VERSION/CURRENT_PROJECT_VERSION are still static
+          # placeholders, so only the commit SHA is reliably available here.
+          echo "SENTRY_RELEASE=yesh-mishak@${SHORT_SHA}" >> "$GITHUB_ENV"
+          echo "SENTRY_DIST=ios-branch-${{ github.run_number }}" >> "$GITHUB_ENV"
 
       - name: Build for iOS Simulator
         run: |
@@ -149,3 +167,48 @@ jobs:
           name: ios-simulator-log
           path: frontend/ios/App/ios_sim_log.txt
           if-no-files-found: ignore
+
+      # --- E09-01: iOS dSYM upload (structurally prepared, pending live validation) ---
+      #
+      # This step is deliberately guarded and non-blocking on every axis:
+      #   - Missing SENTRY_AUTH_TOKEN/SENTRY_ORG/SENTRY_PROJECT -> skip, warn, exit 0.
+      #   - No dSYM bundle found under DerivedData -> skip, warn, exit 0.
+      #   - sentry-cli upload failure -> warn, exit 0 (never fails this job).
+      #
+      # It CANNOT be validated end-to-end yet: this workflow builds an
+      # unsigned Simulator app (CODE_SIGNING_ALLOWED=NO) for launch
+      # validation only, not a signed device archive. A Simulator build does
+      # still emit dSYM bundles (DEBUG_INFORMATION_FORMAT=dwarf-with-dsym is
+      # Xcode's default regardless of destination), so this step exercises
+      # the real sentry-cli invocation path today, but the *release* it
+      # uploads against is not a real distributable build. Live validation
+      # against a genuine signed archive remains pending the iOS active
+      # phase (docs/e09-01-crash-reporting-execution-plan.md).
+      - name: Upload iOS dSYMs to Sentry (if configured)
+        if: always()
+        run: |
+          set +e
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_PROJECT:-}" ]; then
+            echo "::warning::Sentry org/project/auth token not configured. Skipping iOS dSYM upload (this does not fail the build)."
+            exit 0
+          fi
+
+          DSYM_DIR=$(find ios/App/DerivedData -type d -name "*.dSYM" -print -quit 2>/dev/null)
+          if [ -z "$DSYM_DIR" ]; then
+            echo "::warning::No .dSYM bundle found under DerivedData. Skipping iOS dSYM upload."
+            exit 0
+          fi
+
+          if ! command -v sentry-cli >/dev/null 2>&1; then
+            curl -sL https://sentry.io/get-cli/ | bash || {
+              echo "::warning::Failed to install sentry-cli. Skipping iOS dSYM upload."
+              exit 0
+            }
+          fi
+
+          sentry-cli debug-files upload \
+            --org "$SENTRY_ORG" \
+            --project "$SENTRY_PROJECT" \
+            "$(dirname "$DSYM_DIR")" \
+            || echo "::warning::sentry-cli dSYM upload failed. This does not fail the build; investigate before relying on symbolicated iOS crash reports."
+          exit 0

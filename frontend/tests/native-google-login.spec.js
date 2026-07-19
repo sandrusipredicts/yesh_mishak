@@ -196,6 +196,7 @@ async function prepareApp(page, {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
   }, { cfg: { googleMode, providerLogoutFails, launchUrl }, googleIdToken: FAKE_GOOGLE_ID_TOKEN })
 
   await page.route(/\/analytics\/share-events$/, async (route) => {
@@ -587,6 +588,7 @@ test('logout after native Google login signs out of the provider and clears the 
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toBeVisible({ timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
   await expect(page.locator('.login-page')).toBeVisible()
 
@@ -607,6 +609,7 @@ test('provider sign-out failure does not block local logout cleanup', async ({ p
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
 
   // Local logout completes fully despite the provider rejection: logged-out
@@ -640,6 +643,7 @@ test('Google login succeeds again after logout with a fresh session', async ({ p
   await page.locator('.google-native-button').click()
   await expect(page.locator('.auth-toolbar')).toContainText(user.name, { timeout: 15000 })
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
   await expect(page.locator('.login-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('__test_secure_token'))).toBe(null)
@@ -661,7 +665,7 @@ test('Google login succeeds again after logout with a fresh session', async ({ p
   expect(state.plaintext).toBeNull()
 })
 
-test('native Google login returns 409 conflict for manual accounts (Hebrew)', async ({ page }) => {
+test('native Google login explains how manual accounts can link Google (Hebrew)', async ({ page }) => {
   await prepareApp(page)
   await page.addInitScript(() => {
     localStorage.setItem('app_language', 'he')
@@ -672,11 +676,9 @@ test('native Google login returns 409 conflict for manual accounts (Hebrew)', as
       status: 409,
       contentType: 'application/json',
       body: JSON.stringify({
-        detail: {
-          error: true,
-          code: 'ACCOUNT_LINKING_REQUIRED',
-          message: 'Account linking required',
-        },
+        error: true,
+        code: 'ACCOUNT_LINK_REQUIRED',
+        message: 'Account linking required',
       }),
     })
   })
@@ -686,9 +688,9 @@ test('native Google login returns 409 conflict for manual accounts (Hebrew)', as
   await seedPartialSession(page)
   await page.locator('.google-native-button').click()
 
-  // Hebrew message must be visible
   await expect(page.locator('.login-error')).toHaveText(
-    'כבר קיים חשבון עם האימייל הזה. התחבר עם סיסמה כדי להמשיך.',
+    'כבר קיים חשבון עם האימייל הזה. יש להתחבר עם הסיסמה ואז לחבר את Google בהגדרות.',
   )
+  await expect(page.locator('.login-info')).toHaveCount(0)
   await expectFailedAttemptCleanedUp(page)
 })

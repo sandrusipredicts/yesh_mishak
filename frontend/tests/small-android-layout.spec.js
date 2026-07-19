@@ -38,6 +38,7 @@ async function seedAuth(page, lang = 'he') {
     localStorage.setItem('currentUserName', storedUser.name)
     localStorage.setItem('currentUserEmail', storedUser.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
     localStorage.setItem('app_language', currentLang)
     localStorage.setItem('language_selected', 'true')
   }, { storedUser: { ...user, token: makeJwt(user.id) }, currentLang: lang })
@@ -125,6 +126,11 @@ test.describe('Small Android Layout (360x640)', () => {
     await mockRoutes(page)
     await page.goto('/')
     await page.waitForSelector('.auth-toolbar')
+
+    // A "no known fields" notice banner can render asynchronously (this
+    // test always mocks an empty fields list) and overlap the toolbar —
+    // dismiss it before interacting with anything underneath it.
+    await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
 
     const prefsButton = page.locator('.floating-button.preferences')
     await prefsButton.click()

@@ -26,7 +26,7 @@ import {
   initSessionStorage,
   isNativeRuntime,
 } from './api/sessionStorage'
-import { startForegroundPushNotifications } from './firebaseMessaging'
+import { requestFirebasePushToken, startForegroundPushNotifications } from './firebaseMessaging'
 import {
   getCurrentToken,
   initNativePush,
@@ -36,9 +36,21 @@ import {
 import { deletePushToken, savePushToken } from './api/notifications'
 import { recordLinkOpen } from './api/shareAnalytics'
 import { hasSelectedLanguage } from './i18n'
+import {
+  addBreadcrumb,
+  captureMessage,
+  clearUser as clearMonitoringUser,
+  setUser as setMonitoringUser,
+} from './monitoring/index.js'
 import { CANONICAL_APP_LINK_HOST, normalizeAppLinkUrl, parseAppPathname } from './utils/appLinkRoutes'
 import { getOrCreateInstallationId } from './utils/installationId'
 import { createPushTokenSync } from './utils/pushTokenSync'
+import {
+  resolveAccountCity,
+  resolveOnboardingState,
+  saveOnboardingState,
+} from './onboarding/onboardingStorage'
+import AccountCityStep from './components/onboarding/AccountCityStep'
 
 // Shared by every deep-linkable resource type (currently 'game' and
 // 'field') so App.jsx has exactly one pending-link storage/hand-off
@@ -109,9 +121,21 @@ function App() {
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [isSessionReady, setIsSessionReady] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
-  const [isOnboardingDone, setIsOnboardingDone] = useState(
-    () => localStorage.getItem('onboarding_done') === 'true',
+  const [onboardingState, setOnboardingState] = useState(
+    () => resolveOnboardingState().state,
   )
+  // Tracks which userId the resolved city below actually belongs to, so a
+  // stale value from a just-logged-out account can never leak into a
+  // render for a newly-logged-in one (E08-02 follow-up fix): resolution is
+  // async (deferred a tick), but `currentUser` can change synchronously in
+  // the same tick, so `resolvedAccountCity` is *derived* — comparing
+  // `cityResolution.forUserId` against the live `currentUser.id` — rather
+  // than trusted as its own always-current piece of state.
+  const [cityResolution, setCityResolution] = useState({ forUserId: null, city: undefined })
+  const resolvedAccountCity = currentUser && cityResolution.forUserId === currentUser.id
+    ? cityResolution.city
+    : undefined
+  const [mapEntryIntent, setMapEntryIntent] = useState(null)
   const [isLanguageSelected, setIsLanguageSelected] = useState(hasSelectedLanguage)
   const [logoutWarning, setLogoutWarning] = useState('')
   const [loginNotice, setLoginNotice] = useState(
@@ -313,6 +337,8 @@ function App() {
 
     if (!normalized.ok) {
       console.warn('Rejected app link URL.', normalized.reason)
+      // Category only -- never the raw url, which may carry query params.
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'warning', data: { category: 'rejected', reason: normalized.reason } })
       return
     }
 
@@ -325,8 +351,10 @@ function App() {
         recordLinkOpen(normalized, 'deferred_for_auth')
       }
       applyDeepLinkTarget(buildDeepLinkTarget(normalized, { deferredForAuth }))
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'info', data: { category: normalized.routeType, deferredForAuth } })
     } else if (normalized.routeType === 'fallback') {
       recordLinkOpen(normalized, 'invalid')
+      addBreadcrumb({ category: 'deep_link', message: 'deep link resolution', level: 'warning', data: { category: 'invalid' } })
     }
 
     navigateTo(normalized.navigationPath, { replace })
@@ -470,21 +498,85 @@ function App() {
     })
   }, [currentUser])
 
-  const currentUserId = currentUser?.id || null
+  // Monitoring user-context lifecycle: this single effect is the only place
+  // Sentry.setUser/clearUser is ever called, so every path that changes
+  // currentUser (login, logout, session restore, account switch) stays in
+  // sync automatically instead of needing a call at each call site.
+  // setUser() itself always clears before setting (see monitoring/client.js),
+  // so an account switch (A -> B) can never leak A's context into B's events.
+  useEffect(() => {
+    if (currentUser?.id) {
+      setMonitoringUser(currentUser.id)
+      addBreadcrumb({ category: 'auth', message: 'authentication state changed', level: 'info', data: { state: 'authenticated' } })
+    } else {
+      clearMonitoringUser()
+      addBreadcrumb({ category: 'auth', message: 'authentication state changed', level: 'info', data: { state: 'anonymous' } })
+    }
+  }, [currentUser?.id])
 
   useEffect(() => {
-    if (!currentUserId || !isNativePushSupported()) {
+    if (isSessionReady) {
+      addBreadcrumb({ category: 'app', message: 'application startup completed', level: 'info' })
+    }
+  }, [isSessionReady])
+
+  // E08-02 follow-up fix: onboarding completion/permission-education flags
+  // are device-scoped by design (a second account must not repeat the
+  // walkthrough or be re-prompted for permissions Android already knows
+  // about), but the starting city is personal data. Re-resolve it for
+  // *this* account on every login/session-restore, reading storage fresh
+  // rather than from React state. Every route below that is specific to an
+  // authenticated account (map, settings, my-games, my-reports) is gated
+  // behind `resolvedAccountCity !== undefined`, so — unlike a plain
+  // "correct it after the fact" effect — nothing can mount and consume a
+  // stale or another account's city while this resolution is in flight.
+  useEffect(() => {
+    if (!currentUser) {
       return undefined
     }
 
-    let isDisposed = false
+    // Deferred a tick (matching the deep-link effects above) so setState
+    // isn't called synchronously within the effect body itself. Safe to
+    // defer: the render gate below means nothing consumes the old value
+    // in the meantime.
+    const timeoutId = window.setTimeout(() => {
+      const freshState = resolveOnboardingState().state
+      const resolvedCity = resolveAccountCity(currentUser.id, freshState)
 
-    initNativePush({
-      onTokenReceived: (token) => {
-        if (isDisposed) {
-          console.info('[E04-01 PUSH DEBUG] token received but effect disposed, skipping upload')
-          return
+      if (freshState.city !== resolvedCity) {
+        const corrected = saveOnboardingState({ ...freshState, city: resolvedCity })
+        if (corrected.ok) {
+          setOnboardingState(corrected.state)
         }
+      }
+
+      setCityResolution({ forUserId: currentUser.id, city: resolvedCity })
+      setMapEntryIntent(resolvedCity ? { type: 'city', city: resolvedCity } : null)
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [currentUser])
+
+  // Called once the current account (which had no city of its own) picks
+  // one via the city-only requiredStep flow (AccountCityStep). The city is
+  // already persisted to the account-scoped store by AccountCityStep
+  // itself; this just unblocks the render gate immediately with the fresh
+  // value instead of waiting for the next currentUser-keyed resolution.
+  const handleAccountCitySelected = useCallback((city) => {
+    if (!currentUser) {
+      return
+    }
+    setCityResolution({ forUserId: currentUser.id, city })
+    setMapEntryIntent({ type: 'city', city })
+  }, [currentUser])
+
+  async function handleEnableNotifications() {
+    addBreadcrumb({ category: 'push', message: 'permission request started', level: 'info', data: { category: 'push_registration' } })
+    if (isNativePushSupported()) {
+      const result = await initNativePush({
+      onTokenReceived: (token) => {
         console.info('[E04-01 PUSH DEBUG] token upload started, token length:', token.length)
         getPushTokenSync().sync(token, {
           platform: Capacitor.getPlatform(),
@@ -493,6 +585,11 @@ function App() {
       },
       onTokenError: (error) => {
         console.warn('[E04-01 PUSH DEBUG] registration error:', error?.message || error)
+        // Permission was already granted by this point (see outcome mapping
+        // below) -- a token-delivery failure here is unexpected, not a
+        // normal denial, so it is reportable.
+        addBreadcrumb({ category: 'push', message: 'push registration failed unexpectedly', level: 'warning' })
+        captureMessage('Native push token registration failed after permission was granted', 'warning')
       },
       onForegroundNotification: () => {
         window.dispatchEvent(new CustomEvent('native-push-received'))
@@ -502,17 +599,34 @@ function App() {
           applyDeepLinkTarget(target)
         }
       },
-    }).then((result) => {
-      console.info('[E04-01 PUSH DEBUG] init result:', result?.outcome)
-    }).catch((initError) => {
-      console.warn('[E04-01 PUSH DEBUG] init failed:', initError?.message || initError)
-    })
-
-    return () => {
-      console.info('[E04-01 PUSH DEBUG] effect cleanup, isDisposed set to true')
-      isDisposed = true
+      })
+      console.info('[E04-01 PUSH DEBUG] explicit init result:', result?.outcome)
+      // 'registration-failed' means the OS permission was already granted —
+      // requestPushPermission() inside initNativePush() only reaches
+      // register() after a granted check — and only the native FCM/APNs
+      // handshake itself failed. That is a token-delivery problem, not a
+      // permission denial: report it as 'granted' so onboarding/UI never
+      // shows "notifications were not allowed" for a permission the user
+      // did allow. Delivery keeps retrying through the existing
+      // registration/registrationError listeners and createPushTokenSync
+      // (E08-02; previously this path was mis-reported as 'denied').
+      if (['registered', 'already-initialized', 'registration-failed'].includes(result?.outcome)) {
+        return { outcome: 'granted' }
+      }
+      if (result?.outcome === 'unsupported') return { outcome: 'unsupported' }
+      return { outcome: 'denied' }
     }
-  }, [currentUserId, applyDeepLinkTarget])
+
+    try {
+      const token = await requestFirebasePushToken()
+      await savePushToken(token, { installationId: getOrCreateInstallationId() })
+      return { outcome: 'granted' }
+    } catch (error) {
+      if (typeof Notification === 'undefined') return { outcome: 'unsupported' }
+      console.warn('Explicit web notification enable failed.', error?.message || error)
+      return { outcome: 'denied' }
+    }
+  }
 
   const handleLogout = useCallback(() => {
     // Snapshot the session token before anything below clears it. clearSession()
@@ -580,9 +694,18 @@ function App() {
     setPathname(window.location.pathname)
   }, [handleDeepLinkHandled])
 
-  const handleOnboardingComplete = useCallback(() => {
-    setIsOnboardingDone(true)
-  }, [])
+  const handleOnboardingComplete = useCallback((intent, completedState) => {
+    setOnboardingState(completedState)
+    setMapEntryIntent(intent)
+    // The wizard's own city step already saved this account's city to the
+    // account-scoped store (OnboardingPage calls setAccountCity directly);
+    // sync the resolution gate immediately with the same value instead of
+    // leaving it unresolved until the next currentUser-keyed effect run,
+    // which wouldn't otherwise fire again since currentUser hasn't changed.
+    if (currentUser) {
+      setCityResolution({ forUserId: currentUser.id, city: completedState.city })
+    }
+  }, [currentUser])
 
   const handleAdminForbidden = useCallback(() => {
     window.history.replaceState(null, '', '/')
@@ -658,8 +781,33 @@ function App() {
     )
   }
 
-  if (!isOnboardingDone) {
-    return renderWithOfflineBanner(<OnboardingPage onComplete={handleOnboardingComplete} />)
+  if (onboardingState.status !== 'completed') {
+    return renderWithOfflineBanner(
+      <OnboardingPage
+        initialState={onboardingState}
+        onComplete={handleOnboardingComplete}
+        onEnableNotifications={handleEnableNotifications}
+        userId={currentUser.id}
+      />,
+    )
+  }
+
+  // Device-level onboarding is complete, but this specific account's own
+  // city has not been resolved yet — brief, no perceptible loading state
+  // needed in practice (a synchronous localStorage read deferred one
+  // tick), but nothing account-specific may render until it settles.
+  if (resolvedAccountCity === undefined) {
+    return null
+  }
+
+  // requiredStep = city: device onboarding never repeats (no welcome,
+  // location, or notification priming replay, no native permission APIs),
+  // but this account has no city of its own — ask for only that, and
+  // block every other authenticated route until it's chosen.
+  if (resolvedAccountCity === '') {
+    return renderWithOfflineBanner(
+      <AccountCityStep userId={currentUser.id} onSelected={handleAccountCitySelected} />,
+    )
   }
 
   if (pathname === '/my-games') {
@@ -671,7 +819,7 @@ function App() {
   }
 
   if (pathname === '/settings') {
-    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} />)
+    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} userId={currentUser.id} />)
   }
 
   return renderWithOfflineBanner(
@@ -679,6 +827,8 @@ function App() {
       <MapPage
         currentUserId={currentUser.id}
         deepLinkTarget={deepLinkTarget}
+        initialEntryIntent={mapEntryIntent}
+        onEnableNotifications={handleEnableNotifications}
         onDeepLinkHandled={handleDeepLinkHandled}
       />
       <div className="auth-toolbar">

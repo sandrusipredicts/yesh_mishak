@@ -13,6 +13,24 @@ import { Geolocation } from '@capacitor/geolocation'
 // state so the UI can stop nudging the user through the OS prompt and
 // instead point them at the app's location settings. This is a heuristic,
 // not a definitive OS check — the docs pledge nothing stronger.
+//
+// Raw-to-app permission-state mapping (E08-02 audit): the installed
+// @capacitor/core's PermissionState union is exactly
+// 'prompt' | 'prompt-with-rationale' | 'granted' | 'denied' — there is no
+// 'restricted' or 'limited' value on this platform version, so none is
+// modeled here. checkExistingPermission() normalizes that union (plus a
+// missing-plugin/services-disabled/unclassified-error case) into app-level
+// states consumed by OnboardingPage/MapPage:
+//   native 'granted'                          -> 'granted'
+//   native 'denied'                           -> 'denied'
+//   native 'prompt' | 'prompt-with-rationale'  -> 'prompt' (still askable)
+//   plugin missing / Capacitor.isNativePlatform() false w/o browser API -> 'unsupported'
+//   device location services off (checkPermissions/requestPermissions
+//     reject with @capacitor/geolocation's LOCATION_DISABLED, code
+//     OS-PLUG-GLOC-0007)                       -> 'unavailable'
+//   any other unclassified plugin rejection    -> 'error'
+// requestCurrentLocation()'s RESULT.* statuses follow the same split, plus
+// a 'settings' status for the repeat-denial heuristic above.
 
 const REPEAT_DENIAL_THRESHOLD = 2
 
@@ -22,6 +40,23 @@ const RESULT = {
   settings: () => ({ status: 'settings' }),
   unavailable: () => ({ status: 'unavailable' }),
   unsupported: () => ({ status: 'unsupported' }),
+  servicesDisabled: () => ({ status: 'services-disabled' }),
+}
+
+// @capacitor/geolocation's Android implementation rejects checkPermissions()
+// and requestPermissions() with this code *before* touching the permission
+// dialog at all when the device's location services (GPS/network location)
+// are off system-wide (see GeolocationErrors.LOCATION_DISABLED in the
+// installed plugin's Android source). This must never be folded into a
+// permission denial: granting the app permission would do nothing while
+// device location services stay off, and the fix (turning on device
+// location) is unrelated to the app's own permission state.
+const LOCATION_SERVICES_DISABLED_CODE = 'OS-PLUG-GLOC-0007'
+
+function isServicesDisabledError(error) {
+  if (error?.code === LOCATION_SERVICES_DISABLED_CODE) return true
+  const message = String(error?.message ?? '')
+  return /location services/i.test(message) && /not enabled|disabled|off/i.test(message)
 }
 
 let denialCount = 0
@@ -105,8 +140,7 @@ const CHECK_PERMISSIONS_TIMEOUT_MS = 8000
 const REQUEST_PERMISSIONS_TIMEOUT_MS = 120000
 const GET_POSITION_TIMEOUT_MS = 15000
 
-async function getPositionNative(highAccuracy) {
-  const geolocation = loadPlugin()
+async function getPositionNative(highAccuracy, geolocation) {
   if (!geolocation) {
     return RESULT.unsupported()
   }
@@ -123,8 +157,12 @@ async function getPositionNative(highAccuracy) {
       CHECK_PERMISSIONS_TIMEOUT_MS,
     )
     permitted = nativeStatusIsGranted(status)
-  } catch {
-    // Fall through to an explicit request if the passive check errors.
+  } catch (checkError) {
+    if (isServicesDisabledError(checkError)) {
+      return RESULT.servicesDisabled()
+    }
+    // Fall through to an explicit request if the passive check errors for
+    // any other reason (e.g. a transient bridge issue).
   }
 
   if (!permitted) {
@@ -135,7 +173,10 @@ async function getPositionNative(highAccuracy) {
         REQUEST_PERMISSIONS_TIMEOUT_MS,
       )
       permitted = nativeStatusIsGranted(requested)
-    } catch {
+    } catch (requestError) {
+      if (isServicesDisabledError(requestError)) {
+        return RESULT.servicesDisabled()
+      }
       permitted = false
     }
   }
@@ -168,6 +209,9 @@ async function getPositionNative(highAccuracy) {
       timestamp: position.timestamp ?? Date.now(),
     })
   } catch (error) {
+    if (isServicesDisabledError(error)) {
+      return RESULT.servicesDisabled()
+    }
     if (isDenialError(error)) {
       recordOutcome('denied')
       return currentGuidance() === 'settings' ? RESULT.settings() : RESULT.denied()
@@ -221,23 +265,29 @@ function getPositionWeb(highAccuracy) {
 // mount — the caller decides when this runs (a button press, a save).
 // Approximate/coarse fixes are accepted and returned unchanged: this slice
 // does not differentiate rendering, per ISSUE-255 scope.
-export async function requestCurrentLocation({ highAccuracy = false } = {}) {
+//
+// `geolocation` defaults to the real plugin lookup and is only ever
+// non-null when Capacitor.isNativePlatform() is true, so this default keeps
+// production behavior identical to a plain isNative()-gated branch — it is
+// exposed as a parameter (mirroring api/nativePushNotifications.js's
+// injectable-plugin pattern) solely so unit tests can pass a mock plugin
+// without a real native bridge.
+export async function requestCurrentLocation({ highAccuracy = false, geolocation = loadPlugin() } = {}) {
+  if (geolocation) {
+    return getPositionNative(highAccuracy, geolocation)
+  }
   if (isNative()) {
-    return getPositionNative(highAccuracy)
+    // Native platform, but the plugin isn't registered/available.
+    return RESULT.unsupported()
   }
   return getPositionWeb(highAccuracy)
 }
 
-// Non-invasive re-check for app resume: returns whether we still hold a
-// grant. Uses the plugin's checkPermissions on native (no prompt), and
-// resolves to 'granted' on web whenever the browser API is present, since
-// browsers surface revocation only on the next call.
-export async function checkExistingPermission() {
-  if (isNative()) {
-    const geolocation = loadPlugin()
-    if (!geolocation) {
-      return { state: 'unsupported' }
-    }
+// Non-invasive re-check for app resume/onboarding. Uses the Permissions API
+// where available on web; querying it never raises the browser prompt.
+// See requestCurrentLocation() above for why `geolocation` is injectable.
+export async function checkExistingPermission({ geolocation = loadPlugin() } = {}) {
+  if (geolocation) {
     try {
       const status = await geolocation.checkPermissions()
       const level = status?.location ?? status?.coarseLocation ?? 'prompt'
@@ -248,13 +298,33 @@ export async function checkExistingPermission() {
         return { state: 'denied' }
       }
       return { state: 'prompt' }
-    } catch {
-      return { state: 'unsupported' }
+    } catch (checkError) {
+      if (isServicesDisabledError(checkError)) {
+        return { state: 'unavailable' }
+      }
+      // A genuine, unclassified plugin failure — distinct from "plugin not
+      // present" (handled below).
+      return { state: 'error' }
     }
+  }
+
+  if (isNative()) {
+    return { state: 'unsupported' }
   }
 
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return { state: 'unsupported' }
   }
-  return { state: 'granted' }
+  if (navigator.permissions?.query) {
+    try {
+      const status = await navigator.permissions.query({ name: 'geolocation' })
+      if (status.state === 'granted') return { state: 'granted' }
+      if (status.state === 'denied') return { state: 'denied' }
+      return { state: 'prompt' }
+    } catch {
+      // Browsers that expose geolocation but not its permission descriptor
+      // still require an explicit user action before the position request.
+    }
+  }
+  return { state: 'prompt' }
 }

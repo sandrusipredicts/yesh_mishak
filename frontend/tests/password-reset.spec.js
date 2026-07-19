@@ -19,6 +19,7 @@ async function prepareApp(page, { loggedIn = false } = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
     window.__consoleMessages = []
 
     for (const level of ['log', 'warn', 'error']) {

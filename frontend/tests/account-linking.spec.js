@@ -16,6 +16,7 @@ async function prepareApp(page, { language = 'en' } = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', lang)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
     localStorage.setItem('access_token', token)
     localStorage.setItem('currentUserId', storedUser.id)
     localStorage.setItem('currentUserName', storedUser.name)
@@ -86,6 +87,7 @@ test('settings requires login and does not render for a logged-out user', async 
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
   })
   await page.goto('/settings')
 
@@ -144,21 +146,59 @@ test('linking Google succeeds and updates the UI', async ({ page }) => {
   await installGoogleIdentityMock(page)
   await page.route('**/auth/account-methods', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: methodsBody() }))
-  await page.route('**/auth/link/google', (route) =>
-    route.fulfill({
+  let requestBody
+  await page.route('**/auth/link/google', (route) => {
+    requestBody = route.request().postDataJSON()
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         account_methods: JSON.parse(methodsBody({ emailCanUnlink: true, googleLinked: true, googleCanUnlink: true })),
         access_token: makeJwt(),
       }),
-    }))
+    })
+  })
 
   await goToSettings(page)
   await page.locator('.google-login-button button').click()
 
+  expect(requestBody).toEqual({ token: 'fake-google-credential' })
   await expect(page.getByText('Google account connected successfully.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Disconnect Google' })).toBeEnabled()
+})
+
+test('linking Google prevents repeated submissions while the request is pending', async ({ page }) => {
+  await prepareApp(page)
+  await installGoogleIdentityMock(page)
+  await page.route('**/auth/account-methods', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: methodsBody() }))
+
+  let requests = 0
+  let releaseRequest
+  await page.route('**/auth/link/google', async (route) => {
+    requests += 1
+    await new Promise((resolve) => {
+      releaseRequest = resolve
+    })
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        account_methods: JSON.parse(methodsBody({ emailCanUnlink: true, googleLinked: true, googleCanUnlink: true })),
+        access_token: makeJwt(),
+      }),
+    })
+  })
+
+  await goToSettings(page)
+  const googleButton = page.locator('.google-login-button button')
+  await googleButton.click()
+  await expect.poll(() => requests).toBe(1)
+  await googleButton.click({ force: true })
+  expect(requests).toBe(1)
+
+  releaseRequest()
+  await expect(page.getByText('Google account connected successfully.')).toBeVisible()
 })
 
 test('linking a Google account already used elsewhere shows a safe error', async ({ page }) => {

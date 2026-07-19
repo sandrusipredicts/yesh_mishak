@@ -23,8 +23,24 @@ Location data is highly sensitive PII. Requesting location permissions on first 
 ---
 
 ## 4. Permission Request Timing
-- **Prohibited Times**: First app launch, onboarding, user registration, login, and simple map navigation.
-- **Allowed Times**: Only after a user interacts with a feature that cannot function without device-derived location coordinates.
+- **Prohibited Times**: Automatically on first app launch or screen mount, on user registration, on login, and during simple map navigation — see §4a for the one narrow, approved exception.
+- **Allowed Times**: Only after a user interacts with a feature that cannot function without device-derived location coordinates, or explicitly presses the primary action on the onboarding location-priming screen (§4a).
+
+---
+
+## 4a. E08-02 Addendum — Onboarding Location Priming (2026-07-17)
+The six-step onboarding walkthrough (`frontend/src/pages/OnboardingPage.jsx`) includes a dedicated location-priming step. This is an **approved, narrow exception** to §4's original blanket "never during onboarding" rule, not a reversal of it. The rule this document actually protects — *no silent, automatic OS permission prompt on app launch or screen mount* — is fully preserved:
+
+- **Still forbidden, unchanged**: triggering the native/browser permission prompt automatically when a screen (including the onboarding location step) mounts, on first app launch, on login, or on registration. `OnboardingPage.jsx`'s location step calls only `checkExistingPermission()` on mount — a passive, non-prompting read — never `requestCurrentLocation()`.
+- **Newly approved**: the OS permission prompt may be triggered from within onboarding **only** when all of the following hold, mirroring the point-of-need principle's actual intent (an explicit, informed, in-context user action — not a launch-time ambush) rather than weakening it:
+  1. A dedicated, truthful explanation screen is shown first (not just a bare OS dialog).
+  2. The user explicitly presses that screen's primary action button — the prompt is never triggered by any effect, timer, or mount.
+  3. A "Not now" / skip action is always available and never itself triggers the prompt.
+  4. The application remains fully usable (city-based map fallback, per §9's feature matrix) if the user skips or denies.
+
+This keeps the map's own existing point-of-need re-request (the `LocateFixed` button, unaffected by this addendum) and the new onboarding priming step consistent: both only ever prompt from a direct user tap, never automatically.
+
+**iOS note**: this addendum describes shipped, verified Android/web behavior only. The corresponding iOS `Info.plist` `NSLocationWhenInUseUsageDescription` key required for this same behavior to run safely on iOS has not been added — see §13. **Deferred to iOS implementation phase.**
 
 ---
 
@@ -111,6 +127,9 @@ Future Android native location implementation must preserve the following:
 Future iOS native location implementation must preserve the following:
 - `NSLocationWhenInUseUsageDescription` must be configured in `Info.plist` with a clear explanation of location usage.
 - Geolocation calls must delegate to iOS CoreLocation via the Capacitor Geolocation plugin.
+- Only the "When In Use" key is required; do not add `NSLocationAlwaysAndWhenInUseUsageDescription`/`NSLocationAlwaysUsageDescription` — this application never requests "Always" location access.
+
+**Status (2026-07-17, E08-02)**: `NSLocationWhenInUseUsageDescription` is still not present in `frontend/ios/App/App/Info.plist`. The onboarding location-priming step described in §4a is Android/web-verified only; running it natively on iOS today would fail once this key is added and native testing begins. **Deferred to iOS implementation phase** — no `Info.plist` or Xcode configuration changes were made as part of E08-02's Android-first phase.
 
 ---
 
@@ -127,7 +146,8 @@ The following implementations are explicitly excluded from this strategy and mus
 ---
 
 ## 15. Decision Record
-- **Approved Decision**: Location permission must be requested only after explicit user intent (at the point of need), and must never be requested on first app launch or onboarding.
+- **Approved Decision**: Location permission must be requested only after explicit user intent (at the point of need), and must never be requested automatically on first app launch or on any screen mount.
+- **Amended 2026-07-17 (E08-02)**: the onboarding location-priming screen's primary-action button is an approved point-of-need trigger for the reasons detailed in §4a — an explicit, in-context user tap, not an automatic launch-time or mount-time request. The prohibition on automatic/silent requests is unchanged.
 
 ---
 

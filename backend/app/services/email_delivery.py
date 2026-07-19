@@ -6,6 +6,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
+from app.monitoring import capture_unexpected_exception, capture_unexpected_message
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,13 @@ def _send_resend_email(
     settings = get_settings()
     api_key = settings.resend_api_key or settings.smtp_password
     if not api_key or not sender:
+        # A deployed environment missing its email provider configuration is
+        # an operational misconfiguration, not a normal/expected outcome.
+        capture_unexpected_message(
+            "Email delivery attempted without a configured provider API key/sender",
+            level="error",
+            error_code="EMAIL_NOT_CONFIGURED",
+        )
         raise EmailDeliveryError("not_configured")
 
     headers = {
@@ -75,15 +83,37 @@ def _send_resend_email(
                 "status_code": response.status_code,
             },
         )
+        # A rejection from the provider itself (not a timeout/network blip)
+        # is unexpected and worth surfacing -- status code only, never the
+        # request/response body.
+        capture_unexpected_message(
+            "Email provider rejected request",
+            level="warning",
+            error_code="EMAIL_PROVIDER_REJECTED",
+            provider="resend",
+            http_status=response.status_code,
+        )
         raise EmailDeliveryError("provider_error", status_code=response.status_code)
 
     try:
         payload = response.json()
     except ValueError as exc:
+        capture_unexpected_exception(
+            exc,
+            code="EMAIL_MALFORMED_RESPONSE",
+            status_code=response.status_code,
+        )
         raise EmailDeliveryError("malformed_response", status_code=response.status_code) from exc
 
     email_id = payload.get("id") if isinstance(payload, dict) else None
     if not isinstance(email_id, str) or not email_id.strip():
+        capture_unexpected_message(
+            "Email provider response missing an email id",
+            level="warning",
+            error_code="EMAIL_MISSING_ID",
+            provider="resend",
+            http_status=response.status_code,
+        )
         raise EmailDeliveryError("missing_email_id", status_code=response.status_code)
 
     logger.info(

@@ -99,6 +99,7 @@ async function prepareApp(page, options = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
 
     if (cfg.seedPlaintextToken) {
       localStorage.setItem('access_token', cfg.seedPlaintextToken)
@@ -242,6 +243,7 @@ test('logout clears the persistence warning', async ({ page }) => {
   await loginViaForm(page)
   await expect(page.locator('.persistence-warning')).toBeVisible()
 
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.locator('.auth-toolbar button').last().click()
   await expect(page.locator('.login-page')).toBeVisible()
   await expect(page.locator('.persistence-warning')).toHaveCount(0)

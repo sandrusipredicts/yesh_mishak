@@ -9,7 +9,7 @@ from app.auth.google import verify_google_token as _verify_google_token_raw
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import get_brute_force_protector, get_client_ip
-from app.db.supabase import get_supabase_client, get_supabase_service_role_client
+from app.db.supabase import get_supabase_service_role_client
 from app.errors import raise_api_error
 
 REAUTH_WINDOW_KEY_PREFIX = "account_linking_reauth"
@@ -46,7 +46,7 @@ def mask_email(email: str | None) -> str | None:
 
 def _fetch_full_user(user_id: str) -> dict[str, Any]:
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("users")
         .select("id,email,email_verified,google_sub,password_hash")
         .eq("id", user_id)
@@ -64,7 +64,7 @@ def _fetch_full_user(user_id: str) -> dict[str, Any]:
 
 def _fetch_google_identity(user_id: str) -> dict[str, Any] | None:
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("user_identities")
         .select("id,user_id,provider,provider_subject,email_at_link")
         .eq("user_id", user_id)
@@ -158,13 +158,19 @@ def link_google(user_id: str, google_token: str) -> dict[str, Any]:
             code="ACCOUNT_METHOD_ALREADY_LINKED",
             message="A Google account is already linked. Unlink it before linking a different one.",
         )
-    if result == "conflict_other_user":
+    if result in {"conflict_other_user", "email_conflict_other_user"}:
         raise_api_error(
             status_code=status.HTTP_409_CONFLICT,
             code="ACCOUNT_METHOD_IN_USE_BY_ANOTHER_ACCOUNT",
             message="This Google account is already linked to a different account.",
         )
-    if result != "linked":
+    if result == "identity_data_conflict":
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="IDENTITY_DATA_CONFLICT",
+            message="Google identity data requires administrator review",
+        )
+    if result not in {"linked", "already_linked_same"}:
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_SERVER_ERROR",

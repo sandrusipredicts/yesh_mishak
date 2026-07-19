@@ -33,6 +33,7 @@ async function seedAuthenticatedUser(page, user) {
     localStorage.setItem('currentUserName', u.name)
     localStorage.setItem('currentUserEmail', u.email)
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('language_selected', 'true')
   }, storedUser)
@@ -117,6 +118,7 @@ test.describe('Logout flow regression', () => {
       expect(box.width).toBeGreaterThanOrEqual(36)
 
       // Click logout
+      await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
       await logoutButton.click()
 
       // After logout: should see login screen (auth panel)

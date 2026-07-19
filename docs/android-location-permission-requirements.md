@@ -50,10 +50,11 @@ The application must only request and retrieve location data while the applicati
 ---
 
 ## 8. Permission Request Triggers
-Permission queries must never trigger on first app launch or during onboarding. The approved trigger events are:
+Permission queries must never trigger automatically on first app launch or on screen mount. The approved trigger events are:
 1. Tapping the "Center on my location" button on the map.
 2. Tapping "Use current GPS location" in the Add Field modal.
 3. Toggling on "Distance-based notifications" inside settings.
+4. **(Added 2026-07-17, E08-02)** Tapping the primary "Allow location" action on the onboarding location-priming screen — approved because it is an explicit, in-context user tap identical in kind to triggers 1-3, not an automatic request; see `docs/location-permission-strategy.md` §4a for the full rationale and the boundary this does *not* cross (the priming screen's own mount, and every other onboarding screen's mount, still never triggers the prompt).
 
 ---
 
@@ -67,6 +68,7 @@ Permission queries must never trigger on first app launch or during onboarding. 
 | **Denied** | Denied once | Silently fails on startup. Shows warning banner on explicit button taps. | Denied message. | Default map center; manual pin placement only. |
 | **Permanently Denied** | Denied twice / "Don't ask again" | Geolocation attempts reject immediately. | Settings message. | User must go to Android App Settings to enable. |
 | **Unavailable / Error**| GPS disabled / Timeout | Rejects after timeout. | Provider disabled or timeout message. | Use default center or manual entry. |
+| **Device Location Services Disabled** *(clarified 2026-07-17, E08-02)* | N/A — rejected before the permission dialog | `checkPermissions()`/`requestPermissions()` reject with `@capacitor/geolocation`'s `LOCATION_DISABLED` (code `OS-PLUG-GLOC-0007`) *before* any permission grant/denial occurs. The app must route this to the same non-denial "unavailable" outcome as GPS/timeout above, never to "Denied" — see `frontend/src/api/locationPermission.js`. | Provider/services disabled message (never a denial message). | Use default center or manual entry; re-check once services are re-enabled. |
 
 ---
 
@@ -138,9 +140,10 @@ The following implementation items are excluded from this requirements document:
 
 ## 15. Decision Record
 - **Approved Decision**: Future Android location features must declare and request both `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` to handle approximate-only choices correctly.
-- **Approved Decision**: First-launch permission queries are rejected.
-- **Approved Decision**: Background location tracking (`ACCESS_BACKGROUND_LOCATION`) is rejected.
+- **Approved Decision**: First-launch/automatic-on-mount permission queries are rejected.
+- **Approved Decision**: Background location tracking (`ACCESS_BACKGROUND_LOCATION`) is rejected. Remains rejected under E08-02 — no background permission was added.
 - **Approved Decision**: Manual navigation and map features must remain fully functional if permissions are denied.
+- **Amended 2026-07-17 (E08-02)**: an explicit user tap on the onboarding location-priming screen's primary action is added as a fourth approved trigger (§8, item 4). Automatic/mount-time requests remain rejected without exception.
 
 ---
 

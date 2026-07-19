@@ -74,6 +74,7 @@ async function prepareApp(page, token, { failSecureRemove = false } = {}) {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('app_language', 'en')
     localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים') // E08-02 follow-up fix: account needs a resolved city to reach the map
 
     if (storedToken && !localStorage.getItem('__test_seeded')) {
       localStorage.setItem('__test_seeded', 'true')
@@ -109,6 +110,11 @@ async function loginAndLogout(page) {
   await page.goto('/')
   await expect(page.locator('.auth-toolbar')).toContainText(user.name)
 
+  // Wait-based (not a point-in-time isVisible check): the notice can
+  // render asynchronously right after the toolbar appears, so a snapshot
+  // check can race it. A short timeout that's swallowed on absence is
+  // safe either way.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.getByRole('button', { name: 'Logout' }).click()
   await expect(page.locator('.login-page')).toBeVisible()
 }
@@ -189,6 +195,11 @@ test('relaunch after logout stays logged out and never sends a stale token', asy
 
   await page.goto('/')
   await expect(page.locator('.auth-toolbar')).toContainText(user.name)
+  // Wait-based (not a point-in-time isVisible check): the notice can
+  // render asynchronously right after the toolbar appears, so a snapshot
+  // check can race it. A short timeout that's swallowed on absence is
+  // safe either way.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.getByRole('button', { name: 'Logout' }).click()
   await expect(page.locator('.login-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.__secureTokenRemoved)).toBe(true)
@@ -214,6 +225,11 @@ test('background resume after logout does not revalidate or restore the user', a
   await expect(page.locator('.auth-toolbar')).toContainText(user.name)
   const requestsWhileAuthenticated = validationRequests
 
+  // Wait-based (not a point-in-time isVisible check): the notice can
+  // render asynchronously right after the toolbar appears, so a snapshot
+  // check can race it. A short timeout that's swallowed on absence is
+  // safe either way.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.getByRole('button', { name: 'Logout' }).click()
   await expect(page.locator('.login-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.__secureTokenRemoved)).toBe(true)
@@ -254,6 +270,11 @@ test('logout wins over an in-flight session validation', async ({ page }) => {
   })
   await expect.poll(() => validationRequests).toBe(2)
 
+  // Wait-based (not a point-in-time isVisible check): the notice can
+  // render asynchronously right after the toolbar appears, so a snapshot
+  // check can race it. A short timeout that's swallowed on absence is
+  // safe either way.
+  await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
   await page.getByRole('button', { name: 'Logout' }).click()
   await expect(page.locator('.login-page')).toBeVisible()
 
