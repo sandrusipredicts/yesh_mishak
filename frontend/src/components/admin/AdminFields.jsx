@@ -327,6 +327,7 @@ function AdminFields() {
                     <th>{t('admin.sport')}</th>
                     <th>{t('admin.surface')}</th>
                     <th>{t('admin.notes')}</th>
+                    <th>{t('admin.photo')}</th>
                     <th>{t('admin.created')}</th>
                     <th>{t('admin.actions')}</th>
                   </tr>
@@ -340,6 +341,23 @@ function AdminFields() {
                       <td>{formatValue(field.sport_type)}</td>
                       <td>{formatValue(field.surface_type)}</td>
                       <td>{formatNotes(field.notes)}</td>
+                      <td>
+                        {field.photo_url ? (
+                          <a
+                            className="admin-field-photo-link"
+                            href={field.photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <img
+                              src={field.photo_url}
+                              alt={t('admin.fieldPhotoAlt', { name: field.name || field.id })}
+                            />
+                          </a>
+                        ) : (
+                          t('admin.missing')
+                        )}
+                      </td>
                       <td>{formatDate(field.created_at)}</td>
                       <td>
                         <div className="admin-actions">

@@ -28,6 +28,12 @@
 	<array>
 		<string>waze</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow camera access to add a photo when submitting a sports field.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow photo library access to choose an existing field photo.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Allow saving field photos if the photo picker requires it.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
