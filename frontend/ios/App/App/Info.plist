@@ -28,6 +28,12 @@
 	<array>
 		<string>waze</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow camera access to add a photo when submitting a sports field.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow photo library access to choose an existing field photo.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Allow saving field photos if the photo picker requires it.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>The app uses calendar access only to let you add a selected game to your device calendar.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>

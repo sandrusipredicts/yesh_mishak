@@ -6,8 +6,14 @@ import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-lea
 import Modal from './Modal'
 import CityAutocomplete from './CityAutocomplete'
 
-import { createField } from '../api/fields'
+import { createField, createFieldWithPhoto } from '../api/fields'
 import { getApiErrorMessage } from '../api/errors'
+import {
+  captureFieldPhoto,
+  chooseExistingFieldPhoto,
+  isNativeCameraAvailable,
+  selectFieldPhotoFile,
+} from '../api/fieldPhoto'
 import { getCurrentLocation } from '../api/locationService'
 import { israelCities } from '../data/israelCities'
 
@@ -85,8 +91,18 @@ function getErrorMessage(error, t) {
   return getApiErrorMessage(error, t('addField.submitFailed'))
 }
 
+function getPhotoErrorMessage(errorCode, t) {
+  if (errorCode === 'permission_denied') return t('addField.photoPermissionDenied')
+  if (errorCode === 'too_large') return t('addField.photoTooLarge')
+  if (errorCode === 'unsupported_type') return t('addField.photoUnsupportedType')
+  if (errorCode === 'unavailable') return t('addField.photoUnavailable')
+  return t('addField.photoFailed')
+}
+
 function AddFieldModal({ onClose, onCreated }) {
   const { t } = useTranslation()
+  const fileInputRef = useRef(null)
+  const selectedPhotoRef = useRef(null)
   const [name, setName] = useState('')
   const [sportType, setSportType] = useState('football')
   const [surfaceType, setSurfaceType] = useState('asphalt')
@@ -100,11 +116,85 @@ function AddFieldModal({ onClose, onCreated }) {
   // must never be pre-filled with a fallback/display-only coordinate.
   const [position, setPosition] = useState(null)
   const [locationSource, setLocationSource] = useState(null)
+  const [selectedPhoto, setSelectedPhoto] = useState(null)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPhotoActionPending, setIsPhotoActionPending] = useState(false)
 
   const trimmedCity = city.trim()
   const isCityKnown = israelCities.includes(trimmedCity)
+  const canUseNativeCamera = isNativeCameraAvailable()
+
+  useEffect(() => {
+    selectedPhotoRef.current = selectedPhoto
+  }, [selectedPhoto])
+
+  useEffect(() => () => {
+    const photo = selectedPhotoRef.current
+    if (photo?.source === 'file') {
+      URL.revokeObjectURL(photo.previewUrl)
+    }
+  }, [])
+
+  function replaceSelectedPhoto(photo) {
+    setSelectedPhoto((currentPhoto) => {
+      if (currentPhoto?.source === 'file') {
+        URL.revokeObjectURL(currentPhoto.previewUrl)
+      }
+      return photo
+    })
+  }
+
+  function removeSelectedPhoto() {
+    replaceSelectedPhoto(null)
+    setError('')
+  }
+
+  async function handlePhotoResult(photoPromise) {
+    setError('')
+    setIsPhotoActionPending(true)
+    try {
+      const result = await photoPromise()
+      if (result.ok) {
+        replaceSelectedPhoto(result.photo)
+        return
+      }
+      if (result.error !== 'cancelled') {
+        setError(getPhotoErrorMessage(result.error, t))
+      }
+    } finally {
+      setIsPhotoActionPending(false)
+    }
+  }
+
+  async function handleTakePhoto() {
+    await handlePhotoResult(captureFieldPhoto)
+  }
+
+  async function handleChoosePhoto() {
+    if (canUseNativeCamera) {
+      await handlePhotoResult(chooseExistingFieldPhoto)
+      return
+    }
+
+    fileInputRef.current?.click()
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0]
+    const result = selectFieldPhotoFile(file)
+    event.target.value = ''
+
+    if (result.ok) {
+      replaceSelectedPhoto(result.photo)
+      setError('')
+      return
+    }
+
+    if (result.error !== 'cancelled') {
+      setError(getPhotoErrorMessage(result.error, t))
+    }
+  }
 
   async function useCurrentLocation() {
     const result = await getCurrentLocation({ highAccuracy: true })
@@ -163,7 +253,7 @@ function AddFieldModal({ onClose, onCreated }) {
     setIsSubmitting(true)
 
     try {
-      await createField({
+      const payload = {
         name: name.trim(),
         lat: position[0],
         lng: position[1],
@@ -174,7 +264,12 @@ function AddFieldModal({ onClose, onCreated }) {
         opening_hours: openingHours.trim(),
         city: trimmedCity,
         notes: notes.trim(),
-      })
+      }
+      if (selectedPhoto) {
+        await createFieldWithPhoto(payload, selectedPhoto.file)
+      } else {
+        await createField(payload)
+      }
       onCreated?.()
       onClose()
     } catch (submitError) {
@@ -263,6 +358,53 @@ function AddFieldModal({ onClose, onCreated }) {
               rows="3"
             />
           </label>
+
+          <div className="field-photo-picker">
+            <div className="field-photo-picker-header">
+              <span>{t('addField.photo')}</span>
+              <div className="field-photo-actions">
+                {canUseNativeCamera ? (
+                  <button
+                    type="button"
+                    onClick={handleTakePhoto}
+                    disabled={isSubmitting || isPhotoActionPending}
+                  >
+                    {t('addField.takePhoto')}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleChoosePhoto}
+                  disabled={isSubmitting || isPhotoActionPending}
+                >
+                  {t('addField.choosePhoto')}
+                </button>
+              </div>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              hidden
+            />
+
+            {selectedPhoto ? (
+              <div className="field-photo-preview">
+                <img src={selectedPhoto.previewUrl} alt={t('addField.photoPreviewAlt')} />
+                <button
+                  type="button"
+                  onClick={removeSelectedPhoto}
+                  disabled={isSubmitting || isPhotoActionPending}
+                >
+                  {t('addField.removePhoto')}
+                </button>
+              </div>
+            ) : (
+              <p className="form-hint">{t('addField.photoHint')}</p>
+            )}
+          </div>
 
           <div className="settings-input">
             <label htmlFor="add-field-city-input">{t('addField.city')}</label>

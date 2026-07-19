@@ -1,12 +1,13 @@
+import logging
 import math
 from datetime import datetime, timezone
 from typing import Any, Optional, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.auth.dependencies import require_active_user, require_admin
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error, validate_uuid_id
 from app.rate_limit import check_rate_limit_by_user
 from app.routers.game_payloads import get_game_payloads_for_fields
@@ -18,9 +19,15 @@ from app.services.content_moderation import (
     validate_text,
 )
 from app.services.duplicate_detection import RISK_CONFIRMED, score_pair
+from app.services.field_photos import (
+    remove_field_photo,
+    upload_field_photo,
+    validate_field_photo_upload,
+)
 
 router = APIRouter(prefix="/fields", tags=["fields"])
 FIELDS_PAGE_SIZE = 1000
+logger = logging.getLogger(__name__)
 
 
 def _format_supabase_error(exc: Exception) -> dict[str, Any]:
@@ -335,6 +342,86 @@ def _check_no_confirmed_duplicate(
             )
 
 
+def _validate_field_create_request(field: FieldCreate, current_user: dict[str, Any]) -> Any:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "fields_create", [(3, 60), (10, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    moderation = validate_field_submission(
+        name=field.name,
+        notes=field.notes,
+        opening_hours=field.opening_hours,
+        city=field.city,
+    )
+    if not moderation.allowed:
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="CONTENT_REJECTED",
+            message=moderation.message,
+        )
+
+    return None
+
+
+def _field_create_payload(field: FieldCreate, current_user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": field.name,
+        "lat": field.lat,
+        "lng": field.lng,
+        "sport_type": field.sport_type,
+        "surface_type": field.surface_type,
+        "has_nets": field.has_nets,
+        "has_water": field.has_water,
+        "opening_hours": field.opening_hours,
+        "city": field.city,
+        "notes": field.notes,
+        "verified": False,
+        "approval_status": "pending",
+        "status": "open",
+        "added_by": current_user["id"],
+    }
+
+
+def _insert_pending_field(field: FieldCreate, current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = get_supabase_client().table("fields").insert(
+            _field_create_payload(field, current_user)
+        ).execute()
+    except Exception:
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to create field",
+        )
+
+    return response.data[0]
+
+
+def _delete_pending_field_best_effort(field_id: str) -> None:
+    try:
+        get_supabase_client().table("fields").delete().eq("id", field_id).execute()
+    except Exception:
+        logger.warning(
+            "failed to clean up pending field after photo upload failure",
+            extra={"event": "fields.photo.cleanup_field_failed", "field_id": field_id},
+        )
+
+
+def _update_field_photo_reference(field_id: str, photo_path: str) -> dict[str, Any]:
+    response = (
+        get_supabase_client()
+        .table("fields")
+        .update({"image_url": photo_path})
+        .eq("id", field_id)
+        .execute()
+    )
+    if not response.data:
+        raise RuntimeError("field photo reference update returned no rows")
+    return response.data[0]
+
+
 def update_field_record(field_id: str, body: FieldUpdate) -> dict[str, Any]:
     field_id = validate_uuid_id(field_id, "field_id")
     provided = body.model_dump(exclude_unset=True)
@@ -515,6 +602,8 @@ def get_field(field_id: str):
             code="FIELD_NOT_FOUND",
             message="Field not found",
         )
+    if field.get("approval_status") != "approved" or field.get("verified") is not True:
+        field["image_url"] = None
 
     active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields([field_id])
     field["active_game"] = active_games_by_field_id.get(field_id)
@@ -524,52 +613,81 @@ def get_field(field_id: str):
 
 @router.post("/")
 def create_field(field: FieldCreate, current_user: dict[str, Any] = Depends(require_active_user)):
-    rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "fields_create", [(3, 60), (10, 3600)]
-    )
+    rate_limit_hit = _validate_field_create_request(field, current_user)
     if rate_limit_hit:
         return rate_limit_hit
 
-    moderation = validate_field_submission(
-        name=field.name,
-        notes=field.notes,
-        opening_hours=field.opening_hours,
-        city=field.city,
-    )
-    if not moderation.allowed:
-        raise_api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="CONTENT_REJECTED",
-            message=moderation.message,
-        )
+    created_field = _insert_pending_field(field, current_user)
+    return {"message": "Field submitted for VAR approval", "field": created_field}
 
-    supabase = get_supabase_client()
-    data = {
-        "name": field.name,
-        "lat": field.lat,
-        "lng": field.lng,
-        "sport_type": field.sport_type,
-        "surface_type": field.surface_type,
-        "has_nets": field.has_nets,
-        "has_water": field.has_water,
-        "opening_hours": field.opening_hours,
-        "city": field.city,
-        "notes": field.notes,
-        "verified": False,
-        "approval_status": "pending",
-        "status": "open",
-        "added_by": current_user["id"],
-    }
+
+@router.post("/with-photo")
+async def create_field_with_photo(
+    name: str = Form(..., min_length=2, max_length=200),
+    lat: float = Form(..., ge=-90, le=90),
+    lng: float = Form(..., ge=-180, le=180),
+    sport_type: Literal["football", "basketball", "both"] = Form(...),
+    surface_type: str = Form(..., max_length=100),
+    has_nets: bool = Form(...),
+    has_water: bool = Form(...),
+    opening_hours: Optional[str] = Form(default=None, max_length=200),
+    city: Optional[str] = Form(default=None, max_length=200),
+    notes: Optional[str] = Form(default=None, max_length=1000),
+    photo: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(require_active_user),
+):
     try:
-        response = supabase.table("fields").insert(data).execute()
+        field = FieldCreate(
+            name=name,
+            lat=lat,
+            lng=lng,
+            sport_type=sport_type,
+            surface_type=surface_type,
+            has_nets=has_nets,
+            has_water=has_water,
+            opening_hours=opening_hours,
+            city=city,
+            notes=notes,
+        )
+    except ValidationError:
+        raise_api_error(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="VALIDATION_ERROR",
+            message="Validation failed",
+        )
+    rate_limit_hit = _validate_field_create_request(field, current_user)
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    photo_upload = await validate_field_photo_upload(photo)
+    created_field = _insert_pending_field(field, current_user)
+    field_id = str(created_field["id"])
+    storage_client = get_supabase_service_role_client()
+    photo_path: str | None = None
+
+    try:
+        photo_path = upload_field_photo(storage_client, photo_upload, field_id=field_id)
+        updated_field = _update_field_photo_reference(field_id, photo_path)
     except Exception:
+        logger.exception(
+            "failed to attach field photo",
+            extra={"event": "fields.photo.attach_failed", "field_id": field_id},
+        )
+        try:
+            remove_field_photo(storage_client, photo_path)
+        except Exception:
+            logger.warning(
+                "failed to clean up uploaded field photo",
+                extra={"event": "fields.photo.cleanup_object_failed", "field_id": field_id},
+            )
+        _delete_pending_field_best_effort(field_id)
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            code="DATABASE_ERROR",
-            message="Failed to create field",
+            code="FIELD_PHOTO_UPLOAD_FAILED",
+            message="Failed to attach field photo",
         )
 
-    return {"message": "Field submitted for VAR approval", "field": response.data[0]}
+    return {"message": "Field submitted for VAR approval", "field": updated_field}
 
 
 @router.patch("/{field_id}/status")

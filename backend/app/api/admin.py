@@ -42,6 +42,7 @@ from app.services.api_request_metrics import (
 from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
+from app.services.field_photos import create_field_photo_signed_url
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -100,6 +101,39 @@ ADMIN_FIELD_REPORT_COLUMNS = ",".join(
         "reviewed_by",
     ]
 )
+
+
+def _attach_field_photo_urls(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    fields_with_photos = [field for field in fields if field.get("image_url")]
+    if not fields_with_photos:
+        return fields
+
+    try:
+        storage_client = get_supabase_service_role_client()
+    except Exception:
+        logger.warning(
+            "field photo signed urls unavailable",
+            extra={"event": "admin.fields.photo_urls.unavailable"},
+        )
+        return fields
+
+    for field in fields_with_photos:
+        try:
+            field["photo_url"] = create_field_photo_signed_url(
+                storage_client,
+                str(field["image_url"]),
+            )
+        except Exception:
+            logger.warning(
+                "failed to sign field photo url",
+                extra={
+                    "event": "admin.fields.photo_url_failed",
+                    "field_id": field.get("id"),
+                },
+            )
+            field["photo_url"] = None
+
+    return fields
 JOB_RUN_COLUMNS = ",".join(
     [
         "id",
@@ -936,7 +970,7 @@ def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
         .order("created_at", desc=False)
         .execute()
     )
-    return response.data
+    return _attach_field_photo_urls(response.data or [])
 
 
 @router.post("/fields/{field_id}/approve")

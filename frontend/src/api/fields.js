@@ -48,3 +48,16 @@ export async function createField(data) {
   const response = await api.post('/fields/', data)
   return response.data
 }
+
+export async function createFieldWithPhoto(data, photoFile) {
+  const formData = new FormData()
+  Object.entries(data).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      formData.append(key, value)
+    }
+  })
+  formData.append('photo', photoFile)
+
+  const response = await api.post('/fields/with-photo', formData)
+  return response.data
+}

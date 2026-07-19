@@ -110,12 +110,14 @@ async function openAddFieldModal(page) {
 
 async function mockCreateField(page) {
   let capturedRequest = null
+  let callCount = 0
 
   await page.route(/\/fields\/?$/, async (route) => {
     if (route.request().method() !== 'POST') {
       return route.fallback()
     }
 
+    callCount += 1
     capturedRequest = route.request().postDataJSON()
 
     return fulfillJson(route, {
@@ -124,7 +126,46 @@ async function mockCreateField(page) {
     })
   })
 
-  return () => capturedRequest
+  return {
+    getRequest: () => capturedRequest,
+    getCallCount: () => callCount,
+  }
+}
+
+async function mockCreateFieldWithPhoto(page, { status = 200, delayMs = 0 } = {}) {
+  const calls = []
+
+  await page.route(/\/fields\/with-photo$/, async (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback()
+    }
+
+    calls.push({
+      headers: route.request().headers(),
+      body: route.request().postDataBuffer(),
+    })
+
+    if (delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+
+    if (status !== 200) {
+      return fulfillJson(route, { error: true, code: 'FIELD_PHOTO_UPLOAD_FAILED' }, status)
+    }
+
+    return fulfillJson(route, {
+      message: 'Field submitted for VAR approval',
+      field: {
+        id: 'new-field-1',
+        approval_status: 'pending',
+        image_url: 'fields/new-field-1/photo.jpg',
+      },
+    })
+  })
+
+  return {
+    getCalls: () => calls,
+  }
 }
 
 test.beforeEach(async ({ page }) => {
@@ -134,7 +175,7 @@ test.beforeEach(async ({ page }) => {
 test('does not default city or location to Yeruham when geolocation is denied', async ({ page }) => {
   await seedAuthenticatedUser(page)
   await mockRejectedGeolocation(page)
-  const getCapturedRequest = await mockCreateField(page)
+  const createField = await mockCreateField(page)
 
   const dialog = await openAddFieldModal(page)
 
@@ -151,7 +192,7 @@ test('does not default city or location to Yeruham when geolocation is denied', 
   // Submitting without a city must be blocked and must not reach the API.
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
   await expect(dialog.getByText('Please choose a city from the list.')).toBeVisible()
-  expect(getCapturedRequest()).toBeNull()
+  expect(createField.getRequest()).toBeNull()
 
   // Pick a real city from the list manually.
   await dialog.getByLabel('City').fill('באר שבע')
@@ -161,15 +202,15 @@ test('does not default city or location to Yeruham when geolocation is denied', 
   // must still be blocked instead of silently using a fallback location.
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
   await expect(dialog.getByText('Field location is required.')).toBeVisible()
-  expect(getCapturedRequest()).toBeNull()
+  expect(createField.getRequest()).toBeNull()
 
   // Since geolocation was denied, the user places the pin manually on the map.
   await dialog.locator('.location-picker-map').click()
 
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
 
-  await expect.poll(() => getCapturedRequest()).not.toBeNull()
-  const request = getCapturedRequest()
+  await expect.poll(() => createField.getRequest()).not.toBeNull()
+  const request = createField.getRequest()
 
   expect(request.city).toBe('באר שבע')
   expect(request.city).not.toBe('ירוחם')
@@ -182,7 +223,7 @@ test('does not use the onboarding-stored city when geolocation is denied', async
   // reused from localStorage.
   await seedAuthenticatedUser(page, { storedUserCity: 'ירוחם' })
   await mockRejectedGeolocation(page)
-  const getCapturedRequest = await mockCreateField(page)
+  const createField = await mockCreateField(page)
 
   const dialog = await openAddFieldModal(page)
 
@@ -191,13 +232,13 @@ test('does not use the onboarding-stored city when geolocation is denied', async
   await dialog.getByLabel('Field name').fill('Another Test Field')
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
   await expect(dialog.getByText('Please choose a city from the list.')).toBeVisible()
-  expect(getCapturedRequest()).toBeNull()
+  expect(createField.getRequest()).toBeNull()
 })
 
 test('rejects a manually typed city that is not in the known list', async ({ page }) => {
   await seedAuthenticatedUser(page)
   await mockRejectedGeolocation(page)
-  const getCapturedRequest = await mockCreateField(page)
+  const createField = await mockCreateField(page)
 
   const dialog = await openAddFieldModal(page)
 
@@ -208,7 +249,7 @@ test('rejects a manually typed city that is not in the known list', async ({ pag
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
 
   await expect(dialog.getByText('Please choose a city from the list.')).toBeVisible()
-  expect(getCapturedRequest()).toBeNull()
+  expect(createField.getRequest()).toBeNull()
 })
 
 test('uses navigator.geolocation coordinates, not the map fallback, when location permission is granted', async ({
@@ -218,7 +259,7 @@ test('uses navigator.geolocation coordinates, not the map fallback, when locatio
 
   await seedAuthenticatedUser(page)
   await mockGrantedGeolocation(page, grantedLocation)
-  const getCapturedRequest = await mockCreateField(page)
+  const createField = await mockCreateField(page)
 
   const dialog = await openAddFieldModal(page)
 
@@ -234,11 +275,151 @@ test('uses navigator.geolocation coordinates, not the map fallback, when locatio
 
   await dialog.getByRole('button', { name: 'Submit for approval' }).click()
 
-  await expect.poll(() => getCapturedRequest()).not.toBeNull()
-  const request = getCapturedRequest()
+  await expect.poll(() => createField.getRequest()).not.toBeNull()
+  const request = createField.getRequest()
 
   expect(request.lat).toBeCloseTo(grantedLocation.latitude, 5)
   expect(request.lng).toBeCloseTo(grantedLocation.longitude, 5)
   expect([request.lat, request.lng]).not.toEqual([YERUHAM_COORDS.lat, YERUHAM_COORDS.lng])
   expect(request.city).toBe('תל אביב-יפו')
+})
+
+test('browser fallback previews and submits a selected field photo', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  const photoUpload = await mockCreateFieldWithPhoto(page)
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByLabel('Field name').fill('Photo Field')
+  await dialog.getByLabel('City').fill('באר שבע')
+  await dialog.getByRole('option', { name: 'באר שבע' }).click()
+  await dialog.locator('.location-picker-map').click()
+
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'court.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+  })
+
+  await expect(dialog.getByAltText('Field photo preview')).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Submit for approval' }).click()
+
+  await expect.poll(() => photoUpload.getCalls().length).toBe(1)
+  const body = photoUpload.getCalls()[0].body.toString('latin1')
+  expect(body).toContain('name="photo"')
+  expect(body).toContain('court.jpg')
+  expect(body).toContain('Photo Field')
+})
+
+test('removing a selected photo falls back to the existing JSON submission', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  const createField = await mockCreateField(page)
+  const photoUpload = await mockCreateFieldWithPhoto(page)
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByLabel('Field name').fill('No Photo Field')
+  await dialog.getByLabel('City').fill('באר שבע')
+  await dialog.getByRole('option', { name: 'באר שבע' }).click()
+  await dialog.locator('.location-picker-map').click()
+
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'court.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+  })
+  await dialog.getByRole('button', { name: 'Remove photo' }).click()
+  await expect(dialog.getByAltText('Field photo preview')).toHaveCount(0)
+
+  await dialog.getByRole('button', { name: 'Submit for approval' }).click()
+
+  await expect.poll(() => createField.getRequest()).not.toBeNull()
+  expect(photoUpload.getCalls()).toHaveLength(0)
+})
+
+test('rejects unsupported field photo type before submitting', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  const createField = await mockCreateField(page)
+  const photoUpload = await mockCreateFieldWithPhoto(page)
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not an image'),
+  })
+
+  await expect(dialog.getByText('Use a JPEG, PNG, or WebP image.')).toBeVisible()
+  expect(createField.getRequest()).toBeNull()
+  expect(photoUpload.getCalls()).toHaveLength(0)
+})
+
+test('rejects oversized field photo before submitting', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  const photoUpload = await mockCreateFieldWithPhoto(page)
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'huge.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.alloc((5 * 1024 * 1024) + 1, 0xff),
+  })
+
+  await expect(dialog.getByText('The image is too large. Maximum size is 5MB.')).toBeVisible()
+  expect(photoUpload.getCalls()).toHaveLength(0)
+})
+
+test('photo upload failure keeps the modal open with an error', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  await mockCreateFieldWithPhoto(page, { status: 500 })
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByLabel('Field name').fill('Photo Failure Field')
+  await dialog.getByLabel('City').fill('באר שבע')
+  await dialog.getByRole('option', { name: 'באר שבע' }).click()
+  await dialog.locator('.location-picker-map').click()
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'court.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+  })
+
+  await dialog.getByRole('button', { name: 'Submit for approval' }).click()
+
+  await expect(dialog.getByText('Could not submit field. Please try again.')).toBeVisible()
+  await expect(dialog).toBeVisible()
+})
+
+test('repeated taps do not create duplicate photo submissions', async ({ page }) => {
+  await seedAuthenticatedUser(page)
+  await mockRejectedGeolocation(page)
+  const photoUpload = await mockCreateFieldWithPhoto(page, { delayMs: 300 })
+
+  const dialog = await openAddFieldModal(page)
+  await dialog.getByLabel('Field name').fill('Single Submit Field')
+  await dialog.getByLabel('City').fill('באר שבע')
+  await dialog.getByRole('option', { name: 'באר שבע' }).click()
+  await dialog.locator('.location-picker-map').click()
+  await dialog.getByRole('button', { name: 'Choose photo' }).click()
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'court.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+  })
+
+  const submit = dialog.locator('button[type="submit"]')
+  await submit.click()
+  await expect(submit).toBeDisabled()
+  await submit.click({ force: true })
+
+  await expect.poll(() => photoUpload.getCalls().length).toBe(1)
 })
