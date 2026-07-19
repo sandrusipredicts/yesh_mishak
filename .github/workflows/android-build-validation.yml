@@ -62,6 +62,15 @@ jobs:
       # be misclassified as production in the dashboard.
       VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
       VITE_SENTRY_ENVIRONMENT: branch-build
+      # Exposes window.__monitoringTest (frontend/src/monitoring/index.js)
+      # so this dedicated non-production APK can be manually verified on a
+      # physical device (docs/sentry-configuration-guide.md). Safe to hardcode
+      # here: config.js's isTestTriggerAllowed() hard-gates on
+      # environment !== 'production' first and unconditionally, so this flag
+      # has no effect at all unless VITE_SENTRY_ENVIRONMENT is also non-production
+      # -- which is exactly the branch-build value set above, and only that
+      # value, in this job. Deliberately NOT set in any other workflow.
+      VITE_SENTRY_TEST_TRIGGER_ENABLED: 'true'
       # Source-map upload (vite.config.js) is likewise optional: a missing
       # SENTRY_AUTH_TOKEN makes the Sentry Vite plugin skip itself entirely,
       # so this build still succeeds with unsymbolicated maps.

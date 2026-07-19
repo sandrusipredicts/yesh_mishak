@@ -15,6 +15,7 @@ import { Capacitor } from '@capacitor/core'
 
 import {
   isMonitoringEnabled,
+  isTestTriggerAllowed,
   resolveDist,
   resolveEnvironment,
   resolveRelease,
@@ -113,22 +114,12 @@ export const monitoringConfig = { dsn: Boolean(dsn), environment, release, dist,
 
 // --- Manual verification test triggers (E09-01 requirement 14/28/48/49) ---
 // Deliberately NOT wired to any UI element (no "Crash app" button). Reachable
-// only via a devtools console call, and only when both: (a) the resolved
-// environment is not 'production' -- a hard gate that cannot be bypassed by
-// the opt-in flag below -- and (b) either running under the Vite dev server
-// or an explicit build-time opt-in (VITE_SENTRY_TEST_TRIGGER_ENABLED=true),
-// which is how a dedicated non-production branch-build APK enables it for a
-// physical-device manual verification pass without also enabling it in the
-// production build. Mirrors the existing dev-only window.__locationServiceTest
-// / VITE_SHOW_TEST_PUSH conventions already used elsewhere in this codebase.
-const PRODUCTION_ENVIRONMENT_NAME = 'production'
-
-function isTestTriggerAllowed() {
-  if (environment === PRODUCTION_ENVIRONMENT_NAME) {
-    return false
-  }
-  return Boolean(import.meta.env.DEV) || import.meta.env.VITE_SENTRY_TEST_TRIGGER_ENABLED === 'true'
-}
+// only via a devtools console call, gated by config.js's isTestTriggerAllowed
+// (pure and unit-tested there) -- see that function's doc comment for the
+// exact two-condition gate. Mirrors the existing dev-only
+// window.__locationServiceTest / VITE_SHOW_TEST_PUSH conventions already
+// used elsewhere in this codebase.
+const testTriggerEnabled = import.meta.env.VITE_SENTRY_TEST_TRIGGER_ENABLED === 'true'
 
 function triggerTestError() {
   throw new Error('[monitoring] test error trigger (manual verification only)')
@@ -145,6 +136,9 @@ function triggerTestNativeCrash() {
   Sentry.nativeCrash()
 }
 
-if (typeof window !== 'undefined' && isTestTriggerAllowed()) {
+if (
+  typeof window !== 'undefined' &&
+  isTestTriggerAllowed({ environment, isDevServer: import.meta.env.DEV, testTriggerEnabled })
+) {
   window.__monitoringTest = { triggerTestError, triggerTestMessage, triggerTestNativeCrash }
 }

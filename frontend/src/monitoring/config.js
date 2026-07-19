@@ -62,3 +62,29 @@ export function isMonitoringEnabled({ dsn, environment, localOverrideEnabled } =
   }
   return true
 }
+
+/**
+ * Gate for the manual-verification test triggers (monitoring/index.js's
+ * window.__monitoringTest). Two independent conditions must both hold:
+ *
+ *   1. The resolved environment must not be 'production' -- a hard gate
+ *      that the opt-in flag below can NEVER bypass, checked first and
+ *      unconditionally, regardless of what testTriggerEnabled/isDevServer
+ *      are set to. This is what guarantees a flag accidentally left on
+ *      (or a misconfigured production build) still can never expose the
+ *      triggers in production.
+ *   2. Either the app is running under the Vite dev server, or an explicit
+ *      build-time opt-in (VITE_SENTRY_TEST_TRIGGER_ENABLED=true) was set --
+ *      this is how a dedicated non-production branch-build APK enables the
+ *      triggers for a physical-device manual verification pass without
+ *      also enabling them in a production build.
+ *
+ * Pure and side-effect-free so both conditions are independently unit
+ * testable without needing to mock @sentry/capacitor or a bundler env.
+ */
+export function isTestTriggerAllowed({ environment, isDevServer, testTriggerEnabled } = {}) {
+  if (environment === PRODUCTION_ENVIRONMENT) {
+    return false
+  }
+  return Boolean(isDevServer) || testTriggerEnabled === true
+}

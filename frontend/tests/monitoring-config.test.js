@@ -7,6 +7,7 @@ import {
   LOCAL_ENVIRONMENT,
   PRODUCTION_ENVIRONMENT,
   isMonitoringEnabled,
+  isTestTriggerAllowed,
   resolveDist,
   resolveEnvironment,
   resolveRelease,
@@ -97,4 +98,74 @@ test('isMonitoringEnabled: any non-local deployed environment with a DSN is enab
       `expected ${environment} to be enabled`,
     )
   }
+})
+
+// --- isTestTriggerAllowed: the window.__monitoringTest exposure gate ---
+// (E09-01 branch-build APK manual-verification fix)
+
+test('isTestTriggerAllowed: production is blocked even when the opt-in flag is true', () => {
+  assert.equal(
+    isTestTriggerAllowed({
+      environment: PRODUCTION_ENVIRONMENT,
+      isDevServer: false,
+      testTriggerEnabled: true,
+    }),
+    false,
+  )
+})
+
+test('isTestTriggerAllowed: production is blocked even when running under a dev server', () => {
+  // Not a realistic combination in practice, but the production check must
+  // be unconditional -- it must not depend on isDevServer either.
+  assert.equal(
+    isTestTriggerAllowed({
+      environment: PRODUCTION_ENVIRONMENT,
+      isDevServer: true,
+      testTriggerEnabled: true,
+    }),
+    false,
+  )
+})
+
+test('isTestTriggerAllowed: a branch-build with the opt-in flag set is allowed', () => {
+  assert.equal(
+    isTestTriggerAllowed({
+      environment: BRANCH_BUILD_ENVIRONMENT,
+      isDevServer: false,
+      testTriggerEnabled: true,
+    }),
+    true,
+  )
+})
+
+test('isTestTriggerAllowed: a branch-build WITHOUT the opt-in flag is blocked (the pre-fix gap)', () => {
+  assert.equal(
+    isTestTriggerAllowed({
+      environment: BRANCH_BUILD_ENVIRONMENT,
+      isDevServer: false,
+      testTriggerEnabled: false,
+    }),
+    false,
+  )
+})
+
+test('isTestTriggerAllowed: any non-production environment is allowed under the dev server regardless of the flag', () => {
+  for (const environment of [LOCAL_ENVIRONMENT, DEVELOPMENT_ENVIRONMENT, BRANCH_BUILD_ENVIRONMENT]) {
+    assert.equal(
+      isTestTriggerAllowed({ environment, isDevServer: true, testTriggerEnabled: false }),
+      true,
+      `expected ${environment} to be allowed under the dev server`,
+    )
+  }
+})
+
+test('isTestTriggerAllowed: development environment respects the same flag-based gate as branch-build', () => {
+  assert.equal(
+    isTestTriggerAllowed({ environment: DEVELOPMENT_ENVIRONMENT, isDevServer: false, testTriggerEnabled: true }),
+    true,
+  )
+  assert.equal(
+    isTestTriggerAllowed({ environment: DEVELOPMENT_ENVIRONMENT, isDevServer: false, testTriggerEnabled: false }),
+    false,
+  )
 })
