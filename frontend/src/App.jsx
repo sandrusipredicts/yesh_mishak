@@ -35,6 +35,8 @@ import {
 } from './api/nativePushNotifications'
 import { deletePushToken, savePushToken } from './api/notifications'
 import { recordLinkOpen } from './api/shareAnalytics'
+import { trackEvent } from './analytics/client.js'
+import { screenNameForPathname } from './analytics/registry.js'
 import { hasSelectedLanguage } from './i18n'
 import {
   addBreadcrumb,
@@ -148,6 +150,8 @@ function App() {
   const validationPromiseRef = useRef(null)
   const sessionEpochRef = useRef(0)
   const pushTokenSyncRef = useRef(null)
+  const appOpenTrackedRef = useRef(false)
+  const lastScreenViewRef = useRef(null)
 
   function getPushTokenSync() {
     if (!pushTokenSyncRef.current) {
@@ -519,6 +523,37 @@ function App() {
       addBreadcrumb({ category: 'app', message: 'application startup completed', level: 'info' })
     }
   }, [isSessionReady])
+
+  // E09-02: anonymous app_open, fired once per app launch after session
+  // resolution. The ref guard survives StrictMode's double effect
+  // invocation, so dev cannot double-count. Platform is attached inside
+  // trackEvent as an envelope field (the registry forbids it as a
+  // property); the analytics client itself drops the event silently when
+  // no session exists, so this stays passive on the login screen too.
+  useEffect(() => {
+    if (!isSessionReady || appOpenTrackedRef.current) {
+      return
+    }
+    appOpenTrackedRef.current = true
+    trackEvent('app_open')
+  }, [isSessionReady])
+
+  // E09-02: anonymous screen_view for App-level routes with an approved
+  // screen enum value (see screenNameForPathname). Gated on currentUser so
+  // the login screen never emits a spurious 'map' view; the last-screen ref
+  // both dedupes StrictMode re-runs and only fires on actual transitions.
+  useEffect(() => {
+    if (!currentUser) {
+      lastScreenViewRef.current = null
+      return
+    }
+
+    const screen = screenNameForPathname(pathname)
+    if (screen && screen !== lastScreenViewRef.current) {
+      lastScreenViewRef.current = screen
+      trackEvent('screen_view', { screen })
+    }
+  }, [pathname, currentUser])
 
   // E08-02 follow-up fix: onboarding completion/permission-education flags
   // are device-scoped by design (a second account must not repeat the

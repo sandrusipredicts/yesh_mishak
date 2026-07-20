@@ -114,6 +114,37 @@ python -m app.jobs.reconcile_game_expiry --batch-size 100 --max-batches 50
 
 Apply `migrations/game_expiry_reconciliation.sql` before enabling the job. In production, run it from a Railway cron service every 5 minutes with the required backend env vars configured. See `../docs/game-expiry-reconciliation.md` for full deployment, verification, and rollback steps.
 
+## Event analytics ingestion (E09-02)
+
+First-party product analytics are ingested through `POST /analytics/events`
+(authenticated, batched, max 20 events per request) and stored in the
+`analytics_events` table. Aggregated counts are exposed to admins via the
+`analytics_events` section of `GET /admin/monitoring`.
+
+Events are strictly anonymous: no user IDs (raw or hashed), resource IDs,
+URLs, coordinates, or free text are ever accepted or stored — only event
+names and closed-enum properties. The event/property contract is owned by
+the registry in `app/analytics/registry.py` (mirrored by
+`frontend/src/analytics/registry.js` and the CHECK constraints in the
+migration); extend all three together when new events are approved.
+
+Manual deployment step: apply `migrations/analytics_events.sql` in Supabase
+(staging, then production), after `api_request_metrics.sql`. The migration is
+idempotent and safe to re-run. Until it is applied, the pipeline degrades
+gracefully by design: `POST /analytics/events` returns
+`503 ANALYTICS_UNAVAILABLE` (clients drop events silently) and the
+`analytics_events` monitoring section reports `source_available: false`.
+
+Old events are deleted by a scheduler-compatible CLI job:
+
+```bash
+python -m app.jobs.cleanup_analytics_events --retention-days 90
+```
+
+In production, run it from a Railway cron service daily with the required
+backend env vars configured. Runs are recorded in `job_runs` under the
+`analytics_events_cleanup` job name; `--retention-days` accepts 1-365.
+
 ## Google login
 
 `POST /auth/google` verifies a Google ID token and resolves the stable Google

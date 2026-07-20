@@ -39,6 +39,7 @@ from app.services.api_request_metrics import (
     count_api_request_metrics,
     get_api_response_time_metrics,
 )
+from app.services.analytics_events import get_analytics_event_metrics
 from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
@@ -444,6 +445,47 @@ def _get_share_event_monitoring(
         "source_available": True,
         "source": "database",
         "semantics": "first_party_mechanism_only",
+        "window_minutes": window_minutes,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": window_ended_at.isoformat(),
+        "total_events": total_events,
+        "groups": rows,
+    }
+
+
+def _get_analytics_event_monitoring(
+    *,
+    window_minutes: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    try:
+        rows = get_analytics_event_metrics(
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+        )
+    except Exception as exc:
+        logger.warning(
+            "analytics event metrics unavailable",
+            extra={
+                "event": "admin.monitoring.analytics_events.unavailable",
+                "exception_type": exc.__class__.__name__,
+                "result": "partial_failure",
+            },
+            exc_info=True,
+        )
+        return {
+            "source_available": False,
+            "status": "unavailable",
+            "reason": "Analytics event metrics are temporarily unavailable. Apply backend/migrations/analytics_events.sql and ensure service-role access is configured.",
+        }
+
+    total_events = sum(row["event_count"] for row in rows)
+    return {
+        "source_available": True,
+        "status": "ok",
+        "source": "database",
+        "semantics": "anonymous_first_party_events",
         "window_minutes": window_minutes,
         "window_started_at": window_started_at.isoformat(),
         "window_ended_at": window_ended_at.isoformat(),
@@ -1606,6 +1648,11 @@ def get_monitoring(
             window_ended_at=now,
         ),
         "share_events": _get_share_event_monitoring(
+            window_minutes=window_minutes,
+            window_started_at=window_started_at,
+            window_ended_at=now,
+        ),
+        "analytics_events": _get_analytics_event_monitoring(
             window_minutes=window_minutes,
             window_started_at=window_started_at,
             window_ended_at=now,
