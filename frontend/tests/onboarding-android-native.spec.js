@@ -272,3 +272,36 @@ test('second account on the same device skips onboarding and does not inherit th
   const userBCityAfterSelection = await page.evaluate((userId) => localStorage.getItem(`starting_city:${userId}`), USER_B.id)
   expect(userBCityAfterSelection).toBe('תל אביב-יפו')
 })
+
+test('session expiry (401) mid-onboarding returns to login, and re-login resumes at the saved step', async ({ page }) => {
+  await prepareNativeApp(page, { pushCheckStatus: 'prompt', pushRequestStatus: 'denied' })
+  await page.goto('/')
+  await loginViaForm(page, USER_A)
+
+  // Progress to the notifications step (step 4 of 6).
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await chooseYeruham(page)
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await expect(page.getByRole('heading', { name: 'Stay updated' })).toBeVisible()
+
+  // The token expires server-side; the next app-resume validation
+  // (appStateChange -> validateStoredSession -> GET /games/me) gets a 401.
+  await page.route('**/games/me', (route) =>
+    route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }))
+  await page.evaluate(() => window.__appStateChange({ isActive: true }))
+
+  // Fail-closed: back at login, while storage still holds the real progress.
+  await expect(page.locator('.login-page')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('onboarding_state')).currentStep))
+    .toBe('notifications')
+
+  // The backend accepts the credentials again; the same user logs back in.
+  await page.route('**/games/me', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+  await loginViaForm(page, USER_A)
+
+  // E08-03: the wizard must resume exactly where the user left off, not
+  // restart from the stale welcome-step snapshot App.jsx captured at mount.
+  await expect(page.getByRole('heading', { name: 'Stay updated' })).toBeVisible()
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4')
+})
