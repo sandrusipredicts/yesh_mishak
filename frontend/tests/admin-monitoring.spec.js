@@ -88,6 +88,45 @@ const monitoringData = {
   },
 }
 
+const engagementData = {
+  status: 'ok',
+  generated_at: '2026-07-20T12:00:00.000Z',
+  window_days: 30,
+  window_started_at: '2026-06-20T12:00:00.000Z',
+  window_ended_at: '2026-07-20T12:00:00.000Z',
+  analytics_events: {
+    source_available: true,
+    source: 'database',
+    semantics: 'anonymous_first_party_events',
+    app_opens: 12,
+    screen_views: 20,
+    daily: [
+      { event_day: '2026-07-19', app_opens: 5, screen_views: 8 },
+      { event_day: '2026-07-20', app_opens: 7, screen_views: 12 },
+    ],
+    platform_breakdown: [
+      { platform: 'web', app_opens: 4, screen_views: 10, total_events: 14 },
+      { platform: 'android', app_opens: 8, screen_views: 10, total_events: 18 },
+      { platform: 'ios', app_opens: 0, screen_views: 0, total_events: 0 },
+    ],
+  },
+  share_events: {
+    source_available: true,
+    source: 'database',
+    semantics: 'share_action_outcomes_only',
+    total_actions: 10,
+    successful_actions: 6,
+    success_rate: 0.6,
+    outcome_breakdown: [
+      { outcome: 'shared', event_count: 4 },
+      { outcome: 'copied', event_count: 2 },
+      { outcome: 'cancelled', event_count: 1 },
+      { outcome: 'unavailable', event_count: 1 },
+      { outcome: 'failed', event_count: 2 },
+    ],
+  },
+}
+
 function fulfillJson(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -121,7 +160,7 @@ async function seedAuthenticatedUser(page) {
   }, { ...adminUser, token: makeJwtWithSubject(adminUser.id) })
 }
 
-async function mockAdminApi(page, { monitoringHandler } = {}) {
+async function mockAdminApi(page, { engagementHandler, monitoringHandler } = {}) {
   await page.route('**/admin/**', async (route) => {
     const url = new URL(route.request().url())
 
@@ -145,6 +184,14 @@ async function mockAdminApi(page, { monitoringHandler } = {}) {
       return fulfillJson(route, monitoringData)
     }
 
+    if (url.pathname === '/admin/engagement') {
+      if (engagementHandler) {
+        return engagementHandler(route)
+      }
+
+      return fulfillJson(route, engagementData)
+    }
+
     return fulfillJson(route, {})
   })
 }
@@ -154,6 +201,13 @@ async function openMonitoring(page) {
   const monitoringButton = page.getByRole('button', { name: 'Monitoring', exact: true })
   await expect(monitoringButton).toHaveCount(1)
   await monitoringButton.click()
+}
+
+async function openEngagement(page) {
+  await page.goto('/admin')
+  const engagementButton = page.getByRole('button', { name: 'Engagement', exact: true })
+  await expect(engagementButton).toHaveCount(1)
+  await engagementButton.click()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -307,5 +361,89 @@ test('monitoring remains usable on a narrow viewport', async ({ page }) => {
   await openMonitoring(page)
 
   await expect(page.getByRole('heading', { name: 'Monitoring', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('engagement renders backend-derived metrics, visualizations, and accessible tables', async ({ page }) => {
+  const requests = []
+  await mockAdminApi(page, {
+    engagementHandler: async (route) => {
+      requests.push({
+        method: route.request().method(),
+        url: route.request().url(),
+      })
+      return fulfillJson(route, engagementData)
+    },
+  })
+  await openEngagement(page)
+
+  const summary = page.locator('.admin-engagement-summary')
+  await expect(summary.getByText('12', { exact: true })).toBeVisible()
+  await expect(summary.getByText('20', { exact: true })).toBeVisible()
+  await expect(summary.getByText('10', { exact: true })).toBeVisible()
+  await expect(summary.getByText('60.0%', { exact: true })).toBeVisible()
+  await expect(page.getByText('Data freshness (UTC): Jul 20, 2026, 12:00 PM', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Daily app opens and screen views' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Total anonymous events by platform' })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Share actions by outcome' })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Daily engagement event counts' })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Engagement event counts by platform' })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Share action counts by outcome' })).toBeVisible()
+  expect(requests).toHaveLength(1)
+  expect(requests[0].method).toBe('GET')
+  expect(new URL(requests[0].url).searchParams.get('window_days')).toBe('30')
+})
+
+test('engagement range selector requests only the approved bounded GET windows', async ({ page }) => {
+  const requests = []
+  await mockAdminApi(page, {
+    engagementHandler: async (route) => {
+      const request = route.request()
+      const days = Number(new URL(request.url()).searchParams.get('window_days'))
+      requests.push({ days, method: request.method() })
+      return fulfillJson(route, {
+        ...engagementData,
+        window_days: days,
+      })
+    },
+  })
+  await openEngagement(page)
+  await expect(page.getByText('Engagement window: last 30 days', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Last 7 days', exact: true }).click()
+  await expect(page.getByText('Engagement window: last 7 days', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Last 90 days', exact: true }).click()
+  await expect(page.getByText('Engagement window: last 90 days', { exact: true })).toBeVisible()
+
+  expect(requests.map((request) => request.days)).toEqual([30, 7, 90])
+  expect(requests.every((request) => request.method === 'GET')).toBe(true)
+})
+
+test('engagement preserves available sharing data when analytics is unavailable', async ({ page }) => {
+  await mockAdminApi(page, {
+    engagementHandler: async (route) => fulfillJson(route, {
+      ...engagementData,
+      status: 'partial',
+      analytics_events: {
+        source_available: false,
+        reason: 'safe source message',
+      },
+    }),
+  })
+  await openEngagement(page)
+
+  await expect(page.getByText('Some engagement sources are temporarily unavailable.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Anonymous analytics metrics are temporarily unavailable.', { exact: true })).toHaveCount(2)
+  await expect(page.getByRole('table', { name: 'Share action counts by outcome' })).toBeVisible()
+  await expect(page.locator('.admin-engagement-summary').getByText('60.0%', { exact: true })).toBeVisible()
+})
+
+test('engagement remains usable on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAdminApi(page)
+  await openEngagement(page)
+
+  await expect(page.getByRole('heading', { name: 'Engagement', exact: true })).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Daily engagement event counts' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

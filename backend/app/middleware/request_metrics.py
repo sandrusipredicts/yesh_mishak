@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 EXCLUDED_METRIC_PATHS = {
     "/",
+    "/admin/engagement",
     "/admin/monitoring",
     "/health",
     "/healthz",

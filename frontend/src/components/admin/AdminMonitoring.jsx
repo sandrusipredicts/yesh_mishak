@@ -1,242 +1,68 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Activity,
-  AlertTriangle,
   Bell,
-  CheckCircle2,
   Clock3,
   Database,
-  RefreshCw,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { getAdminMonitoring } from '../../api/admin'
-
-const ERROR_KEYS = {
-  unauthorized: 'unauthorized',
-  forbidden: 'forbidden',
-  missing: 'missing',
-  unavailable: 'unavailable',
-}
-
-function getErrorKey(error) {
-  const responseStatus = error?.response?.status
-
-  if (responseStatus === 401) {
-    return ERROR_KEYS.unauthorized
-  }
-
-  if (responseStatus === 403) {
-    return ERROR_KEYS.forbidden
-  }
-
-  if (responseStatus === 404) {
-    return ERROR_KEYS.missing
-  }
-
-  return ERROR_KEYS.unavailable
-}
-
-function isCanceledRequest(error) {
-  return error?.code === 'ERR_CANCELED'
-    || error?.name === 'AbortError'
-    || error?.name === 'CanceledError'
-}
-
-function formatNumber(value, locale, fractionDigits = 0) {
-  if (value === null || value === undefined) {
-    return null
-  }
-
-  return new Intl.NumberFormat(locale, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  }).format(value)
-}
-
-function formatRate(value, locale) {
-  const formatted = formatNumber(value === null ? null : value * 100, locale, 1)
-  return formatted === null ? null : `${formatted}%`
-}
-
-function formatTimestamp(value, locale) {
-  if (!value) {
-    return null
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return null
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(date)
-}
-
-function MetricCard({ description, format = 'count', label, locale, unavailableLabel, value }) {
-  const displayValue = format === 'rate'
-    ? formatRate(value, locale)
-    : format === 'milliseconds'
-      ? formatNumber(value, locale, 1)
-      : formatNumber(value, locale)
-
-  return (
-    <article className="admin-monitoring-metric">
-      <span className="admin-monitoring-metric-label">{label}</span>
-      <strong>{displayValue ?? unavailableLabel}</strong>
-      <small>{description}</small>
-    </article>
-  )
-}
-
-function SectionNotice({ children, variant = 'empty' }) {
-  return (
-    <div className={`admin-monitoring-notice ${variant}`} role={variant === 'unavailable' ? 'status' : undefined}>
-      {variant === 'unavailable' ? <AlertTriangle aria-hidden="true" size={18} /> : null}
-      <p>{children}</p>
-    </div>
-  )
-}
-
-function MonitoringSection({ children, description, icon: Icon, id, title }) {
-  return (
-    <section className="admin-monitoring-section" aria-labelledby={id}>
-      <div className="admin-monitoring-section-header">
-        <div className="admin-monitoring-section-title">
-          <Icon aria-hidden="true" size={20} />
-          <div>
-            <h3 id={id}>{title}</h3>
-            <p>{description}</p>
-          </div>
-        </div>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function sourceIsAvailable(group) {
-  return Boolean(group) && group.source_available === true
-}
+import {
+  DashboardError,
+  DashboardLoading,
+  DashboardRefreshError,
+  DashboardSection,
+  DashboardStatus,
+  DashboardToolbar,
+  MetricCard,
+  SectionNotice,
+} from './AdminDashboardComponents'
+import {
+  formatAdminNumber,
+  formatAdminTimestamp,
+  getAdminDashboardErrorCopy,
+  sourceIsAvailable,
+  useAdminDashboardResource,
+} from './adminDashboardShared'
 
 function AdminMonitoring() {
   const { i18n, t } = useTranslation()
-  const [monitoring, setMonitoring] = useState(null)
-  const [errorKey, setErrorKey] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
-  const requestRef = useRef(null)
-  const nextRequestIdRef = useRef(0)
+  const {
+    data: monitoring,
+    errorKey,
+    isLoading,
+    isRefreshing,
+    lastRefreshedAt,
+    load: loadMonitoring,
+  } = useAdminDashboardResource(getAdminMonitoring)
 
   const locale = i18n.language === 'he' ? 'he-IL' : 'en-US'
-
-  const loadMonitoring = useCallback(async ({ background = false, initial = false } = {}) => {
-    if (requestRef.current) {
-      return
-    }
-
-    const requestId = nextRequestIdRef.current + 1
-    nextRequestIdRef.current = requestId
-    const controller = new AbortController()
-    requestRef.current = { controller, requestId }
-
-    if (background) {
-      setIsRefreshing(true)
-    } else if (!initial) {
-      setIsLoading(true)
-    }
-    if (!initial) {
-      setErrorKey('')
-    }
-
-    try {
-      const data = await getAdminMonitoring({ signal: controller.signal })
-
-      if (requestRef.current?.requestId !== requestId) {
-        return
-      }
-
-      setMonitoring(data)
-      setLastRefreshedAt(new Date().toISOString())
-    } catch (error) {
-      if (isCanceledRequest(error) || requestRef.current?.requestId !== requestId) {
-        return
-      }
-
-      setErrorKey(getErrorKey(error))
-    } finally {
-      if (requestRef.current?.requestId === requestId) {
-        requestRef.current = null
-        setIsLoading(false)
-        setIsRefreshing(false)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const initialLoadId = window.setTimeout(() => {
-      loadMonitoring({ initial: true })
-    }, 0)
-
-    return () => {
-      window.clearTimeout(initialLoadId)
-      requestRef.current?.controller.abort()
-      requestRef.current = null
-    }
-  }, [loadMonitoring])
-
-  const errorMessage = errorKey === ERROR_KEYS.unauthorized
-    ? t('admin.monitoringErrors.unauthorized')
-    : errorKey === ERROR_KEYS.forbidden
-      ? t('admin.monitoringErrors.forbidden')
-      : errorKey === ERROR_KEYS.missing
-        ? t('admin.monitoringErrors.missing')
-        : t('admin.monitoringErrors.unavailable')
-  const errorActionLabel = errorKey === ERROR_KEYS.unauthorized
-    ? t('admin.monitoringSignInAgain')
-    : t('admin.retry')
+  const errorCopy = getAdminDashboardErrorCopy(
+    errorKey,
+    t,
+    'admin.monitoringErrors',
+  )
 
   if (isLoading && !monitoring) {
-    return (
-      <div className="admin-monitoring-status" aria-live="polite" aria-busy="true">
-        <RefreshCw className="admin-monitoring-spin" aria-hidden="true" size={18} />
-        <span>{t('admin.monitoringLoading')}</span>
-      </div>
-    )
+    return <DashboardLoading>{t('admin.monitoringLoading')}</DashboardLoading>
   }
 
   if (errorKey && !monitoring) {
     return (
-      <div className="admin-monitoring-error" role="alert">
-        <AlertTriangle aria-hidden="true" size={20} />
-        <div>
-          <p>{errorMessage}</p>
-          <button
-            type="button"
-            onClick={() => {
-              if (errorKey === ERROR_KEYS.unauthorized) {
-                window.location.reload()
-              } else {
-                loadMonitoring()
-              }
-            }}
-          >
-            {errorActionLabel}
-          </button>
-        </div>
-      </div>
+      <DashboardError
+        actionLabel={errorCopy.actionLabel}
+        errorKey={errorKey}
+        message={errorCopy.message}
+        onRetry={() => loadMonitoring()}
+      />
     )
   }
 
   const windowMinutes = monitoring?.api_errors?.window_minutes
     ?? monitoring?.response_time?.window_minutes
     ?? monitoring?.push_notifications?.window_minutes
-  const generatedAt = formatTimestamp(monitoring?.generated_at, locale)
-  const refreshedAt = formatTimestamp(lastRefreshedAt, locale)
+  const generatedAt = formatAdminTimestamp(monitoring?.generated_at, locale)
+  const refreshedAt = formatAdminTimestamp(lastRefreshedAt, locale)
   const apiErrors = monitoring?.api_errors
   const responseTime = monitoring?.response_time
   const pushNotifications = monitoring?.push_notifications
@@ -247,51 +73,41 @@ function AdminMonitoring() {
 
   return (
     <div className="admin-monitoring" aria-busy={isRefreshing}>
-      <div className="admin-monitoring-toolbar">
-        <div>
-          <p className="admin-monitoring-window">
-            {windowMinutes !== null && windowMinutes !== undefined
-              ? t('admin.monitoringWindow', { count: windowMinutes })
-              : t('admin.monitoringWindowUnavailable')}
-          </p>
-          <div className="admin-monitoring-timestamps">
-            {generatedAt ? <span>{t('admin.monitoringGeneratedAt', { value: generatedAt })}</span> : null}
-            {refreshedAt ? <span>{t('admin.monitoringRefreshedAt', { value: refreshedAt })}</span> : null}
-          </div>
+      <DashboardToolbar
+        disabled={isRefreshing || isLoading}
+        isRefreshing={isRefreshing}
+        onRefresh={() => loadMonitoring({ background: true })}
+        refreshLabel={t('admin.monitoringRefresh')}
+        refreshingLabel={t('admin.monitoringRefreshing')}
+      >
+        <p className="admin-monitoring-window">
+          {windowMinutes !== null && windowMinutes !== undefined
+            ? t('admin.monitoringWindow', { count: windowMinutes })
+            : t('admin.monitoringWindowUnavailable')}
+        </p>
+        <div className="admin-monitoring-timestamps">
+          {generatedAt ? <span>{t('admin.monitoringGeneratedAt', { value: generatedAt })}</span> : null}
+          {refreshedAt ? <span>{t('admin.monitoringRefreshedAt', { value: refreshedAt })}</span> : null}
         </div>
-        <button
-          className="admin-monitoring-refresh-button"
-          type="button"
-          onClick={() => loadMonitoring({ background: true })}
-          disabled={isRefreshing || isLoading}
-          aria-busy={isRefreshing}
-        >
-          <RefreshCw className={isRefreshing ? 'admin-monitoring-spin' : ''} aria-hidden="true" size={17} />
-          {isRefreshing ? t('admin.monitoringRefreshing') : t('admin.monitoringRefresh')}
-        </button>
-      </div>
+      </DashboardToolbar>
 
       {errorKey ? (
-        <div className="admin-monitoring-refresh-error" role="alert">
-          <AlertTriangle aria-hidden="true" size={18} />
-          <span>{errorMessage}</span>
-          <button type="button" onClick={() => loadMonitoring({ background: true })}>
-            {t('admin.retry')}
-          </button>
-        </div>
+        <DashboardRefreshError
+          onRetry={() => loadMonitoring({ background: true })}
+          retryLabel={t('admin.retry')}
+        >
+          {errorCopy.message}
+        </DashboardRefreshError>
       ) : null}
 
-      <div className="admin-monitoring-summary" role="status">
-        {monitoring?.status === 'ok' ? <CheckCircle2 aria-hidden="true" size={18} /> : <AlertTriangle aria-hidden="true" size={18} />}
-        <span>
-          {monitoring?.status === 'ok'
-            ? t('admin.monitoringStatusOk')
-            : t('admin.monitoringStatusDegraded')}
-        </span>
-      </div>
+      <DashboardStatus
+        isOk={monitoring?.status === 'ok'}
+        okLabel={t('admin.monitoringStatusOk')}
+        partialLabel={t('admin.monitoringStatusDegraded')}
+      />
 
       <div className="admin-monitoring-sections">
-        <MonitoringSection
+        <DashboardSection
           description={t('admin.monitoringOperationalDescription')}
           icon={Database}
           id="admin-monitoring-operational"
@@ -359,9 +175,9 @@ function AdminMonitoring() {
               <small>{t('admin.monitoringMetricDescriptions.connectivity')}</small>
             </article>
           </div>
-        </MonitoringSection>
+        </DashboardSection>
 
-        <MonitoringSection
+        <DashboardSection
           description={t('admin.monitoringApiDescription')}
           icon={Activity}
           id="admin-monitoring-api"
@@ -446,9 +262,9 @@ function AdminMonitoring() {
               </div>
             )}
           </div>
-        </MonitoringSection>
+        </DashboardSection>
 
-        <MonitoringSection
+        <DashboardSection
           description={t('admin.monitoringPushDescription')}
           icon={Bell}
           id="admin-monitoring-push"
@@ -498,9 +314,9 @@ function AdminMonitoring() {
               />
             </div>
           )}
-        </MonitoringSection>
+        </DashboardSection>
 
-        <MonitoringSection
+        <DashboardSection
           description={t('admin.monitoringJobsDescription')}
           icon={Clock3}
           id="admin-monitoring-jobs"
@@ -521,11 +337,11 @@ function AdminMonitoring() {
                 </div>
                 <div>
                   <span>{t('admin.monitoringLatestJobStarted')}</span>
-                  <strong>{formatTimestamp(scheduledJobs.latest_started_at, locale) ?? t('admin.monitoringUnavailable')}</strong>
+                  <strong>{formatAdminTimestamp(scheduledJobs.latest_started_at, locale) ?? t('admin.monitoringUnavailable')}</strong>
                 </div>
                 <div>
                   <span>{t('admin.monitoringLatestJobFinished')}</span>
-                  <strong>{formatTimestamp(scheduledJobs.latest_finished_at, locale) ?? t('admin.monitoringUnavailable')}</strong>
+                  <strong>{formatAdminTimestamp(scheduledJobs.latest_finished_at, locale) ?? t('admin.monitoringUnavailable')}</strong>
                 </div>
               </div>
               <div className="admin-monitoring-table-wrap">
@@ -546,10 +362,10 @@ function AdminMonitoring() {
                         <td>{run.status
                           ? t(`admin.monitoringJobStatus.${run.status}`, run.status)
                           : t('admin.monitoringUnavailable')}</td>
-                        <td>{formatTimestamp(run.started_at, locale) ?? t('admin.monitoringUnavailable')}</td>
-                        <td>{formatNumber(run.duration_ms, locale, 1) ?? t('admin.monitoringUnavailable')}</td>
-                        <td>{formatNumber(run.processed_count, locale) ?? t('admin.monitoringUnavailable')}</td>
-                        <td>{formatNumber(run.failed_count, locale) ?? t('admin.monitoringUnavailable')}</td>
+                        <td>{formatAdminTimestamp(run.started_at, locale) ?? t('admin.monitoringUnavailable')}</td>
+                        <td>{formatAdminNumber(run.duration_ms, locale, 1) ?? t('admin.monitoringUnavailable')}</td>
+                        <td>{formatAdminNumber(run.processed_count, locale) ?? t('admin.monitoringUnavailable')}</td>
+                        <td>{formatAdminNumber(run.failed_count, locale) ?? t('admin.monitoringUnavailable')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -557,7 +373,7 @@ function AdminMonitoring() {
               </div>
             </>
           )}
-        </MonitoringSection>
+        </DashboardSection>
       </div>
     </div>
   )

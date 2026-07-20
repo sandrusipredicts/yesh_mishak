@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from typing import Any, Optional, Literal
+from typing import Any, Optional
 from app.errors import raise_api_error, validate_uuid_id
 
 from app.auth.dependencies import require_admin
@@ -72,6 +72,11 @@ ADMIN_FIELD_COLUMNS = ",".join(
 )
 FINISHED_GAME_STATUSES = ["finished", "cancelled"]
 FINISHED_GAMES_LIMIT = 50
+ENGAGEMENT_WINDOW_DAYS = (7, 30, 90)
+ENGAGEMENT_EVENT_NAMES = ("app_open", "screen_view")
+ENGAGEMENT_PLATFORMS = ("web", "android", "ios")
+SHARE_ACTION_OUTCOMES = ("shared", "copied", "cancelled", "unavailable", "failed")
+SUCCESSFUL_SHARE_OUTCOMES = {"shared", "copied"}
 
 ADMIN_USER_COLUMNS = ",".join(
     [
@@ -491,6 +496,120 @@ def _get_analytics_event_monitoring(
         "window_ended_at": window_ended_at.isoformat(),
         "total_events": total_events,
         "groups": rows,
+    }
+
+
+def _get_engagement_analytics(
+    *,
+    window_days: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    metrics = _get_analytics_event_monitoring(
+        window_minutes=window_days * 24 * 60,
+        window_started_at=window_started_at,
+        window_ended_at=window_ended_at,
+    )
+    if metrics.get("source_available") is not True:
+        return {
+            "source_available": False,
+            "reason": metrics.get("reason"),
+        }
+
+    daily: dict[str, dict[str, int | str]] = {}
+    platforms = {
+        platform: {
+            "platform": platform,
+            "app_opens": 0,
+            "screen_views": 0,
+            "total_events": 0,
+        }
+        for platform in ENGAGEMENT_PLATFORMS
+    }
+    totals = {event_name: 0 for event_name in ENGAGEMENT_EVENT_NAMES}
+
+    for group in metrics.get("groups", []):
+        event_name = group.get("event_name")
+        platform = group.get("platform")
+        event_day = group.get("event_day")
+        if (
+            event_name not in ENGAGEMENT_EVENT_NAMES
+            or platform not in ENGAGEMENT_PLATFORMS
+            or not event_day
+        ):
+            continue
+
+        event_count = max(0, int(group.get("event_count") or 0))
+        metric_key = "app_opens" if event_name == "app_open" else "screen_views"
+        totals[event_name] += event_count
+        platforms[platform][metric_key] += event_count
+        platforms[platform]["total_events"] += event_count
+
+        day = daily.setdefault(
+            str(event_day),
+            {
+                "event_day": str(event_day),
+                "app_opens": 0,
+                "screen_views": 0,
+            },
+        )
+        day[metric_key] += event_count
+
+    return {
+        "source_available": True,
+        "source": metrics["source"],
+        "semantics": metrics["semantics"],
+        "app_opens": totals["app_open"],
+        "screen_views": totals["screen_view"],
+        "daily": [daily[event_day] for event_day in sorted(daily)],
+        "platform_breakdown": [platforms[platform] for platform in ENGAGEMENT_PLATFORMS],
+    }
+
+
+def _get_engagement_shares(
+    *,
+    window_days: int,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> dict[str, Any]:
+    metrics = _get_share_event_monitoring(
+        window_minutes=window_days * 24 * 60,
+        window_started_at=window_started_at,
+        window_ended_at=window_ended_at,
+    )
+    if metrics.get("source_available") is not True:
+        return {
+            "source_available": False,
+            "reason": metrics.get("reason"),
+        }
+
+    outcomes = {outcome: 0 for outcome in SHARE_ACTION_OUTCOMES}
+    for group in metrics.get("groups", []):
+        if group.get("event_name") != "share_action":
+            continue
+        outcome = group.get("outcome")
+        if outcome not in outcomes:
+            continue
+        outcomes[outcome] += max(0, int(group.get("event_count") or 0))
+
+    total_actions = sum(outcomes.values())
+    successful_actions = sum(
+        outcomes[outcome] for outcome in SUCCESSFUL_SHARE_OUTCOMES
+    )
+
+    return {
+        "source_available": True,
+        "source": metrics["source"],
+        "semantics": "share_action_outcomes_only",
+        "total_actions": total_actions,
+        "successful_actions": successful_actions,
+        "success_rate": (
+            successful_actions / total_actions if total_actions else 0.0
+        ),
+        "outcome_breakdown": [
+            {"outcome": outcome, "event_count": outcomes[outcome]}
+            for outcome in SHARE_ACTION_OUTCOMES
+        ],
     }
 
 
@@ -1537,6 +1656,45 @@ def _update_field_approval(
         },
     )
     return field
+
+
+@router.get("/engagement")
+def get_engagement(
+    window_days: int = Query(default=30),
+    _: dict[str, Any] = Depends(require_admin),
+):
+    if window_days not in ENGAGEMENT_WINDOW_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="window_days must be one of 7, 30, or 90",
+        )
+
+    now = get_now()
+    window_started_at = now - timedelta(days=window_days)
+    analytics_events = _get_engagement_analytics(
+        window_days=window_days,
+        window_started_at=window_started_at,
+        window_ended_at=now,
+    )
+    share_events = _get_engagement_shares(
+        window_days=window_days,
+        window_started_at=window_started_at,
+        window_ended_at=now,
+    )
+    sources_available = (
+        analytics_events.get("source_available") is True,
+        share_events.get("source_available") is True,
+    )
+
+    return {
+        "status": "ok" if all(sources_available) else "partial",
+        "generated_at": now.isoformat(),
+        "window_days": window_days,
+        "window_started_at": window_started_at.isoformat(),
+        "window_ended_at": now.isoformat(),
+        "analytics_events": analytics_events,
+        "share_events": share_events,
+    }
 
 
 @router.get("/monitoring")

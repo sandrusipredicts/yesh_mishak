@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import AdminEngagement from '../components/admin/AdminEngagement'
 import AdminFields from '../components/admin/AdminFields'
 import AdminFieldReports from '../components/admin/AdminFieldReports'
 import AdminGames from '../components/admin/AdminGames'
@@ -23,6 +24,12 @@ function AdminPage() {
       label: t('admin.monitoring'),
       title: t('admin.monitoring'),
       placeholder: t('admin.monitoringPlaceholder'),
+    },
+    {
+      id: 'engagement',
+      label: t('admin.engagement'),
+      title: t('admin.engagement'),
+      placeholder: t('admin.engagementPlaceholder'),
     },
     {
       id: 'fields',
@@ -86,12 +93,14 @@ function AdminPage() {
           <h2 id="admin-section-title">{activeSection.title}</h2>
           {activeSection.id === 'stats' ? <AdminStats /> : null}
           {activeSection.id === 'monitoring' ? <AdminMonitoring /> : null}
+          {activeSection.id === 'engagement' ? <AdminEngagement /> : null}
           {activeSection.id === 'fields' ? <AdminFields /> : null}
           {activeSection.id === 'games' ? <AdminGames /> : null}
           {activeSection.id === 'users' ? <AdminUsers /> : null}
           {activeSection.id === 'fieldReports' ? <AdminFieldReports /> : null}
           {activeSection.id !== 'stats' &&
           activeSection.id !== 'monitoring' &&
+          activeSection.id !== 'engagement' &&
           activeSection.id !== 'fields' &&
           activeSection.id !== 'games' &&
           activeSection.id !== 'users' &&

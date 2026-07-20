@@ -213,3 +213,82 @@ export async function getAdminMonitoring({ signal } = {}) {
   const response = await api.get('/admin/monitoring', { signal })
   return normalizeAdminMonitoring(response.data)
 }
+
+const ENGAGEMENT_WINDOW_DAYS = new Set([7, 30, 90])
+
+function normalizeEngagementRows(rows, fields) {
+  if (!Array.isArray(rows)) {
+    return []
+  }
+
+  return rows
+    .filter(isRecord)
+    .map((row) => {
+      const normalized = { ...row }
+      fields.forEach((field) => {
+        normalized[field] = normalizeNonNegativeNumber(row[field])
+      })
+      return normalized
+    })
+}
+
+function normalizeEngagementSource(value) {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    ...value,
+    source_available: value.source_available === true,
+  }
+}
+
+export function normalizeAdminEngagement(data) {
+  if (!isRecord(data)) {
+    throw new Error('Invalid admin engagement response')
+  }
+
+  const analyticsEvents = normalizeEngagementSource(data.analytics_events)
+  if (analyticsEvents?.source_available) {
+    analyticsEvents.app_opens = normalizeNonNegativeNumber(analyticsEvents.app_opens)
+    analyticsEvents.screen_views = normalizeNonNegativeNumber(analyticsEvents.screen_views)
+    analyticsEvents.daily = normalizeEngagementRows(
+      analyticsEvents.daily,
+      ['app_opens', 'screen_views'],
+    )
+    analyticsEvents.platform_breakdown = normalizeEngagementRows(
+      analyticsEvents.platform_breakdown,
+      ['app_opens', 'screen_views', 'total_events'],
+    )
+  }
+
+  const shareEvents = normalizeEngagementSource(data.share_events)
+  if (shareEvents?.source_available) {
+    shareEvents.total_actions = normalizeNonNegativeNumber(shareEvents.total_actions)
+    shareEvents.successful_actions = normalizeNonNegativeNumber(shareEvents.successful_actions)
+    shareEvents.success_rate = normalizeRate(shareEvents.success_rate)
+    shareEvents.outcome_breakdown = normalizeEngagementRows(
+      shareEvents.outcome_breakdown,
+      ['event_count'],
+    )
+  }
+
+  return {
+    ...data,
+    status: data.status === 'ok' ? 'ok' : 'partial',
+    generated_at: normalizeTimestamp(data.generated_at),
+    window_started_at: normalizeTimestamp(data.window_started_at),
+    window_ended_at: normalizeTimestamp(data.window_ended_at),
+    window_days: ENGAGEMENT_WINDOW_DAYS.has(data.window_days) ? data.window_days : null,
+    analytics_events: analyticsEvents,
+    share_events: shareEvents,
+  }
+}
+
+export async function getAdminEngagement({ signal, windowDays = 30 } = {}) {
+  const response = await api.get('/admin/engagement', {
+    params: { window_days: windowDays },
+    signal,
+  })
+  return normalizeAdminEngagement(response.data)
+}
