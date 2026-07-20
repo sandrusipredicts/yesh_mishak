@@ -2544,6 +2544,177 @@ select {
   text-transform: uppercase;
 }
 
+.admin-engagement-range {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  border: 0;
+  padding: 0;
+}
+
+.admin-engagement-range legend {
+  margin-bottom: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-engagement-range > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-engagement-range button {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-engagement-range button:hover,
+.admin-engagement-range button:focus {
+  border-color: #475569;
+}
+
+.admin-engagement-range button.active {
+  border-color: #172033;
+  background: #172033;
+  color: #ffffff;
+}
+
+.admin-engagement-summary {
+  margin-top: 2px;
+}
+
+.admin-engagement-trend {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.admin-engagement-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-engagement-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-engagement-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.admin-engagement-legend i.app-opens,
+.admin-engagement-day-bars span.app-opens {
+  background: #2563eb;
+}
+
+.admin-engagement-legend i.screen-views,
+.admin-engagement-day-bars span.screen-views {
+  background: #0f766e;
+}
+
+.admin-engagement-trend-scroll {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 14px 10px;
+  background: #f8fafc;
+}
+
+.admin-engagement-trend-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: max-content;
+  min-width: 100%;
+  min-height: 185px;
+}
+
+.admin-engagement-day {
+  display: grid;
+  flex: 1 0 28px;
+  gap: 7px;
+  min-width: 28px;
+  color: #64748b;
+  font-size: 10px;
+  text-align: center;
+}
+
+.admin-engagement-day-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 150px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.admin-engagement-day-bars span {
+  width: 8px;
+  min-height: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.admin-engagement-day small {
+  white-space: nowrap;
+}
+
+.admin-engagement-breakdown {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-engagement-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) minmax(120px, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.admin-engagement-breakdown-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.admin-engagement-breakdown-track span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: #2563eb;
+}
+
+.admin-engagement-breakdown-row strong {
+  min-width: 32px;
+  color: #172033;
+  text-align: end;
+}
+
+.admin-engagement-table {
+  min-width: 480px;
+}
+
 .admin-monitoring-spin {
   animation: admin-monitoring-spin 1s linear infinite;
 }
@@ -3599,6 +3770,11 @@ select {
 
   .admin-monitoring-job-summary {
     grid-template-columns: 1fr;
+  }
+
+  .admin-engagement-breakdown-row {
+    grid-template-columns: minmax(84px, 0.8fr) minmax(80px, 1.4fr) auto;
+    gap: 8px;
   }
 
   .login-page {
