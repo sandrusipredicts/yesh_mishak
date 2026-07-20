@@ -680,6 +680,11 @@ function App() {
   const handleLogin = useCallback((user) => {
     setLogoutWarning('')
     setLoginNotice('')
+    // Re-read onboarding progress from storage before the render that can
+    // mount OnboardingPage: the state resolved at App mount is stale after
+    // an in-session logout/401 (E08-03), and OnboardingPage seeds its own
+    // state from initialState only once, on mount.
+    setOnboardingState(resolveOnboardingState().state)
     setCurrentUser(user)
   }, [])
 

@@ -99,6 +99,33 @@ test('refresh resumes a skipped location step at notifications', async ({ page }
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4')
 })
 
+test('cold relaunch (new context restoring saved storage) resumes at the persisted step', async ({ browser }) => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await seedAuthenticatedUser(page, 'en')
+  await mockApplicationApis(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await chooseYeruham(page)
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await expect(page.getByRole('heading', { name: 'Stay updated' })).toBeVisible()
+
+  // Recreate the browser context from scratch, carrying only the persisted
+  // origin storage — the web-level equivalent of an app force-stop and
+  // relaunch reading the same WebView storage. (OS-level storage eviction
+  // and native secure-storage behavior stay covered by on-device QA.)
+  const storageState = await context.storageState()
+  await context.close()
+  const relaunched = await browser.newContext({ storageState })
+  const freshPage = await relaunched.newPage()
+  await mockApplicationApis(freshPage)
+  await freshPage.goto('/')
+
+  await expect(freshPage.getByRole('heading', { name: 'Stay updated' })).toBeVisible()
+  await expect(freshPage.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4')
+  await relaunched.close()
+})
+
 test('login state alone never requests browser notification permission', async ({ page }) => {
   await page.addInitScript(() => {
     window.__notificationRequests = 0
