@@ -4,6 +4,7 @@ import pytest
 from app.monitoring import (
     LOCAL_ENVIRONMENT,
     is_monitoring_enabled,
+    redact_breadcrumb,
     redact_deep,
     redact_event,
     resolve_environment,
@@ -113,6 +114,44 @@ def test_redact_event_keeps_only_internal_user_id():
     event = {"user": {"id": "user-1", "email": "a@example.com", "username": "alice"}}
     result = redact_event(event, {})
     assert result["user"] == {"id": "user-1"}
+
+
+def test_redact_breadcrumb_scrubs_url_query_and_sensitive_headers():
+    breadcrumb = {
+        "category": "httplib",
+        "data": {
+            "url": "https://example.supabase.co/rest/v1/items?token=secret#fragment",
+            "request_headers": {
+                "Authorization": "Bearer secret",
+                "Content-Type": "application/json",
+            },
+        },
+    }
+
+    result = redact_breadcrumb(breadcrumb)
+
+    assert result["data"]["url"] == "https://example.supabase.co/rest/v1/items"
+    assert result["data"]["request_headers"]["Authorization"] == "[Redacted]"
+    assert result["data"]["request_headers"]["Content-Type"] == "application/json"
+
+
+def test_redact_event_scrubs_sdk_generated_breadcrumbs():
+    event = {
+        "breadcrumbs": [
+            {
+                "category": "http",
+                "data": {
+                    "url": "https://api.example.com/path?verification_token=secret",
+                    "cookies": {"session": "secret"},
+                },
+            }
+        ]
+    }
+
+    result = redact_event(event, {})
+
+    assert result["breadcrumbs"][0]["data"]["url"] == "https://api.example.com/path"
+    assert result["breadcrumbs"][0]["data"]["cookies"] == "[Redacted]"
 
 
 # --- FastAPI integration (capture wiring) -------------------------------

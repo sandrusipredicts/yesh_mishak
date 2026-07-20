@@ -115,6 +115,24 @@ def _safe_url_path(url: Optional[str]) -> Optional[str]:
     return url.split("?", 1)[0].split("#", 1)[0]
 
 
+def redact_breadcrumb(breadcrumb: dict) -> dict:
+    """Scrub SDK-generated HTTP/log breadcrumb metadata before delivery.
+
+    The live E09-04 audit confirmed that backend events include SDK-generated
+    HTTP breadcrumbs in addition to the top-level request.  Those breadcrumbs
+    must pass through the same URL/header redaction policy so alert emails and
+    issue previews cannot bypass the top-level request safeguards.
+    """
+    redacted = dict(breadcrumb)
+    data = redacted.get("data")
+    if isinstance(data, dict):
+        safe_data = redact_deep(data)
+        if isinstance(safe_data, dict) and isinstance(safe_data.get("url"), str):
+            safe_data["url"] = _safe_url_path(safe_data["url"])
+        redacted["data"] = safe_data
+    return redacted
+
+
 def redact_event(event: dict, hint: dict) -> dict:
     """Sentry before_send hook. Never sent by default, regardless of
     content: full request bodies, Authorization/Cookie headers, query
@@ -137,6 +155,13 @@ def redact_event(event: dict, hint: dict) -> dict:
         event["extra"] = redact_deep(event["extra"])
     if "contexts" in event:
         event["contexts"] = redact_deep(event["contexts"])
+
+    breadcrumbs = event.get("breadcrumbs")
+    if isinstance(breadcrumbs, list):
+        event["breadcrumbs"] = [
+            redact_breadcrumb(item) if isinstance(item, dict) else item
+            for item in breadcrumbs
+        ]
 
     user = event.get("user")
     if isinstance(user, dict):
