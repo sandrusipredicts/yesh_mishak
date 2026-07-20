@@ -1207,6 +1207,7 @@ def test_monitoring_admin_succeeds(monkeypatch) -> None:
         "scheduled_jobs",
             "push_notifications",
             "share_events",
+            "analytics_events",
         }
     assert set(data.keys()) == expected_keys
 
