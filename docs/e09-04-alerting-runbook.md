@@ -74,6 +74,20 @@ Sentry may display city-level Geography derived from the transport IP even when 
 
 ## Release and maintenance
 
-Railway uses `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`. On each naturally occurring production backend issue, confirm the resolved release starts with `yesh-mishak-backend@`, includes a commit SHA, and is not `unknown`.
+Railway uses a literal release matching the deployed commit; the verified 2026-07-21 value is `yesh-mishak-backend@0e65ad9207f3f096f56ad446e9d76f35e20ad37e`. On each deployment, update it to the exact deployed SHA and confirm the resulting Sentry release is neither truncated nor `unknown`.
 
 Review thresholds after 14 production days and 1,000 sessions, after significant traffic/release changes, and quarterly. Review Sentry plan entitlements before trial expiry. Keep Issue Alerts active as the fallback path and never intentionally crash production for verification.
+
+## Deployment verification and rollback
+
+The 2026-07-21 production rollout passed Railway startup, HTTP health, authenticated analytics acceptance/rejection, Supabase single-row verification, and production trace/privacy inspection. Evidence trace: `01db892948e5471bb9863bf727ad45c1`, normalized as `GET fields-map` with the exact deployed release.
+
+For rollback:
+
+1. Redeploy the last known-good Railway deployment.
+2. Update `SENTRY_RELEASE` to the exact rollback commit and deploy the variable change with the rollback code.
+3. Verify root health, startup logs, runtime environment/release, and active Sentry Issue Alerts.
+4. Do not roll back or delete analytics rows and do not disable production alert rules.
+5. Railway currently follows `codex/e09-04-alerting-thresholds`; reconnect it to `main` only after the E09-04 merge is present on `main`.
+
+Merge readiness: **READY TO MERGE — PRODUCTION DEPLOYMENT AND SMOKE VERIFICATION PASSED**

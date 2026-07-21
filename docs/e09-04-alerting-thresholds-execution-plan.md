@@ -40,7 +40,7 @@ Production environment filtering and the configured routing were inspected. Deve
 
 ### Backend release
 
-Railway production is configured with `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`; the replacement deployment completed successfully. Development Sentry evidence confirms the full release format `yesh-mishak-backend@f9e7bf2aff557089a364579131cba18b8cc69399`. Production release metadata is checked on the next naturally occurring backend exception; no synthetic production exception is authorized.
+Railway production uses a literal full release tied to the deployed commit. The 2026-07-21 deployment was verified with `SENTRY_RELEASE=yesh-mishak-backend@0e65ad9207f3f096f56ad446e9d76f35e20ad37e`. A production Sentry transaction independently confirmed the same release; no synthetic production exception was generated.
 
 ### Privacy hardening
 
@@ -101,7 +101,7 @@ Traffic calibration is normal post-launch maintenance: review after 14 productio
 
 ## 5. Test evidence
 
-- Backend: `353 passed` across monitoring/privacy/release/tracing, analytics, manual and Google auth, fields, games, and notifications. Existing warnings: Starlette/httpx deprecation, Supabase `gotrue` deprecation, and short test JWT key warnings.
+- Backend: `354 passed` across monitoring/privacy/release/tracing, analytics, manual and Google auth, fields, games, and notifications. Existing warnings: Starlette/httpx deprecation, Supabase `gotrue` deprecation, and short test JWT key warnings.
 - Frontend monitoring: `55 passed`; two expected simulated failure logs exercised fail-safe behavior.
 - Frontend analytics: `10 passed`.
 - Frontend auth interceptor: `6 passed`.
@@ -116,3 +116,27 @@ Traffic calibration is normal post-launch maintenance: review after 14 productio
 - No Sentry Support case was submitted and no third development detector was created.
 - `frontend/.env` was not staged or committed.
 - No merge to `main` was performed.
+
+## 7. Production deployment and merge readiness — 2026-07-21
+
+Decision: **READY TO MERGE — PRODUCTION DEPLOYMENT AND SMOKE VERIFICATION PASSED**
+
+- Deployment window: 2026-07-21 17:08–17:22 IDT.
+- Railway source: `codex/e09-04-alerting-thresholds`; active deployed code commit `0e65ad9207f3f096f56ad446e9d76f35e20ad37e`.
+- Railway result: deployment successful; Uvicorn startup completed; public health returned HTTP 200 with `{"status":"ok"}`; runtime checks confirmed monitoring enabled, DSN present, `environment=production`, and the exact full release above.
+- Production sampling: exactly 5%. Development remains 100%; local, preview, and branch-build remain 0%.
+- Vercel: no deployment. The complete E09-04 diff contains no frontend runtime/build change, so the existing E09-01 Sentry variables and source-map pipeline are unaffected.
+- Android/iOS: no native configuration or dependency changed. No store release is required; future builds inherit the existing mobile monitoring configuration.
+- Supabase: no migration required. The existing `analytics_events` schema accepted the current API contract. The production smoke produced exactly one `e09-04-prod-02afdb2` row with `app_open`, `web`, and `{}`; the invalid event was rejected and stored zero rows.
+- Analytics API: valid authenticated batch returned 202 with accepted=1/rejected=0; invalid contract returned 202 with accepted=0/rejected=1.
+- Production trace: `01db892948e5471bb9863bf727ad45c1`, transaction `GET fields-map`, environment `production`, exact release above, HTTP 200, root duration 4.84s. The request was not intentionally slowed.
+- Trace privacy: normalized `/fields-map`; no request headers, Authorization, cookies, body, query/fragment, coordinates, IP field, hostname, argv, or stack locals. Sentry may still display `user.geo` as transport-side enrichment without an SDK IP/geo field.
+- Alerts: both production high-priority Issue Alert workflows retain Email actions, production scope, new/existing high-priority behavior, and one-hour action intervals. All five production metric monitors remain enabled with production filters. No threshold was deliberately breached.
+
+### Rollback
+
+1. In Railway, select the last known-good deployment immediately before `0e65ad9…` and choose Redeploy; do not alter database data or Sentry rules.
+2. Set `SENTRY_RELEASE` to `yesh-mishak-backend@<the exact rollback commit SHA>` and deploy that staged variable change with the rollback code.
+3. Confirm `/` returns HTTP 200, runtime environment/release checks pass, and Railway logs show clean startup.
+4. Confirm Sentry production Issue Alerts remain enabled. Record the rollback trace/release and incident reason.
+5. After merge, reconnect Railway production source to `main` only when `main` contains this branch commit or its merge commit; reconnecting earlier would deploy older code.
