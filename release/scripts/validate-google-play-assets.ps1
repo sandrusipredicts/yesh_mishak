@@ -140,7 +140,7 @@ foreach ($locale in @('he-IL', 'en-US')) {
             Add-ValidationError "Missing metadata: release/google-play/metadata/$locale/$($entry.Key)"
             continue
         }
-        $content = (Get-Content -LiteralPath $metadataPath -Raw).Trim()
+        $content = (Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8).Trim()
         if ($content.Length -eq 0) {
             Add-ValidationError "Metadata is empty: release/google-play/metadata/$locale/$($entry.Key)"
         }
@@ -258,7 +258,7 @@ foreach ($locale in @('he-IL', 'en-US')) {
     }
 
     $altTextPath = Join-Path $metadataDirectory 'screenshot-alt-text.yml'
-    $altTextContent = Get-Content -LiteralPath $altTextPath -Raw
+    $altTextContent = Get-Content -LiteralPath $altTextPath -Raw -Encoding UTF8
     $filenameEntries = @([regex]::Matches($altTextContent, '(?m)^\s*-\s*filename:\s*.+$'))
     $altTextEntries = @([regex]::Matches($altTextContent, '(?m)^\s*alt_text:\s*\S.+$'))
 
