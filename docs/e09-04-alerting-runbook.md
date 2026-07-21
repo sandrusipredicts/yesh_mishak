@@ -84,3 +84,21 @@ Last verified: 2026-07-21. This runbook contains no recipient addresses or secre
 ## Verification and threshold review
 
 Use non-production clones or approved controlled tests. Verify threshold, recovery, email receipt, environment, release, cooldown, duplicate suppression, and absence of secrets/private text. Never intentionally crash production. Review thresholds after 14 production days and at least 1,000 sessions or 10,000 analytics events, then monthly until stable and quarterly thereafter. Review immediately after a false positive, missed incident, trial expiry, or telemetry/source change.
+
+## Updated production evidence — 2026-07-21
+
+- Analytics ingestion is currently healthy: one valid production `app_open` event returned HTTP `202`, and exactly one matching row with `app_version=e09-04-test`, `platform=web`, and `properties={}` was verified. Treat a future `503 ANALYTICS_UNAVAILABLE` as a new incident.
+- Railway production is configured with `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`, and its replacement deployment completed successfully.
+- The resolved release value has not yet been observed on a post-change Sentry event. Do not represent it as verified until the following check passes.
+
+### Pending backend release observation
+
+On the next legitimate backend exception or safe non-production verification opportunity, inspect the Sentry event and record sanitized evidence that:
+
+1. `environment=production`.
+2. `release` starts with `yesh-mishak-backend@` and is not `unknown`.
+3. The application stack trace is readable.
+4. Breadcrumb URLs contain no query strings or fragments.
+5. Breadcrumbs and request context contain no Authorization headers, cookies, tokens, passwords, coordinates, request bodies, DSNs, or other secrets.
+
+Do not add a public production test route, temporary production CLI, or synthetic user-flow failure solely to complete this check.

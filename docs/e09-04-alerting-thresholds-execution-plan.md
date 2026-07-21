@@ -590,3 +590,38 @@ Remaining blockers:
 7. Assign named component owners/backup and verify actual email receipt with an approved controlled test.
 
 The operational response details are maintained in `docs/e09-04-alerting-runbook.md`.
+
+---
+
+## 58. Deployment-blocker resolution report — 2026-07-21
+
+This section supersedes the implementation-state and blocker statements in §57 where they conflict with the evidence below.
+
+Status: **E09-04 PARTIALLY COMPLETE — SAFE PRODUCTION ERROR ALERTS CONFIGURED — ANALYTICS INGESTION VERIFIED — BACKEND RELEASE CONFIGURED — RELEASE OBSERVATION, CRASH-RATE, ANR, LATENCY, EMAIL, AND PLAN ENTITLEMENT VERIFICATION REMAIN**
+
+### 58.1 Production analytics ingestion
+
+Production inspection found that `public.analytics_events` already exists and matches the tracked migration: seven expected columns/defaults/nullability rules, primary key, four check constraints, two secondary indexes, RLS enabled with no policies, no triggers, and both expected security-definer functions. `service_role` has the required select/insert/delete and function-execute capabilities. An additional effective `TRUNCATE` capability was observed but was neither used nor changed. No migration was reapplied, no cleanup ran, and no schema/cache operation was forced.
+
+A single authenticated test event conforming to the anonymous analytics contract was submitted through the real production `POST /analytics/events` endpoint with `app_version=e09-04-test`. The response was HTTP `202` with `accepted_one`, not `503`. A read-only database query found exactly one matching row: `event_name=app_open`, `platform=web`, `properties={}`, and `app_version=e09-04-test`. No user identifier, coordinates, free text, token, cookie, request body, or other sensitive property was stored. This verifies current PostgREST schema-cache visibility and production analytics ingestion.
+
+### 58.2 Railway backend release
+
+Railway production service `yesh_mishak` was configured with `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`. No other Railway variable was changed. Railway staged one change, built a replacement deployment, and reported `Deployment successful` with the new deployment active. Real Railway-to-Sentry backend delivery had already been verified before this variable change.
+
+The resolved post-change release has **not** yet been observed on a Sentry event. No temporary production CLI, helper, route, user-flow failure, merge, or extra cleanup deployment was added solely to manufacture an event. Exact pending statement: **Post-change backend release metadata remains pending verification on the next naturally occurring legitimate backend exception or safe non-production verification opportunity; do not claim that `yesh-mishak-backend@<commit-sha>` has already been observed in Sentry.**
+
+At that opportunity, confirm `environment=production`; release starts with `yesh-mishak-backend@` and is not `unknown`; the stack trace is readable; and breadcrumbs/request context contain no query strings, fragments, Authorization headers, cookies, tokens, passwords, coordinates, request bodies, DSNs, or secrets.
+
+### 58.3 Repository verification
+
+`python-multipart==0.0.20`, already pinned in `backend/requirements.txt`, was installed only into the existing local virtual environment. The combined monitoring, analytics-ingestion, and admin-engagement suites passed: `100 passed` with existing third-party/test-key warnings. No dependency declaration or generated file changed.
+
+### 58.4 Remaining blockers
+
+1. Observe and inspect the configured backend release on the next legitimate safe Sentry event.
+2. Collect a valid production Release Health denominator before crash-rate monitors; branch-build sessions are insufficient.
+3. Produce or naturally observe a production ANR signal and valid Android session denominator before ANR rules.
+4. Select and implement an approved latency/freshness source separately; Sentry currently has zero spans and broad tracing was not enabled.
+5. Confirm permanent post-trial Sentry metric-monitor entitlements, quota, retention, and cost.
+6. Assign named primary/backup responders and verify actual alert and recovery email receipt with an approved controlled test.
