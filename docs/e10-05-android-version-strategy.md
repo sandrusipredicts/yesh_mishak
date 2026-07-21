@@ -245,18 +245,23 @@ Minor bump:
 
 ## 10. Manual owner follow-ups
 
-None of these block completing this task, but they must happen before the **first real Play
-Console upload**:
+Owner-confirmed on 2026-07-21:
 
-1. Confirm in Play Console whether any APK/AAB has ever actually been uploaded (this audit found
-   no repository or CI evidence of one, but Play Console is the authoritative source).
-2. If an upload exists, provide its highest `versionCode` so the next release can start above it.
-3. Approve `1.0.0` as the public `versionName` for the first store release (or provide a
-   different value).
-4. Confirm whether internal Play testing builds should consume sequential official version codes
-   or a separate internal counter.
-5. Confirm the Git tag format `vX.Y.Z` (already the project default per
+1. **Prior Play Console uploads:** none. No APK/AAB has ever been uploaded to Google Play
+   Console for this application.
+2. **First public `versionName`:** `1.0.0`, as currently committed.
+3. **Git tag format:** `vX.Y.Z`, e.g. `v1.0.0` (matches the existing default in
    `docs/release-versioning-policy.md#8-release-branch--git-tag-rules`).
+4. **Internal Testing version codes:** Internal Testing builds consume the same sequential
+   official `versionCode` counter as Closed/Open/Production — there is no separate internal
+   counter. `versionCode` is bumped manually only immediately before a build intended for any
+   new Google Play upload, including Internal Testing (§4, §8).
+5. **No automatic bump anywhere:** confirmed and already the implemented behavior — private/
+   local test runs, local APK builds, and CI builds (`android-build-validation.yml`) never
+   increment or otherwise touch `versionCode`/`versionName`; only a deliberate, manual edit to
+   `frontend/android/app/build.gradle` does (§2, §6, §8).
+
+No further owner decisions are outstanding for this task.
 
 ## 11. Verification performed
 
