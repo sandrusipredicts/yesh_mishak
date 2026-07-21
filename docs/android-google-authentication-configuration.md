@@ -24,12 +24,12 @@ Native Login implementation, plugin installation, any backend/frontend/native/pa
 | Item | Value / Status |
 | --- | --- |
 | Android package name | `com.yeshmishak.app` (verified in `frontend/capacitor.config.ts` `appId` and `frontend/android/app/build.gradle` `applicationId` — identical) |
-| Current signing mode | **Debug only.** `gradlew signingReport` shows the release variant with `Config: null / Store: null` — no release signing config and no Play App Signing exist yet |
+| Current signing mode | **Debug only operationally.** E10-01 adds a Gradle release signing configuration sourced from ignored local `key.properties`, but no release keystore or local properties are stored in the repository and Play App Signing does not exist yet |
 | Debug keystore | `%USERPROFILE%\.android\debug.keystore`, alias `AndroidDebugKey` (default credentials), certificate valid until 2056-06-21 |
 | Debug SHA-1 | `44:74:72:31:C5:EF:83:3F:8F:9F:94:82:97:49:C6:E5:BE:48:84:9B` |
 | Debug SHA-256 | `5F:32:96:5D:E2:FF:3D:2C:C0:5C:7E:5D:D7:77:AF:0D:14:EE:F9:77:64:98:55:41:84:D9:D3:C3:C0:EA:5E:73` |
 | Fingerprint source | `frontend/android> .\gradlew.bat signingReport` (run 2026-07-03; debug/debugAndroidTest variants identical, as expected — same keystore) |
-| Release SHA-1 / SHA-256 | **Do not exist yet** — no release keystore is configured. Must be collected separately when release signing is set up; **never assume they equal the debug values** |
+| Release SHA-1 / SHA-256 | **Do not exist yet** — no release keystore has been generated or provisioned. Must be collected when the documented E10-01 operator step is completed; **never assume they equal the debug values** |
 | Play App Signing SHA-1 / SHA-256 | **Not applicable yet** — app not enrolled; when enrolled, Google's app-signing certificate fingerprints (from Play Console → App integrity) must be added to the same Android OAuth Client |
 | Google Cloud project | Project number `936888694089` (identifiable from the existing client ID prefix; full project name intentionally not recorded here) |
 | Existing Web OAuth Client ID (the ISSUE-237 `serverClientId`) | Supplied through the local/CI `VITE_GOOGLE_CLIENT_ID` environment and required to exactly match the backend `GOOGLE_CLIENT_ID`; the full value is intentionally not duplicated here |
@@ -78,7 +78,7 @@ Note: this machine's debug keystore alias reports as `AndroidDebugKey` (case-ins
 1. ~~BLOCKING: Android OAuth Client creation~~ — **RESOLVED and reverified 2026-07-18:** the Android OAuth Client exists for the current package/debug SHA-1 pair. NA-3 is no longer blocked by NA-2.
 2. **Testing-mode restriction (accepted for this phase):** the consent screen is in **Testing**, so only configured test users can sign in. This is sufficient for NA-3 development and NA-V Samsung validation (which must use a test user), but **the publishing status must move to Production before native Google login ships to real users** — carry this as a release-gate follow-up item.
 3. **Debug-keystore locality:** the debug SHA-1 above belongs to *this development machine's* keystore. Building the APK on another machine/CI produces a different debug fingerprint that must be added to the same Android OAuth Client as an additional fingerprint entry.
-4. **Release signing (future):** before any release build ships with native Google login, a release keystore (or Play App Signing) must be created and its SHA-1 added to the Android OAuth Client. Tracked as part of the existing release-readiness work, not this phase.
+4. **Release signing (operational handoff):** E10-01 provides the ignored `key.properties` and Gradle wiring, but before any release build ships with native Google login, an organization-owned release keystore (or Play App Signing) must be provisioned and its SHA-1 added to the Android OAuth Client. See `docs/android-signing.md`.
 5. The backend deployment's `GOOGLE_CLIENT_ID` is the production token audience. Every local or CI Android build must supply that same Web client ID as `VITE_GOOGLE_CLIENT_ID`; do not duplicate the full value in documentation.
 
 ## Stable GitHub Actions debug signing

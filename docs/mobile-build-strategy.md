@@ -376,7 +376,7 @@ Before any production Release build is distributed, verify ALL of the following:
 
 ## 11. Current Build Readiness Audit
 
-Audit performed 2026-06-30 on `main` branch.
+Audit performed 2026-06-30 on `main` branch. Android signing status updated for E10-01 on 2026-07-21.
 
 ### 11.1 Frontend Build Scripts
 
@@ -402,25 +402,32 @@ Audit performed 2026-06-30 on `main` branch.
 | Android `versionCode` | `1` (initial) |
 | Android `versionName` | `"1.0"` (initial) |
 | Android `applicationId` | `com.yeshmishak.app` (production) |
-| Android signing config | Debug only; release block exists but no keystore configured |
+| Android signing config | Debug signing preserved; release config reads ignored local `key.properties`; no real release keystore is stored in the repository |
 | iOS signing | N/A - no iOS project |
 
 ### 11.3 Android Signing State
 
 From `frontend/android/app/build.gradle`:
 
-```
+```groovy
+signingConfigs {
+    release {
+        // Populated from ignored key.properties when configured locally.
+    }
+}
+
 buildTypes {
     release {
+        signingConfig signingConfigs.release
         minifyEnabled false
         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
     }
 }
 ```
 
-The release build type exists but has no signing configuration. A production release keystore must be created before the first signed release (tracked as blocker B-02 in `docs/epic-03-completion-review.md`).
+E10-01 provides the release signing configuration, validates the required `storeFile`, `storePassword`, `keyAlias`, and `keyPassword` properties, and blocks artifact-producing release tasks when the ignored local configuration is absent. A production release keystore must still be generated and placed under organization custody before the first signed release; see `docs/android-signing.md`.
 
-The `.gitignore` in `frontend/android/` includes commented-out keystore exclusion lines, indicating the Android project template is prepared for keystore files but none exist yet.
+The root and Android `.gitignore` files actively exclude `key.properties`, `*.jks`, and `*.keystore`. The tracked `frontend/android/key.properties.example` contains placeholders only.
 
 ### 11.4 Environment Templates
 
@@ -441,12 +448,13 @@ The `.gitignore` in `frontend/android/` includes commented-out keystore exclusio
 | `docs/native-plugin-governance-policy.md` (ISSUE-186) | Exists |
 | `docs/mobile-application-architecture.md` (ISSUE-181) | Exists |
 | `docs/epic-03-completion-review.md` (ISSUE-180) | Exists |
+| `docs/android-signing.md` (E10-01) | Exists — release signing operator runbook |
 
 ### 11.6 Build Readiness Gaps
 
 | Gap | Impact | Tracked |
 | :--- | :--- | :--- |
-| No production release keystore | Cannot sign production APK/AAB | Blocker B-02 |
+| Release keystore not yet generated or provisioned | Cannot sign production APK/AAB until the E10-01 operator handoff is completed | E10-01 operator step / blocker B-02 |
 | No `google-services.json` | Cannot build with native FCM push | Blocker B-03 |
 | No iOS project | Cannot build iOS at all | Deferred |
 | No environment-specific build scripts | Must manually set env files | Future implementation |
@@ -456,7 +464,7 @@ The `.gitignore` in `frontend/android/` includes commented-out keystore exclusio
 
 ### 11.7 Audit Verdict
 
-**Build readiness: NOT YET READY for production release.** The Android project exists and debug builds are possible, but production signing (B-02) and Firebase config (B-03) are missing. The build strategy documented here provides the framework for when those blockers are resolved.
+**Build readiness: NOT YET READY for production release.** The Android project exists, debug builds pass, and production signing wiring is implemented, but an organization-owned release keystore has not been provisioned and Firebase config (B-03) is not stored in the repository. Complete the operator steps in `docs/android-signing.md` and the approved Firebase secret workflow before producing a distributable release.
 
 ---
 

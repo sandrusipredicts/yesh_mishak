@@ -1,0 +1,6 @@
+# Copy this file to key.properties and replace every placeholder locally.
+# Never commit key.properties, a keystore, or real signing credentials.
+storeFile=<absolute-path-to-release-keystore>
+storePassword=<keystore-password>
+keyAlias=<release-key-alias>
+keyPassword=<key-password>
