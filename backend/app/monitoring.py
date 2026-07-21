@@ -229,6 +229,9 @@ def redact_breadcrumb(breadcrumb: dict) -> dict:
     data = redacted.get("data")
     if isinstance(data, dict):
         safe_data = redact_deep(data)
+        if isinstance(safe_data, dict):
+            for header_key in ("headers", "request_headers", "response_headers"):
+                safe_data.pop(header_key, None)
         if isinstance(safe_data, dict) and isinstance(safe_data.get("url"), str):
             safe_data["url"] = _safe_url_path(safe_data["url"])
         redacted["data"] = safe_data
@@ -262,7 +265,10 @@ def redact_event(event: dict, hint: dict) -> dict:
         if "url" in request:
             request["url"] = _safe_url_path(request["url"])
         if "headers" in request:
-            request["headers"] = redact_deep(request["headers"])
+            # Even apparently harmless headers can expose network topology,
+            # client fingerprints, forwarding IPs, or deployment metadata.
+            # Route/method/status are sufficient for operations.
+            del request["headers"]
 
     if "extra" in event:
         event["extra"] = redact_deep(event["extra"])

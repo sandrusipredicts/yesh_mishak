@@ -102,7 +102,7 @@ def test_before_send_transaction_normalizes_and_redacts():
     assert "?" not in result["request"]["url"]
     assert "#" not in result["request"]["url"]
     assert "data" not in result["request"]
-    assert "Authorization" not in result["request"]["headers"]
+    assert "headers" not in result["request"]
     assert result["release"] == "yesh-mishak-backend@abc123"
     assert result["environment"] == "development"
 
@@ -143,8 +143,7 @@ def test_redact_event_scrubs_authorization_header():
         }
     }
     result = redact_event(event, {})
-    assert "Authorization" not in result["request"]["headers"]
-    assert result["request"]["headers"]["Content-Type"] == "application/json"
+    assert "headers" not in result["request"]
     assert result["request"]["url"] == "https://api.example.com/games"
 
 
@@ -266,8 +265,23 @@ def test_redact_breadcrumb_scrubs_url_query_and_sensitive_headers():
     result = redact_breadcrumb(breadcrumb)
 
     assert result["data"]["url"] == "https://example.supabase.co/rest/v1/items"
-    assert "Authorization" not in result["data"]["request_headers"]
-    assert result["data"]["request_headers"]["Content-Type"] == "application/json"
+    assert "request_headers" not in result["data"]
+
+
+def test_redact_breadcrumb_removes_all_header_groups():
+    breadcrumb = {
+        "category": "http",
+        "data": {
+            "headers": {"User-Agent": "client fingerprint"},
+            "request_headers": {"X-Forwarded-For": "203.0.113.10"},
+            "response_headers": {"Server": "internal proxy"},
+            "status_code": 200,
+        },
+    }
+
+    result = redact_breadcrumb(breadcrumb)
+
+    assert result["data"] == {"status_code": 200}
 
 
 def test_redact_event_scrubs_sdk_generated_breadcrumbs():
