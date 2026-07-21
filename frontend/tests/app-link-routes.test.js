@@ -27,6 +27,24 @@ test('normalizes /my-games to the existing route', () => {
   })
 })
 
+test('normalizes public legal URLs without redirecting them to home', () => {
+  assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/privacy'), {
+    ok: true,
+    routeType: 'privacy',
+    resourceId: '',
+    action: '',
+    navigationPath: '/privacy',
+  })
+
+  assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/terms'), {
+    ok: true,
+    routeType: 'terms',
+    resourceId: '',
+    action: '',
+    navigationPath: '/terms',
+  })
+})
+
 test('normalizes /admin to the existing admin route', () => {
   assert.deepEqual(normalizeAppLinkUrl('https://yesh-mishak.com/admin'), {
     ok: true,
@@ -196,6 +214,24 @@ test('parseAppPathname resolves the root path to home', () => {
     resourceId: '',
     action: '',
     navigationPath: '/',
+  })
+})
+
+test('parseAppPathname resolves both public legal routes', () => {
+  assert.deepEqual(parseAppPathname('/privacy'), {
+    ok: true,
+    routeType: 'privacy',
+    resourceId: '',
+    action: '',
+    navigationPath: '/privacy',
+  })
+
+  assert.deepEqual(parseAppPathname('/terms'), {
+    ok: true,
+    routeType: 'terms',
+    resourceId: '',
+    action: '',
+    navigationPath: '/terms',
   })
 })
 
