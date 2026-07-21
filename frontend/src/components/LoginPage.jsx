@@ -15,6 +15,7 @@ import {
 } from '../api/nativeGoogleAuth'
 import { isAccountLinkRequiredError, mapNativeAuthError } from '../api/authErrorMapping'
 import { clearSession, isNativeRuntime } from '../api/sessionStorage'
+import { getApiErrorMessage } from '../api/errors'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -236,18 +237,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     setRegisterForm((current) => ({ ...current, [name]: value }))
   }
 
-  function getApiErrorMessage(apiError, fallback) {
-    const detail = apiError?.response?.data?.detail
-    if (typeof detail === 'string') {
-      return detail
-    }
 
-    if (Array.isArray(detail) && detail.length > 0) {
-      return detail[0]?.msg || fallback
-    }
-
-    return fallback
-  }
 
   const passwordMismatch =
     mode === 'register' &&

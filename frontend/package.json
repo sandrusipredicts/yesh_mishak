@@ -18,6 +18,7 @@
     "test:monitoring": "node --test tests/monitoring-config.test.js tests/monitoring-redaction.test.js tests/monitoring-filters.test.js tests/monitoring-client.test.js",
     "test:analytics": "node --test tests/analytics-queue.test.js tests/analytics-client.test.js",
     "test:auth-interceptor": "node --test tests/auth-interceptor.test.js",
+    "test:errors": "node --test tests/errors.test.js",
     "postinstall": "patch-package",
     "test:e2e": "playwright test",
     "preview": "vite preview"
