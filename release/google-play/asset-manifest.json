@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "issue": "E10-04",
+  "source": {
+    "path": "release/brand/source/approved-artwork.png",
+    "width": 1254,
+    "height": 1254,
+    "sha256": "767DEDCA3FDF794FAF09ED8B6D73C65B7C03EBD3E0391FEEDBF05C01085B785E",
+    "approvalDate": "2026-07-21"
+  },
+  "transformPolicy": {
+    "allowed": [
+      "resize",
+      "center-crop",
+      "pixel-format-conversion",
+      "android-round-mask"
+    ],
+    "prohibited": [
+      "generative-content",
+      "synthetic-ui",
+      "text-overlay",
+      "logo-redesign",
+      "replacement-artwork"
+    ]
+  },
+  "googlePlayGraphics": [
+    {
+      "path": "release/google-play/graphics/store-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "format": "PNG",
+      "pixelFormat": "32-bit ARGB",
+      "alphaPolicy": "fully opaque pixels permitted",
+      "maxBytes": 1048576,
+      "transform": "resize"
+    },
+    {
+      "path": "release/google-play/graphics/feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "format": "PNG",
+      "pixelFormat": "24-bit RGB",
+      "alphaPolicy": "no alpha",
+      "maxBytes": 15728640,
+      "transform": "center-crop"
+    }
+  ],
+  "screenshotSets": [
+    {
+      "locale": "he-IL",
+      "directory": "release/google-play/graphics/screenshots/phone/he-IL",
+      "status": "owner-approved-compliant",
+      "sourceDevice": "Redmi",
+      "sourceDimensions": {
+        "width": 921,
+        "height": 2048
+      },
+      "exportTransform": "crop 80px top system chrome and 126px bottom system chrome; app UI unchanged",
+      "displayOrder": [
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/01-game-management.png",
+          "sourceAttachment": 1,
+          "sourceSha256": "839714bcf3c46fd54458146452c679066d6e50e891b3ade1e8a4fbacac77e175",
+          "width": 921,
+          "height": 1842,
+          "bytes": 579443,
+          "sha256": "6e6cdd9363bdccc110c0a7f5598e4b23fd3109ecabc7d4dc98d42d1179f824c0"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/02-my-games.png",
+          "sourceAttachment": 2,
+          "sourceSha256": "053fcc36d329fbac4bafe789128537aee963ed9995b2171eb3a1f2952f8deb60",
+          "width": 921,
+          "height": 1842,
+          "bytes": 403671,
+          "sha256": "8af29253b8bd67fed9ca10a82ad3a2a3da3961b80b95a6cde16e9960c25a0fa5"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/03-notifications.png",
+          "sourceAttachment": 3,
+          "sourceSha256": "0c1999df50100b3395707eade83dbeabc96a67378654789308dc604fe1f504f3",
+          "width": 921,
+          "height": 1842,
+          "bytes": 719028,
+          "sha256": "85f6523942d9449b1950de58efe0377cbee6c8f7c4a400e3c394170dcaa3680c"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/04-field-details-pivrag.png",
+          "sourceAttachment": 4,
+          "sourceSha256": "7f7e62460891973ac2da40ede2630b80d57915e23d4c54da0f18e03d493bf17e",
+          "width": 921,
+          "height": 1842,
+          "bytes": 616530,
+          "sha256": "83445607398aeac744da051da0a82f8ae51254334fa688a7ed944abc3f4c49c4"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/05-nearby-map.png",
+          "sourceAttachment": 5,
+          "sourceSha256": "7d8177eb00c97a114cdbef6f41b28db93acdd9bcd2d50d90c5cdc318b6983f2a",
+          "width": 921,
+          "height": 1842,
+          "bytes": 2896636,
+          "sha256": "31c983d81c075cc996d7a94dc0ecd80d4a68ee28abe2413b41c36588e4ab0adb"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/06-language-settings.png",
+          "sourceAttachment": 6,
+          "sourceSha256": "4b6e42ff0d2567cd1f045ca5e2952ae4e559a64582ba9b63acc0bada409f86c0",
+          "width": 921,
+          "height": 1842,
+          "bytes": 246573,
+          "sha256": "46ebe5fabdb42c4d0bb550dfcdf28043e95495565ecfabc04772818bdc74055c"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/07-map-overview.png",
+          "sourceAttachment": 7,
+          "sourceSha256": "bf093574f40fbe08caa0a019f48e26cc5049cf5d7ca37090946a0151e3303e0b",
+          "width": 921,
+          "height": 1842,
+          "bytes": 2982982,
+          "sha256": "6184ae1ac0db0dea0f383e6f2ac1a777aac7c2f0e1091049aca5ae2185254fbf"
+        },
+        {
+          "path": "release/google-play/graphics/screenshots/phone/he-IL/08-field-details-europe.png",
+          "sourceAttachment": 8,
+          "sourceSha256": "7b50f06e5e298c2d1ead8401eee625ac2de7b0b7e591a2cfbd350d81fdbde122",
+          "width": 921,
+          "height": 1842,
+          "bytes": 519323,
+          "sha256": "4e11b31a3d99700c9379df47d20acb211f87a8149312ab382e6276ad9e410ac4"
+        }
+      ]
+    },
+    {
+      "locale": "en-US",
+      "directory": "release/google-play/graphics/screenshots/phone/en-US",
+      "status": "inherits-default-he-IL"
+    }
+  ]
+}

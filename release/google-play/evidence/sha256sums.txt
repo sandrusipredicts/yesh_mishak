@@ -1,0 +1,41 @@
+# Generated during the E10-04 implementation pass on 2026-07-21.
+# Screenshot hashes identify the exact compliant 921x1842 exports from the
+# owner-approved Redmi captures. Source-to-export crop is documented in the
+# capture manifest and asset manifest.
+93dc78d5496b1a63981528dc2eeef622cd23e8450843db34fc000beb17269cdf  frontend/android/app/src/main/res/drawable-land-hdpi/splash.png
+0be82af3a8f0bb17fb62ef080ee95401fc257327e49e865f2017546afe29e9dc  frontend/android/app/src/main/res/drawable-land-mdpi/splash.png
+bb8e48d3e7580072accc4ead094263f451a1c487915bdc38164f3405959e8d9c  frontend/android/app/src/main/res/drawable-land-xhdpi/splash.png
+a6887f68c17e1691752b2e04a7493d12d1de7941ace15362ff1ec41aa02e3a7a  frontend/android/app/src/main/res/drawable-land-xxhdpi/splash.png
+44615c7874bf1361e6497ed700703d5d987041f363634392a38c422130f4702f  frontend/android/app/src/main/res/drawable-land-xxxhdpi/splash.png
+32e673f165845ad8f88c772062c02a0a987dc5e88f84c53a564dd7ec63ab7652  frontend/android/app/src/main/res/drawable-port-hdpi/splash.png
+563cbbfc8bf2959ec6ead44ab70d37dfc8172e439b98bbb8e12341bb164b439e  frontend/android/app/src/main/res/drawable-port-mdpi/splash.png
+a3272a8f9042d18b207657666e9527dd68c6acfb7a6278ac5ae8132da22d5e27  frontend/android/app/src/main/res/drawable-port-xhdpi/splash.png
+b29e828eda382e0347ce14f44c8b6ffdee8c378050a29570019da532960260c4  frontend/android/app/src/main/res/drawable-port-xxhdpi/splash.png
+438ccb5af318b867336efd1539d4fae77ca7dad9a489bfcf2050e6dc40b3de23  frontend/android/app/src/main/res/drawable-port-xxxhdpi/splash.png
+0be82af3a8f0bb17fb62ef080ee95401fc257327e49e865f2017546afe29e9dc  frontend/android/app/src/main/res/drawable/splash.png
+770a49dc05fa333575e5043977d7863fe6782c78501f8d8bf6fa9459c3f6eaea  frontend/android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
+01e1975663422eadbe377c2028e214e7250d51a2fb7ba784bc3bcc545876beaa  frontend/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+18d93629422c79eb26441503254eaf91d818ceb384ad6839f6ad037ebb719c88  frontend/android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+806f84129be8da60a2d0605eb0e136af0821d08ba579a75c9c2d1d7e4e38c11e  frontend/android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
+5f66a40e22c0742ce8065e416c98223dbd261288043da5ee6552c34f6323cc0d  frontend/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+d4cfaef9e91e0b043b1a65791c56966073ca5b422301eb986184879957bdf9ed  frontend/android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+9e8b38612b9dd6342cafdc4b3ae148421055017df05c286176c071b737fc7da0  frontend/android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
+5df4a598943c62b3e99831387fa8c31f2f173ae60402f2774231bd35df80db65  frontend/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+4ec20e330784d0fceda8a8b95c29e27f81f3b45b6a81325f087e95895598aa18  frontend/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+f3c71c95ff44a28f8785f3555227c7c456ed3a2269c65b140486646821629a33  frontend/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
+9f23cd2576c3b437d562f303f4bc1e9498ad096dcf8bb8cf1ef96f14e60fbb19  frontend/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+b55254b1f1f0593b04607fb585cc231fe4037a37c9f7f2b7a859bf756b793f65  frontend/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+1a393cf8f8059f7c4fef056fd10917410117dba18b4bab68c918dda7fd567af7  frontend/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+942a55590b9308b603df7dfcf47730851f2328ce3cf765e2f31d977454ba8ad2  frontend/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+0558b995e3c68200caebb19a2908c5543420a88bedf734f164c0a2fcd7d3028b  frontend/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+767dedca3fdf794faf09ed8b6d73c65b7c03ebd3e0391feedbf05c01085b785e  release/brand/source/approved-artwork.png
+41976a1e60117feaa714b5f4297f25248206b864be9531dc39c00bbd5f104d89  release/google-play/graphics/feature-graphic-1024x500.png
+90766f0aaff4ba06ab12295cf18d61558bc933e5638a408d69f3c966c02adf24  release/google-play/graphics/store-icon-512.png
+6e6cdd9363bdccc110c0a7f5598e4b23fd3109ecabc7d4dc98d42d1179f824c0  release/google-play/graphics/screenshots/phone/he-IL/01-game-management.png
+8af29253b8bd67fed9ca10a82ad3a2a3da3961b80b95a6cde16e9960c25a0fa5  release/google-play/graphics/screenshots/phone/he-IL/02-my-games.png
+85f6523942d9449b1950de58efe0377cbee6c8f7c4a400e3c394170dcaa3680c  release/google-play/graphics/screenshots/phone/he-IL/03-notifications.png
+83445607398aeac744da051da0a82f8ae51254334fa688a7ed944abc3f4c49c4  release/google-play/graphics/screenshots/phone/he-IL/04-field-details-pivrag.png
+31c983d81c075cc996d7a94dc0ecd80d4a68ee28abe2413b41c36588e4ab0adb  release/google-play/graphics/screenshots/phone/he-IL/05-nearby-map.png
+46ebe5fabdb42c4d0bb550dfcdf28043e95495565ecfabc04772818bdc74055c  release/google-play/graphics/screenshots/phone/he-IL/06-language-settings.png
+6184ae1ac0db0dea0f383e6f2ac1a777aac7c2f0e1091049aca5ae2185254fbf  release/google-play/graphics/screenshots/phone/he-IL/07-map-overview.png
+4e11b31a3d99700c9379df47d20acb211f87a8149312ab382e6276ad9e410ac4  release/google-play/graphics/screenshots/phone/he-IL/08-field-details-europe.png

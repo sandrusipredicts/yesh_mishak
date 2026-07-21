@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Sampled from approved-artwork.png pixel (0,0); only visible at adaptive-mask edges. -->
+    <color name="ic_launcher_background">#010232</color>
 </resources>
