@@ -25,3 +25,8 @@ backend/load_tests/.local/
 backend/load_tests/*.txt
 
 frontend/android/app/google-services.json
+
+# Local Android release signing credentials
+key.properties
+*.jks
+*.keystore

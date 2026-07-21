@@ -1,5 +1,33 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningPropertiesFile = rootProject.file('key.properties')
+def releaseSigningProperties = new Properties()
+def releaseSigningRequiredProperties = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
+def releaseArtifactTaskPrefixes = ['assemble', 'bundle', 'package', 'install', 'publish']
+def releaseSigningRequested = gradle.startParameter.taskNames.any { taskName ->
+    def normalizedTaskName = taskName.tokenize(':').last()?.toLowerCase(Locale.ROOT)
+    (normalizedTaskName in ['assemble', 'build', 'bundle']) ||
+        (normalizedTaskName?.contains('release') && releaseArtifactTaskPrefixes.any { normalizedTaskName.startsWith(it) })
+}
+
+def missingReleaseSigningProperties = []
+
+if (releaseSigningPropertiesFile.isFile()) {
+    releaseSigningPropertiesFile.withInputStream { stream ->
+        releaseSigningProperties.load(stream)
+    }
+
+    missingReleaseSigningProperties = releaseSigningRequiredProperties.findAll { propertyName ->
+        !releaseSigningProperties.getProperty(propertyName)?.trim()
+    }
+}
+
+def releaseSigningConfigured = releaseSigningPropertiesFile.isFile() && !missingReleaseSigningProperties
+
+def releaseKeystoreFile = releaseSigningConfigured
+    ? rootProject.file(releaseSigningProperties.getProperty('storeFile').trim())
+    : null
+
 def ciDebugSigningValues = [
     path: System.getenv('ANDROID_DEBUG_KEYSTORE_PATH'),
     storePassword: System.getenv('ANDROID_DEBUG_KEYSTORE_PASSWORD'),
@@ -21,6 +49,14 @@ android {
     namespace = "com.yeshmishak.app"
     compileSdk = rootProject.ext.compileSdkVersion
     signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile releaseKeystoreFile
+                storePassword releaseSigningProperties.getProperty('storePassword')
+                keyAlias releaseSigningProperties.getProperty('keyAlias')
+                keyPassword releaseSigningProperties.getProperty('keyPassword')
+            }
+        }
         if (ciDebugSigningConfigured) {
             ciDebug {
                 storeFile rootProject.file(ciDebugSigningValues.path)
@@ -50,10 +86,23 @@ android {
             }
         }
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+if (missingReleaseSigningProperties) {
+    throw new GradleException("Missing required release signing properties in key.properties: ${missingReleaseSigningProperties.join(', ')}")
+}
+
+if (releaseSigningConfigured && !releaseKeystoreFile.isFile()) {
+    throw new GradleException('Configured release keystore file does not exist.')
+}
+
+if (releaseSigningRequested && !releaseSigningPropertiesFile.isFile()) {
+    throw new GradleException('Release signing is not configured. Copy key.properties.example to key.properties and provide the external release keystore details.')
 }
 
 repositories {
