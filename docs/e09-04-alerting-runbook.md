@@ -74,13 +74,13 @@ Sentry may display city-level Geography derived from the transport IP even when 
 
 ## Release and maintenance
 
-Railway uses a literal release matching the deployed commit; the verified 2026-07-21 value is `yesh-mishak-backend@0e65ad9207f3f096f56ad446e9d76f35e20ad37e`. On each deployment, update it to the exact deployed SHA and confirm the resulting Sentry release is neither truncated nor `unknown`.
+Railway uses a literal release matching the deployed commit. On each deployment, set it to `yesh-mishak-backend@<exact Railway Git commit SHA>` and confirm at runtime and in Sentry that the release is complete, matches the active deployment, and is neither truncated nor `unknown`.
 
 Review thresholds after 14 production days and 1,000 sessions, after significant traffic/release changes, and quarterly. Review Sentry plan entitlements before trial expiry. Keep Issue Alerts active as the fallback path and never intentionally crash production for verification.
 
 ## Deployment verification and rollback
 
-The 2026-07-21 production rollout passed Railway startup, HTTP health, authenticated analytics acceptance/rejection, Supabase single-row verification, and production trace/privacy inspection. Evidence trace: `01db892948e5471bb9863bf727ad45c1`, normalized as `GET fields-map` with the exact deployed release.
+The 2026-07-21 production rollout passed Railway startup, HTTP health, authenticated analytics acceptance/rejection, Supabase single-row verification, and production trace/privacy inspection. After the fast-forward merge, Railway was reconnected to `main`; evidence trace `568182e930c641e69a8f84fd8b2a75d4` was recorded as `GET fields-map` in `production` with the exact active deployment release.
 
 For rollback:
 
@@ -88,6 +88,6 @@ For rollback:
 2. Update `SENTRY_RELEASE` to the exact rollback commit and deploy the variable change with the rollback code.
 3. Verify root health, startup logs, runtime environment/release, and active Sentry Issue Alerts.
 4. Do not roll back or delete analytics rows and do not disable production alert rules.
-5. Railway currently follows `codex/e09-04-alerting-thresholds`; reconnect it to `main` only after the E09-04 merge is present on `main`.
+5. Railway production follows `main`. After any rollback or source change, confirm the deployment details show `main`, the expected commit, and a matching runtime release.
 
-Merge readiness: **READY TO MERGE — PRODUCTION DEPLOYMENT AND SMOKE VERIFICATION PASSED**
+Final status: **E09-04 COMPLETE — FAST-FORWARD MERGED TO MAIN — PRODUCTION DEPLOYMENT AND VERIFICATION PASSED**

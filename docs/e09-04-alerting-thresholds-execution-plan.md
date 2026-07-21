@@ -40,7 +40,7 @@ Production environment filtering and the configured routing were inspected. Deve
 
 ### Backend release
 
-Railway production uses a literal full release tied to the deployed commit. The 2026-07-21 deployment was verified with `SENTRY_RELEASE=yesh-mishak-backend@0e65ad9207f3f096f56ad446e9d76f35e20ad37e`. A production Sentry transaction independently confirmed the same release; no synthetic production exception was generated.
+Railway production uses a literal full release tied to the deployed commit: `SENTRY_RELEASE=yesh-mishak-backend@<exact Railway Git commit SHA>`. The 2026-07-21 deployment and post-merge deployment were verified at runtime, and a production Sentry transaction independently confirmed the active full release; no synthetic production exception was generated.
 
 ### Privacy hardening
 
@@ -119,11 +119,11 @@ Traffic calibration is normal post-launch maintenance: review after 14 productio
 
 ## 7. Production deployment and merge readiness — 2026-07-21
 
-Decision: **READY TO MERGE — PRODUCTION DEPLOYMENT AND SMOKE VERIFICATION PASSED**
+Decision: **E09-04 COMPLETE — FAST-FORWARD MERGED TO MAIN — PRODUCTION DEPLOYMENT AND VERIFICATION PASSED**
 
 - Deployment window: 2026-07-21 17:08–17:22 IDT.
-- Railway source: `codex/e09-04-alerting-thresholds`; active deployed code commit `0e65ad9207f3f096f56ad446e9d76f35e20ad37e`.
-- Railway result: deployment successful; Uvicorn startup completed; public health returned HTTP 200 with `{"status":"ok"}`; runtime checks confirmed monitoring enabled, DSN present, `environment=production`, and the exact full release above.
+- Railway source: `main`; the deployment details, runtime `RAILWAY_GIT_COMMIT_SHA`, and `SENTRY_RELEASE` must all identify the same active 40-character commit SHA.
+- Railway result: post-merge deployment successful; Uvicorn startup completed; public health returned HTTP 200 with `{"status":"ok"}`; runtime checks confirmed monitoring enabled, `environment=production`, and an exact full release matching the active deployment. Sentry trace `568182e930c641e69a8f84fd8b2a75d4` independently confirmed the production release and normalized `GET fields-map` transaction.
 - Production sampling: exactly 5%. Development remains 100%; local, preview, and branch-build remain 0%.
 - Vercel: no deployment. The complete E09-04 diff contains no frontend runtime/build change, so the existing E09-01 Sentry variables and source-map pipeline are unaffected.
 - Android/iOS: no native configuration or dependency changed. No store release is required; future builds inherit the existing mobile monitoring configuration.
@@ -135,8 +135,8 @@ Decision: **READY TO MERGE — PRODUCTION DEPLOYMENT AND SMOKE VERIFICATION PASS
 
 ### Rollback
 
-1. In Railway, select the last known-good deployment immediately before `0e65ad9…` and choose Redeploy; do not alter database data or Sentry rules.
+1. In Railway, select the last known-good deployment immediately before the current active deployment and choose Redeploy; do not alter database data or Sentry rules.
 2. Set `SENTRY_RELEASE` to `yesh-mishak-backend@<the exact rollback commit SHA>` and deploy that staged variable change with the rollback code.
 3. Confirm `/` returns HTTP 200, runtime environment/release checks pass, and Railway logs show clean startup.
 4. Confirm Sentry production Issue Alerts remain enabled. Record the rollback trace/release and incident reason.
-5. After merge, reconnect Railway production source to `main` only when `main` contains this branch commit or its merge commit; reconnecting earlier would deploy older code.
+5. Railway production was reconnected to `main` after the fast-forward merge. Keep it on `main` and confirm the source branch and commit after every rollback or deployment-source change.
