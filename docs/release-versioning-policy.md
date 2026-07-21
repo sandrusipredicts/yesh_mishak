@@ -109,15 +109,16 @@ There is a distinction between the user-facing version and the internal build nu
 | :--- | :--- | :--- | :--- |
 | Frontend | `frontend/package.json` → `"version"` | `0.0.0` | Default Vite scaffold value, not actively maintained |
 | Backend | No version file found | N/A | No `__version__`, no `pyproject.toml` version field |
-| Mobile | No mobile project exists | N/A | Not yet applicable |
+| Android | `frontend/android/app/build.gradle` → `appVersionCode` / `appVersionName` | `1` / `1.0.0` | Established as the Android single source of truth in E10-05 (`docs/e10-05-android-version-strategy.md`); Gradle- and CI-validated on every build |
+| iOS | No iOS project exists | N/A | Not yet applicable |
 | Git tags | None | N/A | No release tags exist |
 | CHANGELOG | None | N/A | No CHANGELOG.md exists |
 
 ### Known Gap
-There is no single source of truth for the application version. The frontend `package.json` version is the scaffold default (`0.0.0`) and is not actively maintained as a release version.
+There is still no single source of truth for the *overall* application version across frontend/backend/Android. The frontend `package.json` version remains the scaffold default (`0.0.0`) and is not actively maintained. Android now has its own resolved source of truth (`frontend/android/app/build.gradle`, per E10-05) — this gap is specifically about a project-wide version spanning all components, which remains a follow-up.
 
 ### Recommended Future Source of Truth
-Define a single version source (e.g. a `VERSION` file in the repository root, or `frontend/package.json` if the project is frontend-primary). All other version references should derive from this source. This is a follow-up task.
+Define a single version source (e.g. a `VERSION` file in the repository root, or `frontend/package.json` if the project is frontend-primary). All other version references should derive from this source. This is a follow-up task. Android's own source of truth (`frontend/android/app/build.gradle`) should remain the authority for Android release identity even if a project-wide version file is added later.
 
 ## 8. Release Branch / Git Tag Rules
 
@@ -234,10 +235,10 @@ Before each release:
 | Gap | Status |
 | :--- | :--- |
 | No CHANGELOG.md exists | Not implemented |
-| No single app-wide version source of truth | Not implemented (`frontend/package.json` is scaffold default `0.0.0`) |
-| No mobile app project (iOS/Android) | Not applicable yet |
+| No single project-wide (frontend+backend) version source of truth | Not implemented (`frontend/package.json` is scaffold default `0.0.0`); Android specifically now has one (`frontend/android/app/build.gradle`, E10-05) |
+| No mobile app project (iOS) | Not applicable yet — Android project exists and has a defined version strategy (E10-05, `docs/e10-05-android-version-strategy.md`) |
 | No automated release tagging in CI | Not implemented |
-| No build number automation | Not implemented |
+| Android build number (`versionCode`) automation | Implemented for validation (Gradle + CI fail on invalid values, E10-05); no automatic increment — bumps remain a deliberate manual step by design |
 | No release approval checklist or workflow | Not implemented (this policy serves as the initial reference) |
 | No GitHub Releases configured | Not implemented |
 
@@ -246,8 +247,8 @@ Before each release:
 1. **Create CHANGELOG.md**: Initialize a changelog following the Keep a Changelog format.
 2. **Define single source of truth for app version**: Choose a canonical version location and update `frontend/package.json` from `0.0.0` to the actual current version.
 3. **Add release checklist document**: Formalize the release process with a step-by-step checklist.
-4. **Add mobile build number policy**: When the mobile project is created, document build number management for iOS and Android.
-5. **Add automated version validation in CI**: Add a CI step that verifies the version was bumped appropriately.
+4. **Add mobile build number policy**: Done for Android in E10-05 (`docs/e10-05-android-version-strategy.md`); still needed for iOS once that project is created.
+5. **Add automated version validation in CI**: Done for Android in E10-05 (`android-build-validation.yml` runs `npm run test:android-version` and `npm run android:version:validate` on every relevant PR).
 6. **Add GitHub release/tagging process**: Define how and when GitHub Releases are created from tags.
 
 ## 16. Final Result

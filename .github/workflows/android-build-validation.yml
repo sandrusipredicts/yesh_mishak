@@ -40,6 +40,15 @@ jobs:
       - name: Test Firebase config validation
         run: npm run test:android-google-services
 
+      # E10-05: fails fast on every PR if the committed versionCode/versionName
+      # in android/app/build.gradle is missing or invalid, without requiring
+      # the full Android/JDK toolchain used by the debug-build job below.
+      - name: Test Android version validation
+        run: npm run test:android-version
+
+      - name: Validate committed Android version configuration
+        run: npm run android:version:validate
+
   android-debug-build:
     name: Build Android debug APK with trusted Firebase config
     if: github.event_name == 'workflow_dispatch'
@@ -146,9 +155,9 @@ jobs:
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           # Interim deterministic format (docs/e09-01-crash-reporting-execution-plan.md):
-          # Android versionName is still a static placeholder ("1.0", not yet
-          # bumped per release), so only the commit SHA is reliably available
-          # here. Once versionName reflects real releases this becomes
+          # Android versionName (docs/e10-05-android-version-strategy.md) has not
+          # yet had its first real release bump, so only the commit SHA is
+          # reliably available here. Once a release bump lands, this becomes
           # yesh-mishak@<versionName>+<sha>.
           echo "VITE_SENTRY_RELEASE=yesh-mishak@${SHORT_SHA}" >> "$GITHUB_ENV"
           echo "VITE_SENTRY_DIST=android-branch-${{ github.run_number }}" >> "$GITHUB_ENV"

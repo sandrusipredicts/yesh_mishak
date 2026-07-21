@@ -290,8 +290,8 @@ Examples:
 
 | Rule | Details |
 | :--- | :--- |
-| Android `versionCode` | Must be monotonically increasing for production releases. Currently `1`. |
-| Android `versionName` | Semantic version string. Currently `"1.0"`. |
+| Android `versionCode` | Must be monotonically increasing for production releases. Single source of truth, current value, validation, and bump procedure are defined in `docs/e10-05-android-version-strategy.md`. Currently `1`. |
+| Android `versionName` | Semantic version string (`MAJOR.MINOR.PATCH`), validated by Gradle and CI per `docs/e10-05-android-version-strategy.md`. Currently `"1.0.0"`. |
 | iOS build number | Must be increasing for each TestFlight / App Store upload |
 | Git traceability | Every distributed build must identify source commit SHA |
 | Beta/internal builds | Must be traceable to git commit SHA |
@@ -299,10 +299,10 @@ Examples:
 
 ### 8.3 Current Versioning State
 
-From `frontend/android/app/build.gradle`:
+From `frontend/android/app/build.gradle` (single source of truth, `appVersionCode`/`appVersionName`):
 
-- `versionCode 1` - initial value, appropriate for pre-release
-- `versionName "1.0"` - initial value, should be updated to semantic version before first release
+- `versionCode 1` - initial baseline; no artifact has ever been uploaded to Play Console (E10-05 audit), so this remains a safe starting point
+- `versionName "1.0.0"` - normalized to strict `MAJOR.MINOR.PATCH` in E10-05 (previously `"1.0"`); both values are now Gradle- and CI-validated on every build (`docs/e10-05-android-version-strategy.md`)
 
 ---
 
@@ -376,7 +376,7 @@ Before any production Release build is distributed, verify ALL of the following:
 
 ## 11. Current Build Readiness Audit
 
-Audit performed 2026-06-30 on `main` branch. Android signing status updated for E10-01 on 2026-07-21.
+Audit performed 2026-06-30 on `main` branch. Android signing status updated for E10-01 on 2026-07-21. Android version strategy updated for E10-05 on 2026-07-21.
 
 ### 11.1 Frontend Build Scripts
 
@@ -399,8 +399,8 @@ Audit performed 2026-06-30 on `main` branch. Android signing status updated for 
 | :--- | :--- |
 | `frontend/android/` | Exists (PR #740) |
 | `frontend/ios/` | Does not exist (deferred) |
-| Android `versionCode` | `1` (initial) |
-| Android `versionName` | `"1.0"` (initial) |
+| Android `versionCode` | `1` (initial baseline; SSOT and validation defined in E10-05) |
+| Android `versionName` | `"1.0.0"` (normalized to strict SemVer in E10-05; previously `"1.0"`) |
 | Android `applicationId` | `com.yeshmishak.app` (production) |
 | Android signing config | Debug signing preserved; release config reads ignored local `key.properties`; no real release keystore is stored in the repository |
 | iOS signing | N/A - no iOS project |
@@ -449,6 +449,7 @@ The root and Android `.gitignore` files actively exclude `key.properties`, `*.jk
 | `docs/mobile-application-architecture.md` (ISSUE-181) | Exists |
 | `docs/epic-03-completion-review.md` (ISSUE-180) | Exists |
 | `docs/android-signing.md` (E10-01) | Exists — release signing operator runbook |
+| `docs/e10-05-android-version-strategy.md` (E10-05) | Exists — versionCode/versionName single source of truth, validation, and bump procedure |
 
 ### 11.6 Build Readiness Gaps
 
@@ -460,7 +461,7 @@ The root and Android `.gitignore` files actively exclude `key.properties`, `*.jk
 | No environment-specific build scripts | Must manually set env files | Future implementation |
 | No `.env.production.example` template | No production env template | Future implementation |
 | No CI/CD mobile build pipeline | Builds are manual only | Future implementation |
-| `versionCode` and `versionName` at initial values | Must be updated before first release | Future implementation |
+| `versionCode` and `versionName` at initial pre-release baseline values | Expected until the first real release bump; SSOT, validation, and bump procedure now exist (E10-05) | Resolved — see `docs/e10-05-android-version-strategy.md` |
 
 ### 11.7 Audit Verdict
 

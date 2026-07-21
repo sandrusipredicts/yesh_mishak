@@ -1,5 +1,21 @@
 apply plugin: 'com.android.application'
 
+// Single source of truth for Android release identity (E10-05).
+// See docs/e10-05-android-version-strategy.md for the full bump procedure,
+// versionCode/versionName rules, and edge cases. Do not duplicate these
+// values elsewhere (CI, package.json, docs) -- everything else must read
+// or reference this file instead.
+def appVersionCode = 1
+def appVersionName = "1.0.0"
+
+if (!(appVersionCode instanceof Integer) || appVersionCode <= 0) {
+    throw new GradleException("Invalid Android versionCode '${appVersionCode}': must be a positive integer. See docs/e10-05-android-version-strategy.md.")
+}
+
+if (!(appVersionName instanceof String) || !(appVersionName ==~ /^\d+\.\d+\.\d+$/)) {
+    throw new GradleException("Invalid Android versionName '${appVersionName}': must follow MAJOR.MINOR.PATCH semantic versioning (e.g. 1.0.0). See docs/e10-05-android-version-strategy.md.")
+}
+
 def releaseSigningPropertiesFile = rootProject.file('key.properties')
 def releaseSigningProperties = new Properties()
 def releaseSigningRequiredProperties = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
@@ -70,8 +86,8 @@ android {
         applicationId "com.yeshmishak.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -131,3 +147,14 @@ if (!googleServicesJson.exists() || googleServicesJson.length() == 0) {
 }
 
 apply plugin: 'com.google.gms.google-services'
+
+// Prints the resolved release identity for a build (E10-05). Useful for
+// confirming, without a full assemble/bundle, which versionCode/versionName
+// a Gradle invocation would produce -- e.g. `gradlew :app:printVersion`.
+tasks.register('printVersion') {
+    doLast {
+        println "applicationId=${android.defaultConfig.applicationId}"
+        println "versionCode=${appVersionCode}"
+        println "versionName=${appVersionName}"
+    }
+}
