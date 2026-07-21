@@ -119,13 +119,14 @@ const policyContent = {
         title: 'Account deletion',
         content: (
           <p>
-            To request deletion of your Yesh Mishak account and associated personal information,
-            email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the email address
-            connected to your account. We may ask you to verify your identity. We will delete or
-            de-identify account information unless we need to keep limited records for legal,
-            security, fraud-prevention, or dispute-resolution purposes. Public field or game records
-            may be retained in de-identified form where necessary to preserve the integrity of the
-            Service.
+            You can delete your Yesh Mishak account and associated personal information from the
+            Settings page inside the app. You may also request deletion by emailing{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the email address
+            connected to your account. In either case, we may ask you to verify your identity. We
+            will delete or de-identify account information unless we need to keep limited records for
+            legal, security, fraud-prevention, or dispute-resolution purposes. Public field or game
+            records may be retained in de-identified form where necessary to preserve the integrity
+            of the Service.
           </p>
         ),
       },

@@ -200,3 +200,12 @@ class AccountMethodsResponse(BaseModel):
 class AccountMethodsMutationResponse(BaseModel):
     account_methods: AccountMethodsResponse
     access_token: str
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str | None = Field(default=None, max_length=PASSWORD_MAX_LENGTH)
+    google_token: str | None = Field(default=None, max_length=8192)
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.password and not self.google_token:
+            raise ValueError("Either password or google_token is required")

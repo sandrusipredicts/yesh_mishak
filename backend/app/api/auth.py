@@ -19,6 +19,7 @@ from app.schemas.auth import (
     AccountMethodsMutationResponse,
     AccountMethodsResponse,
     AvailabilityResponse,
+    DeleteAccountRequest,
     EmailCheckRequest,
     GoogleAuthRequest,
     LinkGoogleRequest,
@@ -39,6 +40,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.services import account_linking
+from app.services.account_deletion import delete_account
 from app.services.email_verification import (
     GENERIC_RESEND_MESSAGE,
     VerificationDeliveryError,
@@ -605,4 +607,20 @@ def remove_account_password(
         extra={"event": "auth.account_linking.remove_password.success", "user_id": current_user["id"]},
     )
     return AccountMethodsMutationResponse(**result)
+
+
+@router.delete("/account", response_model=MessageResponse)
+def delete_user_account(
+    request: Request,
+    payload: DeleteAccountRequest,
+    current_user: dict = Depends(require_active_user),
+) -> MessageResponse:
+    rate_limit_hit = check_rate_limit_by_user(
+        str(current_user["id"]), "account_deletion", [(3, 60), (5, 3600)]
+    )
+    if rate_limit_hit:
+        return rate_limit_hit
+
+    delete_account(str(current_user["id"]), payload.password, payload.google_token)
+    return MessageResponse(message="Account deleted")
 

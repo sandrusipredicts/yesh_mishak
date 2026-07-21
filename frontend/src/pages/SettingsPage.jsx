@@ -3,6 +3,7 @@ import { ArrowRight, ArrowLeft } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  deleteAccount,
   getAccountMethods,
   linkGoogleAccount,
   removeAccountPassword,
@@ -67,6 +68,7 @@ function getAccountLinkingErrorKey(apiError) {
     LAST_LOGIN_METHOD: 'accountLinking.errorLastMethod',
     REAUTHENTICATION_REQUIRED: 'accountLinking.errorReauthRequired',
     INVALID_GOOGLE_TOKEN: 'accountLinking.errorInvalidGoogleToken',
+    LAST_ADMIN: 'accountLinking.errorLastAdmin',
     PASSWORD_ALREADY_SET: 'accountLinking.errorPasswordAlreadySet',
     PASSWORD_NOT_SET: 'accountLinking.errorPasswordNotSet',
     VALIDATION_ERROR: 'accountLinking.errorValidation',
@@ -393,7 +395,98 @@ function RemovePasswordModal({ onClose, onPasswordRemoved }) {
   )
 }
 
-function SettingsPage({ onBack, userId }) {
+function DeleteAccountModal({ onClose, onDeleted, hasPassword, hasGoogle }) {
+  const { t } = useTranslation()
+  const [password, setPassword] = useState('')
+  const [googleToken, setGoogleToken] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const submittingRef = useRef(false)
+
+  async function handleConfirm() {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setIsSubmitting(true)
+    setError('')
+
+    try {
+      await deleteAccount({
+        password: password || undefined,
+        googleToken: googleToken || undefined,
+      })
+      onDeleted()
+    } catch (apiError) {
+      setError(t(getAccountLinkingErrorKey(apiError)))
+    } finally {
+      submittingRef.current = false
+      setIsSubmitting(false)
+    }
+  }
+
+  const canSubmit = Boolean(password || googleToken)
+
+  return (
+    <Modal isOpen onClose={onClose} isConfirm ariaLabelledBy="delete-account-title">
+      <h3 id="delete-account-title">{t('accountLinking.deleteAccountTitle')}</h3>
+      <p>{t('accountLinking.deleteAccountDescription')}</p>
+
+      {hasPassword ? (
+        <form onSubmit={(e) => { e.preventDefault(); handleConfirm() }}>
+          <label className="confirm-modal-label">
+            <span>{t('accountLinking.deleteAccountPasswordLabel')}</span>
+            <input
+              autoComplete="current-password"
+              autoFocus
+              className="confirm-modal-input"
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
+          <div className="confirm-modal-actions">
+            <button className="secondary-panel-button" disabled={isSubmitting} onClick={onClose} type="button">
+              {t('accountLinking.cancel')}
+            </button>
+            <button className="danger-modal-button" disabled={isSubmitting || !password} type="submit">
+              {isSubmitting ? t('accountLinking.deletingAccount') : t('accountLinking.deleteAccountConfirm')}
+            </button>
+          </div>
+        </form>
+      ) : hasGoogle && !googleToken ? (
+        <>
+          <p>{t('accountLinking.deleteAccountGoogleLabel')}</p>
+          <GoogleCredentialButton
+            label={t('accountLinking.reauthWithGoogle')}
+            onCredential={(idToken) => setGoogleToken(idToken)}
+            onError={setError}
+          />
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
+          <div className="confirm-modal-actions">
+            <button className="secondary-panel-button" onClick={onClose} type="button">
+              {t('accountLinking.cancel')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
+          <div className="confirm-modal-actions">
+            <button className="secondary-panel-button" disabled={isSubmitting} onClick={onClose} type="button">
+              {t('accountLinking.cancel')}
+            </button>
+            <button className="danger-modal-button" disabled={isSubmitting || !canSubmit} onClick={handleConfirm} type="button">
+              {isSubmitting ? t('accountLinking.deletingAccount') : t('accountLinking.deleteAccountConfirm')}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+function SettingsPage({ onBack, onLogout, userId }) {
   const { i18n, t } = useTranslation()
   const isRtl = i18n.dir() === 'rtl'
   const BackArrow = isRtl ? ArrowRight : ArrowLeft
@@ -630,6 +723,17 @@ function SettingsPage({ onBack, userId }) {
             </div>
             {linkError ? <p className="modal-error" role="alert">{linkError}</p> : null}
           </section>
+
+          <section className="settings-section account-method-card account-delete-card" aria-labelledby="delete-account-title">
+            <h3 id="delete-account-title">{t('accountLinking.deleteAccount')}</h3>
+            <button
+              className="danger-modal-button"
+              type="button"
+              onClick={() => setActiveModal('delete-account')}
+            >
+              {t('accountLinking.deleteAccount')}
+            </button>
+          </section>
         </div>
       ) : null}
 
@@ -641,6 +745,14 @@ function SettingsPage({ onBack, userId }) {
       ) : null}
       {activeModal === 'remove-password' ? (
         <RemovePasswordModal onClose={closeModal} onPasswordRemoved={handlePasswordRemoved} />
+      ) : null}
+      {activeModal === 'delete-account' && methods ? (
+        <DeleteAccountModal
+          onClose={closeModal}
+          onDeleted={() => { closeModal(); onLogout() }}
+          hasPassword={methods.email.linked}
+          hasGoogle={methods.google.linked}
+        />
       ) : null}
     </div>
   )

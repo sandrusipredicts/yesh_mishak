@@ -868,7 +868,7 @@ function App() {
   }
 
   if (pathname === '/settings') {
-    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} userId={currentUser.id} />)
+    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} onLogout={handleLogout} userId={currentUser.id} />)
   }
 
   return renderWithOfflineBanner(
