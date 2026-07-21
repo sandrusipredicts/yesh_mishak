@@ -1,0 +1,50 @@
+name: Analytics events migration PostgreSQL integration
+
+on:
+  pull_request:
+    paths:
+      - "backend/migrations/api_request_metrics.sql"
+      - "backend/migrations/analytics_events.sql"
+      - "backend/scripts/analytics_events_migration_preflight.sql"
+      - "backend/scripts/verify_analytics_events_migration.sql"
+      - "backend/tests/test_analytics_events_migration_postgres.py"
+      - ".github/workflows/analytics-events-postgres.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: analytics_events_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d analytics_events_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ANALYTICS_EVENTS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-test.txt
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+      - name: Run analytics migration PostgreSQL checks
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_analytics_events_migration_postgres.py -q
