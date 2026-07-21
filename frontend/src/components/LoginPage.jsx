@@ -590,6 +590,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
           </p>
         ) : null}
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
+        <nav className="login-legal-links" aria-label="Legal pages">
+          <a href="/privacy">Privacy Policy</a>
+          <span aria-hidden="true">·</span>
+          <a href="/terms">Terms of Service</a>
+        </nav>
       </section>
     </main>
   )

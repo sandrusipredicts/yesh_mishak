@@ -75,6 +75,13 @@ function resolvePathSegments(segments, searchParams) {
     })
   }
 
+  if (segments.length === 1 && (segments[0] === 'privacy' || segments[0] === 'terms')) {
+    return buildSupportedResult({
+      routeType: segments[0],
+      navigationPath: `/${segments[0]}`,
+    })
+  }
+
   if (segments.length === 1 && segments[0] === 'admin') {
     return buildSupportedResult({
       routeType: 'admin',

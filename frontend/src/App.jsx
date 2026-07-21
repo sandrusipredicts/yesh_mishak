@@ -15,6 +15,7 @@ import MapPage from './pages/MapPage'
 import MyGamesPage from './pages/MyGamesPage'
 import MyReportsPage from './pages/MyReportsPage'
 import OnboardingPage from './pages/OnboardingPage'
+import PublicPolicyPage from './pages/PublicPolicyPage'
 import SettingsPage from './pages/SettingsPage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
 import { isNativeGoogleSupported, signOutGoogleNative } from './api/nativeGoogleAuth'
@@ -768,6 +769,14 @@ function App() {
       {content}
     </>
   )
+
+  if (pathname === '/privacy') {
+    return <PublicPolicyPage policy="privacy" />
+  }
+
+  if (pathname === '/terms') {
+    return <PublicPolicyPage policy="terms" />
+  }
 
   if (!isSessionReady) {
     if (pathname === '/reset-password') {
