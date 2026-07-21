@@ -32,9 +32,14 @@ const policyContent = {
                 timestamps.
               </li>
               <li>
+                <strong>Photos:</strong> images you attach to field submissions. Photo metadata
+                (such as location embedded in the image) is stripped before upload.
+              </li>
+              <li>
                 <strong>Device and technical information:</strong> session information, app
-                installation identifiers, push notification tokens, device platform, and limited
-                diagnostic or security logs.
+                installation identifiers, push notification tokens, device platform, anonymous
+                app-usage analytics (such as which screens are visited), and limited diagnostic or
+                security logs.
               </li>
               <li>
                 <strong>Location information:</strong> a city you select and, only when you choose a
@@ -107,12 +112,20 @@ const policyContent = {
       {
         title: 'Data retention and security',
         content: (
-          <p>
-            We retain information for as long as reasonably necessary to provide the Service, meet
-            legal and security obligations, resolve disputes, and prevent abuse. We use reasonable
-            administrative and technical safeguards, but no method of storage or transmission is
-            completely secure.
-          </p>
+          <>
+            <p>
+              We retain information for as long as reasonably necessary to provide the Service, meet
+              legal and security obligations, resolve disputes, and prevent abuse. We use reasonable
+              administrative and technical safeguards, but no method of storage or transmission is
+              completely secure.
+            </p>
+            <p>
+              Anonymous usage analytics are configured for automatic deletion after 90 days. Server
+              performance metrics are configured for automatic deletion after 14 days. Crash and
+              diagnostic reports are retained according to our error-monitoring provider's
+              project-level retention settings.
+            </p>
+          </>
         ),
       },
       {
