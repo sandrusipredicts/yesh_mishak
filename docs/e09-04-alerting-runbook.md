@@ -1,104 +1,79 @@
 # E09-04 Operational Alert Runbook
 
-Last verified: 2026-07-21. This runbook contains no recipient addresses or secrets. All operational rules are production-only. Never use branch-build, preview, development, local, or controlled test events to satisfy a production threshold.
+Last verified: 2026-07-21. This runbook contains no recipient addresses or secrets. Operational alerts are production-only; `development`, `branch-build`, `preview`, `local`, and test events never satisfy production thresholds.
 
 ## Common response
 
-1. Acknowledge P0 within 15 minutes and P1 within four business hours; the owner must confirm after-hours coverage.
-2. Open the Sentry issue and confirm project, `environment=production`, release, dist/platform, first/last seen, count, users, and grouping.
-3. Check whether Sentry ingestion is delayed or unavailable before treating silence/recovery as application health.
-4. For backend alerts, inspect Railway health/logs and the normalized route, then Supabase/provider status. For mobile alerts, inspect release, event origin, device/OS, native versus JavaScript stack, and source-map/symbol status.
-5. Assign the issue, link the incident/hotfix, record mitigation, and leave the metric issue open until its configured recovery condition is met.
-6. Roll back only when the newest release/deploy clearly correlates with widespread impact, auth/database unavailability, or a launch crash loop. Otherwise isolate/disable the broken feature or ship a focused hotfix.
+1. Confirm project, `environment=production`, release, platform/dist, event time, issue grouping, count, and affected users.
+2. Check Sentry ingestion health before interpreting silence or recovery.
+3. Backend: inspect Railway health/logs, normalized route group, Supabase, and provider status. Mobile: inspect release, JS/native origin, device/OS, symbolication, crash-free cohort, and ANR main-thread stack where applicable.
+4. Correlate provider/Railway/Supabase outages into one parent incident and suppress duplicate child work.
+5. Assign the issue, link the incident or focused fix, and resolve only after the source is healthy.
+6. Treat P2 as tracked investigation, P1 as same-day response, and P0 as immediate mitigation for widespread outage, auth/database unavailability, or launch crash loop.
 
-## Active rules
+## Active notification path
 
-### Production high-priority issue — mobile
+Mobile and backend high-priority Issue Alerts:
 
-- Source: Sentry Issue Alert, `yesh-mishak-mobile`.
-- Trigger: Sentry marks a new or existing issue high priority.
-- Filter: `production` only.
-- Severity: P1; P0 for widespread launch crash loop/outage.
-- Cooldown: one hour per issue.
-- Recovery: manual issue resolution after fix verification; regression may retrigger.
-- First response: check event origin, release/dist, device/OS, affected users, JS/native grouping.
+- project-specific, `production` only;
+- new and regressed issues;
+- project email action;
+- one-hour action interval per issue;
+- readable stack and release/environment checks required before triage.
 
-### Production high-priority issue — backend
+Development new-issue and regression exercises both delivered sanitized email. This is the accepted notification-delivery evidence.
 
-- Source: Sentry Issue Alert, `yesh-mishak-backend`.
-- Trigger/filter/cooldown/recovery: same lifecycle policy as mobile, production only.
-- First response: check Railway, route/status/request ID, release, Supabase and external providers.
-- Current caveat: backend release is `unknown`; repair deployment metadata before release comparison.
+## Active production monitors
 
-### `BE-PROD-Internal-Error-Spike` (monitor 1529849)
+| Monitor | Warning | Critical | Recovery | Response |
+|---|---:|---:|---:|---|
+| `BE-PROD-Internal-Error-Spike` (1529849), 10 min | >3 | >10 | <=2 | Railway, Supabase/providers; P0 at 25+ or outage |
+| `BE-PROD-Affected-Users` (1529850), 1 h | >3 | >5 | <=2 | identify cohort; pair with count for anonymous traffic |
+| `MOB-PROD-Error-Spike` (1529851), 15 min | >5 | >15 | <=4 | top issues/releases/devices; P0 at 40+ or launch loop |
+| `MOB-PROD-Affected-Users` (1529855), 1 h | >3 | >5 | <=2 | inspect internal IDs; pair with count before login |
+| `BE-PROD-Analytics-Ingestion-Failure-Spike` (1529862), 30 min | >3 | >10 | <=2 | endpoint 5xx/503, Railway, table/schema cache, Supabase |
 
-- Query: unresolved backend error count.
-- P2/P1: above 3 / above 10 in 10 minutes.
-- Recovery: at or below 2.
-- Escalate P0: 25+ in 10 minutes or backend unavailable.
+Development detector `1532441` is disabled. Detector `1532770` is retained as unreliable for state transitions. They are not alert-delivery evidence and must not be cloned again within E09-04.
 
-### `BE-PROD-Affected-Users` (monitor 1529850)
+## Analytics checks
 
-- Query: distinct internal users on unresolved backend errors.
-- P2/P1: above 3 / above 5 in one hour.
-- Recovery: at or below 2.
-- Caveat: anonymous/unauthenticated errors may have no user and require the count monitor.
+For an ingestion incident:
 
-### `MOB-PROD-Error-Spike` (monitor 1529851)
+1. Confirm valid authenticated requests no longer return 202.
+2. Distinguish contract rejection from `ANALYTICS_UNAVAILABLE`/503.
+3. Check `analytics_events` existence, schema cache, Railway logs, and Supabase availability.
+4. Never use response-generation time as latest-event freshness.
 
-- Query: unresolved mobile error count.
-- P2/P1: above 5 / above 15 in 15 minutes.
-- Recovery: at or below 4.
-- Escalate P0: 40+ in 15 minutes or launch crash loop.
+Baseline evidence: one valid `app_open` returned 202 and exactly one sanitized `e09-04-test` row was verified; invalid contracts remain rejected.
 
-### `MOB-PROD-Affected-Users` (monitor 1529855)
+## Latency operations
 
-- Query: distinct internal users on unresolved mobile errors.
-- P2/P1: above 3 / above 5 in one hour.
-- Recovery: at or below 2.
-- Caveat: pre-login crashes require count/native evidence because user may be absent.
+Tracing is 5% in production, 100% in development, and off locally/preview/branch-build. Allowed names are `REQUEST authentication`, `REQUEST fields-map`, `REQUEST games`, `REQUEST notifications`, and `REQUEST analytics-ingestion`.
 
-### `BE-PROD-Analytics-Ingestion-Failure-Spike` (monitor 1529862)
+For each selected route group and overall allowlisted backend:
 
-- Query: unresolved backend errors with `transaction:/analytics/events`.
-- P2/P1: above 3 / above 10 in 30 minutes.
-- Recovery: at or below 2.
-- First response: confirm `analytics_events` table/migration and schema cache, Railway logs, Supabase availability, 503 rate, accepted/rejected counts, and E09-03 source status.
-- Current known incident: the production table is missing; apply the tracked idempotent migration through the approved Supabase deployment process before expecting recovery.
+- p95: warning >1.0s, critical >2.0s over 15 minutes, minimum 100 samples, recovery <1.0s for 30 minutes, cooldown 30 minutes.
+- p99: warning >2.5s, critical >5.0s over 30 minutes, minimum 300 samples, recovery <2.5s for 60 minutes, cooldown 60 minutes.
 
-## Suppression and correlation
+Do not activate a percentile rule without its minimum-count guard. Trace `4f5bd6ad0f02437b84c92d0e3dd66773` verifies development delivery, normalized naming, full release, and visible duration.
 
-- Do not resolve a metric issue while its source remains unhealthy.
-- Correlate one Supabase/provider/Railway outage into one parent incident; avoid opening separate incidents for every issue group.
-- Expected 401/403/404/422/429, user cancellation, permission denial, and handled offline failures remain excluded by E09-01 policy.
-- A newly regressed issue or a new release can require escalation even during the one-hour notification throttle; inspect Sentry history manually when an incident is active.
-- No data is unknown, not healthy. Check volume and source availability before closing.
+## Crash and ANR operations
 
-## Deferred rule gates
+Activate crash-free rules only when a valid production cohort has at least 50 sessions and the denominator can be enforced:
 
-- Crash-free rate: require real production sessions, at least 100 sessions and 20 users in the window; calibrate after 14 days and 1,000 sessions.
-- ANR: require a real ANR event and at least 200 Android production sessions.
-- Latency: require an approved source with sample minimums (p95 ≥100, p99 ≥300 requests) and a notification engine.
-- Dashboard freshness: require latest-event timestamp and scheduled evaluation, not response-generation time.
+- crash-free users: warning <99.5%, critical <99.0%, recovery >=99.5% for 6 hours, cooldown 6 hours;
+- crash-free sessions: warning <99.7%, critical <99.3%, recovery >=99.7% for 6 hours, cooldown 6 hours.
 
-## Verification and threshold review
+Before 100 sessions, investigate >=3 newest-release crashes affecting >=2 users. Android ANR rule: warning >=0.5%, critical >=1.0%, 24-hour window, minimum 200 Android sessions, recovery <0.5% for 24 hours, cooldown 12 hours. Native ANR collection is supplied by the installed Sentry Android integration.
 
-Use non-production clones or approved controlled tests. Verify threshold, recovery, email receipt, environment, release, cooldown, duplicate suppression, and absence of secrets/private text. Never intentionally crash production. Review thresholds after 14 production days and at least 1,000 sessions or 10,000 analytics events, then monthly until stable and quarterly thereafter. Review immediately after a false positive, missed incident, trial expiry, or telemetry/source change.
+## Privacy checks
 
-## Updated production evidence — 2026-07-21
+Backend events and transactions must exclude hostnames, command-line arguments, raw IP/geo fields, request bodies, cookies, sensitive headers, query/fragment data, coordinates, local variables, and non-ID user fields. Preserve stack frames, release, environment, error code, and fingerprint.
 
-- Analytics ingestion is currently healthy: one valid production `app_open` event returned HTTP `202`, and exactly one matching row with `app_version=e09-04-test`, `platform=web`, and `properties={}` was verified. Treat a future `503 ANALYTICS_UNAVAILABLE` as a new incident.
-- Railway production is configured with `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`, and its replacement deployment completed successfully.
-- The resolved release value has not yet been observed on a post-change Sentry event. Do not represent it as verified until the following check passes.
+Sentry may display city-level Geography derived from the transport IP even when the SDK payload has no IP/geo and project IP-storage prevention is active. Record this separately; never infer that the application sent a geo field.
 
-### Pending backend release observation
+## Release and maintenance
 
-On the next legitimate backend exception or safe non-production verification opportunity, inspect the Sentry event and record sanitized evidence that:
+Railway uses `SENTRY_RELEASE=yesh-mishak-backend@${{RAILWAY_GIT_COMMIT_SHA}}`. On each naturally occurring production backend issue, confirm the resolved release starts with `yesh-mishak-backend@`, includes a commit SHA, and is not `unknown`.
 
-1. `environment=production`.
-2. `release` starts with `yesh-mishak-backend@` and is not `unknown`.
-3. The application stack trace is readable.
-4. Breadcrumb URLs contain no query strings or fragments.
-5. Breadcrumbs and request context contain no Authorization headers, cookies, tokens, passwords, coordinates, request bodies, DSNs, or other secrets.
-
-Do not add a public production test route, temporary production CLI, or synthetic user-flow failure solely to complete this check.
+Review thresholds after 14 production days and 1,000 sessions, after significant traffic/release changes, and quarterly. Review Sentry plan entitlements before trial expiry. Keep Issue Alerts active as the fallback path and never intentionally crash production for verification.

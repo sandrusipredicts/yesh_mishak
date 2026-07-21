@@ -12,6 +12,7 @@ init that can never raise, and a single explicit choke point for redaction.
 import logging
 import re
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -24,6 +25,17 @@ logger = logging.getLogger("app.monitoring")
 LOCAL_ENVIRONMENT = "local"
 UNKNOWN_RELEASE = "unknown"
 MAX_REDACT_DEPTH = 8
+PRODUCTION_TRACE_SAMPLE_RATE = 0.05
+DEVELOPMENT_TRACE_SAMPLE_RATE = 1.0
+
+_TRACE_ROUTE_GROUPS = (
+    ("/auth", "authentication"),
+    ("/fields", "fields-map"),
+    ("/field-reports", "fields-map"),
+    ("/games", "games"),
+    ("/notifications", "notifications"),
+    ("/analytics/events", "analytics-ingestion"),
+)
 
 # Same conservative, case-insensitive substring policy as the frontend
 # redaction module: false positives (over-redacting) are preferred over
@@ -35,6 +47,11 @@ _SENSITIVE_KEY_PATTERN = re.compile(
 )
 _COORDINATE_KEY_PATTERN = re.compile(
     r"^(lat(itude)?|lon(gitude)?|lng|coords?|coordinates?)$", re.IGNORECASE
+)
+_COMMAND_LINE_KEY_PATTERN = re.compile(
+    r"^(?:(?:sys|process)[._-])?argv$|"
+    r"^command[._-]?line(?:[._-]?(?:args?|arguments?))?$",
+    re.IGNORECASE,
 )
 
 _enabled = False
@@ -56,6 +73,54 @@ def resolve_release(explicit_release: Optional[str]) -> str:
     if explicit_release and explicit_release.strip():
         return explicit_release.strip()
     return UNKNOWN_RELEASE
+
+
+def trace_sample_rate(environment: str) -> float:
+    """Environment-aware APM sampling with no local or preview telemetry."""
+    if environment == "production":
+        return PRODUCTION_TRACE_SAMPLE_RATE
+    if environment == "development":
+        return DEVELOPMENT_TRACE_SAMPLE_RATE
+    return 0.0
+
+
+def normalize_transaction_path(path: Optional[str]) -> Optional[str]:
+    """Map supported API paths to five bounded, privacy-safe route groups."""
+    if not isinstance(path, str):
+        return None
+    # SDK-created transaction names can be either a raw path or
+    # ``METHOD /path``.  Supporting both keeps one-off verification and
+    # framework-generated transactions on the same allowlist.
+    if " " in path:
+        possible_method, possible_path = path.split(" ", 1)
+        if possible_method.isalpha() and possible_path.startswith("/"):
+            path = possible_path
+    safe_path = urlsplit(path).path if "://" in path else _safe_url_path(path)
+    for prefix, group in _TRACE_ROUTE_GROUPS:
+        if safe_path == prefix or safe_path.startswith(f"{prefix}/"):
+            return group
+    return None
+
+
+def before_send_transaction(event: dict, hint: dict) -> Optional[dict]:
+    """Keep only approved route groups and replace raw paths with stable names."""
+    request = event.get("request")
+    request_url = request.get("url") if isinstance(request, dict) else None
+    transaction = event.get("transaction")
+    candidate = request_url or transaction
+    group = normalize_transaction_path(candidate)
+    if group is None:
+        return None
+
+    method = "REQUEST"
+    if isinstance(request, dict) and isinstance(request.get("method"), str):
+        method = request["method"].upper()
+    event["transaction"] = f"{method} {group}"
+    if isinstance(request, dict):
+        # Raw route URLs may contain field/game identifiers.  The normalized
+        # group is sufficient for latency operations and contains no IDs.
+        request["url"] = f"/{group}"
+    return redact_event(event, hint)
 
 
 def is_monitoring_enabled(
@@ -97,12 +162,49 @@ def redact_deep(value: Any, *, depth: int = 0, seen: Optional[set] = None) -> An
         result = {}
         for key, val in value.items():
             if _is_sensitive_key(key):
-                result[key] = "[Redacted]"
+                continue
             elif isinstance(val, (dict, list, tuple)):
                 result[key] = redact_deep(val, depth=depth + 1, seen=seen)
             else:
                 result[key] = val
         return result
+
+    return value
+
+
+def remove_command_line_arguments(
+    value: Any, *, depth: int = 0, seen: Optional[set] = None
+) -> Any:
+    """Remove SDK/runtime command-line argument fields at any nesting level.
+
+    Matching is deliberately narrow so exception values, stack frames, tags,
+    fingerprints, and ordinary application fields named ``args`` remain
+    available for grouping and debugging.
+    """
+    if seen is None:
+        seen = set()
+
+    if value is None or depth >= MAX_REDACT_DEPTH:
+        return value
+
+    if isinstance(value, dict):
+        obj_id = id(value)
+        if obj_id in seen:
+            return "[Circular]"
+        seen = seen | {obj_id}
+        return {
+            key: remove_command_line_arguments(val, depth=depth + 1, seen=seen)
+            if isinstance(val, (dict, list, tuple))
+            else val
+            for key, val in value.items()
+            if not (isinstance(key, str) and _COMMAND_LINE_KEY_PATTERN.match(key))
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            remove_command_line_arguments(item, depth=depth + 1, seen=seen)
+            for item in value
+        ]
 
     return value
 
@@ -138,6 +240,17 @@ def redact_event(event: dict, hint: dict) -> dict:
     content: full request bodies, Authorization/Cookie headers, query
     strings, exact coordinates, or any key matching the sensitive pattern
     above, anywhere in the event (extra, contexts, request)."""
+    # The Python SDK populates ``server_name`` from ``socket.gethostname()``
+    # by default.  Container/host identifiers are not needed for grouping or
+    # debugging this service, so never send them.
+    event.pop("server_name", None)
+
+    # Geography may be attached by an SDK event processor.  Sentry's
+    # project-level "Prevent Storing of IP Addresses" setting is the primary
+    # protection against server-side IP enrichment; these removals are a
+    # defense in depth for geo data already present in the event payload.
+    event.pop("geo", None)
+
     request = event.get("request")
     if isinstance(request, dict):
         if "data" in request:
@@ -155,6 +268,8 @@ def redact_event(event: dict, hint: dict) -> dict:
         event["extra"] = redact_deep(event["extra"])
     if "contexts" in event:
         event["contexts"] = redact_deep(event["contexts"])
+        if isinstance(event["contexts"], dict):
+            event["contexts"].pop("geo", None)
 
     breadcrumbs = event.get("breadcrumbs")
     if isinstance(breadcrumbs, list):
@@ -169,7 +284,7 @@ def redact_event(event: dict, hint: dict) -> dict:
         # below); strip anything else defensively.
         event["user"] = {"id": user["id"]} if user.get("id") else None
 
-    return event
+    return remove_command_line_arguments(event)
 
 
 def init_monitoring(settings: Settings) -> None:
@@ -190,13 +305,16 @@ def init_monitoring(settings: Settings) -> None:
         return
 
     try:
+        sample_rate = trace_sample_rate(environment)
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
             environment=environment,
             release=release,
             send_default_pii=False,
-            traces_sample_rate=0,
+            include_local_variables=False,
+            traces_sample_rate=sample_rate,
             before_send=redact_event,
+            before_send_transaction=before_send_transaction,
             # Disabled: both integrations default to auto-capturing any
             # response with a 5xx status code, which would double-report
             # every event this module already captures explicitly and

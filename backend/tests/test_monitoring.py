@@ -3,12 +3,16 @@ import pytest
 
 from app.monitoring import (
     LOCAL_ENVIRONMENT,
+    before_send_transaction,
     is_monitoring_enabled,
+    normalize_transaction_path,
+    remove_command_line_arguments,
     redact_breadcrumb,
     redact_deep,
     redact_event,
     resolve_environment,
     resolve_release,
+    trace_sample_rate,
 )
 
 
@@ -53,12 +57,66 @@ def test_is_monitoring_enabled_deployed_environments_enabled_automatically():
         assert is_monitoring_enabled("https://example.invalid/1", env, False) is True
 
 
+def test_trace_sampling_is_environment_aware():
+    assert trace_sample_rate("local") == 0
+    assert trace_sample_rate("branch-build") == 0
+    assert trace_sample_rate("preview") == 0
+    assert trace_sample_rate("development") == 1.0
+    assert trace_sample_rate("production") == 0.05
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("/auth/login", "authentication"),
+        ("https://api.example.test/fields/123?lat=1#private", "fields-map"),
+        ("/field-reports/mine", "fields-map"),
+        ("/games/550e8400-e29b-41d4-a716-446655440000/join", "games"),
+        ("/notifications/123/read", "notifications"),
+        ("/analytics/events", "analytics-ingestion"),
+        ("POST /analytics/events", "analytics-ingestion"),
+        ("/admin/users", None),
+    ],
+)
+def test_normalize_transaction_path(path, expected):
+    assert normalize_transaction_path(path) == expected
+
+
+def test_before_send_transaction_normalizes_and_redacts():
+    event = {
+        "transaction": "POST /games/550e8400-e29b-41d4-a716-446655440000/join",
+        "request": {
+            "method": "POST",
+            "url": "https://api.example.test/games/550e8400-e29b-41d4-a716-446655440000/join?token=x#private",
+            "headers": {"Authorization": "Bearer secret"},
+            "data": {"private_text": "do not send"},
+        },
+        "release": "yesh-mishak-backend@abc123",
+        "environment": "development",
+    }
+
+    result = before_send_transaction(event, {})
+
+    assert result["transaction"] == "POST games"
+    assert result["request"]["url"] == "/games"
+    assert "?" not in result["request"]["url"]
+    assert "#" not in result["request"]["url"]
+    assert "data" not in result["request"]
+    assert "Authorization" not in result["request"]["headers"]
+    assert result["release"] == "yesh-mishak-backend@abc123"
+    assert result["environment"] == "development"
+
+
+def test_before_send_transaction_drops_unapproved_routes():
+    assert before_send_transaction({"transaction": "GET /admin/users"}, {}) is None
+
+
 # --- Redaction ---------------------------------------------------------
 
 def test_redact_deep_redacts_sensitive_keys_at_any_depth():
     value = {"a": {"b": {"password": "hunter2", "safe": "ok"}}}
     result = redact_deep(value)
-    assert result["a"]["b"]["password"] == "[Redacted]"
+    assert "password" not in result["a"]["b"]
     assert result["a"]["b"]["safe"] == "ok"
 
 
@@ -73,8 +131,8 @@ def test_redact_deep_does_not_mutate_input():
 def test_redact_deep_redacts_coordinate_keys():
     value = {"location": {"latitude": 31.5, "longitude": 34.7}}
     result = redact_deep(value)
-    assert result["location"]["latitude"] == "[Redacted]"
-    assert result["location"]["longitude"] == "[Redacted]"
+    assert "latitude" not in result["location"]
+    assert "longitude" not in result["location"]
 
 
 def test_redact_event_scrubs_authorization_header():
@@ -85,7 +143,7 @@ def test_redact_event_scrubs_authorization_header():
         }
     }
     result = redact_event(event, {})
-    assert result["request"]["headers"]["Authorization"] == "[Redacted]"
+    assert "Authorization" not in result["request"]["headers"]
     assert result["request"]["headers"]["Content-Type"] == "application/json"
     assert result["request"]["url"] == "https://api.example.com/games"
 
@@ -105,15 +163,92 @@ def test_redact_event_removes_request_body_by_default():
 def test_redact_event_scrubs_password_and_token_fields_in_extra():
     event = {"extra": {"password": "x", "refresh_token": "y", "safe_field": "z"}}
     result = redact_event(event, {})
-    assert result["extra"]["password"] == "[Redacted]"
-    assert result["extra"]["refresh_token"] == "[Redacted]"
+    assert "password" not in result["extra"]
+    assert "refresh_token" not in result["extra"]
     assert result["extra"]["safe_field"] == "z"
 
 
 def test_redact_event_keeps_only_internal_user_id():
-    event = {"user": {"id": "user-1", "email": "a@example.com", "username": "alice"}}
+    event = {
+        "user": {
+            "id": "user-1",
+            "email": "a@example.com",
+            "username": "alice",
+            "ip_address": "203.0.113.10",
+        }
+    }
     result = redact_event(event, {})
     assert result["user"] == {"id": "user-1"}
+
+
+def test_redact_event_removes_server_name_and_geography():
+    event = {
+        "server_name": "internal-hostname",
+        "geo": {"city": "Sensitive City"},
+        "contexts": {
+            "geo": {"city": "Sensitive City", "country_code": "XX"},
+            "runtime": {"name": "CPython", "version": "3.13"},
+        },
+    }
+
+    result = redact_event(event, {})
+
+    assert "server_name" not in result
+    assert "geo" not in result
+    assert "geo" not in result["contexts"]
+    assert result["contexts"]["runtime"]["name"] == "CPython"
+
+
+def test_redact_event_preserves_monitoring_and_grouping_fields():
+    event = {
+        "release": "yesh-mishak-backend@abc123",
+        "environment": "development",
+        "tags": {"error_code": "E09_04_METRIC_TEST"},
+        "fingerprint": ["{{ default }}", "stable-component"],
+        "exception": {"values": [{"type": "RuntimeError", "value": "safe"}]},
+    }
+
+    result = redact_event(event, {})
+
+    assert result == event
+
+
+def test_remove_command_line_arguments_at_any_depth():
+    event = {
+        "sys.argv": ["python", "--secret", "value"],
+        "extra": {
+            "process.argv": ["worker", "--token", "value"],
+            "command_line": "worker --token value",
+            "nested": {"command-line-arguments": ["--password", "value"]},
+            "safe": "kept",
+        },
+    }
+
+    result = remove_command_line_arguments(event)
+
+    assert result == {"extra": {"nested": {}, "safe": "kept"}}
+
+
+def test_redact_event_removes_command_line_fields_without_affecting_grouping():
+    event = {
+        "extra": {"sys.argv": ["python", "--private"], "safe": "kept"},
+        "fingerprint": ["{{ default }}", "stable-component"],
+        "exception": {
+            "values": [
+                {
+                    "type": "RuntimeError",
+                    "value": "safe",
+                    "args": ["grouping-relevant-exception-data"],
+                }
+            ]
+        },
+    }
+
+    result = redact_event(event, {})
+
+    assert result["extra"] == {"safe": "kept"}
+    assert result["fingerprint"] == ["{{ default }}", "stable-component"]
+    assert result["exception"] == event["exception"]
 
 
 def test_redact_breadcrumb_scrubs_url_query_and_sensitive_headers():
@@ -131,7 +266,7 @@ def test_redact_breadcrumb_scrubs_url_query_and_sensitive_headers():
     result = redact_breadcrumb(breadcrumb)
 
     assert result["data"]["url"] == "https://example.supabase.co/rest/v1/items"
-    assert result["data"]["request_headers"]["Authorization"] == "[Redacted]"
+    assert "Authorization" not in result["data"]["request_headers"]
     assert result["data"]["request_headers"]["Content-Type"] == "application/json"
 
 
@@ -151,7 +286,7 @@ def test_redact_event_scrubs_sdk_generated_breadcrumbs():
     result = redact_event(event, {})
 
     assert result["breadcrumbs"][0]["data"]["url"] == "https://api.example.com/path"
-    assert result["breadcrumbs"][0]["data"]["cookies"] == "[Redacted]"
+    assert "cookies" not in result["breadcrumbs"][0]["data"]
 
 
 # --- FastAPI integration (capture wiring) -------------------------------
@@ -312,7 +447,9 @@ def test_release_and_environment_are_attached_at_init(monkeypatch):
     assert captured["environment"] == "production"
     assert captured["release"] == "yesh-mishak@abc1234"
     assert captured["send_default_pii"] is False
-    assert captured["traces_sample_rate"] == 0
+    assert captured["include_local_variables"] is False
+    assert captured["traces_sample_rate"] == 0.05
+    assert captured["before_send_transaction"] is monitoring.before_send_transaction
 
     monkeypatch.setattr(monitoring, "_enabled", False)
 
