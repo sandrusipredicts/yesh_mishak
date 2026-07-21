@@ -128,12 +128,14 @@ the registry in `app/analytics/registry.py` (mirrored by
 `frontend/src/analytics/registry.js` and the CHECK constraints in the
 migration); extend all three together when new events are approved.
 
-Manual deployment step: apply `migrations/analytics_events.sql` in Supabase
-(staging, then production), after `api_request_metrics.sql`. The migration is
-idempotent and safe to re-run. Until it is applied, the pipeline degrades
-gracefully by design: `POST /analytics/events` returns
-`503 ANALYTICS_UNAVAILABLE` (clients drop events silently) and the
-`analytics_events` monitoring section reports `source_available: false`.
+Apply `migrations/analytics_events.sql` in Supabase (staging, then production),
+after `api_request_metrics.sql`. Use the required preflight, atomic apply,
+rollback-only live verification, exact Supabase/Railway commands, and rollback
+behavior in [`../docs/analytics-events-rollout.md`](../docs/analytics-events-rollout.md).
+Until the migration is applied, the pipeline degrades gracefully by design:
+`POST /analytics/events` returns `503 ANALYTICS_UNAVAILABLE` (clients drop
+events silently) and the `analytics_events` monitoring section reports
+`source_available: false`.
 
 Old events are deleted by a scheduler-compatible CLI job:
 
