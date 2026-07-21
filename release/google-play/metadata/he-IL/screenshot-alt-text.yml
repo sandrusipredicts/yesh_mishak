@@ -1,0 +1,19 @@
+locale: he-IL
+status: owner-approved-compliant
+screenshots:
+  - filename: 01-game-management.png
+    alt_text: "פרטי משחק פעיל עם משתתפים ופעולות עזיבה, סיבוב, סגירה ושיתוף."
+  - filename: 02-my-games.png
+    alt_text: "מסך המשחקים שלי עם משחק פעיל ורשימת משחקים שהסתיימו."
+  - filename: 03-notifications.png
+    alt_text: "חלונית התראות המציגה שחקן שהצטרף למשחק ועדכון לדיווח."
+  - filename: 04-field-details-pivrag.png
+    alt_text: "פרטי מגרש פיברג עם אפשרויות שיתוף, פתיחת משחק, ניווט ודיווח."
+  - filename: 05-nearby-map.png
+    alt_text: "מפת מגרשי כדורגל סמוכים בבאר שבע סביב המיקום הנוכחי."
+  - filename: 06-language-settings.png
+    alt_text: "מסך שיטות התחברות עם בחירת שפה בין עברית לאנגלית."
+  - filename: 07-map-overview.png
+    alt_text: "מפת מגרשי כדורגל בבאר שבע עם תפריט משתמש ופקדי מפה."
+  - filename: 08-field-details-europe.png
+    alt_text: "פרטי מגרש יציאת אירופה עם אפשרויות פתיחת משחק, ניווט ודיווח."

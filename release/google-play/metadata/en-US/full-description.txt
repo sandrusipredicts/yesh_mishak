@@ -1,0 +1,16 @@
+Yesh Mishak helps football players find fields and organize local games.
+
+Use the map to explore fields and see available game information. When you are ready to play, create a game or join an existing one and keep track of your participation.
+
+What you can do:
+• Browse football fields on an interactive map
+• View field and game details
+• Create games and join or leave games
+• Keep up with games you participate in
+• Submit field information and report issues
+• Receive optional game updates and reminders
+• Share field and game links
+
+Location access is optional. It is requested only when you use a location-based feature, and the app does not request background location.
+
+Yesh Mishak supports Hebrew and English.

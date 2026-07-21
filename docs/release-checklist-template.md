@@ -243,6 +243,19 @@ Fill in before starting the checklist:
 - [ ] No critical user reports received
 - [ ] Release marked complete
 
+## 19A. Mobile Store Listing Gate
+
+Complete this section for every Google Play release. Follow [the E10-04 Google Play runbook](e10-04-google-play-store-listing-runbook.md) and use the source-controlled package under `release/google-play/`.
+
+- [ ] Store icon and feature graphic pass `release/scripts/validate-google-play-assets.ps1`
+- [ ] Final screenshots are approved, hashed, privacy-reviewed, and present for every published locale
+- [ ] App name, short description, full description, and release notes match the uploaded candidate
+- [ ] Launcher and cold-start splash are verified on the installed release candidate under common Android masks/orientations
+- [ ] Privacy URL and account-deletion instructions work without login
+- [ ] Ads, app access, target audience, content rating, UGC, and Data safety declarations are complete and approved
+- [ ] Play Console phone and desktop previews are approved and linked from release evidence
+- [ ] No unapproved visual asset, secret, personal data, debug capture, or unrelated behavior change is included
+
 ## 20. Exception Handling
 
 If a check fails:
@@ -271,6 +284,7 @@ Copy this section for quick release signoff:
 - [ ] Environment variables checked
 - [ ] Database changes reviewed
 - [ ] Security / privacy reviewed
+- [ ] Mobile store listing and declarations reviewed (if applicable)
 - [ ] Rollback plan confirmed
 - [ ] Release approved
 
@@ -296,6 +310,7 @@ Date: ___
 | Release signoff section exists | YES |
 | Rollback readiness included | YES |
 | Post-release verification included | YES |
+| Mobile store listing gate included | YES |
 | Reusable for every release | YES |
 | Runtime behavior changed | NO |
 | DB schema changed | NO |
