@@ -1,23 +1,33 @@
-# E10-04 implementation build verification
+# E10-08 release-candidate build verification
 
-Date: 2026-07-21
+Date: 2026-07-22
+
+Full report: `docs/e10-08-play-store-policy-compliance-review.md`
 
 | Check | Result | Notes |
 | :--- | :--- | :--- |
-| `npm install` | Pass | 393 packages installed; npm reported one moderate and one high dependency vulnerability. No unrelated audit-fix upgrade was applied. |
-| `npm run lint` | Pass | ESLint completed with exit code 0. |
-| `npm run build` | Pass | Vite production build completed. Existing bundle-size and ineffective-dynamic-import warnings remain. |
-| Focused Node tests | Pass | 28/28 app-link and native Google error-classification tests passed. |
-| Focused Playwright tests | Tests passed; runner shutdown timed out | 13/13 public legal-route and auth-error-mapping tests reported `ok`; the command did not exit before the 120-second harness limit after all results printed. Treat shutdown behavior as an environment/test-harness warning. |
-| Capacitor Android sync | Pass | Eleven configured plugins synced; approved resources remained valid afterward. Two hash-identical generated Gradle files were refreshed without content changes. |
-| Google Play/Android asset validator | Pass | Eight unique owner-approved screenshots pass count, file-size, opaque pixel-format, 921 × 1842 dimension, 2:1 aspect-ratio, manifest-reference/hash, and alt-text checks. Store graphics and protected launcher/splash exports also pass. |
-| Android `aapt2 compile --dir` | Pass | Android Build Tools 37.0.0 compiled the complete `res` tree to an ignored temporary archive. |
-| Gradle `:app:assembleDebug` | Blocked by required owner input | Project evaluation stopped at the existing guard because `frontend/android/app/google-services.json` is absent. No substitute Firebase file was created. |
-| Installed-device launcher/splash check | Pending | Requires a buildable release candidate and device/emulator. |
-| Signed AAB / Play pre-launch report | Pending | Requires Firebase config, signing inputs, release environment, and Play Console owner actions. |
+| Backend full suite | Pass | 1,200 passed, 17 skipped. |
+| Frontend Node suites | Pass | 109 tests passed across notification, Android configuration/version, monitoring, analytics, authentication interceptor, and error handling. |
+| Full Playwright suite | Pass | 367 passed. |
+| `npm run lint` | Pass | ESLint exit 0. |
+| `npm run build` | Pass | Vite production build completed. |
+| `npm run build:android` | Pass | Google OAuth client ID validation and Android-mode Vite build passed. |
+| Capacitor sync | Pass | Eleven configured plugins synchronized. |
+| npm audits | Pass | Production audit: 0 vulnerabilities; full high-severity audit: 0 vulnerabilities. |
+| Python dependency consistency | Pass | `pip check` found no broken requirements. |
+| Google Play/Android asset validator | Pass | Store graphics, eight screenshots, metadata lengths, manifest hashes, launcher, and splash resources passed. |
+| Android `:app:lintRelease` | Pass | 0 errors, 15 resource/icon/splash warnings. |
+| Android `:app:bundleRelease` | Pass | Gradle BUILD SUCCESSFUL; 568 tasks; package `com.yeshmishak.app`, version `1 (1.0.0)`. |
+| AAB signature | Pass | `jarsigner`: `jar verified`, exit 0. |
+| AAB secret scan | Pass | No service-role/JWT/private-key/signing-password/Sentry-auth-token pattern matched in the final artifact. |
+| Installed-device/manual matrix | Pending owner | Fresh/upgrade install, native prompts, real push/location/share/deep-link, production deletion, unsupported device, and pre-launch checks remain required. |
+| Play Console upload/pre-launch | Pending owner | Upload the recorded AAB, verify Play App Signing/asset links, and clear console findings before production. |
 
-## Scope verification
+## Generated release candidate artifact
 
-No file under `frontend/src/` or `backend/` changed. The implementation is limited to approved binary assets, Android resource references/fallback color, release metadata/documentation, and deterministic release tooling.
+- `frontend/android/app/build/outputs/bundle/release/app-release.aab`
+- Size: `21,441,067` bytes
+- SHA-256: `1CCC1E46C339CD61D11523BEED4C9CC78480A378F993F1E0AFA3ED22C35CA0DD`
+- `compileSdk 36`, `targetSdk 36`
 
-The final release owner must rerun the complete signed-candidate verification after adding owner-managed Android configuration; Play Console and installed-device checks remain pending release operations.
+The release remains a conditional no-go until final deployment, Play Console, rights approval, moderation-operations, production account-deletion, and physical-device gates in the full E10-08 report are complete.

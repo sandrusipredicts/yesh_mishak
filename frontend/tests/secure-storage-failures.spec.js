@@ -4,6 +4,7 @@ const user = {
   id: '5f0a09a4-52c5-4c3f-9a2e-8a52c8d6b7aa',
   name: 'Failure Tester',
   email: 'failure@example.com',
+  terms_accepted: true,
 }
 
 function makeJwt(subject = user.id) {

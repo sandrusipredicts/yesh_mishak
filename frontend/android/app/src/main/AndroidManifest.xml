@@ -9,6 +9,17 @@
         </intent>
     </queries>
 
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required for push notifications on Android 13+ (API 33) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Foreground location, requested only at point-of-need per
+         docs/android-location-permission-requirements.md. Background
+         location (ACCESS_BACKGROUND_LOCATION) is intentionally omitted. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -71,14 +82,4 @@
         </service>
     </application>
 
-    <!-- Permissions -->
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Required for push notifications on Android 13+ (API 33) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Foreground location, requested only at point-of-need per
-         docs/android-location-permission-requirements.md. Background
-         location (ACCESS_BACKGROUND_LOCATION) is intentionally omitted. -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 </manifest>

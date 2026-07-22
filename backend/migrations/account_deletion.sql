@@ -1,5 +1,4 @@
--- ISSUE-882: Atomic account deletion RPC function.
---
+-- ISSUE-882 / E10-08: Google Play compliant atomic permanent app-account deletion.
 -- Wraps token revocation, game-counter reconciliation, and user row deletion
 -- in a single transaction so the operation is all-or-nothing.
 --

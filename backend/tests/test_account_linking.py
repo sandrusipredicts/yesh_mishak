@@ -231,6 +231,18 @@ class FakeSupabaseClient:
         user["tokens_valid_after"] = "2026-01-01T00:00:00+00:00"
         return "removed"
 
+    def rpc_delete_user_account(self, params: dict[str, Any]) -> str:
+        user = self._find_user(params["p_user_id"])
+        if user is None:
+            return "user_not_found"
+        self.tables["users"].remove(user)
+        self.tables["user_identities"] = [
+            identity
+            for identity in self.tables["user_identities"]
+            if identity["user_id"] != params["p_user_id"]
+        ]
+        return "deleted"
+
 
 def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")

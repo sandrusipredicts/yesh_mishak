@@ -1,5 +1,7 @@
 import re
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth.passwords import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validate_password
@@ -139,6 +141,7 @@ class UserResponse(BaseModel):
     name: str
     username: str | None = None
     phone_number: str | None = None
+    terms_accepted: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -178,6 +181,18 @@ class RemovePasswordRequest(BaseModel):
     google_token: str = Field(min_length=1)
 
 
+class DeleteAccountRequest(BaseModel):
+    confirmation: Literal["DELETE"] | None = None
+    current_password: str | None = Field(default=None, min_length=1, max_length=128)
+    password: str | None = Field(default=None, max_length=PASSWORD_MAX_LENGTH)
+    google_token: str | None = Field(default=None, max_length=8192)
+
+    def model_post_init(self, __context: object) -> None:
+        p = self.password or self.current_password
+        if not p and not self.google_token:
+            raise ValueError("Either password/current_password or google_token is required")
+
+
 class EmailAccountMethod(BaseModel):
     address: str | None = None
     linked: bool
@@ -200,12 +215,3 @@ class AccountMethodsResponse(BaseModel):
 class AccountMethodsMutationResponse(BaseModel):
     account_methods: AccountMethodsResponse
     access_token: str
-
-
-class DeleteAccountRequest(BaseModel):
-    password: str | None = Field(default=None, max_length=PASSWORD_MAX_LENGTH)
-    google_token: str | None = Field(default=None, max_length=8192)
-
-    def model_post_init(self, __context: object) -> None:
-        if not self.password and not self.google_token:
-            raise ValueError("Either password or google_token is required")

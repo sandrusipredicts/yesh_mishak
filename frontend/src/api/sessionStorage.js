@@ -10,6 +10,7 @@ const METADATA_KEYS = {
   name: 'currentUserName',
   email: 'currentUserEmail',
   username: 'currentUsername',
+  termsAccepted: 'currentUserTermsAccepted',
 }
 const LEGACY_KEYS = ['authToken', 'token', 'current_user_id', 'user_id']
 
@@ -286,7 +287,7 @@ export async function clearToken() {
 
 export function getUserMetadata() {
   if (!hasLocalStorage()) {
-    return { id: '', name: '', email: '', username: '' }
+    return { id: '', name: '', email: '', username: '', terms_accepted: undefined }
   }
 
   return {
@@ -294,10 +295,15 @@ export function getUserMetadata() {
     name: localStorage.getItem(METADATA_KEYS.name) || '',
     email: localStorage.getItem(METADATA_KEYS.email) || '',
     username: localStorage.getItem(METADATA_KEYS.username) || '',
+    terms_accepted: localStorage.getItem(METADATA_KEYS.termsAccepted) === 'true'
+      ? true
+      : localStorage.getItem(METADATA_KEYS.termsAccepted) === 'false'
+        ? false
+        : undefined,
   }
 }
 
-export function setUserMetadata({ id, name, email, username }) {
+export function setUserMetadata({ id, name, email, username, terms_accepted }) {
   if (!hasLocalStorage()) {
     return
   }
@@ -310,6 +316,12 @@ export function setUserMetadata({ id, name, email, username }) {
     localStorage.setItem(METADATA_KEYS.username, username)
   } else {
     localStorage.removeItem(METADATA_KEYS.username)
+  }
+
+  if (typeof terms_accepted === 'boolean') {
+    localStorage.setItem(METADATA_KEYS.termsAccepted, String(terms_accepted))
+  } else {
+    localStorage.removeItem(METADATA_KEYS.termsAccepted)
   }
 }
 

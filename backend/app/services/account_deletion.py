@@ -18,13 +18,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import status
+from fastapi import Request, status
 
 from app.auth.dependencies import invalidate_cached_user
 from app.auth.google import verify_google_token as _verify_google_token_raw
 from app.auth.passwords import verify_password
 from app.db.supabase import get_supabase_service_role_client
 from app.errors import raise_api_error
+from app.services import account_linking
 
 logger = logging.getLogger(__name__)
 
@@ -47,40 +48,61 @@ def _verify_google_token_for_reauth(token: str) -> dict[str, Any]:
 def _verify_reauth(
     user: dict[str, Any],
     password: str | None,
+    current_password: str | None,
     google_token: str | None,
+    request: Request | None = None,
 ) -> None:
+    effective_password = password or current_password
+    google_token = google_token or None
+
+    if bool(effective_password) == bool(google_token):
+        raise_api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Provide exactly one re-authentication method.",
+        )
+
     has_password = bool(user.get("password_hash"))
 
-    if password and has_password:
-        if verify_password(password, user["password_hash"]):
-            return
-        raise_api_error(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="REAUTHENTICATION_REQUIRED",
-            message="Current password is incorrect.",
-        )
+    if effective_password:
+        if not has_password or not verify_password(effective_password, user["password_hash"]):
+            if request:
+                account_linking._check_reauth_rate_limit(request, str(user["id"]))
+            raise_api_error(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="REAUTHENTICATION_REQUIRED",
+                message="Current password is incorrect.",
+            )
+        # Reset reauth rate limit on success
+        if request:
+            account_linking._reset_reauth_rate_limit(request, str(user["id"]))
+        return
 
     if google_token:
-        google_user = _verify_google_token_for_reauth(google_token)
-        if google_user["google_sub"] == user.get("google_sub"):
-            return
-        raise_api_error(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="INVALID_GOOGLE_TOKEN",
-            message="Google account does not match the account being deleted.",
-        )
-
-    raise_api_error(
-        status_code=status.HTTP_403_FORBIDDEN,
-        code="REAUTHENTICATION_REQUIRED",
-        message="Valid credentials are required to delete this account.",
-    )
+        # Check Google token verification
+        if request:
+            try:
+                account_linking._verify_reauth_google_token(str(user["id"]), google_token)
+            except Exception:
+                raise
+        else:
+            google_user = _verify_google_token_for_reauth(google_token)
+            if google_user["google_sub"] != user.get("google_sub"):
+                raise_api_error(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="INVALID_GOOGLE_TOKEN",
+                    message="Google account does not match the account being deleted.",
+                )
+        return
 
 
 def delete_account(
     user_id: str,
-    password: str | None,
-    google_token: str | None,
+    password: str | None = None,
+    google_token: str | None = None,
+    *,
+    current_password: str | None = None,
+    request: Request | None = None,
 ) -> None:
     client = get_supabase_service_role_client()
 
@@ -97,11 +119,11 @@ def delete_account(
             code="USER_NOT_FOUND",
             message="User not found",
         )
-    user = user.data[0]
+    user_data = user.data[0]
 
-    _verify_reauth(user, password, google_token)
+    _verify_reauth(user_data, password, current_password, google_token, request)
 
-    if user.get("role") == "admin":
+    if user_data.get("role") == "admin":
         admin_count = (
             client.table("users")
             .select("id", count="exact")

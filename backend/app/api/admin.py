@@ -78,6 +78,18 @@ ENGAGEMENT_PLATFORMS = ("web", "android", "ios")
 SHARE_ACTION_OUTCOMES = ("shared", "copied", "cancelled", "unavailable", "failed")
 SUCCESSFUL_SHARE_OUTCOMES = {"shared", "copied"}
 
+
+class ContentReportStatusUpdate(BaseModel):
+    status: str
+    admin_note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {"in_review", "resolved", "rejected"}:
+            raise ValueError("Invalid content report status")
+        return value
+
 ADMIN_USER_COLUMNS = ",".join(
     [
         "id",
@@ -1816,3 +1828,55 @@ def get_monitoring(
             window_ended_at=now,
         ),
     }
+
+
+@router.get("/content-reports")
+def list_content_reports(
+    report_status: str | None = Query(default=None, alias="status"),
+    current_user: dict = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    del current_user
+    query = (
+        get_supabase_service_role_client()
+        .table("content_reports")
+        .select("*")
+        .order("created_at", desc=True)
+    )
+    if report_status:
+        if report_status not in {"open", "in_review", "resolved", "rejected"}:
+            raise_api_error(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="VALIDATION_ERROR",
+                message="Invalid content report status",
+            )
+        query = query.eq("status", report_status)
+    return query.execute().data
+
+
+@router.patch("/content-reports/{report_id}")
+def update_content_report(
+    report_id: str,
+    body: ContentReportStatusUpdate,
+    current_user: dict = Depends(require_admin),
+) -> dict[str, Any]:
+    report_id = validate_uuid_id(report_id, "report_id")
+    payload = {
+        "status": body.status,
+        "admin_note": body.admin_note.strip() if body.admin_note else None,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "reviewed_by": str(current_user["id"]),
+    }
+    response = (
+        get_supabase_service_role_client()
+        .table("content_reports")
+        .update(payload)
+        .eq("id", report_id)
+        .execute()
+    )
+    if not response.data:
+        raise_api_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="CONTENT_REPORT_NOT_FOUND",
+            message="Content report not found",
+        )
+    return {"message": "Content report updated", "report": response.data[0]}

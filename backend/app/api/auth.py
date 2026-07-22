@@ -78,6 +78,7 @@ def _format_user_response(user: dict[str, Any]) -> UserResponse:
         name=name,
         username=user.get("username"),
         phone_number=user.get("phone_number"),
+        terms_accepted=user.get("terms_accepted_at") is not None,
     )
 
 
@@ -98,7 +99,7 @@ def _get_user_by_column(column: str, value: str) -> dict[str, Any] | None:
     response = (
         get_supabase_client()
         .table("users")
-        .select("id,email,name,username,phone_number,password_hash,email_verified,email_verified_at")
+        .select("id,email,name,username,phone_number,password_hash,email_verified,email_verified_at,terms_accepted_at")
         .eq(column, value)
         .limit(1)
         .execute()
@@ -456,6 +457,27 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
     return {"message": "Logged out successfully"}
 
 
+
+@router.post("/accept-terms", response_model=MessageResponse)
+def accept_terms(current_user: dict = Depends(require_active_user)) -> MessageResponse:
+    user_id = str(current_user["id"])
+    response = (
+        get_supabase_service_role_client()
+        .table("users")
+        .update({"terms_accepted_at": _now_iso()})
+        .eq("id", user_id)
+        .execute()
+    )
+    if not response.data:
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="INTERNAL_SERVER_ERROR",
+            message="Terms acceptance could not be saved",
+        )
+    invalidate_cached_user(user_id)
+    return MessageResponse(message="Terms accepted")
+
+
 @router.post("/check-username", response_model=AvailabilityResponse)
 def check_username(request: Request, payload: UsernameCheckRequest) -> AvailabilityResponse:
     rate_limit_hit = check_rate_limit_by_ip(
@@ -621,6 +643,12 @@ def delete_user_account(
     if rate_limit_hit:
         return rate_limit_hit
 
-    delete_account(str(current_user["id"]), payload.password, payload.google_token)
+    delete_account(
+        user_id=str(current_user["id"]),
+        password=payload.password,
+        current_password=payload.current_password,
+        google_token=payload.google_token,
+        request=request,
+    )
     return MessageResponse(message="Account deleted")
 

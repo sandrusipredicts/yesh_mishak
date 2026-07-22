@@ -87,6 +87,11 @@ export async function resendVerificationEmail(email) {
   return response.data
 }
 
+export async function acceptTerms() {
+  const response = await api.post('/auth/accept-terms')
+  return response.data
+}
+
 export async function checkUsername(username) {
   const response = await api.post('/auth/check-username', { username })
 

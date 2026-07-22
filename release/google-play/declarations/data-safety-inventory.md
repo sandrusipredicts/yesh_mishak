@@ -12,7 +12,7 @@ This inventory maps observed product behavior to likely Google Play Data safety 
 | City and deliberately saved coordinates | Map, field submission, location-based notification preferences | App functionality, personalization | Collected in saved workflows; distinguish from live on-device location |
 | Live foreground device location | Centering/finding nearby fields | App functionality | Normally processed on-device; verify network calls and telemetry do not transmit it unexpectedly |
 | Background location | Android manifest intentionally omits it | Not used | Declare not collected/used only after device verification |
-| Game/field activity, participation, reports | Core product records and moderation | App functionality, safety, analytics | Collected; some data is visible to other users |
+| Game/field activity, participation, reports, blocks, Terms acceptance | Core product records, user safety, and moderation | App functionality, safety, analytics | Collected; some game/field activity is visible to other users; reports and block lists are restricted |
 | Field photos/media | Camera/photo-picker flows may submit field images | App functionality, moderation | Confirm shipped endpoints/storage and disclose photos if enabled |
 | Push token, installation/device identifiers, platform | Push delivery and installation routing | App functionality | Collected; identify Firebase/provider handling |
 | Product interaction analytics | First-party analytics events | Analytics, app functionality | Collected; verify event properties contain no undeclared PII or precise location |
@@ -28,7 +28,7 @@ This inventory maps observed product behavior to likely Google Play Data safety 
 - [ ] Confirm collection is required or optional per data type and that the UI matches the answer.
 - [ ] Confirm each purpose: app functionality, analytics, developer communications, advertising/marketing, fraud/security/compliance, personalization, or account management.
 - [ ] Confirm data is encrypted in transit across mobile, web, API, storage, monitoring, maps, auth, and push paths.
-- [ ] Confirm account-deletion requests are operational, identity-verified, executed, and cover associated data with documented exceptions.
+- [ ] Deploy the account-deletion migrations and confirm password and Google reauthentication, associated-data deletion, de-identification, and documented retention exceptions in production.
 - [ ] Confirm retention periods, especially first-party analytics and crash diagnostics.
 - [ ] Confirm no advertising ID access or ads SDK in the release bundle.
 - [ ] Compare the final console answers with the public privacy policy and an intercepted release-build network trace.

@@ -176,7 +176,11 @@ test.describe('Frontend Performance Measurement', () => {
 
       const start = Date.now()
       const marker = page.locator('.field-marker-icon').first()
-      await marker.click({ force: true })
+      // Leaflet can transform a marker just outside Playwright's computed
+      // viewport while it remains the visible interactive marker. Invoke
+      // the element's click directly so this timing benchmark measures
+      // panel rendering instead of browser hit-testing geometry.
+      await marker.evaluate((element) => element.click())
       await page.waitForSelector('.field-details-panel')
       const duration = Date.now() - start
       fieldPanelOpenTimes.push(duration)

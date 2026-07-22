@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import Modal from './Modal'
+import ContentReportModal from './ContentReportModal'
 import { joinGame, leaveGame, extendGame, closeGame } from '../api/games'
 import { getStoredSessionUserId } from '../api/auth'
 import { getApiErrorMessage } from '../api/errors'
@@ -11,6 +12,7 @@ import { addGameToCalendar } from '../api/gameCalendar'
 import { isNativeRuntime } from '../api/sessionStorage'
 import { isGameShareable } from '../utils/gameShareability'
 import { isGameCalendarEligible } from '../utils/gameCalendarEligibility'
+import { blockUser, getBlockedUsers, unblockUser } from '../api/moderation'
 
 const ACTIVE_GAME_STATUSES = new Set(['open', 'full'])
 
@@ -120,6 +122,9 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
   const [calendarMessage, setCalendarMessage] = useState('')
   const [calendarError, setCalendarError] = useState('')
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const [reportTarget, setReportTarget] = useState(null)
+  const [blockTarget, setBlockTarget] = useState(null)
+  const [blockedUserIds, setBlockedUserIds] = useState(() => new Set())
   const [participantsToggleState, setParticipantsToggleState] = useState({
     gameId: '',
     isOpen: false,
@@ -151,6 +156,7 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
     : false
   const normalizedCurrentUserId = normalizeUserId(getStoredSessionUserId() || currentUserId)
   const creatorId = normalizeUserId(game?.created_by)
+  const creatorIsBlocked = blockedUserIds.has(creatorId)
   const isCreator = Boolean(
     normalizedCurrentUserId && creatorId === normalizedCurrentUserId,
   )
@@ -190,6 +196,16 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
 
     cancelGameReminder(gameId)
   }, [gameId, hasReminder, canOfferReminder])
+
+  useEffect(() => {
+    let active = true
+    getBlockedUsers()
+      .then((userIds) => {
+        if (active) setBlockedUserIds(new Set(userIds.map(normalizeUserId)))
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     const refreshAt = isUpcomingGame ? scheduledAt : expiresAt
@@ -394,6 +410,32 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
     }
   }
 
+  async function handleBlockUser() {
+    if (!blockTarget?.id) return
+    try {
+      await blockUser(blockTarget.id)
+      setBlockedUserIds((current) => new Set([...current, normalizeUserId(blockTarget.id)]))
+      setSuccessMessage(t('contentSafety.userBlocked'))
+      setBlockTarget(null)
+    } catch {
+      setError(t('contentSafety.blockFailed'))
+    }
+  }
+
+  async function handleUnblockUser(userId) {
+    try {
+      await unblockUser(userId)
+      setBlockedUserIds((current) => {
+        const next = new Set(current)
+        next.delete(normalizeUserId(userId))
+        return next
+      })
+      setSuccessMessage(t('contentSafety.userUnblocked'))
+    } catch {
+      setError(t('contentSafety.unblockFailed'))
+    }
+  }
+
   if (!game) return null
 
   return (
@@ -430,7 +472,9 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
         </dl>
       )}
 
-      {game.age_note ? (
+      {creatorIsBlocked ? (
+        <p className="game-age-note">{t('contentSafety.blockedContent')}</p>
+      ) : game.age_note ? (
         <p className="game-age-note">{game.age_note}</p>
       ) : null}
 
@@ -471,10 +515,36 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
             {participants.map((participant, index) => {
               const participantUserId = getParticipantUserId(participant)
               const participantName = getParticipantName(participant, t('game.userFallback'))
+              const isCurrentUser = participantUserId === normalizedCurrentUserId
+              const isBlocked = blockedUserIds.has(participantUserId)
 
               return (
                 <li key={participantUserId || `${participantName}-${index}`}>
-                  {participantName}
+                  <span>{isBlocked ? t('contentSafety.blockedUser') : participantName}</span>
+                  {!isCurrentUser && participantUserId ? (
+                    <span className="participant-safety-actions">
+                      <button
+                        className="text-action-button"
+                        onClick={() => setReportTarget({ type: 'user', id: participantUserId, label: participantName })}
+                        type="button"
+                      >
+                        {t('contentSafety.reportUser')}
+                      </button>
+                      {isBlocked ? (
+                        <button className="text-action-button" onClick={() => handleUnblockUser(participantUserId)} type="button">
+                          {t('contentSafety.unblockUser')}
+                        </button>
+                      ) : (
+                        <button
+                          className="text-action-button"
+                          onClick={() => setBlockTarget({ id: participantUserId, label: participantName })}
+                          type="button"
+                        >
+                          {t('contentSafety.blockUser')}
+                        </button>
+                      )}
+                    </span>
+                  ) : null}
                 </li>
               )
             })}
@@ -487,6 +557,15 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
       </div>
 
       <div className="game-actions">
+        {gameId && !isCreator ? (
+          <button
+            type="button"
+            className="secondary-panel-button"
+            onClick={() => setReportTarget({ type: 'game', id: gameId, label: fieldName })}
+          >
+            {t('contentSafety.reportGame')}
+          </button>
+        ) : null}
         {isActionableGame && (!hasParticipants || (!isParticipant && !isFull)) ? (
           <button
             type="button"
@@ -596,6 +675,32 @@ function GamePanel({ game, currentUserId, onUpdate, fieldName, fieldLat, fieldLn
           </button>
           <button type="button" className="danger-modal-button" onClick={handleCloseGame}>
             {t('game.closeConfirmAction')}
+          </button>
+        </div>
+      </Modal>
+
+      {reportTarget ? (
+        <ContentReportModal
+          onClose={() => setReportTarget(null)}
+          onSubmitted={() => { setReportTarget(null); setSuccessMessage(t('contentSafety.reportSubmitted')) }}
+          target={reportTarget}
+        />
+      ) : null}
+
+      <Modal
+        isOpen={Boolean(blockTarget)}
+        onClose={() => setBlockTarget(null)}
+        isConfirm
+        ariaLabelledBy="block-user-confirm-title"
+      >
+        <h3 id="block-user-confirm-title">{t('contentSafety.blockUser')}</h3>
+        <p>{t('contentSafety.blockDescription', { name: blockTarget?.label || t('game.userFallback') })}</p>
+        <div className="confirm-modal-actions">
+          <button className="secondary-panel-button" onClick={() => setBlockTarget(null)} type="button">
+            {t('contentSafety.cancel')}
+          </button>
+          <button className="danger-modal-button" onClick={handleBlockUser} type="button">
+            {t('contentSafety.blockUser')}
           </button>
         </div>
       </Modal>

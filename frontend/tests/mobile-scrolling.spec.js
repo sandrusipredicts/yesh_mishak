@@ -107,12 +107,12 @@ test.describe('Mobile Scrolling Behavior', () => {
     await page.setViewportSize({ width: 320, height: 400 })
     await page.goto('/')
 
-    const letsGoBtn = page.getByRole('button', { name: "Let's Go" })
-    await expect(letsGoBtn).toBeAttached()
+    const continueButton = page.getByRole('button', { name: 'Continue' })
+    await expect(continueButton).toBeAttached()
 
     // Scroll to CTA to confirm scrollability
-    await letsGoBtn.scrollIntoViewIfNeeded()
-    await expect(letsGoBtn).toBeInViewport()
+    await continueButton.scrollIntoViewIfNeeded()
+    await expect(continueButton).toBeInViewport()
 
     const pageWrapper = page.locator('.onboarding-page')
     await expect(pageWrapper).toHaveCSS('display', 'flex')
@@ -125,12 +125,13 @@ test.describe('Mobile Scrolling Behavior', () => {
 
     await page.setViewportSize({ width: 360, height: 640 })
     await page.goto('/')
+    await page.getByRole('button', { name: 'Continue' }).click()
 
     // Open suggestions by typing Hebrew character to match Hebrew cities
-    const cityInput = page.locator('#city-input')
+    const cityInput = page.locator('#onboarding-city-input')
     await cityInput.fill('א')
     
-    const suggestionsList = page.locator('#city-suggestions')
+    const suggestionsList = page.getByRole('listbox')
     await expect(suggestionsList).toBeVisible()
 
     // Verify max-height uses min(220px, 40dvh)

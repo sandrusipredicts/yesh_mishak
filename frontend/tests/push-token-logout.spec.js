@@ -5,6 +5,7 @@ const userA = {
   name: 'User A',
   email: 'user-a@example.com',
   username: 'user-a',
+  terms_accepted: true,
 }
 
 const userB = {
@@ -12,6 +13,7 @@ const userB = {
   name: 'User B',
   email: 'user-b@example.com',
   username: 'user-b',
+  terms_accepted: true,
 }
 
 function makeJwt(subject) {

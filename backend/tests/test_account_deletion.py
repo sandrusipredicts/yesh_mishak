@@ -12,10 +12,124 @@ from app.auth.passwords import hash_password
 from app.core.config import get_settings
 from app.main import app
 
+# Import E10-08 helpers
+from tests.test_account_linking import (
+    FakeSupabaseClient as LinkingFakeSupabaseClient,
+    configure_test_settings as linking_configure_test_settings,
+    google_user,
+    make_token as linking_make_token,
+    manual_user,
+    patch_all_supabase,
+    patch_google_verifier as linking_patch_google_verifier,
+)
 
-# ---------------------------------------------------------------------------
-# Fake Supabase layer
-# ---------------------------------------------------------------------------
+
+def _client_for(monkeypatch, fake: LinkingFakeSupabaseClient) -> TestClient:
+    linking_configure_test_settings(monkeypatch)
+    patch_all_supabase(monkeypatch, fake)
+    for target in (
+        "app.services.account_deletion.get_supabase_service_role_client",
+        "app.services.api_request_metrics.get_supabase_service_role_client",
+    ):
+        monkeypatch.setattr(target, lambda: fake)
+    return TestClient(app)
+
+
+# --- E10-08 Deletion Tests -------------------------------------------------
+
+def test_password_user_can_permanently_delete_account(monkeypatch):
+    user = manual_user()
+    fake = LinkingFakeSupabaseClient(users=[user])
+    client = _client_for(monkeypatch, fake)
+
+    response = client.request(
+        "DELETE",
+        "/auth/account",
+        headers={"Authorization": f"Bearer {linking_make_token(user)}"},
+        json={
+            "confirmation": "DELETE",
+            "current_password": "CorrectHorse123",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Account deleted"}
+    assert fake.tables["users"] == []
+
+
+def test_wrong_password_does_not_delete_account_or_end_session(monkeypatch):
+    user = manual_user()
+    fake = LinkingFakeSupabaseClient(users=[user])
+    client = _client_for(monkeypatch, fake)
+
+    response = client.request(
+        "DELETE",
+        "/auth/account",
+        headers={"Authorization": f"Bearer {linking_make_token(user)}"},
+        json={"confirmation": "DELETE", "current_password": "wrong-password"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "REAUTHENTICATION_REQUIRED"
+    assert fake.tables["users"] == [user]
+
+
+def test_google_only_user_can_delete_after_matching_google_reauthentication(monkeypatch):
+    user = google_user()
+    identity = {
+        "id": "identity-1",
+        "user_id": user["id"],
+        "provider": "google",
+        "provider_subject": "google-sub-123",
+        "email_at_link": user["email"],
+    }
+    fake = LinkingFakeSupabaseClient(users=[user], identities=[identity])
+    client = _client_for(monkeypatch, fake)
+    linking_patch_google_verifier(
+        monkeypatch,
+        {
+            "matching-token": {
+                "sub": "google-sub-123",
+                "email": user["email"],
+                "email_verified": True,
+            }
+        },
+    )
+
+    response = client.request(
+        "DELETE",
+        "/auth/account",
+        headers={"Authorization": f"Bearer {linking_make_token(user)}"},
+        json={"confirmation": "DELETE", "google_token": "matching-token"},
+    )
+
+    assert response.status_code == 200
+    assert fake.tables["users"] == []
+    assert fake.tables["user_identities"] == []
+
+
+def test_deletion_requires_exactly_one_reauthentication_method(monkeypatch):
+    user = manual_user()
+    fake = LinkingFakeSupabaseClient(users=[user])
+    client = _client_for(monkeypatch, fake)
+
+    response = client.request(
+        "DELETE",
+        "/auth/account",
+        headers={"Authorization": f"Bearer {linking_make_token(user)}"},
+        json={
+            "confirmation": "DELETE",
+            "current_password": "CorrectHorse123",
+            "google_token": "some-token",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert fake.tables["users"] == [user]
+
+
+# --- Main Branch Deletion Tests --------------------------------------------
 
 @dataclass
 class FakeResponse:
@@ -96,10 +210,22 @@ class FakeSupabaseClient:
         games: list[dict[str, Any]] | None = None,
         game_players: list[dict[str, Any]] | None = None,
     ) -> None:
+        user_identities = []
+        for u in (users or []):
+            if u.get("google_sub"):
+                user_identities.append({
+                    "id": f"identity-{u['id']}",
+                    "user_id": u["id"],
+                    "provider": "google",
+                    "provider_subject": u["google_sub"],
+                    "email_at_link": u["email"],
+                })
+
         self.tables: dict[str, list[dict[str, Any]]] = {
             "users": users or [],
             "games": games or [],
             "game_players": game_players or [],
+            "user_identities": user_identities,
         }
         self.rpc_calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -136,10 +262,6 @@ class FakeSupabaseClient:
         return {"deleted": True, "games_reconciled": reconciled}
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "test-key")
@@ -153,8 +275,14 @@ def patch_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     for target in (
         "app.auth.dependencies.get_supabase_client",
         "app.services.account_deletion.get_supabase_service_role_client",
+        "app.services.account_linking.get_supabase_service_role_client",
+        "app.services.api_request_metrics.get_supabase_service_role_client",
     ):
         monkeypatch.setattr(target, lambda: fake_client)
+
+    async def fake_record_metric(*args, **kwargs):
+        pass
+    monkeypatch.setattr("app.middleware.request_metrics.record_api_request_metric", fake_record_metric)
 
 
 def patch_google_verifier(monkeypatch, claims_by_token: dict[str, dict[str, Any]]) -> None:
@@ -171,6 +299,8 @@ def patch_google_verifier(monkeypatch, claims_by_token: dict[str, dict[str, Any]
         }
 
     monkeypatch.setattr("app.services.account_deletion._verify_google_token_raw", fake_verify)
+    monkeypatch.setattr("app.services.account_linking._verify_google_token_raw", fake_verify)
+    monkeypatch.setattr("app.auth.google.verify_google_token", fake_verify)
 
 
 def make_token(user: dict[str, Any]) -> str:
@@ -232,10 +362,6 @@ def _clear_user_cache():
     _user_cache.clear()
 
 
-# ---------------------------------------------------------------------------
-# Helpers for DELETE-with-body (httpx TestClient.delete doesn't accept json=)
-# ---------------------------------------------------------------------------
-
 import json as _json
 
 
@@ -246,11 +372,6 @@ def _delete(client: TestClient, url: str, *, body: dict | None = None, headers: 
         content=_json.dumps(body) if body is not None else None,
         headers={**(headers or {}), "Content-Type": "application/json"},
     )
-
-
-# ---------------------------------------------------------------------------
-# DELETE /auth/account — auth and validation
-# ---------------------------------------------------------------------------
 
 
 def test_delete_account_requires_auth(monkeypatch) -> None:
@@ -311,11 +432,6 @@ def test_delete_account_with_correct_password(monkeypatch) -> None:
     assert ("delete_user_account", {"p_user_id": user["id"]}) in fake.rpc_calls
 
 
-# ---------------------------------------------------------------------------
-# Google re-auth
-# ---------------------------------------------------------------------------
-
-
 def test_delete_account_with_valid_google_token(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = google_only_user()
@@ -372,11 +488,6 @@ def test_delete_account_with_invalid_google_token(monkeypatch) -> None:
     assert response.json()["code"] == "INVALID_GOOGLE_TOKEN"
 
 
-# ---------------------------------------------------------------------------
-# Dual-method user can use either credential
-# ---------------------------------------------------------------------------
-
-
 def test_dual_user_can_delete_with_password(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = dual_user()
@@ -412,11 +523,6 @@ def test_dual_user_can_delete_with_google(monkeypatch) -> None:
     assert len(fake.tables["users"]) == 0
 
 
-# ---------------------------------------------------------------------------
-# Google-only user cannot re-auth with password
-# ---------------------------------------------------------------------------
-
-
 def test_google_only_user_with_password_rejected(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = google_only_user()
@@ -432,11 +538,6 @@ def test_google_only_user_with_password_rejected(monkeypatch) -> None:
     assert response.status_code == 403
     assert response.json()["code"] == "REAUTHENTICATION_REQUIRED"
     assert len(fake.tables["users"]) == 1
-
-
-# ---------------------------------------------------------------------------
-# Last admin protection
-# ---------------------------------------------------------------------------
 
 
 def test_last_admin_cannot_delete(monkeypatch) -> None:
@@ -476,11 +577,6 @@ def test_non_last_admin_can_delete(monkeypatch) -> None:
     assert response.status_code == 200
     assert len(fake.tables["users"]) == 1
     assert fake.tables["users"][0]["id"] == admin2["id"]
-
-
-# ---------------------------------------------------------------------------
-# Game counter reconciliation
-# ---------------------------------------------------------------------------
 
 
 def test_deletion_reconciles_game_counts(monkeypatch) -> None:
@@ -545,11 +641,6 @@ def test_deletion_with_no_games(monkeypatch) -> None:
     assert len(fake.tables["users"]) == 0
 
 
-# ---------------------------------------------------------------------------
-# RPC is called (verifies single-transaction path)
-# ---------------------------------------------------------------------------
-
-
 def test_delete_calls_rpc_not_direct_table_delete(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = password_user()
@@ -565,11 +656,6 @@ def test_delete_calls_rpc_not_direct_table_delete(monkeypatch) -> None:
 
     rpc_names = [name for name, _ in fake.rpc_calls]
     assert "delete_user_account" in rpc_names
-
-
-# ---------------------------------------------------------------------------
-# Cache invalidation
-# ---------------------------------------------------------------------------
 
 
 def test_delete_invalidates_user_cache(monkeypatch) -> None:
@@ -590,11 +676,6 @@ def test_delete_invalidates_user_cache(monkeypatch) -> None:
     assert user["id"] not in _user_cache
 
 
-# ---------------------------------------------------------------------------
-# User not found (edge case: deleted between auth and service call)
-# ---------------------------------------------------------------------------
-
-
 def test_delete_account_user_not_found(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     user = password_user()
@@ -613,11 +694,6 @@ def test_delete_account_user_not_found(monkeypatch) -> None:
         headers={"Authorization": f"Bearer {make_token(user)}"},
     )
     assert response.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Response shape
-# ---------------------------------------------------------------------------
 
 
 def test_delete_account_response_shape(monkeypatch) -> None:

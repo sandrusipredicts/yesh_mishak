@@ -6,7 +6,7 @@ Public URL proposed for Play Console: `https://yesh-mishak.com/privacy`
 
 - [x] A logged-out `/privacy` application route exists.
 - [x] The policy identifies Yesh Mishak and lists `support@yesh-mishak.com`.
-- [x] The policy covers account/profile activity, optional foreground location, push notifications, service providers, retention/security, and email-based deletion requests.
+- [x] The policy covers account/profile activity, reports and blocks, Terms acceptance, optional foreground location, push notifications, service providers, retention/security, in-app deletion, and the logged-out deletion route.
 - [x] Android declares foreground coarse/fine location and notification permissions; it does not declare background location.
 
 ## Manual release blockers
@@ -14,8 +14,8 @@ Public URL proposed for Play Console: `https://yesh-mishak.com/privacy`
 - [ ] Deploy the policy at the exact HTTPS URL and verify it without login, redirects to authentication, region restrictions, or certificate errors.
 - [ ] Legal/privacy owner verifies that field photos/media are disclosed if enabled in the release candidate.
 - [ ] Legal/privacy owner verifies first-party analytics, Sentry/crash diagnostics, installation identifiers, processors, retention periods, and international transfers are described accurately.
-- [ ] Operations owner proves the deletion mailbox is monitored and a request can be identity-verified, fulfilled, and documented.
-- [ ] Product/legal owner confirms whether a dedicated public account-deletion webpage is required instead of the policy section.
+- [ ] Operations owner proves the deletion mailbox is monitored and the public `#account-deletion` route can be used to initiate deletion without installing or opening the app.
+- [ ] Deploy and exercise the identity-verified in-app deletion flow against production for both password and Google-only accounts.
 - [ ] Data safety worksheet, SDK inventory, network trace, and privacy text agree.
 - [ ] Policy revision date matches the deployed page used for submission.
 

@@ -19,6 +19,7 @@ const USER_A = {
   name: 'User A',
   email: 'user-a@example.com',
   username: 'user-a',
+  terms_accepted: true,
 }
 
 const USER_B = {
@@ -26,6 +27,7 @@ const USER_B = {
   name: 'User B',
   email: 'user-b@example.com',
   username: 'user-b',
+  terms_accepted: true,
 }
 
 function makeJwt(subject) {
@@ -188,8 +190,12 @@ async function completeFullOnboardingWithCity(page, city) {
 
 async function logout(page) {
   await page.locator('.location-notice-dismiss').click({ timeout: 2000 }).catch(() => {})
-  await page.getByRole('button', { name: 'Logout' }).click()
-  await page.waitForSelector('.login-page', { timeout: 15000 })
+  const loginPage = page.locator('.login-page')
+  if (await loginPage.isVisible()) return
+
+  const logoutButton = page.getByRole('button', { name: 'Logout' })
+  await logoutButton.click({ timeout: 2000 }).catch(() => {})
+  await loginPage.waitFor({ state: 'visible', timeout: 15000 })
 }
 
 test('second account on the same device is asked only for a city, never the previous account\'s', async ({ page }) => {

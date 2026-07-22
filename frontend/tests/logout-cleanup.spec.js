@@ -64,7 +64,11 @@ async function prepareApp(page, token, { failSecureRemove = false } = {}) {
       },
       nativeCallback(plugin, method, options, callback) {
         if (plugin === 'App' && method === 'addListener' && options.eventName === 'appStateChange') {
-          window.__appStateChange = callback
+          window.__appStateListeners = window.__appStateListeners || []
+          window.__appStateListeners.push(callback)
+          window.__appStateChange = (event) => {
+            window.__appStateListeners.forEach((listener) => listener(event))
+          }
           return 'issue-231-listener'
         }
         return ''
@@ -262,6 +266,10 @@ test('logout wins over an in-flight session validation', async ({ page }) => {
 
   await page.goto('/')
   await expect(page.locator('.auth-toolbar')).toContainText(user.name)
+  // The authenticated toolbar can render just before the startup validation
+  // promise clears its deduplication slot. Let that microtask settle so this
+  // test deliberately creates a distinct in-flight resume validation.
+  await page.waitForTimeout(50)
 
   // Start a resume revalidation that hangs, then log out while it is in flight.
   await page.evaluate(() => {
