@@ -10,7 +10,7 @@ from app.auth.dependencies import require_active_user, require_admin
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error, validate_uuid_id
 from app.rate_limit import check_rate_limit_by_user
-from app.routers.game_payloads import get_game_payloads_for_fields
+from app.routers.game_payloads import get_game_payloads_for_fields, get_map_game_payloads_for_fields
 from app.services.content_moderation import (
     MAX_LENGTH_DEFAULT,
     MAX_LENGTH_SHORT,
@@ -572,7 +572,7 @@ def get_fields(
             offset += FIELDS_PAGE_SIZE
 
     field_ids = [str(field["id"]) for field in fields if field.get("id")]
-    active_games_by_field_id, upcoming_games_by_field_id = get_game_payloads_for_fields(field_ids)
+    active_games_by_field_id, upcoming_games_by_field_id = get_map_game_payloads_for_fields(field_ids)
 
     for field in fields:
         field_id = str(field.get("id"))
