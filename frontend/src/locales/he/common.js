@@ -149,6 +149,7 @@ const he = {
     errorValidation: 'הנתונים שהוזנו אינם תקינים.',
     errorRateLimited: 'יותר מדי ניסיונות. המתינו מעט ונסו שוב.',
     errorGeneric: 'משהו השתבש. נסו שוב.',
+    errorLastAdmin: 'לא ניתן למחוק את חשבון המנהל האחרון.',
     deleteAccount: 'מחיקת חשבון',
     deleteAccountTitle: 'מחיקת חשבון',
     deleteAccountSectionDescription: 'מחיקה לצמיתות של חשבון יש משחק והמידע האישי המשויך אליו.',
@@ -159,6 +160,8 @@ const he = {
     deleteWithGoogle: 'אימות באמצעות Google',
     deleteAccountConfirm: 'מחיקת החשבון לצמיתות',
     deletingAccount: 'מוחק את החשבון...',
+    deleteAccountPasswordLabel: 'הזינו את הסיסמה לאישור',
+    deleteAccountGoogleLabel: 'אמתו מחדש עם Google לאישור',
   },
   termsAcceptance: {
     title: 'תנאי הקהילה',

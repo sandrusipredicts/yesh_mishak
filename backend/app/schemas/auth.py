@@ -182,9 +182,15 @@ class RemovePasswordRequest(BaseModel):
 
 
 class DeleteAccountRequest(BaseModel):
-    confirmation: Literal["DELETE"]
+    confirmation: Literal["DELETE"] | None = None
     current_password: str | None = Field(default=None, min_length=1, max_length=128)
-    google_token: str | None = Field(default=None, min_length=1)
+    password: str | None = Field(default=None, max_length=PASSWORD_MAX_LENGTH)
+    google_token: str | None = Field(default=None, max_length=8192)
+
+    def model_post_init(self, __context: object) -> None:
+        p = self.password or self.current_password
+        if not p and not self.google_token:
+            raise ValueError("Either password/current_password or google_token is required")
 
 
 class EmailAccountMethod(BaseModel):

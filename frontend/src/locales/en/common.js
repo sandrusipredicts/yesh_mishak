@@ -149,6 +149,7 @@ const en = {
     errorValidation: 'The information you entered is not valid.',
     errorRateLimited: 'Too many attempts. Please wait a bit and try again.',
     errorGeneric: 'Something went wrong. Please try again.',
+    errorLastAdmin: 'Cannot delete the last admin account.',
     deleteAccount: 'Delete account',
     deleteAccountTitle: 'Delete account',
     deleteAccountSectionDescription: 'Permanently delete your Yesh Mishak account and associated personal data.',
@@ -159,6 +160,8 @@ const en = {
     deleteWithGoogle: 'Verify with Google',
     deleteAccountConfirm: 'Delete account permanently',
     deletingAccount: 'Deleting account...',
+    deleteAccountPasswordLabel: 'Enter your password to confirm',
+    deleteAccountGoogleLabel: 'Re-authenticate with Google to confirm',
   },
   termsAcceptance: {
     title: 'Community terms',

@@ -74,6 +74,7 @@ function getAccountLinkingErrorKey(apiError) {
     LAST_LOGIN_METHOD: 'accountLinking.errorLastMethod',
     REAUTHENTICATION_REQUIRED: 'accountLinking.errorReauthRequired',
     INVALID_GOOGLE_TOKEN: 'accountLinking.errorInvalidGoogleToken',
+    LAST_ADMIN: 'accountLinking.errorLastAdmin',
     PASSWORD_ALREADY_SET: 'accountLinking.errorPasswordAlreadySet',
     PASSWORD_NOT_SET: 'accountLinking.errorPasswordNotSet',
     VALIDATION_ERROR: 'accountLinking.errorValidation',
@@ -508,7 +509,7 @@ function DeleteAccountModal({ methods, onClose, onDeleted, userId }) {
   )
 }
 
-function SettingsPage({ onAccountDeleted, onBack, userId }) {
+function SettingsPage({ onAccountDeleted, onLogout, onBack, userId }) {
   const { i18n, t } = useTranslation()
   const isRtl = i18n.dir() === 'rtl'
   const BackArrow = isRtl ? ArrowRight : ArrowLeft
@@ -769,7 +770,7 @@ function SettingsPage({ onAccountDeleted, onBack, userId }) {
         <DeleteAccountModal
           methods={methods}
           onClose={closeModal}
-          onDeleted={onAccountDeleted}
+          onDeleted={onAccountDeleted || onLogout}
           userId={userId}
         />
       ) : null}

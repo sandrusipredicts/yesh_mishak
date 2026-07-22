@@ -902,6 +902,7 @@ function App() {
     return renderWithOfflineBanner(
       <SettingsPage
         onAccountDeleted={handleLogout}
+        onLogout={handleLogout}
         onBack={() => navigateTo('/')}
         userId={currentUser.id}
       />,

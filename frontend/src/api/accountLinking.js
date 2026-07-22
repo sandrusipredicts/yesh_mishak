@@ -39,13 +39,23 @@ export async function removeAccountPassword(googleToken) {
   return applyMutationResult(response)
 }
 
-export async function deleteAccount({ currentPassword, googleToken }) {
-  const response = await api.delete('/auth/account', {
-    data: {
+export async function deleteAccount({ currentPassword, password, googleToken }) {
+  console.log("deleteAccount called with:", { currentPassword, password, googleToken })
+  try {
+    const data = {
       confirmation: 'DELETE',
       current_password: currentPassword || null,
       google_token: googleToken || null,
-    },
-  })
-  return response.data
+    }
+    if (password !== undefined) {
+      data.password = password || null
+    }
+    console.log("Sending delete request with data:", data)
+    const response = await api.delete('/auth/account', { data })
+    console.log("Delete request response:", response)
+    return response.data
+  } catch (error) {
+    console.error("deleteAccount error:", error)
+    throw error
+  }
 }
