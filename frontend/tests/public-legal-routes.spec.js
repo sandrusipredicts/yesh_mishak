@@ -5,7 +5,7 @@ test('privacy policy is public and includes the required disclosures', async ({ 
 
   await expect(page).toHaveURL(/\/privacy$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible()
-  await expect(page.getByText('Last updated: July 21, 2026')).toBeVisible()
+  await expect(page.getByText('Last updated: July 22, 2026')).toBeVisible()
 
   for (const section of [
     'Data collected',
@@ -20,6 +20,7 @@ test('privacy policy is public and includes the required disclosures', async ({ 
 
   await expect(page.getByRole('link', { name: 'support@yesh-mishak.com' }).first())
     .toHaveAttribute('href', 'mailto:support@yesh-mishak.com')
+  await expect(page.locator('#account-deletion')).toBeVisible()
   await expect(page.locator('[data-testid="auth-checking"]')).toHaveCount(0)
   await expect(page.locator('.language-selection-page')).toHaveCount(0)
 })

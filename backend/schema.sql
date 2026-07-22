@@ -19,7 +19,8 @@ create table if not exists users (
     last_active timestamptz,
     tokens_valid_after timestamptz,
     email_verified boolean not null default true,
-    email_verified_at timestamptz
+    email_verified_at timestamptz,
+    terms_accepted_at timestamptz
 );
 
 create table if not exists email_verification_tokens (
@@ -235,6 +236,28 @@ create table if not exists api_request_metrics (
     created_at timestamptz not null default now()
 );
 
+create table if not exists content_reports (
+    id uuid primary key default gen_random_uuid(),
+    reporter_user_id uuid references users(id) on delete set null,
+    target_type text not null check (target_type in ('game', 'user')),
+    target_id uuid not null,
+    reason text not null check (reason in ('abuse', 'harassment', 'hate', 'spam', 'impersonation', 'inappropriate', 'other')),
+    description text check (description is null or char_length(description) <= 500),
+    status text not null default 'open' check (status in ('open', 'in_review', 'resolved', 'rejected')),
+    admin_note text check (admin_note is null or char_length(admin_note) <= 1000),
+    reviewed_at timestamptz,
+    reviewed_by uuid references users(id) on delete set null,
+    created_at timestamptz not null default now()
+);
+
+create table if not exists user_blocks (
+    blocker_user_id uuid not null references users(id) on delete cascade,
+    blocked_user_id uuid not null references users(id) on delete cascade,
+    created_at timestamptz not null default now(),
+    primary key (blocker_user_id, blocked_user_id),
+    check (blocker_user_id <> blocked_user_id)
+);
+
 create table if not exists share_events (
     id uuid primary key default gen_random_uuid(),
     recorded_at timestamptz not null default now(),
@@ -299,8 +322,32 @@ grant select, insert, delete on public.api_request_metrics to service_role;
 grant select, insert, delete on public.share_events to service_role;
 grant select, update on public.users to service_role;
 grant select, insert, update, delete on public.user_identities to service_role;
+grant select, insert, update on public.content_reports to service_role;
+grant select, insert, delete on public.user_blocks to service_role;
+
+create or replace function public.delete_user_account(p_user_id uuid)
+returns table (result text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    if not exists (select 1 from public.users where id = p_user_id) then
+        return query select 'user_not_found'::text;
+        return;
+    end if;
+
+    delete from public.users where id = p_user_id;
+    return query select 'deleted'::text;
+end;
+$$;
+
+revoke all on function public.delete_user_account(uuid) from public;
+grant execute on function public.delete_user_account(uuid) to service_role;
 
 alter table user_identities enable row level security;
+alter table content_reports enable row level security;
+alter table user_blocks enable row level security;
 
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
@@ -366,6 +413,9 @@ create unique index if not exists idx_notifications_user_game_extended_end_time_
 
 create index if not exists idx_user_identities_user_id on user_identities(user_id);
 create index if not exists idx_user_identities_lookup on user_identities(provider, provider_subject);
+create index if not exists idx_content_reports_status_created on content_reports(status, created_at desc);
+create index if not exists idx_content_reports_target on content_reports(target_type, target_id);
+create index if not exists idx_user_blocks_blocker on user_blocks(blocker_user_id);
 
 create or replace function public.cleanup_api_request_metrics(retention_days integer default 14)
 returns integer

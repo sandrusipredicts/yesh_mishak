@@ -10,6 +10,7 @@ const USER_A = {
   name: 'User A',
   email: 'user-a@example.com',
   username: 'user-a',
+  terms_accepted: true,
 }
 
 const USER_B = {
@@ -17,6 +18,7 @@ const USER_B = {
   name: 'User B',
   email: 'user-b@example.com',
   username: 'user-b',
+  terms_accepted: true,
 }
 
 function makeJwt(subject) {
@@ -119,7 +121,11 @@ async function prepareNativeApp(page, {
       },
       nativeCallback(plugin, method, options, callback) {
         if (plugin === 'App' && method === 'addListener' && options.eventName === 'appStateChange') {
-          window.__appStateChange = callback
+          window.__appStateListeners = window.__appStateListeners || []
+          window.__appStateListeners.push(callback)
+          window.__appStateChange = (event) => {
+            window.__appStateListeners.forEach((listener) => listener(event))
+          }
           return 'app-state-listener'
         }
         if (plugin === 'PushNotifications' && method === 'addListener') {

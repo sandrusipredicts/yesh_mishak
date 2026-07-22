@@ -166,6 +166,16 @@ export function setAccountCity(userId, city, storage = globalThis.localStorage) 
   }
 }
 
+export function clearAccountCity(userId, storage = globalThis.localStorage) {
+  if (!userId || !storageAvailable(storage)) return false
+  try {
+    storage.removeItem(accountCityKey(userId))
+    return true
+  } catch {
+    return false
+  }
+}
+
 // One-time, best-effort migration for devices that already had a city
 // before per-account city scoping shipped: the device-scoped city is
 // attributed to whichever account is first to load post-upgrade, then the

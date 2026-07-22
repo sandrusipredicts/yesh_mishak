@@ -492,10 +492,12 @@ test('shows cached fields immediately while refreshing fields in the background'
     localStorage.setItem('cached_fields_timestamp', '2026-06-19T08:00:00.000Z')
   }, cachedNavigableField)
 
+  let releaseRefresh
+  const refreshGate = new Promise((resolve) => {
+    releaseRefresh = resolve
+  })
   await page.route(/\/fields\/?(\?.*)?$/, async (route) => {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 250)
-    })
+    await refreshGate
 
     return fulfillJson(route, [navigableField])
   })
@@ -518,6 +520,7 @@ test('shows cached fields immediately while refreshing fields in the background'
     page.getByLabel('Field details').getByRole('heading', { name: cachedNavigableField.name }),
   ).toBeVisible()
 
+  releaseRefresh()
   await expect
     .poll(() =>
       page.evaluate(() => JSON.parse(localStorage.getItem('cached_fields') ?? '[]')[0]?.name),

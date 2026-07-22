@@ -38,3 +38,14 @@ export async function removeAccountPassword(googleToken) {
   const response = await api.post('/auth/remove-password', { google_token: googleToken })
   return applyMutationResult(response)
 }
+
+export async function deleteAccount({ currentPassword, googleToken }) {
+  const response = await api.delete('/auth/account', {
+    data: {
+      confirmation: 'DELETE',
+      current_password: currentPassword || null,
+      google_token: googleToken || null,
+    },
+  })
+  return response.data
+}

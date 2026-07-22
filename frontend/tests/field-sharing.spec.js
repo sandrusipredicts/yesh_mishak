@@ -249,6 +249,7 @@ test('logged-out user landing on a shared field URL sees login, then field opens
         id: user.id,
         name: user.name,
         email: user.email,
+        terms_accepted: true,
       },
     }),
   )

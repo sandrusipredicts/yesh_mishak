@@ -3630,6 +3630,77 @@ select {
   gap: 8px;
 }
 
+.account-deletion-card {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.account-deletion-card h3 {
+  margin: 0;
+  color: #991b1b;
+}
+
+.account-deletion-card p {
+  margin: 0;
+  color: #7f1d1d;
+  font-size: 14px;
+}
+
+.account-deletion-card .danger-panel-button {
+  width: auto;
+}
+
+.account-deletion-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.terms-acceptance-panel {
+  width: min(520px, 100%);
+}
+
+.terms-consent-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.terms-consent-label input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.participants-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.participant-safety-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.text-action-button {
+  min-height: 44px;
+  border: 0;
+  padding: 6px 4px;
+  background: transparent;
+  color: #9f1239;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 .account-linking-modal {
   width: min(420px, 100%);
   max-height: min(600px, calc(100dvh - 40px - var(--safe-area-top) - var(--safe-area-bottom)));

@@ -30,3 +30,6 @@ frontend/android/app/google-services.json
 key.properties
 *.jks
 *.keystore
+
+# Nested release directory
+yesh_mishak_release/

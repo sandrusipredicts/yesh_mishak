@@ -1,5 +1,7 @@
 import re
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth.passwords import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validate_password
@@ -139,6 +141,7 @@ class UserResponse(BaseModel):
     name: str
     username: str | None = None
     phone_number: str | None = None
+    terms_accepted: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -176,6 +179,12 @@ class SetPasswordRequest(BaseModel):
 
 class RemovePasswordRequest(BaseModel):
     google_token: str = Field(min_length=1)
+
+
+class DeleteAccountRequest(BaseModel):
+    confirmation: Literal["DELETE"]
+    current_password: str | None = Field(default=None, min_length=1, max_length=128)
+    google_token: str | None = Field(default=None, min_length=1)
 
 
 class EmailAccountMethod(BaseModel):

@@ -5,6 +5,7 @@ const user = {
   id: '7c1c2f9e-1d24-4f77-b7a3-3f5d20b0a111',
   name: 'Native Google User',
   email: 'native.google@example.com',
+  terms_accepted: true,
 }
 
 function makeJwt(subject = user.id) {

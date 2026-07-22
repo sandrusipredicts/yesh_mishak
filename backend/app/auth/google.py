@@ -213,7 +213,7 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
     try:
         user_response = (
             service_client.table("users")
-            .select("id,email,name,google_sub,username,phone_number,password_hash,email_verified")
+            .select("id,email,name,google_sub,username,phone_number,password_hash,email_verified,terms_accepted_at")
             .eq("id", user_id)
             .limit(1)
             .execute()

@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import './PublicPolicyPage.css'
 
 const CONTACT_EMAIL = 'support@yesh-mishak.com'
-const LAST_UPDATED = 'July 21, 2026'
+const LAST_UPDATED = 'July 22, 2026'
 
 const policyContent = {
   privacy: {
@@ -28,8 +28,8 @@ const policyContent = {
               </li>
               <li>
                 <strong>Profile and activity information:</strong> games you organize or join,
-                fields you submit, reports you make, notification preferences, and related activity
-                timestamps.
+                fields you submit, reports you make, users you block, your acceptance of the
+                community terms, notification preferences, and related activity timestamps.
               </li>
               <li>
                 <strong>Photos:</strong> images you attach to field submissions. Photo metadata
@@ -130,16 +130,24 @@ const policyContent = {
       },
       {
         title: 'Account deletion',
+        id: 'account-deletion',
         content: (
-          <p>
-            To request deletion of your Yesh Mishak account and associated personal information,
-            email <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> from the email address
-            connected to your account. We may ask you to verify your identity. We will delete or
-            de-identify account information unless we need to keep limited records for legal,
-            security, fraud-prevention, or dispute-resolution purposes. Public field or game records
-            may be retained in de-identified form where necessary to preserve the integrity of the
-            Service.
-          </p>
+          <>
+            <p>
+              You can permanently delete your Yesh Mishak account in the app by opening Settings,
+              selecting “Delete account,” and verifying your identity with your password or linked
+              Google account.
+            </p>
+            <p>
+              If you cannot access the app, request deletion by emailing{' '}
+              <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>{' '}
+              from the email address connected to your account. We may ask you to verify your
+              identity. We will delete or de-identify account information unless we need to keep
+              limited records for legal, security, fraud-prevention, or dispute-resolution purposes.
+              Public field or game records may be retained in de-identified form where necessary to
+              preserve the integrity of the Service.
+            </p>
+          </>
         ),
       },
       {
@@ -309,7 +317,7 @@ function PublicPolicyPage({ policy }) {
 
         <div className="public-policy-sections">
           {content.sections.map((section) => (
-            <section key={section.title}>
+            <section id={section.id} key={section.title}>
               <h2>{section.title}</h2>
               {section.content}
             </section>

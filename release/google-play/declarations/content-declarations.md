@@ -6,7 +6,7 @@ Complete this with the product and legal owners using the exact release candidat
 | :--- | :--- | :--- |
 | Target age groups | General football players; exact age groups not yet approved | Product/legal decision and terms eligibility review |
 | Designed for children | No child-directed design claim exists | Confirm audience, marketing, data practices, and Families policy applicability |
-| User-generated content | Yes: field details, game details, participation, reports, and possibly field photos | Verify reporting, moderation, blocking/removal, terms, and enforcement procedures |
+| User-generated content | Yes: field details, game details, participation, reports, and field photos | Terms acceptance, game/user reporting, user blocking, field reporting, and admin moderation endpoints are implemented; verify the production moderation procedure and response times |
 | Users interact/meet | Yes: users organize and join in-person football games | Complete IARC interaction and location-related questions accurately |
 | Violence | Sports context only in the product; approved artwork depicts football play | Complete IARC based on actual app content |
 | Gambling/contests | None observed | Product owner confirmation |

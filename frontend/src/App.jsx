@@ -17,6 +17,7 @@ import MyReportsPage from './pages/MyReportsPage'
 import OnboardingPage from './pages/OnboardingPage'
 import PublicPolicyPage from './pages/PublicPolicyPage'
 import SettingsPage from './pages/SettingsPage'
+import TermsAcceptancePage from './pages/TermsAcceptancePage'
 import { getStoredSessionUserId, logoutFromServer } from './api/auth'
 import { isNativeGoogleSupported, signOutGoogleNative } from './api/nativeGoogleAuth'
 import { getMyGames } from './api/games'
@@ -26,6 +27,7 @@ import {
   getUserMetadata,
   initSessionStorage,
   isNativeRuntime,
+  setUserMetadata,
 } from './api/sessionStorage'
 import { requestFirebasePushToken, startForegroundPushNotifications } from './firebaseMessaging'
 import {
@@ -112,6 +114,7 @@ function getStoredUser() {
     name: metadata.name,
     email: metadata.email,
     username: metadata.username,
+    terms_accepted: metadata.terms_accepted,
   }
 }
 
@@ -288,7 +291,11 @@ function App() {
     let isDisposed = false
 
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive && getToken()) {
+      if (isActive) {
+        // Let the validator own the fail-closed decision. If secure storage
+        // has lost the token while the UI still holds a user, it will clear
+        // that stale authenticated state instead of silently skipping the
+        // foreground check.
         validateStoredSession()
         pushTokenSyncRef.current?.retryPending()
       }
@@ -703,10 +710,14 @@ function App() {
     }
     teardownNativePush()
 
-    setCurrentUser(null)
     setLogoutWarning('')
     setPersistenceWarning('')
     handleDeepLinkHandled()
+    // clearSession removes metadata synchronously, then clears native secure
+    // storage and emits auth-session-changed in its finally block. Let that
+    // completion event release the login UI: exposing Login earlier permits
+    // a fast account switch whose new token can be erased by this logout's
+    // still-running secure-storage cleanup.
     clearSession().catch((cleanupError) => {
       console.warn('Session cleanup on logout failed.', cleanupError)
       setLogoutWarning(t('auth.logoutCleanupError'))
@@ -714,6 +725,11 @@ function App() {
   }, [handleDeepLinkHandled, t])
 
   const handleLogin = useCallback((user) => {
+    // A login starts a new session generation. Never let a startup or
+    // previous-account validation promise absorb the first resume check for
+    // the newly authenticated account.
+    sessionEpochRef.current += 1
+    validationPromiseRef.current = null
     setLogoutWarning('')
     setLoginNotice('')
     // Re-read onboarding progress from storage before the render that can
@@ -722,6 +738,14 @@ function App() {
     // state from initialState only once, on mount.
     setOnboardingState(resolveOnboardingState().state)
     setCurrentUser(user)
+  }, [])
+
+  const handleTermsAccepted = useCallback(() => {
+    setCurrentUser((user) => {
+      const updatedUser = { ...user, terms_accepted: true }
+      setUserMetadata(updatedUser)
+      return updatedUser
+    })
   }, [])
 
   const handlePasswordResetDone = useCallback((message) => {
@@ -830,6 +854,13 @@ function App() {
     )
   }
 
+  // Fail closed for sessions created by builds that predate the persisted
+  // acceptance field. Public UGC must not be available until acceptance is
+  // affirmative, regardless of whether the account or session is new.
+  if (currentUser.terms_accepted !== true) {
+    return renderWithOfflineBanner(<TermsAcceptancePage onAccepted={handleTermsAccepted} />)
+  }
+
   if (onboardingState.status !== 'completed') {
     return renderWithOfflineBanner(
       <OnboardingPage
@@ -868,7 +899,13 @@ function App() {
   }
 
   if (pathname === '/settings') {
-    return renderWithOfflineBanner(<SettingsPage onBack={() => navigateTo('/')} userId={currentUser.id} />)
+    return renderWithOfflineBanner(
+      <SettingsPage
+        onAccountDeleted={handleLogout}
+        onBack={() => navigateTo('/')}
+        userId={currentUser.id}
+      />,
+    )
   }
 
   return renderWithOfflineBanner(

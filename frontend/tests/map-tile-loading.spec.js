@@ -150,11 +150,13 @@ test('initial tile loading copy is localized in Hebrew', async ({ page }) => {
 test('panning after the first tile load does not show the initial overlay again', async ({
   page,
 }) => {
+  let tileRequestCount = 0
   let holdFutureTiles = false
   let releaseFutureTiles
   let futureTileGate = Promise.resolve()
 
   await page.route('**/*tile.openstreetmap.org/**', async (route) => {
+    tileRequestCount += 1
     if (holdFutureTiles) {
       await futureTileGate
     }
@@ -162,6 +164,8 @@ test('panning after the first tile load does not show the initial overlay again'
   })
 
   await page.goto('/')
+  await expect(page.locator('.map-canvas')).toBeVisible()
+  await expect.poll(() => tileRequestCount).toBeGreaterThan(0)
   await expect(page.locator('.map-tile-loading')).toHaveCount(0)
 
   futureTileGate = new Promise((resolve) => {

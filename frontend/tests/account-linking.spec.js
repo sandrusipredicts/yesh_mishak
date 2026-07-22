@@ -408,6 +408,67 @@ test('loading failure shows a retry option', async ({ page }) => {
   await expect(page.getByText('s***@example.com')).toBeVisible()
 })
 
+test('manual user can permanently delete the account from settings', async ({ page }) => {
+  await prepareApp(page)
+  await page.route('**/auth/account-methods', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: methodsBody() }))
+
+  let requestBody
+  await page.route('**/auth/account', (route) => {
+    requestBody = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Account deleted successfully' }),
+    })
+  })
+
+  await goToSettings(page)
+  await page.getByRole('button', { name: 'Delete account', exact: true }).click()
+  const modal = page.locator('.confirm-modal')
+  await expect(modal.getByRole('heading', { name: 'Delete account' })).toBeVisible()
+  await modal.getByLabel('Password', { exact: true }).fill('CorrectHorse123')
+  await modal.getByRole('button', { name: 'Delete account permanently' }).click()
+
+  expect(requestBody).toEqual({
+    confirmation: 'DELETE',
+    current_password: 'CorrectHorse123',
+    google_token: null,
+  })
+  await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible()
+  await expect(page.evaluate(() => localStorage.getItem('access_token'))).resolves.toBeNull()
+})
+
+test('google-only user can delete after Google reauthentication', async ({ page }) => {
+  await prepareApp(page)
+  await installGoogleIdentityMock(page)
+  await page.route('**/auth/account-methods', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: methodsBody({ emailLinked: false, googleLinked: true }),
+    }))
+
+  let requestBody
+  await page.route('**/auth/account', (route) => {
+    requestBody = route.request().postDataJSON()
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+
+  await goToSettings(page)
+  await page.getByRole('button', { name: 'Delete account', exact: true }).click()
+  const modal = page.locator('.confirm-modal')
+  await modal.locator('.google-login-button button').click()
+  await modal.getByRole('button', { name: 'Delete account permanently' }).click()
+
+  expect(requestBody).toEqual({
+    confirmation: 'DELETE',
+    current_password: null,
+    google_token: 'fake-google-credential',
+  })
+  await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible()
+})
+
 test('settings screen renders in Hebrew with RTL layout', async ({ page }) => {
   await prepareApp(page, { language: 'he' })
   await page.route('**/auth/account-methods', (route) =>
