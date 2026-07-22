@@ -385,6 +385,53 @@ create unique index if not exists idx_games_unique_scheduled_slot
     where scheduled_at is not null and status in ('open', 'full');
 create index if not exists idx_game_players_game_id on game_players(game_id);
 create index if not exists idx_game_players_user_id on game_players(user_id);
+
+-- GET /fields map payload: one request for games and participant identities,
+-- with expired-game reconciliation in the same database transaction.
+create or replace function public.get_field_game_payloads(p_field_ids uuid[])
+returns table(payload jsonb)
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+    update public.games
+       set status = 'finished'
+     where field_id = any(p_field_ids)
+       and status in ('open', 'full')
+       and expires_at is not null
+       and expires_at <= now();
+
+    return query
+    select to_jsonb(g) || jsonb_build_object(
+        'participants',
+        coalesce(
+            (
+                select jsonb_agg(
+                    jsonb_build_object(
+                        'user_id', gp.user_id,
+                        'username', u.username,
+                        'name', coalesce(u.username, u.name, 'Unknown player')
+                    )
+                    order by gp.joined_at, gp.id
+                )
+                  from public.game_players gp
+                  left join public.users u on u.id = gp.user_id
+                 where gp.game_id = g.id
+            ),
+            '[]'::jsonb
+        )
+    )
+      from public.games g
+     where g.field_id = any(p_field_ids)
+       and g.status in ('open', 'full');
+end;
+$$;
+
+revoke all on function public.get_field_game_payloads(uuid[]) from public;
+revoke all on function public.get_field_game_payloads(uuid[]) from anon;
+revoke all on function public.get_field_game_payloads(uuid[]) from authenticated;
+grant execute on function public.get_field_game_payloads(uuid[]) to service_role;
 create index if not exists idx_field_reports_field_id on field_reports(field_id);
 create index if not exists idx_field_reports_user_id on field_reports(user_id);
 create index if not exists idx_field_reports_status on field_reports(status);

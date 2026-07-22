@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Any
 
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.routers.game_lifecycle import (
     ACTIVE_GAME_STATUSES,
     finish_expired_games,
@@ -97,6 +97,22 @@ def _get_active_status_games_for_fields(
     )
 
 
+def _get_map_game_payload_rows(supabase: Any, field_ids: list[str]) -> list[dict[str, Any]]:
+    for attempt in range(1, SUPABASE_SELECT_MAX_ATTEMPTS + 1):
+        try:
+            response = supabase.rpc(
+                "get_field_game_payloads",
+                {"p_field_ids": list(dict.fromkeys(field_ids))},
+            ).execute()
+            break
+        except Exception:
+            if attempt >= SUPABASE_SELECT_MAX_ATTEMPTS:
+                raise
+            time.sleep(SUPABASE_SELECT_RETRY_DELAY_SECONDS * attempt)
+    rows = response.data or []
+    return [row.get("payload", row) for row in rows]
+
+
 def _split_games_by_field(
     games: list[dict[str, Any]],
     field_ids: list[str],
@@ -111,7 +127,12 @@ def _split_games_by_field(
             upcoming_games.append(game)
 
     upcoming_games.sort(key=lambda game: parse_game_datetime(game.get("scheduled_at")))
-    games_with_participants = attach_participants_to_games(active_games + upcoming_games)
+    visible_games = active_games + upcoming_games
+    games_with_participants = (
+        visible_games
+        if all("participants" in game for game in visible_games)
+        else attach_participants_to_games(visible_games)
+    )
 
     active_games_by_field_id: dict[str, dict[str, Any]] = {}
     upcoming_games_by_field_id = {field_id: [] for field_id in field_ids}
@@ -217,4 +238,16 @@ def get_game_payloads_for_fields(
 
     supabase = get_supabase_client()
     games = finish_expired_games(_get_active_status_games_for_fields(supabase, field_ids), supabase=supabase)
+    return _split_games_by_field(games, field_ids)
+
+
+def get_map_game_payloads_for_fields(
+    field_ids: list[str],
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Load the GET /fields game payload through one database RPC."""
+    if not field_ids:
+        return {}, {}
+
+    supabase = get_supabase_service_role_client()
+    games = _get_map_game_payload_rows(supabase, field_ids)
     return _split_games_by_field(games, field_ids)

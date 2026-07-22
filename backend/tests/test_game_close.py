@@ -129,13 +129,24 @@ class FakeTableQuery:
 
 
 class FakeRpcQuery:
-    """Simulates the Postgres join_game_atomic RPC for tests."""
+    """Simulates game RPCs used by the test application."""
 
-    def __init__(self, tables: dict[str, list[dict[str, Any]]], params: dict[str, Any]) -> None:
+    def __init__(self, tables: dict[str, list[dict[str, Any]]], function_name: str, params: dict[str, Any]) -> None:
         self.tables = tables
+        self.function_name = function_name
         self.params = params
 
     def execute(self) -> FakeResponse:
+        if self.function_name == "get_field_game_payloads":
+            field_ids = set(self.params["p_field_ids"])
+            payloads = [
+                {"payload": {**dict(game), "participants": []}}
+                for game in self.tables.get("games", [])
+                if game.get("field_id") in field_ids
+                and game.get("status") in ("open", "full")
+            ]
+            return FakeResponse(payloads)
+
         game_id = self.params["p_game_id"]
         user_id = self.params["p_user_id"]
 
@@ -175,8 +186,8 @@ class FakeSupabaseClient:
         return FakeTableQuery(self.tables[table_name])
 
     def rpc(self, function_name: str, params: dict[str, Any]) -> FakeRpcQuery:
-        assert function_name == "join_game_atomic"
-        return FakeRpcQuery(self.tables, params)
+        assert function_name in ("join_game_atomic", "get_field_game_payloads")
+        return FakeRpcQuery(self.tables, function_name, params)
 
 
 def configure_test_settings(monkeypatch) -> None:
