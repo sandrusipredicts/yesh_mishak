@@ -1,4 +1,4 @@
-apply plugin: 'com.android.application'
+﻿apply plugin: 'com.android.application'
 
 // Single source of truth for Android release identity (E10-05).
 // See docs/e10-05-android-version-strategy.md for the full bump procedure,
@@ -158,3 +158,4 @@ tasks.register('printVersion') {
         println "versionName=${appVersionName}"
     }
 }
+
