@@ -24,6 +24,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: dummy
       JWT_SECRET: supersecret
       PYTHONPATH: .
+      GOOGLE_CLIENT_ID: dummy-google-client-id
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
