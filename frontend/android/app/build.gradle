@@ -159,3 +159,23 @@ tasks.register('printVersion') {
     }
 }
 
+// Outputs a strictly formatted JSON record for the Node orchestration flow (E10-09)
+tasks.register('printSentryMetadata') {
+    doLast {
+        def appId = android.defaultConfig.applicationId
+        if (!appId || !appVersionName || !appVersionCode) {
+            throw new GradleException("Metadata fields are missing or empty.")
+        }
+        def json = """{
+  "applicationId": "${appId}",
+  "versionName": "${appVersionName}",
+  "versionCode": ${appVersionCode},
+  "release": "${appId}@${appVersionName}+${appVersionCode}",
+  "dist": "${appVersionCode}"
+}"""
+        println "===SENTRY_METADATA_START==="
+        println json
+        println "===SENTRY_METADATA_END==="
+    }
+}
+

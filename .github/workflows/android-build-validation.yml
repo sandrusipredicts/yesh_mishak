@@ -151,16 +151,7 @@ jobs:
           fi
           exit "$missing"
 
-      - name: Resolve Sentry release identifier
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          # Interim deterministic format (docs/e09-01-crash-reporting-execution-plan.md):
-          # Android versionName (docs/e10-05-android-version-strategy.md) has not
-          # yet had its first real release bump, so only the commit SHA is
-          # reliably available here. Once a release bump lands, this becomes
-          # yesh-mishak@<versionName>+<sha>.
-          echo "VITE_SENTRY_RELEASE=yesh-mishak@${SHORT_SHA}" >> "$GITHUB_ENV"
-          echo "VITE_SENTRY_DIST=android-branch-${{ github.run_number }}" >> "$GITHUB_ENV"
+
 
       - name: Validate optional Sentry configuration
         run: |
@@ -168,8 +159,8 @@ jobs:
             echo "::warning::VITE_SENTRY_DSN repository variable is not set. This branch-build APK will run with crash reporting disabled (frontend/src/monitoring/config.js fails safe -- this does not fail the build)."
           fi
 
-      - name: Build web assets for Android
-        run: npm run build:android
+      - name: Build and sync Android web assets
+        run: npm run prepare:android:local-release
 
       - name: Verify no secrets leaked into the built web bundle
         run: |
@@ -182,9 +173,6 @@ jobs:
             exit 1
           fi
           echo "No Sentry auth token material found in the built bundle."
-
-      - name: Sync Capacitor Android project
-        run: npx cap sync android
 
       - name: Ensure Gradle wrapper is executable
         working-directory: frontend/android

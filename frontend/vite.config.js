@@ -36,7 +36,11 @@ export default defineConfig({
             },
             errorHandler: (err) => {
               // Visible in CI/build logs, but a source-map upload failure
-              // must never break the production build or deploy.
+              // must never break local builds. It MUST break official releases.
+              if (process.env.VITE_SENTRY_ENVIRONMENT === 'production') {
+                console.error('[sentry-vite-plugin] ERROR: Source map upload failed for official release:', err?.message || err)
+                throw err
+              }
               console.warn('[sentry-vite-plugin] source map upload failed:', err?.message || err)
             },
           }),
