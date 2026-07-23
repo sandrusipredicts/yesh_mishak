@@ -25,44 +25,33 @@ async function hashFile(filePath) {
 
 async function verifyBundle(release, dist) {
   console.log(`Verifying bundle for release: ${release}, dist: ${dist}`);
-  let files;
+  const metadataPath = path.resolve(DIST_DIR, 'sentry-build-metadata.json');
+  let metaStr;
   try {
-    files = await getFiles(DIST_DIR);
+    metaStr = await fs.readFile(metadataPath, 'utf8');
   } catch (err) {
-    console.error(`ERROR: Failed to read dist directory. Did the build run? ${err.message}`);
+    if (err.code === 'ENOENT') {
+      console.error(`ERROR: sentry-build-metadata.json not found in dist directory!`);
+      process.exit(1);
+    }
+    console.error(`ERROR: Failed to read sentry-build-metadata.json: ${err.message}`);
     process.exit(1);
-  }
-  
-  const jsFiles = files.filter(f => f.endsWith('.js'));
-  
-  let foundRelease = false;
-  let foundDist = false;
-  let foundUnknown = false;
-
-  for (const file of jsFiles) {
-    const content = await fs.readFile(file, 'utf8');
-    if (content.includes(`"${release}"`) || content.includes(`'${release}'`) || content.includes(release)) {
-      foundRelease = true;
-    }
-    if (content.includes(`"${dist}"`) || content.includes(`'${dist}'`) || content.includes(`dist:${dist}`) || content.includes(`dist:"${dist}"`) || content.includes(`dist:'${dist}'`)) {
-      foundDist = true;
-    }
-    // Check for the old fallback
-    if (content.includes("release:'unknown'") || content.includes('release:"unknown"') || content.includes("dist:'unknown'") || content.includes('dist:"unknown"')) {
-       foundUnknown = true;
-    }
   }
 
-  if (!foundRelease) {
-    console.error(`ERROR: Canonical release '${release}' not found in any JS bundle file!`);
+  let meta;
+  try {
+    meta = JSON.parse(metaStr);
+  } catch (err) {
+    console.error(`ERROR: Failed to parse sentry-build-metadata.json: ${err.message}`);
     process.exit(1);
   }
-  if (!foundDist) {
-    console.error(`ERROR: Canonical dist '${dist}' not found in any JS bundle file!`);
+
+  if (meta.release !== release) {
+    console.error(`ERROR: Canonical release '${release}' not found in manifest (found '${meta.release}')!`);
     process.exit(1);
   }
-  if (foundUnknown) {
-    console.error(`ERROR: 'unknown' fallback found in JS bundle files! Sentry initialization is falling back.`);
+  if (meta.dist !== dist) {
+    console.error(`ERROR: Canonical dist '${dist}' not found in manifest (found '${meta.dist}')!`);
     process.exit(1);
   }
   
