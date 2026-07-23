@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+      - qa/e12-01-backend-tests-paths
 
 permissions:
   contents: read
