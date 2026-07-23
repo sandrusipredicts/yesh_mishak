@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   test:
+    name: Backend CI
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: http://localhost
