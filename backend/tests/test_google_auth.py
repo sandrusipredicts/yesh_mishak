@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
+﻿from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any
@@ -267,11 +267,19 @@ def configure_test_settings(monkeypatch) -> None:
 
 
 def patch_google_token_verifier(monkeypatch, token_claims: dict[str, dict[str, str]]) -> None:
-    def fake_verify_oauth2_token(token: str, request: Any, audience: str) -> dict[str, str]:
-        assert audience == "test-google-client"
+    def fake_verify_oauth2_token(token: str, request: Any, audience: Any) -> dict[str, str]:
         if token not in token_claims:
             raise ValueError("invalid token")
-        return token_claims[token]
+        claims = token_claims[token]
+        allowed_audiences = [audience] if isinstance(audience, str) else list(audience)
+        token_aud = claims.get("aud")
+        if token_aud:
+            if token_aud not in allowed_audiences:
+                raise ValueError("Audience mismatch")
+        else:
+            if "test-google-client" not in allowed_audiences:
+                raise ValueError("Audience mismatch")
+        return claims
 
     monkeypatch.setattr("app.auth.google.id_token.verify_oauth2_token", fake_verify_oauth2_token)
 
@@ -654,3 +662,139 @@ def test_concurrent_google_login_resolution_creates_one_user_and_identity(monkey
     assert {user["id"] for user in users} == {fake_client.users[0]["id"]}
     assert len(fake_client.users) == 1
     assert len(fake_client.identities) == 1
+
+
+def test_google_auth_multiple_audiences(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    # Test case 1: Existing website audience is accepted and new Android audience is accepted
+    # Set settings with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_IDS
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_IDS", "946531239565-0r95anarjdbjsr7ejm6nq7auoih8m651.apps.googleusercontent.com,  936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    # Confirm settings property allowed_google_client_ids is deduplicated and parses correctly
+    assert settings.allowed_google_client_ids == [
+        "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com",
+        "946531239565-0r95anarjdbjsr7ejm6nq7auoih8m651.apps.googleusercontent.com",
+    ]
+
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+
+    from app.auth.google import verify_google_token
+
+    def mock_verify(id_token_str, request_obj, audience):
+        allowed = [audience] if isinstance(audience, str) else list(audience)
+        if id_token_str == "web-token":
+            payload = {
+                "sub": "google-sub-web",
+                "email": "webuser@example.com",
+                "email_verified": True,
+                "aud": "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com",
+                "iss": "https://accounts.google.com"
+            }
+        elif id_token_str == "android-token":
+            payload = {
+                "sub": "google-sub-android",
+                "email": "androiduser@example.com",
+                "email_verified": True,
+                "aud": "946531239565-0r95anarjdbjsr7ejm6nq7auoih8m651.apps.googleusercontent.com",
+                "iss": "https://accounts.google.com"
+            }
+        elif id_token_str == "unknown-token":
+            payload = {
+                "sub": "google-sub-unknown",
+                "email": "unknownuser@example.com",
+                "email_verified": True,
+                "aud": "some-other-audience.apps.googleusercontent.com",
+                "iss": "https://accounts.google.com"
+            }
+        else:
+            raise ValueError("Token decoding failed")
+
+        if payload["aud"] not in allowed:
+            raise ValueError("Audience mismatch")
+
+        return payload
+
+    monkeypatch.setattr("app.auth.google.id_token.verify_oauth2_token", mock_verify)
+
+    # Web token should be accepted
+    web_info = verify_google_token("web-token")
+    assert web_info["email"] == "webuser@example.com"
+
+    # Android token should be accepted
+    android_info = verify_google_token("android-token")
+    assert android_info["email"] == "androiduser@example.com"
+
+    # Unknown token should be rejected with 401
+    with pytest.raises(HTTPException) as excinfo:
+        verify_google_token("unknown-token")
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Invalid Google token"
+
+
+def test_google_auth_missing_client_ids_preserves_single_client_behavior(monkeypatch) -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    # Set settings with GOOGLE_CLIENT_ID only
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com")
+    monkeypatch.delenv("GOOGLE_CLIENT_IDS", raising=False)
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    assert settings.allowed_google_client_ids == [
+        "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com",
+    ]
+
+    from app.auth.google import verify_google_token
+
+    def mock_verify(id_token_str, request_obj, audience):
+        allowed = [audience] if isinstance(audience, str) else list(audience)
+        if id_token_str == "web-token":
+            payload = {
+                "sub": "google-sub-web",
+                "email": "webuser@example.com",
+                "email_verified": True,
+                "aud": "936888694089-fu96l9mkv5r98p0iln8e32tri9tt5h71.apps.googleusercontent.com",
+                "iss": "https://accounts.google.com"
+            }
+        elif id_token_str == "android-token":
+            payload = {
+                "sub": "google-sub-android",
+                "email": "androiduser@example.com",
+                "email_verified": True,
+                "aud": "946531239565-0r95anarjdbjsr7ejm6nq7auoih8m651.apps.googleusercontent.com",
+                "iss": "https://accounts.google.com"
+            }
+        else:
+            raise ValueError("Token decoding failed")
+
+        if payload["aud"] not in allowed:
+            raise ValueError("Audience mismatch")
+
+        return payload
+
+    monkeypatch.setattr("app.auth.google.id_token.verify_oauth2_token", mock_verify)
+
+    # Web token should be accepted
+    web_info = verify_google_token("web-token")
+    assert web_info["email"] == "webuser@example.com"
+
+    # Android token should be rejected (raises 401)
+    with pytest.raises(HTTPException) as excinfo:
+        verify_google_token("android-token")
+    assert excinfo.value.status_code == 401

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -622,8 +622,9 @@ def test_password_user_links_then_both_login_methods_return_original_user(monkey
     )
     assert link_response.status_code == 200
 
-    def fake_verify_oauth2_token(token: str, request: Any, audience: str) -> dict[str, Any]:
-        assert audience == "test-google-client"
+    def fake_verify_oauth2_token(token: str, request: Any, audience: Any) -> dict[str, Any]:
+        allowed = [audience] if isinstance(audience, str) else list(audience)
+        assert "test-google-client" in allowed
         return {
             "sub": "linked-sub",
             "email": user["email"],
@@ -698,7 +699,7 @@ def test_unlink_google_blocked_for_google_only_user(monkeypatch) -> None:
         headers={"Authorization": f"Bearer {make_token(user)}"},
     )
     # Google-only user has no password to verify: reauth fails first, which
-    # is itself the correct outcome — unlink never proceeds either way.
+    # is itself the correct outcome â€” unlink never proceeds either way.
     assert response.status_code == 403
     assert response.json()["code"] == "REAUTHENTICATION_REQUIRED"
     assert identity in fake_client.tables["user_identities"]
@@ -934,7 +935,7 @@ def test_remove_password_blocked_as_last_login_method(monkeypatch) -> None:
         json={"google_token": "irrelevant"},
         headers={"Authorization": f"Bearer {make_token(user)}"},
     )
-    # No Google linked at all: reauth fails first (INVALID_GOOGLE_TOKEN) —
+    # No Google linked at all: reauth fails first (INVALID_GOOGLE_TOKEN) â€”
     # the mutation never gets a chance to run, so the password is untouched.
     assert response.status_code == 403
     assert user["password_hash"] is not None
