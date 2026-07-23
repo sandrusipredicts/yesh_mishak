@@ -62,4 +62,4 @@ jobs:
       - name: Run backend tests
         if: steps.check.outputs.run == 'true'
         working-directory: backend
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ --cov=app --cov-fail-under=89 --cov-report=term-missing --cov-report=xml
