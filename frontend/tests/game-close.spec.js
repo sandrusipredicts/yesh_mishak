@@ -681,3 +681,5 @@ test('after open game selected field refreshes to active game', async ({ page })
   await expect(page.getByRole('button', { name: 'Close game' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open Game' })).toHaveCount(0)
 })
+/ /   t e s t 3  
+ 
