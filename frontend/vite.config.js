@@ -37,7 +37,7 @@ export default defineConfig({
             errorHandler: (err) => {
               // Visible in CI/build logs, but a source-map upload failure
               // must never break local builds. It MUST break official releases.
-              if (process.env.VITE_SENTRY_ENVIRONMENT === 'production') {
+              if (process.env.ANDROID_OFFICIAL_RELEASE === 'true') {
                 console.error('[sentry-vite-plugin] ERROR: Source map upload failed for official release:', err?.message || err)
                 throw err
               }

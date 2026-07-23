@@ -126,6 +126,7 @@ function main() {
 
   if (isOfficial) {
     process.env.VITE_SENTRY_ENVIRONMENT = 'production';
+    process.env.ANDROID_OFFICIAL_RELEASE = 'true';
   }
 
   // Inject canonical metadata into environment
