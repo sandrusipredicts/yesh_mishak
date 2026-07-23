@@ -5,8 +5,8 @@ apply plugin: 'com.android.application'
 // versionCode/versionName rules, and edge cases. Do not duplicate these
 // values elsewhere (CI, package.json, docs) -- everything else must read
 // or reference this file instead.
-def appVersionCode = 6
-def appVersionName = "1.0.5"
+def appVersionCode = 7
+def appVersionName = "1.0.6"
 
 if (!(appVersionCode instanceof Integer) || appVersionCode <= 0) {
     throw new GradleException("Invalid Android versionCode '${appVersionCode}': must be a positive integer. See docs/e10-05-android-version-strategy.md.")

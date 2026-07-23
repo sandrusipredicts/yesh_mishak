@@ -18,74 +18,58 @@ async function getFiles(dir) {
   return Array.prototype.concat(...files);
 }
 
-async function hashFile(filePath) {
+export async function hashFile(filePath) {
   const content = await fs.readFile(filePath);
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-async function verifyBundle(release, dist) {
+export async function verifyBundle(release, dist, distDir = DIST_DIR) {
   console.log(`Verifying bundle for release: ${release}, dist: ${dist}`);
-  let files;
+  const metadataPath = path.resolve(distDir, 'sentry-build-metadata.json');
+  let metaStr;
   try {
-    files = await getFiles(DIST_DIR);
+    metaStr = await fs.readFile(metadataPath, 'utf8');
   } catch (err) {
-    console.error(`ERROR: Failed to read dist directory. Did the build run? ${err.message}`);
-    process.exit(1);
-  }
-  
-  const jsFiles = files.filter(f => f.endsWith('.js'));
-  
-  let foundRelease = false;
-  let foundDist = false;
-  let foundUnknown = false;
-
-  for (const file of jsFiles) {
-    const content = await fs.readFile(file, 'utf8');
-    if (content.includes(`"${release}"`) || content.includes(`'${release}'`) || content.includes(release)) {
-      foundRelease = true;
+    if (err.code === 'ENOENT') {
+      throw new Error(`sentry-build-metadata.json not found in dist directory!`);
     }
-    if (content.includes(`"${dist}"`) || content.includes(`'${dist}'`) || content.includes(`dist:${dist}`) || content.includes(`dist:"${dist}"`) || content.includes(`dist:'${dist}'`)) {
-      foundDist = true;
-    }
-    // Check for the old fallback
-    if (content.includes("release:'unknown'") || content.includes('release:"unknown"') || content.includes("dist:'unknown'") || content.includes('dist:"unknown"')) {
-       foundUnknown = true;
-    }
+    throw new Error(`Failed to read sentry-build-metadata.json: ${err.message}`);
   }
 
-  if (!foundRelease) {
-    console.error(`ERROR: Canonical release '${release}' not found in any JS bundle file!`);
-    process.exit(1);
+  let meta;
+  try {
+    meta = JSON.parse(metaStr);
+  } catch (err) {
+    throw new Error(`Failed to parse sentry-build-metadata.json: ${err.message}`);
   }
-  if (!foundDist) {
-    console.error(`ERROR: Canonical dist '${dist}' not found in any JS bundle file!`);
-    process.exit(1);
+
+  if (meta.release !== release) {
+    throw new Error(`Canonical release '${release}' not found in manifest (found '${meta.release}')!`);
   }
-  if (foundUnknown) {
-    console.error(`ERROR: 'unknown' fallback found in JS bundle files! Sentry initialization is falling back.`);
-    process.exit(1);
+  if (meta.dist !== dist) {
+    throw new Error(`Canonical dist '${dist}' not found in manifest (found '${meta.dist}')!`);
   }
-  
+
   console.log('Bundle verification passed.');
 }
 
-async function verifyAssets() {
+export async function verifyAssets(distDir = DIST_DIR, assetsDir = ASSETS_DIR) {
   console.log('Verifying Capacitor synced assets recursively...');
   try {
-    const distFiles = await getFiles(DIST_DIR);
-    const assetFiles = await getFiles(ASSETS_DIR);
-    
+    const distFiles = await getFiles(distDir);
+    const assetFiles = await getFiles(assetsDir);
+
     // Create relative maps
     const distMap = new Map();
     for (const f of distFiles) {
       // Normalize to posix-style relative paths
-      const rel = path.relative(DIST_DIR, f).split(path.sep).join('/');
+      const rel = path.relative(distDir, f).split(path.sep).join('/');
       distMap.set(rel, await hashFile(f));
     }
-    
+
     const assetMap = new Map();
     for (const f of assetFiles) {
-      const rel = path.relative(ASSETS_DIR, f).split(path.sep).join('/');
+      const rel = path.relative(assetsDir, f).split(path.sep).join('/');
       assetMap.set(rel, await hashFile(f));
     }
 
@@ -96,7 +80,7 @@ async function verifyAssets() {
 
     const mismatches = [];
     const missingInAssets = [];
-    
+
     for (const [rel, hash] of distMap) {
       if (!assetMap.has(rel)) {
         missingInAssets.push(rel);
@@ -105,19 +89,18 @@ async function verifyAssets() {
       }
       assetMap.delete(rel);
     }
-    
+
     const extraInAssets = Array.from(assetMap.keys());
 
     if (mismatches.length > 0 || missingInAssets.length > 0 || extraInAssets.length > 0) {
-      console.error('ERROR: Asset verification failed!');
-      if (mismatches.length > 0) console.error(`Mismatched hashes: ${mismatches.join(', ')}`);
-      if (missingInAssets.length > 0) console.error(`Missing in Android assets: ${missingInAssets.join(', ')}`);
-      if (extraInAssets.length > 0) console.error(`Extra/stale files in Android assets: ${extraInAssets.join(', ')}`);
-      process.exit(1);
+      let errMsg = 'Asset verification failed!';
+      if (mismatches.length > 0) errMsg += ` Mismatched hashes: ${mismatches.join(', ')}`;
+      if (missingInAssets.length > 0) errMsg += ` Missing in Android assets: ${missingInAssets.join(', ')}`;
+      if (extraInAssets.length > 0) errMsg += ` Extra/stale files in Android assets: ${extraInAssets.join(', ')}`;
+      throw new Error(errMsg);
     }
   } catch (err) {
-    console.error('ERROR: Failed to compare assets:', err.message);
-    process.exit(1);
+    throw new Error(`Failed to compare assets: ${err.message}`);
   }
   console.log('Assets recursive verification passed. Hashes perfectly align.');
 }
@@ -126,24 +109,31 @@ async function main() {
   const args = process.argv.slice(2);
   const bundleOnly = args.includes('--bundle-only');
   const assetsOnly = args.includes('--assets-only');
-  
+
   const release = process.env.VITE_SENTRY_RELEASE;
   const dist = process.env.VITE_SENTRY_DIST;
 
-  if (bundleOnly || (!bundleOnly && !assetsOnly)) {
-    if (!release || !dist) {
-      console.error('ERROR: VITE_SENTRY_RELEASE and VITE_SENTRY_DIST must be set in the environment.');
-      process.exit(1);
+  try {
+    if (bundleOnly || (!bundleOnly && !assetsOnly)) {
+      if (!release || !dist) {
+        throw new Error('VITE_SENTRY_RELEASE and VITE_SENTRY_DIST must be set in the environment.');
+      }
+      await verifyBundle(release, dist);
     }
-    await verifyBundle(release, dist);
-  }
-  
-  if (assetsOnly || (!bundleOnly && !assetsOnly)) {
-    await verifyAssets();
+
+    if (assetsOnly || (!bundleOnly && !assetsOnly)) {
+      await verifyAssets();
+    }
+  } catch (err) {
+    console.error(`ERROR: ${err.message}`);
+    process.exit(1);
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}

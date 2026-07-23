@@ -13,6 +13,21 @@ const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: 'generate-sentry-metadata',
+      generateBundle() {
+        if (process.env.VITE_SENTRY_RELEASE && process.env.VITE_SENTRY_DIST) {
+          this.emitFile({
+            type: 'asset',
+            fileName: 'sentry-build-metadata.json',
+            source: JSON.stringify({
+              release: process.env.VITE_SENTRY_RELEASE,
+              dist: process.env.VITE_SENTRY_DIST
+            }, null, 2)
+          });
+        }
+      }
+    },
     ...(sentryAuthToken
       ? [
           sentryVitePlugin({
