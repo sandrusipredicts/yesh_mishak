@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from typing import Any
 
 import jwt
@@ -43,7 +43,7 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         token_info = id_token.verify_oauth2_token(
             token,
             requests.Request(),
-            settings.google_client_id,
+            settings.allowed_google_client_ids,
         )
     except ValueError as exc:
         logger.warning(

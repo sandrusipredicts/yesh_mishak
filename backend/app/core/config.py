@@ -1,4 +1,4 @@
-from functools import lru_cache
+﻿from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,6 +9,17 @@ class Settings(BaseSettings):
     supabase_key: str = Field(alias="SUPABASE_KEY")
     supabase_service_role_key: str | None = Field(default=None, alias="SUPABASE_SERVICE_ROLE_KEY")
     google_client_id: str = Field(alias="GOOGLE_CLIENT_ID")
+    google_client_ids: str | None = Field(default=None, alias="GOOGLE_CLIENT_IDS")
+
+    @property
+    def allowed_google_client_ids(self) -> list[str]:
+        ids = [self.google_client_id]
+        if self.google_client_ids:
+            for val in self.google_client_ids.split(","):
+                val_stripped = val.strip()
+                if val_stripped and val_stripped not in ids:
+                    ids.append(val_stripped)
+        return ids
     jwt_secret: str = Field(alias="JWT_SECRET")
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
