@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from typing import Any
 
 import jwt
@@ -28,6 +28,8 @@ def _token_debug_claims(token: str) -> dict[str, Any]:
         "email_verified_present": claims.get("email_verified") is not None,
     }
 
+import datetime
+
 def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, Any]:
     settings = get_settings()
     logger.info(
@@ -45,7 +47,7 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
             requests.Request(),
             settings.allowed_google_client_ids,
         )
-    except ValueError as exc:
+    except Exception as exc:
         logger.warning(
             "google token verification failed",
             extra={
@@ -55,6 +57,9 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
                 "status_code": status.HTTP_401_UNAUTHORIZED,
                 "error_code": "AUTH_INVALID",
                 "exception_type": exc.__class__.__name__,
+                "exception_message": str(exc),
+                "allowed_audiences": settings.allowed_google_client_ids,
+                "server_utc_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "claim_presence": _token_debug_claims(token),
                 "result": "failure",
             },
