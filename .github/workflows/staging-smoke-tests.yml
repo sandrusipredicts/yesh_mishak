@@ -22,7 +22,7 @@ jobs:
     name: Staging smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: staging
+    environment: dev
     env:
       STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
       STAGING_BACKEND_URL: ${{ vars.STAGING_BACKEND_URL }}
@@ -45,14 +45,14 @@ jobs:
           missing=0
           for name in STAGING_FRONTEND_URL STAGING_BACKEND_URL PRODUCTION_BACKEND_HOSTS; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Required GitHub environment variable ${name} is not set (repo Settings > Environments > staging > Variables)."
+              echo "::error::Required GitHub environment variable ${name} is not set (repo Settings > Environments > dev > Variables)."
               missing=1
             fi
           done
           if [ -n "${STAGING_TEST_EMAIL:-}" ] && [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
             echo "Tier B credentials: present — authenticated smoke tests will run."
           elif [ -n "${STAGING_TEST_EMAIL:-}" ] || [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
-            echo "::error::STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD must be configured together (Settings > Environments > staging > Secrets)."
+            echo "::error::STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD must be configured together (Settings > Environments > dev > Secrets)."
             missing=1
           else
             echo "Tier B credentials: absent — authenticated smoke tests will be skipped."
