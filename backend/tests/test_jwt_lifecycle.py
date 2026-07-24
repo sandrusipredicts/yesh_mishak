@@ -178,10 +178,13 @@ def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
         "app.api.admin",
         "app.routers.games",
         "app.routers.game_payloads",
+        "app.services.api_request_metrics",
     ):
-        monkeypatch.setattr(f"{module}.get_supabase_client", lambda: fake_client)
+        monkeypatch.setattr(f"{module}.get_supabase_client", lambda: fake_client, raising=False)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.services.api_request_metrics.get_supabase_service_role_client", lambda: fake_client, raising=False)
+
 
 
 def make_token(user: dict[str, Any]) -> str:
@@ -875,6 +878,7 @@ def test_db_unavailable_fails_closed_on_cache_hit(monkeypatch, enable_cache) -> 
             raise ConnectionError("database unreachable")
 
     monkeypatch.setattr(deps, "get_supabase_client", lambda: BrokenSupabaseClient())
+    monkeypatch.setattr(deps, "get_supabase_service_role_client", lambda: BrokenSupabaseClient())
 
     response = TestClient(app).get("/games/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 503
