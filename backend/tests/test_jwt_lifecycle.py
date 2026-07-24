@@ -181,6 +181,7 @@ def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     ):
         monkeypatch.setattr(f"{module}.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_service_role_client", lambda: fake_client)
 
 
 def make_token(user: dict[str, Any]) -> str:

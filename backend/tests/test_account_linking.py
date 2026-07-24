@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -256,6 +256,7 @@ def configure_test_settings(monkeypatch) -> None:
 def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     for target in (
         "app.auth.dependencies.get_supabase_client",
+        "app.auth.dependencies.get_supabase_service_role_client",
         "app.services.account_linking.get_supabase_service_role_client",
         "app.auth.google.get_supabase_service_role_client",
     ):

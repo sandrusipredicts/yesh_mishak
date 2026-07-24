@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.jwt import decode_access_token
 from app.core.config import get_settings
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
 
 # Fields that gate authentication/authorization decisions. These are never
@@ -99,7 +99,7 @@ def _fetch_user_row(user_id: str, columns: str) -> dict[str, Any] | None:
     """
     try:
         response = (
-            get_supabase_client()
+            get_supabase_service_role_client()
             .table("users")
             .select(columns)
             .eq("id", user_id)
