@@ -3,15 +3,19 @@
 Automated, read-only smoke tests for the deployed staging environment.
 Approved plan: [e12-04-staging-smoke-test-plan.md](e12-04-staging-smoke-test-plan.md).
 
-> **Status blocker:** the real staging environment **does not exist yet**.
-> E12-03 (report `docs/e12-03-staging-verification-report.md`, commit
-> `b18b462` on the **unmerged** branch `qa/e12-03-staging-verification`)
-> verified that the expected staging URLs serve a Vercel
-> `DEPLOYMENT_NOT_FOUND` page and Railway's empty placeholder. This suite is
-> implemented and validated against a local stack, but **E12-04 cannot be
-> closed until (a) the E12-03 provisioning work and evidence land in the
-> canonical project history and (b) this suite completes a real green run
-> against provisioned staging via the GitHub Actions workflow.**
+> **Status: VALIDATED against the real environment.** The project's
+> staging-equivalent environment is the **`dev` environment**
+> (frontend `https://dev-yesh-mishak.vercel.app`, backend
+> `https://yeshmishak-dev.up.railway.app`, isolated Supabase project
+> `yesh_mishak_dev`; GitHub Environment **`dev`**). The suite ran green from
+> GitHub Actions against it on 2026-07-24 — Tier A passed in full, Tier B
+> skipped by design (no dedicated test credentials configured yet):
+> https://github.com/sandrusipredicts/yesh_mishak/actions/runs/30122383892
+> See [docs/e12-03-staging-verification-report.md](../e12-03-staging-verification-report.md)
+> for the canonical environment-verification record. (Historical note: an
+> earlier phase of E12-03 found the originally documented placeholder staging
+> URLs non-operational; that finding is superseded and retained in the
+> canonical report's historical section only.)
 
 ## 1. Purpose
 
@@ -111,9 +115,14 @@ $env:PRODUCTION_BACKEND_HOSTS = "<production API hostname>"
 npm run test:staging-smoke
 ```
 
-Real URLs are deliberately not written in this document or in code: canonical
-staging URLs are owner-confirmed values (plan §13) and are configured in the
-GitHub `staging` environment, not in the repository.
+Canonical values (owner-confirmed, configured in the GitHub `dev`
+environment):
+
+- `STAGING_FRONTEND_URL` = `https://dev-yesh-mishak.vercel.app`
+- `STAGING_BACKEND_URL` = `https://yeshmishak-dev.up.railway.app`
+
+The variable names keep their `STAGING_` prefix — `dev` is this project's
+staging-equivalent environment. Credentials are never written in code or docs.
 
 ### Local rehearsal against a local stack (what E12-04 validated)
 
@@ -144,7 +153,7 @@ Workflow: **Staging smoke tests**
 (`.github/workflows/staging-smoke-tests.yml`) — `workflow_dispatch` only
 (GitHub → Actions → Staging smoke tests → Run workflow).
 
-- Uses the GitHub **`staging` environment**: URLs from environment
+- Uses the GitHub **`dev` environment**: URLs from environment
   *variables*, credentials from environment *secrets*.
 - Validates configuration presence before installing anything; a missing
   required variable fails the run with an `::error::` naming it.
@@ -225,20 +234,37 @@ timeouts.
 - Local validation includes a sentinel-grep proving the credential value
   appears nowhere in stdout or generated reports.
 
-## 13. Dependencies and closure requirements
+## 13. Closure record (E12-04)
 
-1. **E12-03 dependency:** staging verification evidence lives only in commit
-   `b18b462` on the unmerged branch `qa/e12-03-staging-verification`. E12-04
-   must not be considered complete until the E12-03 provisioning work and its
-   evidence are available in the canonical project history (merged), and the
-   staging environment it gates (E12-03A/B/C: Supabase, Firebase, Google
-   OAuth, Railway, Vercel) is actually provisioned.
-2. **Owner actions before the first real run** (plan §13): confirm canonical
-   staging URLs, confirm production API hostname(s), create the synthetic
-   email-verified staging test user, create the GitHub `staging` environment
-   with the variables/secrets of §5, confirm Vercel Deployment Protection is
-   off (or provide a bypass), confirm notification/database isolation.
-3. **Closure requirement:** a green **Staging smoke tests** workflow run
-   against the real provisioned staging environment, with the run URL recorded
-   as completion evidence. Local rehearsal (this document §6) is not a
-   substitute.
+1. **E12-03 dependency — satisfied.** The canonical environment-verification
+   record is
+   [docs/e12-03-staging-verification-report.md](../e12-03-staging-verification-report.md):
+   the `dev` environment (dev Vercel frontend, dev Railway backend, isolated
+   Supabase project `yesh_mishak_dev`) is provisioned and operational.
+   (Historical: an earlier E12-03 draft on the unmerged branch
+   `qa/e12-03-staging-verification`, commit `b18b462`, described the
+   then-unprovisioned placeholder URLs; it is superseded.)
+2. **Closure requirement — satisfied.** Green **Staging smoke tests**
+   `workflow_dispatch` run against the real `dev` environment (2026-07-24):
+   https://github.com/sandrusipredicts/yesh_mishak/actions/runs/30122383892
+   — Tier A passed in full (backend health, DB connectivity, API contract,
+   CORS, frontend availability/boot/wiring, production denylist, legal
+   routes); Tier B skipped by design (credentials not configured). E12-04 does
+   **not** claim Tier B passed, and does **not** claim push/Firebase isolation
+   was validated.
+3. **Optional follow-up (not a closure blocker):** enable Tier B by creating
+   the dedicated synthetic dev test account and adding
+   `STAGING_TEST_EMAIL`/`STAGING_TEST_PASSWORD` to the GitHub `dev`
+   environment secrets.
+
+## 14. Final status
+
+```text
+Implementation: COMPLETE
+Local validation: COMPLETE
+Real staging validation: COMPLETE
+E12-04 closure readiness: READY
+```
+
+Tier B authenticated coverage remains optional follow-up work and is not a
+blocker for E12-04 closure.
