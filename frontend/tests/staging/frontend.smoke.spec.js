@@ -115,7 +115,7 @@ test('[frontend-wiring] deployed bundle targets the staging backend only', async
   }
 
   const hostUrlPattern = (host) =>
-    new RegExp(`https?://${host.replace(/\./g, '\\.')}(?=[/:'"\`]|$)`, 'i')
+    new RegExp(`https?://${host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[/:'"\`]|$)`, 'i')
   const bakedProductionHosts = cfg.productionHosts.filter((host) =>
     hostUrlPattern(host).test(combinedBundle),
   )
