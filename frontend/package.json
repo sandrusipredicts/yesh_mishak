@@ -27,6 +27,7 @@
     "test:errors": "node --test tests/errors.test.js",
     "postinstall": "patch-package",
     "test:e2e": "playwright test",
+    "test:staging-smoke": "playwright test --config playwright.staging.config.js",
     "preview": "vite preview"
   },
   "dependencies": {
