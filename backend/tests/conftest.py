@@ -33,3 +33,13 @@ def route_fields_map_service_client_to_test_double(monkeypatch):
         "get_supabase_service_role_client",
         lambda: fields.get_supabase_client(),
     )
+
+
+@pytest.fixture(autouse=True)
+def route_auth_dependencies_service_client_to_test_double(monkeypatch):
+    from app.auth import dependencies
+    monkeypatch.setattr(
+        dependencies,
+        "get_supabase_service_role_client",
+        lambda: dependencies.get_supabase_client(),
+    )
