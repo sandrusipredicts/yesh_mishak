@@ -205,12 +205,17 @@ def test_legacy_user_without_verification_column_still_logs_in(monkeypatch) -> N
 
 
 def test_registration_delivery_failure_keeps_account_recoverable_without_session(monkeypatch) -> None:
-    from test_manual_auth import FakeSupabaseClient, configure_test_settings, register_payload
+    from test_manual_auth import (
+        FakeSupabaseClient,
+        configure_test_settings,
+        patch_auth_supabase_clients,
+        register_payload,
+    )
     from app.services.email_verification import VerificationDeliveryError
 
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
     monkeypatch.setattr(
         "app.api.auth.issue_verification_email",
         lambda *_: (_ for _ in ()).throw(VerificationDeliveryError("smtp failed")),

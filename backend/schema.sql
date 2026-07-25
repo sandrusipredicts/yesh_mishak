@@ -320,7 +320,7 @@ grant select, insert, update on public.job_runs to service_role;
 grant select, insert, update on public.push_delivery_attempts to service_role;
 grant select, insert, delete on public.api_request_metrics to service_role;
 grant select, insert, delete on public.share_events to service_role;
-grant select, update on public.users to service_role;
+grant select, insert, update on public.users to service_role;
 grant select, insert, update, delete on public.user_identities to service_role;
 grant select, insert, update on public.content_reports to service_role;
 grant select, insert, delete on public.user_blocks to service_role;
