@@ -7,7 +7,12 @@ from app.main import app
 from app.errors import validate_uuid_id
 from app.schemas.auth import RegisterRequest
 from app.auth.jwt import create_access_token
-from test_manual_auth import FakeSupabaseClient, configure_test_settings, register_payload
+from test_manual_auth import (
+    FakeSupabaseClient,
+    configure_test_settings,
+    patch_auth_supabase_clients,
+    register_payload,
+)
 
 
 def auth_headers(user) -> dict[str, str]:
@@ -16,7 +21,7 @@ def auth_headers(user) -> dict[str, str]:
 
 
 def _patch_supabase(monkeypatch, fake_client) -> None:
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
     monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.routers.field_reports.get_supabase_client", lambda: fake_client)
