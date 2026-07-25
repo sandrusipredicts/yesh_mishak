@@ -1,12 +1,13 @@
-// E12-04 staging smoke suite — API tier.
+// E12-04/E12-05 staging smoke suite — API tier.
 //
 // Tier A: read-only, unauthenticated contract checks (always run).
 // Tier B: read-only authenticated checks; run only when the dedicated
 //         synthetic staging test account is provided via env/secrets.
 //
-// Rule: no test in this file mutates persistent staging state. The only
-// write-adjacent call is POST /auth/login (Tier B), which touches last_login
-// for the dedicated test account only.
+// Rule: no test in this file directly writes persistent state. POST
+// /auth/login performs the backend's existing last_login telemetry update;
+// that is the sole approved side effect. The dedicated account must own and
+// belong to no games so GET /games/me cannot reconcile an expired game.
 
 import { test, expect } from '@playwright/test'
 import { loadConfig, TIER_B_SKIP_REASON } from './helpers.js'
@@ -15,6 +16,20 @@ const cfg = loadConfig()
 
 // Deterministic, syntactically valid UUID that no seeded environment uses.
 const NONEXISTENT_FIELD_ID = '00000000-0000-4000-8000-000000000000'
+const MY_GAMES_ARRAY_KEYS = [
+  'active_games',
+  'upcoming_games',
+  'past_games',
+  'cancelled_games',
+]
+
+async function readSensitiveJson(response, component) {
+  try {
+    return await response.json()
+  } catch {
+    throw new Error(`${component} response was not valid JSON (body suppressed)`)
+  }
+}
 
 test.describe('Tier A — backend contracts', () => {
   test('[backend-health] GET / returns the health contract', async ({ request }) => {
@@ -128,6 +143,7 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
   // Populated by [auth-login] and reused by the later tests in this serial
   // group. On retry the whole group restarts, so the token is never stale.
   let accessToken = null
+  let authenticatedUser = null
 
   test('[auth-login] staging test account can log in', async ({ request }) => {
     const response = await request.post(`${cfg.backendUrl}/auth/login`, {
@@ -140,7 +156,7 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
       + 'account (response body suppressed; check credential secrets and account state)',
     ).toBe(200)
 
-    const body = await response.json()
+    const body = await readSensitiveJson(response, '[auth-login]')
     expect(
       typeof body.access_token === 'string' && body.access_token.length > 0,
       '[auth-login] login response is missing a non-empty access_token',
@@ -150,22 +166,46 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
       '[auth-login] login response is missing the expected token_type',
     ).toBe('bearer')
     accessToken = body.access_token
+    authenticatedUser = body.user
   })
 
-  test('[auth-user-data] GET /games/me returns the authenticated contract', async ({ request }) => {
-    expect(accessToken, '[auth-user-data] no token from [auth-login]').toBeTruthy()
+  test('[auth-user-data] login response identifies the synthetic account', async () => {
+    expect(
+      typeof authenticatedUser?.id === 'string' && authenticatedUser.id.length > 0,
+      '[auth-user-data] login response user is missing a non-empty id',
+    ).toBe(true)
+    expect(
+      typeof authenticatedUser?.email === 'string'
+        && authenticatedUser.email.trim().toLowerCase() === cfg.tierB.email.toLowerCase(),
+      '[auth-user-data] login response user does not match the configured synthetic account '
+      + '(email values suppressed)',
+    ).toBe(true)
+  })
+
+  test('[games-me-contract] GET /games/me returns four empty game arrays', async ({ request }) => {
+    expect(
+      typeof accessToken === 'string' && accessToken.length > 0,
+      '[games-me-contract] no token from [auth-login]',
+    ).toBe(true)
     const response = await request.get(`${cfg.backendUrl}/games/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
     expect(
       response.status(),
-      '[auth-user-data] GET /games/me did not return HTTP 200 with a fresh token',
+      '[games-me-contract] GET /games/me did not return HTTP 200 with a fresh token',
     ).toBe(200)
-    const body = await response.json()
-    expect(
-      Array.isArray(body),
-      '[auth-user-data] GET /games/me must return a JSON array',
-    ).toBe(true)
+    const body = await readSensitiveJson(response, '[games-me-contract]')
+    for (const key of MY_GAMES_ARRAY_KEYS) {
+      expect(
+        Array.isArray(body?.[key]),
+        `[games-me-contract] response must contain an array at "${key}"`,
+      ).toBe(true)
+      expect(
+        body[key].length,
+        `[games-me-contract] synthetic account "${key}" must remain empty; `
+        + 'do not reuse this identity for mutable tests',
+      ).toBe(0)
+    }
   })
 
   test('[notifications-contract] GET /notifications/unread-count returns a count', async ({ request }) => {
@@ -177,7 +217,7 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
       response.status(),
       '[notifications-contract] GET /notifications/unread-count did not return HTTP 200',
     ).toBe(200)
-    const body = await response.json()
+    const body = await readSensitiveJson(response, '[notifications-contract]')
     expect(
       Number.isInteger(body.unread_count) && body.unread_count >= 0,
       '[notifications-contract] response must contain a non-negative integer unread_count',
@@ -192,7 +232,7 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
       response.status(),
       '[auth-rejection] a syntactically invalid token must be rejected with HTTP 401',
     ).toBe(401)
-    const body = await response.json()
+    const body = await readSensitiveJson(response, '[auth-rejection]')
     expect(
       body.code,
       '[auth-rejection] 401 body must carry the stable AUTH_REQUIRED code',
@@ -210,7 +250,7 @@ test.describe.serial('Tier B — authenticated read-only smoke (optional)', () =
       + 'from GET /admin/stats — if this returns 200 the test account has admin '
       + 'privileges, which violates the Tier B account contract',
     ).toBe(403)
-    const body = await response.json()
+    const body = await readSensitiveJson(response, '[authz-boundary]')
     expect(
       body.code,
       '[authz-boundary] 403 body must carry the stable FORBIDDEN code',

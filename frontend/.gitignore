@@ -14,6 +14,7 @@ dist-ssr
 test-results/
 playwright-report/
 test-results-staging/
+test-results-staging-auth/
 playwright-report-staging/
 
 # Editor directories and files

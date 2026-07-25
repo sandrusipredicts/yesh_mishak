@@ -33,13 +33,14 @@ above) · **Manual** (intentionally not automated).
 | §3 Backend: `GET /` health, CORS headers | `[backend-health]`, `[cors]` (+ `[api-contract]` error envelope) | Implemented · Locally validated · Validated against real dev/staging · **Complete** |
 | §3 Backend: `GET /docs`, Railway log review | — | Manual |
 | §4 Auth: Google OAuth login | — | Manual (interactive; excluded from automation) |
-| §4 Auth: login returns valid JWT / authenticated requests / invalid token 401 | Tier B `[auth-login]`, `[auth-user-data]`, `[auth-rejection]` (password login with the dedicated staging test account) | Implemented · Locally validated (skip + failure paths) · **Skipped by design** on the real dev run (dev test account + secrets not configured — optional follow-up, not a blocker) |
+| §4 Auth: login returns valid JWT / authenticated identity / invalid token 401 | Tier B `[auth-login]`, `[auth-user-data]`, `[auth-rejection]` (password login with the dedicated dev-only synthetic account) | E12-05 implemented · locally validated without real credentials · **Real-dev run pending account + GitHub `dev` secrets** |
 | §5 Fields: seeded fields returned | `[db-connectivity]` (shape only — empty staging allowed) | Implemented · Locally validated · Validated against real dev/staging · **Complete**; seeded-content review Manual |
 | §5 Fields: field creation, markers | — | Manual (mutating / visual) |
-| §6 Games: create/join/leave/listing | — | Manual — mutating; excluded from the read-only suite (plan §9 admission bar) |
-| §7 Admin: non-admin 403 | Tier B `[authz-boundary]` | Implemented · Locally validated · **Skipped by design** on the real dev run (needs dev test account + secrets) |
+| §6 Games: authenticated `/games/me` contract | Tier B `[games-me-contract]` checks four empty arrays for the dedicated no-games account | E12-05 implemented · locally validated without real credentials · **Real-dev run pending** |
+| §6 Games: create/join/leave | — | Manual — mutating; excluded from the smoke suite (plan §9 admission bar) |
+| §7 Admin: non-admin 403 | Tier B `[authz-boundary]` | E12-05 implemented · locally validated without real credentials · **Real-dev run pending** |
 | §7 Admin: admin positive-path | — | Manual — no dedicated staging admin identity |
-| §8 Notifications: unread count | Tier B `[notifications-contract]` | Implemented · Locally validated · **Skipped by design** on the real dev run (needs dev test account + secrets) |
+| §8 Notifications: unread count | Tier B `[notifications-contract]` | E12-05 implemented · locally validated without real credentials · **Real-dev run pending** |
 | §8 Notifications: preferences update, test push | — | Manual (mutating / external side effect) |
 | §9 Push safety | — | Manual (dashboard/device verification; Firebase may still be the shared project — push isolation not verified) |
 | §10 Logs | — | Manual (Railway dashboard) |

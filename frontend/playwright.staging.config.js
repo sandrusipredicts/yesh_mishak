@@ -1,4 +1,4 @@
-// E12-04 — dedicated Playwright configuration for the staging smoke suite.
+// E12-04/E12-05 — dedicated Playwright configuration for the staging smoke suite.
 //
 // Deliberately separate from playwright.config.js: no dev-server bootstrap,
 // its own test directory, its own report/output folders, and environment-
@@ -7,11 +7,13 @@
 //   npm run test:staging-smoke
 //
 // Required env: STAGING_FRONTEND_URL, STAGING_BACKEND_URL,
-// PRODUCTION_BACKEND_HOSTS. Optional (enables Tier B): STAGING_TEST_EMAIL,
-// STAGING_TEST_PASSWORD.
+// PRODUCTION_BACKEND_HOSTS. Local Tier B is optional; CI preflight requires
+// STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD.
 
 import process from 'node:process'
 import { defineConfig, devices } from '@playwright/test'
+
+const tierAArtifactsEnabled = process.env.STAGING_SMOKE_TIER === 'tier-a'
 
 export default defineConfig({
   testDir: './tests/staging',
@@ -25,11 +27,18 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   forbidOnly: Boolean(process.env.CI),
-  reporter: [
-    ['list'],
-    ['html', { outputFolder: 'playwright-report-staging', open: 'never' }],
-  ],
-  outputDir: 'test-results-staging',
+  // Only the explicitly isolated anonymous Tier A process may create HTML
+  // diagnostics. Tier B and raw/direct invocations are list-only and write
+  // only to a separate directory that CI never uploads.
+  reporter: tierAArtifactsEnabled
+    ? [
+        ['list'],
+        ['html', { outputFolder: 'playwright-report-staging', open: 'never' }],
+      ]
+    : [['list']],
+  outputDir: tierAArtifactsEnabled
+    ? 'test-results-staging'
+    : 'test-results-staging-auth',
   projects: [
     {
       name: 'staging-api',

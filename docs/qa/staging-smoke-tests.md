@@ -1,6 +1,9 @@
-# Staging Smoke-Test Suite (E12-04)
+# Staging Smoke-Test Suite (E12-04 / E12-05)
 
-Automated, read-only smoke tests for the deployed staging environment.
+Automated smoke tests for the deployed staging environment. Tests never call a
+write endpoint directly; successful password login performs the backend's
+existing `last_login` telemetry update, which is the sole approved persistent
+side effect.
 Approved plan: [e12-04-staging-smoke-test-plan.md](e12-04-staging-smoke-test-plan.md).
 
 > **Status: VALIDATED against the real environment.** The project's
@@ -16,13 +19,18 @@ Approved plan: [e12-04-staging-smoke-test-plan.md](e12-04-staging-smoke-test-pla
 > earlier phase of E12-03 found the originally documented placeholder staging
 > URLs non-operational; that finding is superseded and retained in the
 > canonical report's historical section only.)
+>
+> **E12-05 status:** authenticated Tier B implementation and local validation
+> are tracked separately from the E12-04 closure above. Real-dev Tier B
+> validation remains pending until the dedicated synthetic account and GitHub
+> `dev` Environment secrets are configured.
 
 ## 1. Purpose
 
-Answer, in under a few minutes and without touching persistent data: is the
-staging frontend deployed and booting, is the staging backend up and connected
-to its database, do the core API contracts hold, and is the frontend wired to
-the **staging** backend rather than production?
+Answer, in under a few minutes and without persistent business/domain-data
+mutation: is the staging frontend deployed and booting, is the staging backend
+up and connected to its database, do the core API and auth contracts hold, and
+is the frontend wired to the **staging** backend rather than production?
 
 ## 2. Architecture
 
@@ -36,8 +44,14 @@ the **staging** backend rather than production?
     `request` fixture (no browser).
   - `frontend.smoke.spec.js` — project **staging-browser**, Chromium.
   - `helpers.js` — environment contract (validation, normalization,
-    production-host denylist).
+    exact dev-target allowlist, loopback-only local rehearsal, production-host
+    denylist, and credential-pair rules).
+  - `helpers.test.js` — network-free tests for target and credential behavior.
   - `global-setup.js` — fail-fast config validation + bounded readiness poll.
+- **Runner:** `frontend/scripts/run-staging-smoke.mjs` runs Tier A and Tier B as
+  separate Playwright processes. It removes both credential variables from the
+  Tier A child environment. Tier B is list-only and uses a non-uploaded output
+  directory.
 - **Discovery isolation:** the default `playwright.config.js` has
   `testIgnore: '**/staging/**'`, so `npm run test:e2e` never picks up staging
   tests; the staging config's `testDir` is `tests/staging` only.
@@ -59,16 +73,19 @@ the **staging** backend rather than production?
 | `[frontend-wiring]` | The served JS bundle contains the staging backend origin (the API base URL is baked at build time) and **no** `PRODUCTION_BACKEND_HOSTS` entry appears in it as a URL; additionally, no observed runtime request during a short boot window reaches a production host. Bundle inspection is the positive proof because a fresh anonymous visit can legitimately make zero API calls (onboarding gate). Offending URLs are reported origin+path only (query strings stripped) |
 | `[frontend-legal]` | `/privacy` and `/terms` return 200, mount, and render meaningful text |
 
-### Tier B — optional (authenticated, read-only; auto-skips without credentials)
+### Tier B — authenticated, no direct writes
 
-Runs only when **both** `STAGING_TEST_EMAIL` and `STAGING_TEST_PASSWORD` are
-set. When absent, the tests are skipped with an explicit reason naming the
-missing variables; Tier A is unaffected.
+Local behavior: both secrets absent means Tier A runs and Tier B skips; a
+partial pair is a hard configuration error; a full pair runs both tiers.
+
+CI behavior: either or both secrets absent fails in preflight before tests;
+only a full pair runs Tier A followed by Tier B.
 
 | Test title prefix | What it proves |
 | :--- | :--- |
-| `[auth-login]` | `POST /auth/login` with the dedicated synthetic staging account returns 200 + a bearer token (the only write-adjacent call in the suite: it touches `last_login` for the test account) |
-| `[auth-user-data]` | `GET /games/me` returns 200 + array with the fresh token |
+| `[auth-login]` | `POST /auth/login` with the dedicated synthetic dev account returns 200 + a bearer token. The backend's existing `last_login` update is the sole approved telemetry side effect |
+| `[auth-user-data]` | The login response's `TokenResponse.user` has a non-empty ID and identifies the configured synthetic email; the comparison reports only true/false and never either email value |
+| `[games-me-contract]` | `GET /games/me` returns 200 and all four stable arrays (`active_games`, `upcoming_games`, `past_games`, `cancelled_games`) exist and are empty. Empty state is an operational invariant that prevents expiry reconciliation |
 | `[notifications-contract]` | `GET /notifications/unread-count` returns 200 + integer `unread_count` |
 | `[auth-rejection]` | A garbage bearer token gets 401 + `code: "AUTH_REQUIRED"` |
 | `[authz-boundary]` | The non-admin test account gets 403 + `code: "FORBIDDEN"` from `GET /admin/stats` (also guards that the test account was not accidentally given admin rights) |
@@ -83,6 +100,10 @@ exists), any test that mutates persistent staging state, and any intentional
 contact with production. Positive admin tests require a formally provided
 dedicated staging admin identity first.
 
+The accepted `POST /auth/login` `last_login` update is authentication telemetry,
+not a business/domain mutation. Do not bypass, disable, expand, or add test-only
+behavior around that existing backend operation.
+
 ## 5. Required variables and secrets
 
 | Name | Required | Kind | Meaning |
@@ -90,29 +111,43 @@ dedicated staging admin identity first.
 | `STAGING_FRONTEND_URL` | Yes | GitHub environment **variable** / local env | Staging frontend base URL (http/https, no query/fragment) |
 | `STAGING_BACKEND_URL` | Yes | GitHub environment **variable** / local env | Staging backend base URL |
 | `PRODUCTION_BACKEND_HOSTS` | Yes | GitHub environment **variable** / local env | Comma-separated bare production API hostnames (denylist for `[frontend-wiring]`) |
-| `STAGING_TEST_EMAIL` | No (enables Tier B) | GitHub environment **secret** | Synthetic staging test account email — never a personal account |
-| `STAGING_TEST_PASSWORD` | No (enables Tier B) | GitHub environment **secret** | Its password |
+| `STAGING_TEST_EMAIL` | Local: optional pair; CI: required | GitHub `dev` environment **secret** | Dedicated synthetic dev account email — never a personal account |
+| `STAGING_TEST_PASSWORD` | Local: optional pair; CI: required | GitHub `dev` environment **secret** | Its unique password |
 | `STAGING_READINESS_TIMEOUT_MS` | No | env | Cold-start readiness window per target (default 90000, clamp 1000–600000) |
+| `STAGING_SMOKE_TIER` | Internal runner/workflow only | env | Selects artifact policy: `tier-a` or `tier-b`; maintainers should use the npm scripts instead of setting it directly |
 
 Contract enforcement (`helpers.js`): missing/empty required variables abort
 immediately with a `[staging-smoke:config]` error naming them; malformed or
-non-http(s) URLs are rejected; URLs are normalized (trailing slashes stripped,
-query/fragment forbidden); the run **refuses to start** if the staging
-frontend or backend hostname appears in `PRODUCTION_BACKEND_HOSTS`; providing
-only one of the two Tier B secrets is a hard error; there are **no fallbacks**
-to localhost or production.
+non-http(s) URLs, embedded credentials, path prefixes, queries, and fragments
+are rejected. CI accepts only the exact canonical dev frontend/backend pair.
+Local runs accept either that pair or an all-loopback pair; mixed and arbitrary
+external targets are rejected. `PRODUCTION_BACKEND_HOSTS` must include the
+canonical production backend and neither smoke target may match the denylist.
 
 ## 6. Running locally
 
 ```powershell
 cd frontend
-$env:STAGING_FRONTEND_URL = "<staging frontend URL>"
-$env:STAGING_BACKEND_URL = "<staging backend URL>"
-$env:PRODUCTION_BACKEND_HOSTS = "<production API hostname>"
+$env:STAGING_FRONTEND_URL = "https://dev-yesh-mishak.vercel.app"
+$env:STAGING_BACKEND_URL = "https://yeshmishak-dev.up.railway.app"
+$env:PRODUCTION_BACKEND_HOSTS = "yeshmishak-production.up.railway.app"
 # Optional Tier B:
-# $env:STAGING_TEST_EMAIL = "<synthetic staging account email>"
+# $env:STAGING_TEST_EMAIL = "<dedicated synthetic dev account email>"
 # $env:STAGING_TEST_PASSWORD = "<its password>"
 npm run test:staging-smoke
+```
+
+`npm run test:staging-smoke` runs Tier A first and Tier B second. The runner
+strips both credential variables from the Tier A child. With no local
+credentials, Tier B is reported as skipped. With both credentials, Tier B is
+list-only. A partial credential pair fails before Playwright starts.
+
+Individual tier commands are available for focused diagnosis:
+
+```powershell
+npm run test:staging-smoke:config
+npm run test:staging-smoke:tier-a
+npm run test:staging-smoke:tier-b
 ```
 
 Canonical values (owner-confirmed, configured in the GitHub `dev`
@@ -139,7 +174,7 @@ npm run preview -- --host 127.0.0.1 --port 5173
 cd frontend
 $env:STAGING_FRONTEND_URL = "http://127.0.0.1:5173"
 $env:STAGING_BACKEND_URL = "http://127.0.0.1:8000"
-$env:PRODUCTION_BACKEND_HOSTS = "yesh-mishak-api.railway.app"
+$env:PRODUCTION_BACKEND_HOSTS = "yeshmishak-production.up.railway.app"
 npm run test:staging-smoke
 ```
 
@@ -155,8 +190,14 @@ Workflow: **Staging smoke tests**
 
 - Uses the GitHub **`dev` environment**: URLs from environment
   *variables*, credentials from environment *secrets*.
-- Validates configuration presence before installing anything; a missing
-  required variable fails the run with an `::error::` naming it.
+- Validates variables and the complete credential pair before dependency
+  installation; missing/partial credentials fail with an `::error::` naming
+  variables only.
+- Credential secrets are step-scoped only to preflight and Tier B. Checkout,
+  Node setup, `npm ci`, browser installation, Tier A, and artifact upload
+  cannot access them.
+- Tier A and Tier B run as separate Playwright processes. Tier A receives no
+  credential variables. Tier B is list-only.
 - Installs only frontend npm dependencies + Playwright Chromium.
 - 15-minute job timeout; concurrency group `staging-smoke` prevents duplicate
   simultaneous runs; not a required PR check by design.
@@ -179,18 +220,21 @@ Every failure message starts with a component tag:
 | `[frontend-wiring]` | Frontend build configuration (`VITE_API_URL`) — **production hit = misconfigured build** |
 | `[frontend-legal]` | Frontend routing/content |
 | `[auth-login]` | Test-account credentials/state (rotate secrets, check account) |
-| `[auth-user-data]`, `[notifications-contract]`, `[auth-rejection]`, `[authz-boundary]` | Backend auth/authorization contracts |
+| `[auth-user-data]`, `[games-me-contract]`, `[notifications-contract]`, `[auth-rejection]`, `[authz-boundary]` | Backend auth/authorization contracts or synthetic-account invariant |
 
 Tier A green + `[auth-login]` red usually means credential decay, not an
 outage.
 
 ## 9. Artifacts
 
-- HTML report: `frontend/playwright-report-staging/`
-- Traces/screenshots (browser project only, on failure):
+- Anonymous Tier A HTML report: `frontend/playwright-report-staging/`
+- Anonymous Tier A traces/screenshots (browser project only, on failure):
   `frontend/test-results-staging/`
-- CI uploads both as artifact `staging-smoke-report` (14-day retention) on
-  failure only.
+- Tier B uses list reporting and `frontend/test-results-staging-auth/`.
+  Trace, screenshots, video, storage state, and attachments are disabled; CI
+  never uploads this directory.
+- CI uploads only the two Tier A paths as
+  `staging-smoke-tier-a-report` (14-day retention) on failure.
 
 ## 10. Troubleshooting
 
@@ -222,11 +266,17 @@ timeouts.
 
 - Credentials enter only via environment variables / GitHub environment
   secrets; they are never written to code, docs, reports, or logs.
-- Failure assertions for authenticated calls print **status codes only** —
-  never response bodies, tokens, cookies, or Authorization headers.
+- The local runner removes credentials from the Tier A child process. CI
+  exposes them only to preflight and Tier B.
+- Failure assertions for authenticated calls use static text plus safe status
+  codes or structural values only — never response bodies, tokens, cookies, or
+  Authorization headers.
+- Synthetic-account identity is compared as a boolean with static failure
+  text; neither expected nor received email appears in assertion output.
 - Playwright tracing is **disabled for the API project** specifically because
   traces record request headers; the browser project records no credentialed
   traffic (Tier A only).
+- Tier B has no HTML reporter and its result directory is never uploaded.
 - `[frontend-wiring]` reports offending URLs stripped to origin+path (no query
   strings).
 - The CI validation step reports secret **presence**, never values; GitHub's
@@ -234,7 +284,43 @@ timeouts.
 - Local validation includes a sentinel-grep proving the credential value
   appears nowhere in stdout or generated reports.
 
-## 13. Closure record (E12-04)
+## 13. Synthetic account setup (one time, dev only)
+
+1. In the Supabase dashboard, select the isolated project
+   **`yesh_mishak_dev`** and verify its project identity before creating data.
+   Do not open or modify the production project during creation.
+2. Register the account through the dev password-registration flow at
+   `https://dev-yesh-mishak.vercel.app`. Do **not** create a Supabase Auth
+   identity: this application authenticates against its custom `public.users`
+   table and requires the backend to generate `password_hash`.
+3. Use a dedicated synthetic email, unique synthetic username and phone
+   number, and a unique strong password. Do not reuse a personal, production,
+   admin, or mutable-test identity.
+4. Complete email verification through the dev verification flow.
+5. In `yesh_mishak_dev.public.users`, verify the row has:
+   `password_hash` populated, `email_verified = true`, `role = 'user'`, and
+   `status = 'active'`. Confirm there is no privileged role or linked personal
+   identity.
+6. Confirm before every real-dev Tier B run that:
+   - `games.created_by` has zero rows for this user ID.
+   - `game_players.user_id` has zero rows for this user ID.
+   - The account is not reused by any mutable test or manual game workflow.
+7. In the production Supabase project, perform a read-only email lookup in
+   `public.users` and confirm the synthetic email has zero rows. Never create
+   this account in production.
+8. In GitHub repository Settings → Environments → **`dev`** → Environment
+   secrets, add exactly:
+   - `STAGING_TEST_EMAIL`
+   - `STAGING_TEST_PASSWORD`
+9. Keep the email and password out of repository files, command examples,
+   issue comments, workflow variables, organization/repository secrets, and
+   production configuration. The password must never be committed.
+
+Recurring Tier B performs no account setup and calls no direct write endpoint.
+The normal login `last_login` telemetry update remains the sole approved
+persistent side effect.
+
+## 14. Closure record (E12-04)
 
 1. **E12-03 dependency — satisfied.** The canonical environment-verification
    record is
@@ -257,14 +343,15 @@ timeouts.
    `STAGING_TEST_EMAIL`/`STAGING_TEST_PASSWORD` to the GitHub `dev`
    environment secrets.
 
-## 14. Final status
+## 15. Final status
 
 ```text
-Implementation: COMPLETE
-Local validation: COMPLETE
-Real staging validation: COMPLETE
-E12-04 closure readiness: READY
+E12-04 implementation and Tier A real-dev validation: COMPLETE
+E12-05 Tier B implementation: COMPLETE
+E12-05 local validation: COMPLETE
+E12-05 real-dev validation: PENDING ACCOUNT + GITHUB DEV SECRETS
 ```
 
-Tier B authenticated coverage remains optional follow-up work and is not a
-blocker for E12-04 closure.
+E12-04 remains closed independently. E12-05 is not complete until a GitHub
+Actions run against the exact dev targets passes Tier A and Tier B and the run
+URL plus artifact/secret audit evidence are recorded.
