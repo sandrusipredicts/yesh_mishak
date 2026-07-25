@@ -12,11 +12,16 @@ from app.auth.passwords import (
 from app.core.config import get_settings
 from app.main import app
 
-from test_manual_auth import FakeSupabaseClient, configure_test_settings, register_payload
+from test_manual_auth import (
+    FakeSupabaseClient,
+    configure_test_settings,
+    patch_auth_supabase_clients,
+    register_payload,
+)
 
 
 def _patch_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
 
 # ---- Unit tests for validate_password ----

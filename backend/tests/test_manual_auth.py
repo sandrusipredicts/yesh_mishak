@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -14,8 +15,9 @@ class FakeResponse:
 
 
 class FakeUsersQuery:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    def __init__(self, rows: list[dict[str, Any]], *, allow_insert: bool = True) -> None:
         self.rows = rows
+        self.allow_insert = allow_insert
         self.filters: list[tuple[str, Any]] = []
         self.selected_columns: list[str] | None = None
         self.insert_payload: dict[str, Any] | None = None
@@ -33,6 +35,8 @@ class FakeUsersQuery:
         return self
 
     def insert(self, payload: dict[str, Any]) -> "FakeUsersQuery":
+        if not self.allow_insert:
+            raise AssertionError("non-privileged test client must not insert users")
         self.insert_payload = payload
         return self
 
@@ -73,12 +77,20 @@ class FakeUsersQuery:
 
 
 class FakeSupabaseClient:
-    def __init__(self, users: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        users: list[dict[str, Any]] | None = None,
+        *,
+        allow_insert: bool = True,
+    ) -> None:
         self.users = users or []
+        self.allow_insert = allow_insert
+        self.table_calls: list[str] = []
 
     def table(self, table_name: str) -> FakeUsersQuery:
         assert table_name == "users"
-        return FakeUsersQuery(self.users)
+        self.table_calls.append(table_name)
+        return FakeUsersQuery(self.users, allow_insert=self.allow_insert)
 
 
 def configure_test_settings(monkeypatch) -> None:
@@ -87,6 +99,18 @@ def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
     monkeypatch.setenv("JWT_SECRET", "test-secret")
     get_settings.cache_clear()
+
+
+def patch_auth_supabase_clients(
+    monkeypatch,
+    anon_client: FakeSupabaseClient,
+    service_role_client: FakeSupabaseClient | None = None,
+) -> None:
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: anon_client)
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: service_role_client or anon_client,
+    )
 
 
 def register_payload(**overrides: str) -> dict[str, str]:
@@ -102,10 +126,11 @@ def register_payload(**overrides: str) -> dict[str, str]:
     return payload
 
 
-def test_register_creates_unverified_manual_user_without_session(monkeypatch) -> None:
+def test_register_uses_service_role_insert_without_anon_insert(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    anon_client = FakeSupabaseClient(allow_insert=False)
+    service_role_client = FakeSupabaseClient()
+    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
 
     response = TestClient(app).post("/auth/register", json=register_payload())
 
@@ -116,9 +141,12 @@ def test_register_creates_unverified_manual_user_without_session(monkeypatch) ->
     assert body["user"]["email"] == "manual@example.com"
     assert body["user"]["name"] == "Manual User"
     assert body["user"]["username"] == "manual-user"
-    assert fake_client.users[0]["password_hash"] != "strongpass123"
-    assert fake_client.users[0]["last_login"]
-    assert fake_client.users[0]["email_verified"] is False
+    assert anon_client.users == []
+    assert anon_client.table_calls == ["users", "users", "users"]
+    assert service_role_client.table_calls == ["users"]
+    assert service_role_client.users[0]["password_hash"] != "strongpass123"
+    assert service_role_client.users[0]["last_login"]
+    assert service_role_client.users[0]["email_verified"] is False
     assert body["email_verification_required"] is True
     assert body["email_verification_sent"] is False
 
@@ -126,7 +154,7 @@ def test_register_creates_unverified_manual_user_without_session(monkeypatch) ->
 def test_register_rejects_duplicate_username(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient([{"id": "user-1", "username": "manual-user"}])
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
     response = TestClient(app).post("/auth/register", json=register_payload())
 
@@ -140,7 +168,7 @@ def test_register_rejects_duplicate_username(monkeypatch) -> None:
 def test_register_rejects_duplicate_email(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient([{"id": "user-1", "email": "manual@example.com"}])
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
     response = TestClient(app).post("/auth/register", json=register_payload(username="new-user"))
 
@@ -154,7 +182,7 @@ def test_register_rejects_duplicate_email(monkeypatch) -> None:
 def test_register_rejects_duplicate_phone_number(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient([{"id": "user-1", "phone_number": "0501234567"}])
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
     response = TestClient(app).post(
         "/auth/register",
@@ -171,7 +199,7 @@ def test_register_rejects_duplicate_phone_number(monkeypatch) -> None:
 def test_register_rejects_password_mismatch(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
     response = TestClient(app).post(
         "/auth/register",
@@ -188,7 +216,7 @@ def test_register_rejects_password_mismatch(monkeypatch) -> None:
 def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     register_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
+    patch_auth_supabase_clients(monkeypatch, register_client)
     TestClient(app).post("/auth/register", json=register_payload())
     register_client.users[0]["email_verified"] = True
 
@@ -215,7 +243,7 @@ def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
 def test_login_accepts_valid_email_and_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     register_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
+    patch_auth_supabase_clients(monkeypatch, register_client)
     TestClient(app).post("/auth/register", json=register_payload())
     register_client.users[0]["email_verified"] = True
 
@@ -240,7 +268,7 @@ def test_login_accepts_valid_email_and_password(monkeypatch, caplog) -> None:
 def test_login_email_is_case_insensitive(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     register_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: register_client)
+    patch_auth_supabase_clients(monkeypatch, register_client)
     TestClient(app).post("/auth/register", json=register_payload())
     register_client.users[0]["email_verified"] = True
 
@@ -256,7 +284,7 @@ def test_login_email_is_case_insensitive(monkeypatch) -> None:
 def test_login_rejects_unknown_identifier(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
 
     response = TestClient(app).post(
         "/auth/login",
@@ -271,7 +299,7 @@ def test_login_rejects_unknown_identifier(monkeypatch) -> None:
 def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    patch_auth_supabase_clients(monkeypatch, fake_client)
     TestClient(app).post("/auth/register", json=register_payload())
 
     with caplog.at_level(logging.WARNING, logger="app.api.auth"):
@@ -295,3 +323,23 @@ def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
     assert failure_records[-1].error_code == "AUTH_INVALID"
     assert "manual-user" not in caplog.text
     assert "wrongpass123" not in caplog.text
+
+
+def test_registration_service_role_grant_is_minimal_and_canonical() -> None:
+    backend_dir = Path(__file__).parents[1]
+    migration = (
+        backend_dir / "migrations" / "user_registration_service_role_grant.sql"
+    ).read_text(encoding="utf-8").lower()
+    schema = (backend_dir / "schema.sql").read_text(encoding="utf-8").lower()
+
+    statements = [
+        line.strip()
+        for line in migration.splitlines()
+        if line.strip() and not line.lstrip().startswith("--")
+    ]
+    assert statements == ["grant insert on table public.users to service_role;"]
+    assert "disable row level security" not in migration
+    assert "create policy" not in migration
+    assert "to anon" not in migration
+    assert "to authenticated" not in migration
+    assert "grant select, insert, update on public.users to service_role;" in schema

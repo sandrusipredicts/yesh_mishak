@@ -251,7 +251,12 @@ def register(request: Request, payload: RegisterRequest) -> RegistrationResponse
     }
 
     try:
-        response = get_supabase_client().table("users").insert(user_data).execute()
+        response = (
+            get_supabase_service_role_client()
+            .table("users")
+            .insert(user_data)
+            .execute()
+        )
     except APIError as exc:
         error_details = getattr(exc, "args", [{}])[0]
         msg = error_details.get("message", "") if isinstance(error_details, dict) else str(exc)
