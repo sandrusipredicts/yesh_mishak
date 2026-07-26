@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
+from supabase import Client
 
 from app.auth.dependencies import invalidate_cached_user, require_active_user
 from app.auth.google import find_or_create_google_user, verify_google_token
@@ -95,11 +96,15 @@ def _create_token_response(user: dict[str, Any]) -> TokenResponse:
     )
 
 
-def _get_user_by_column(column: str, value: str) -> dict[str, Any] | None:
+def _get_user_by_column(
+    client: Client,
+    column: str,
+    value: str,
+    columns: str,
+) -> dict[str, Any] | None:
     response = (
-        get_supabase_client()
-        .table("users")
-        .select("id,email,name,username,phone_number,password_hash,email_verified,email_verified_at,terms_accepted_at")
+        client.table("users")
+        .select(columns)
         .eq(column, value)
         .limit(1)
         .execute()
@@ -107,8 +112,8 @@ def _get_user_by_column(column: str, value: str) -> dict[str, Any] | None:
     return response.data[0] if response.data else None
 
 
-def _ensure_unique(column: str, value: str, message: str) -> None:
-    if _get_user_by_column(column, value):
+def _ensure_unique(client: Client, column: str, value: str, message: str) -> None:
+    if _get_user_by_column(client, column, value, "id"):
         raise_api_error(
             status_code=status.HTTP_409_CONFLICT,
             code="CONFLICT",
@@ -235,9 +240,25 @@ def register(request: Request, payload: RegisterRequest) -> RegistrationResponse
             message=password_errors[0],
         )
 
-    _ensure_unique("username", payload.username, "Username is already taken")
-    _ensure_unique("email", payload.email, "Email is already registered")
-    _ensure_unique("phone_number", payload.phone_number, "Phone number is already registered")
+    service_role_client = get_supabase_service_role_client()
+    _ensure_unique(
+        service_role_client,
+        "username",
+        payload.username,
+        "Username is already taken",
+    )
+    _ensure_unique(
+        service_role_client,
+        "email",
+        payload.email,
+        "Email is already registered",
+    )
+    _ensure_unique(
+        service_role_client,
+        "phone_number",
+        payload.phone_number,
+        "Phone number is already registered",
+    )
 
     user_data = {
         "name": payload.full_name,
@@ -251,12 +272,7 @@ def register(request: Request, payload: RegisterRequest) -> RegistrationResponse
     }
 
     try:
-        response = (
-            get_supabase_service_role_client()
-            .table("users")
-            .insert(user_data)
-            .execute()
-        )
+        response = service_role_client.table("users").insert(user_data).execute()
     except APIError as exc:
         error_details = getattr(exc, "args", [{}])[0]
         msg = error_details.get("message", "") if isinstance(error_details, dict) else str(exc)
@@ -318,9 +334,24 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
     if rate_limit_hit:
         return rate_limit_hit
 
-    user = _get_user_by_column("username", payload.username)
+    service_role_client = get_supabase_service_role_client()
+    login_columns = (
+        "id,email,name,username,phone_number,password_hash,email_verified,"
+        "email_verified_at,terms_accepted_at"
+    )
+    user = _get_user_by_column(
+        service_role_client,
+        "username",
+        payload.username,
+        login_columns,
+    )
     if not user and "@" in payload.username:
-        user = _get_user_by_column("email", payload.username)
+        user = _get_user_by_column(
+            service_role_client,
+            "email",
+            payload.username,
+            login_columns,
+        )
     if not user or not verify_password(payload.password, user.get("password_hash")):
         delay_seconds = record_failed_login_and_delay(request, payload.username)
         if delay_seconds > 0:
@@ -490,7 +521,16 @@ def check_username(request: Request, payload: UsernameCheckRequest) -> Availabil
     )
     if rate_limit_hit:
         return rate_limit_hit
-    return AvailabilityResponse(available=_get_user_by_column("username", payload.username) is None)
+    service_role_client = get_supabase_service_role_client()
+    user = _get_user_by_column(
+        service_role_client,
+        "username",
+        payload.username,
+        "id",
+    )
+    return AvailabilityResponse(
+        available=user is None
+    )
 
 
 @router.post("/check-email", response_model=AvailabilityResponse)
@@ -500,7 +540,16 @@ def check_email(request: Request, payload: EmailCheckRequest) -> AvailabilityRes
     )
     if rate_limit_hit:
         return rate_limit_hit
-    return AvailabilityResponse(available=_get_user_by_column("email", payload.email) is None)
+    service_role_client = get_supabase_service_role_client()
+    user = _get_user_by_column(
+        service_role_client,
+        "email",
+        payload.email,
+        "id",
+    )
+    return AvailabilityResponse(
+        available=user is None
+    )
 
 
 @router.post("/verify-email", response_model=EmailVerificationResponse)
@@ -523,7 +572,13 @@ def resend_verification(request: Request, payload: ResendVerificationRequest) ->
     rate_limit_hit = check_rate_limit_by_ip(request, "auth_resend_verification", [(5, 60), (20, 3600)])
     if rate_limit_hit:
         return rate_limit_hit
-    user = _get_user_by_column("email", payload.email)
+    service_role_client = get_supabase_service_role_client()
+    user = _get_user_by_column(
+        service_role_client,
+        "email",
+        payload.email,
+        "id,email_verified,password_hash",
+    )
     if user and user.get("email_verified") is False and user.get("password_hash"):
         try:
             issue_verification_email(str(user["id"]), payload.email)

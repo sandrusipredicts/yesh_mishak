@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -54,6 +55,14 @@ class FakeIssueClient:
     def table(self, name: str) -> FakeIssueQuery:
         assert name == "email_verification_tokens"
         return self.query
+
+
+@pytest.fixture(autouse=True)
+def stub_auth_service_role_client(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: object(),
+    )
 
 
 def test_verify_token_hashes_raw_token_before_rpc(monkeypatch) -> None:
