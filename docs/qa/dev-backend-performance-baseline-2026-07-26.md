@@ -174,10 +174,12 @@ but the API cleanup contract completed successfully.
   `docs/evidence/dev-backend-performance-2026-07-26/raw/`. The committed copies
   are sanitized: run-scoped bearer tokens captured in `*-summary.json`
   `setup_data`, Railway resource identifiers, and per-request trace IDs are
-  redacted. No metric, status, or timing values were modified. The
-  security-sensitive contract scenario's raw evidence and harness
-  implementation are withheld from this repository and retained through the
-  private security process.
+  redacted, and the `setup_data` block k6 writes into each summary export is
+  removed entirely. No metric, status, or timing values were modified;
+  regenerating the analysis from the sanitized summaries reproduces the
+  aggregate outputs byte for byte. The security-sensitive contract scenario's
+  raw evidence and harness implementation are withheld from this repository
+  and retained through the private security process.
 - The original unmodified GitHub workflow artifact remains downloadable from
   the Actions run listed above; `artifact-sha256.txt` records its
   GitHub-reported SHA-256. The ZIP is intentionally not committed to the

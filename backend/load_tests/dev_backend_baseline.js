@@ -222,34 +222,63 @@ function parseJson(response) {
   }
 }
 
-function login() {
-  const response = request(
-    "POST",
-    "login",
-    "/auth/login",
-    [200],
-    { username: testEmail, password: testPassword },
-    { "Content-Type": "application/json", "X-Performance-Test-Run": testRunId },
-    (res) => {
-      const body = parseJson(res);
-      return Boolean(body && body.access_token && body.user && body.user.id);
-    }
-  );
+function login({ record: shouldRecord = true } = {}) {
+  const credentials = { username: testEmail, password: testPassword };
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Performance-Test-Run": testRunId,
+  };
+  const contract = (res) => {
+    const body = parseJson(res);
+    return Boolean(body && body.access_token && body.user && body.user.id);
+  };
+
+  const response = shouldRecord
+    ? request("POST", "login", "/auth/login", [200], credentials, headers, contract)
+    : http.post(`${baseUrl}/auth/login`, JSON.stringify(credentials), {
+        headers,
+        timeout: requestTimeout,
+        responseCallback: http.expectedStatuses(200),
+        tags: { endpoint: "login_preflight", test_run_id: testRunId, workload: scenarioName },
+      });
 
   const body = parseJson(response);
   if (response.status !== 200 || !body || !body.access_token) {
+    // Never interpolate the response body or credentials into this message -
+    // it is printed to the console log that ships with the artifacts.
     fail("Synthetic dev account login failed.");
   }
   return body.access_token;
 }
 
-export function setup() {
-  if (scenarioName === "authenticated-read" || scenarioName === "controlled-write") {
-    return {
-      token: login(),
-      syntheticPushToken: `perf-baseline-${testRunId}`,
-    };
+// Access tokens are deliberately NEVER returned from setup(). k6 serializes the
+// setup() return value into the --summary-export file as "setup_data", so any
+// credential placed there is written to disk and uploaded with the artifacts.
+// Instead each VU authenticates on demand and caches the token in module scope,
+// which k6 keeps per-VU in memory and never serializes.
+let cachedToken = null;
+
+function currentToken() {
+  if (cachedToken === null) {
+    cachedToken = login({ record: true });
   }
+  return cachedToken;
+}
+
+// Derived from the run ID rather than passed through setup_data, so no scenario
+// depends on setup() returning anything.
+function syntheticPushToken() {
+  return `perf-baseline-${testRunId}`;
+}
+
+export function setup() {
+  // Preflight only: prove the synthetic dev account can authenticate so the run
+  // fails fast on bad credentials. The token is discarded, not returned, and
+  // this probe is excluded from the reported login latency.
+  if (scenarioName === "authenticated-read" || scenarioName === "controlled-write") {
+    login({ record: false });
+  }
+  // Must stay free of credentials - this value becomes setup_data on disk.
   return {};
 }
 
@@ -293,8 +322,8 @@ function publicRead() {
   );
 }
 
-function authenticatedRead(data) {
-  const headers = authHeaders(data.token);
+function authenticatedRead() {
+  const headers = authHeaders(currentToken());
   request("GET", "games_me", "/games/me", [200], null, headers, (res) => {
     const body = parseJson(res);
     return Boolean(
@@ -325,10 +354,11 @@ function authenticatedRead(data) {
   );
 }
 
-function controlledWrite(data) {
-  const headers = authHeaders(data.token);
+function controlledWrite() {
+  const headers = authHeaders(currentToken());
+  const pushToken = syntheticPushToken();
   const payload = {
-    token: data.syntheticPushToken,
+    token: pushToken,
     platform: "web",
     installation_id: `perf-${testRunId}`,
   };
@@ -347,7 +377,7 @@ function controlledWrite(data) {
     "push_token_delete",
     "/notifications/push-token",
     [200],
-    { token: data.syntheticPushToken },
+    { token: pushToken },
     headers,
     (res) => parseJson(res)?.message === "Push token deleted"
   );
@@ -381,13 +411,13 @@ function connectionPressure() {
   sleep(1);
 }
 
-export default function (data) {
+export default function () {
   if (scenarioName === "public-read") {
     publicRead();
   } else if (scenarioName === "authenticated-read") {
-    authenticatedRead(data);
+    authenticatedRead();
   } else if (scenarioName === "controlled-write") {
-    controlledWrite(data);
+    controlledWrite();
   } else if (scenarioName === "invalid-auth") {
     invalidAuth();
   } else {
@@ -395,16 +425,18 @@ export default function (data) {
   }
 }
 
-export function teardown(data) {
-  if (scenarioName !== "controlled-write" || !data?.token || !data?.syntheticPushToken) {
+export function teardown() {
+  if (scenarioName !== "controlled-write") {
     return;
   }
 
+  // teardown runs in its own runtime, so this authenticates once more rather
+  // than receiving a token through setup_data.
   const response = http.del(
     `${baseUrl}/notifications/push-token`,
-    JSON.stringify({ token: data.syntheticPushToken }),
+    JSON.stringify({ token: syntheticPushToken() }),
     {
-      headers: authHeaders(data.token),
+      headers: authHeaders(currentToken()),
       timeout: requestTimeout,
       responseCallback: http.expectedStatuses(200),
       tags: {
