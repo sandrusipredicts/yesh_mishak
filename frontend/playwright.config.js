@@ -6,6 +6,9 @@ process.env.VITE_API_URL = 'http://127.0.0.1:8000'
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/*.spec.js',
+  // Staging smoke tests (E12-04) run only via playwright.staging.config.js;
+  // keep them out of the default local/CI E2E discovery.
+  testIgnore: '**/staging/**',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

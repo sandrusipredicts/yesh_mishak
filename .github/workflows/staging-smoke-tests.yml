@@ -1,0 +1,99 @@
+name: Staging smoke tests
+
+# E12-04/E12-05: anonymous and authenticated smoke coverage against dev.
+# Manual dispatch only — dev is provisioned outside GitHub (Railway/Vercel
+# dashboards), so there is no deployment event to chain from. It is
+# deliberately NOT a required pull-request check: dev downtime must not block
+# unrelated PRs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-smoke
+  cancel-in-progress: false
+
+jobs:
+  staging-smoke:
+    name: Staging smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    env:
+      STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
+      STAGING_BACKEND_URL: ${{ vars.STAGING_BACKEND_URL }}
+      PRODUCTION_BACKEND_HOSTS: ${{ vars.PRODUCTION_BACKEND_HOSTS }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Validate staging configuration
+        # Presence-only validation. Values of secrets are never echoed; URL
+        # variables are public endpoints, but even they are only named here,
+        # not printed. Deep validation (URL shape, production-host overlap)
+        # happens inside the suite's env contract (tests/staging/helpers.js).
+        env:
+          STAGING_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+        run: |
+          missing=0
+          for name in STAGING_FRONTEND_URL STAGING_BACKEND_URL PRODUCTION_BACKEND_HOSTS; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required GitHub environment variable ${name} is not set (repo Settings > Environments > dev > Variables)."
+              missing=1
+            fi
+          done
+          if [ -n "${STAGING_TEST_EMAIL:-}" ] && [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
+            echo "Tier B credentials: present — authenticated smoke tests will run."
+          elif [ -n "${STAGING_TEST_EMAIL:-}" ] || [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
+            echo "::error::STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD must be configured together (Settings > Environments > dev > Secrets)."
+            missing=1
+          else
+            echo "::error::STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD are required for CI Tier B (Settings > Environments > dev > Secrets)."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run anonymous Tier A smoke suite
+        env:
+          STAGING_SMOKE_TIER: tier-a
+        run: npm run test:staging-smoke:tier-a
+
+      - name: Run authenticated Tier B smoke suite
+        env:
+          STAGING_SMOKE_TIER: tier-b
+          STAGING_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+        run: npm run test:staging-smoke:tier-b
+
+      - name: Upload anonymous Tier A failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          # Tier B is list-only and is never included here. This artifact
+          # contains anonymous Tier A only.
+          name: staging-smoke-tier-a-report
+          path: |
+            frontend/playwright-report-staging
+            frontend/test-results-staging
+          retention-days: 14
+          if-no-files-found: warn

@@ -27,6 +27,10 @@
     "test:errors": "node --test tests/errors.test.js",
     "postinstall": "patch-package",
     "test:e2e": "playwright test",
+    "test:staging-smoke": "node scripts/run-staging-smoke.mjs",
+    "test:staging-smoke:tier-a": "node scripts/run-staging-smoke.mjs --tier-a",
+    "test:staging-smoke:tier-b": "node scripts/run-staging-smoke.mjs --tier-b",
+    "test:staging-smoke:config": "node --test tests/staging/helpers.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
