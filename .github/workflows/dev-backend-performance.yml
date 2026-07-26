@@ -1,0 +1,196 @@
+name: Dev backend performance baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/perf-baseline-dev
+    paths:
+      - .github/workflows/dev-backend-performance.yml
+      - backend/load_tests/dev_backend_baseline.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-backend-performance
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: Isolated dev backend baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: dev
+    env:
+      BASE_URL: ${{ vars.STAGING_BACKEND_URL }}
+      EXPECTED_DEV_HOST: yeshmishak-dev.up.railway.app
+      PRODUCTION_BACKEND_HOSTS: ${{ vars.PRODUCTION_BACKEND_HOSTS }}
+      STAGING_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+      STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+      K6_IMAGE: grafana/k6:2.0.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Validate isolated dev configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${BASE_URL:-}"
+          test -n "${PRODUCTION_BACKEND_HOSTS:-}"
+          test -n "${STAGING_TEST_EMAIL:-}"
+          test -n "${STAGING_TEST_PASSWORD:-}"
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          parsed = urlparse(os.environ["BASE_URL"])
+          expected = os.environ["EXPECTED_DEV_HOST"]
+          production = {
+              value.strip().lower()
+              for value in os.environ["PRODUCTION_BACKEND_HOSTS"].split(",")
+              if value.strip()
+          }
+          if parsed.scheme != "https" or parsed.hostname != expected:
+              raise SystemExit("Configured backend is not the exact isolated dev host")
+          if parsed.hostname.lower() in production:
+              raise SystemExit("Refusing production backend host")
+          print("Isolated dev host validation passed.")
+          PY
+
+      - name: Record tool and target metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backend/load_tests/results
+          chmod 777 backend/load_tests/results
+          docker pull "${K6_IMAGE}"
+          docker run --rm "${K6_IMAGE}" version | tee backend/load_tests/results/k6-version.txt
+          {
+            echo "tested_commit_sha=${GITHUB_SHA}"
+            echo "tested_branch=${GITHUB_REF_NAME}"
+            echo "github_run_id=${GITHUB_RUN_ID}"
+            echo "github_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "target_host=${EXPECTED_DEV_HOST}"
+            echo "railway_deployment_id=requires_dashboard_capture"
+            echo "started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > backend/load_tests/results/metadata.txt
+          curl --fail --silent --show-error --dump-header \
+            backend/load_tests/results/initial-health-headers.txt \
+            --output backend/load_tests/results/initial-health-body.json \
+            --max-time 20 "${BASE_URL}/"
+
+      - name: Run three comparable trials per primary scenario
+        id: primary
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          script="/work/backend/load_tests/dev_backend_baseline.js"
+          container_result_root="/work/backend/load_tests/results"
+          host_result_root="${GITHUB_WORKSPACE}/backend/load_tests/results"
+          failures=0
+
+          run_case() {
+            local scenario="$1"
+            local run_number="$2"
+            local run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${scenario}-${run_number}"
+            local container_prefix="${container_result_root}/${scenario}-run-${run_number}"
+            local host_prefix="${host_result_root}/${scenario}-run-${run_number}"
+
+            set +e
+            docker run --rm --user "$(id -u):$(id -g)" \
+              -v "${GITHUB_WORKSPACE}:/work" \
+              -e BASE_URL \
+              -e EXPECTED_DEV_HOST \
+              -e PRODUCTION_BACKEND_HOSTS \
+              -e STAGING_TEST_EMAIL \
+              -e STAGING_TEST_PASSWORD \
+              -e SCENARIO="${scenario}" \
+              -e TEST_RUN_ID="${run_id}" \
+              "${K6_IMAGE}" run \
+              --summary-export "${container_prefix}-summary.json" \
+              --out "json=${container_prefix}-points.json" \
+              "${script}" 2>&1 | tee "${host_prefix}-console.log"
+            local code="${PIPESTATUS[0]}"
+            set -e
+            echo "${code}" > "${host_prefix}-exit-code.txt"
+            if [[ "${code}" -ne 0 ]]; then
+              failures=$((failures + 1))
+            fi
+          }
+
+          for scenario in public-read authenticated-read controlled-write; do
+            for run_number in 1 2 3; do
+              run_case "${scenario}" "${run_number}"
+            done
+          done
+
+          echo "${failures}" > backend/load_tests/results/primary-failure-count.txt
+          exit "${failures}"
+
+      - name: Run edge and pressure scenarios
+        id: edge
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          script="/work/backend/load_tests/dev_backend_baseline.js"
+          container_result_root="/work/backend/load_tests/results"
+          host_result_root="${GITHUB_WORKSPACE}/backend/load_tests/results"
+          failures=0
+
+          run_case() {
+            local scenario="$1"
+            local run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${scenario}"
+            local container_prefix="${container_result_root}/${scenario}"
+            local host_prefix="${host_result_root}/${scenario}"
+
+            set +e
+            docker run --rm --user "$(id -u):$(id -g)" \
+              -v "${GITHUB_WORKSPACE}:/work" \
+              -e BASE_URL \
+              -e EXPECTED_DEV_HOST \
+              -e PRODUCTION_BACKEND_HOSTS \
+              -e STAGING_TEST_EMAIL \
+              -e STAGING_TEST_PASSWORD \
+              -e SCENARIO="${scenario}" \
+              -e TEST_RUN_ID="${run_id}" \
+              "${K6_IMAGE}" run \
+              --summary-export "${container_prefix}-summary.json" \
+              --out "json=${container_prefix}-points.json" \
+              "${script}" 2>&1 | tee "${host_prefix}-console.log"
+            local code="${PIPESTATUS[0]}"
+            set -e
+            echo "${code}" > "${host_prefix}-exit-code.txt"
+            if [[ "${code}" -ne 0 ]]; then
+              failures=$((failures + 1))
+            fi
+          }
+
+          run_case invalid-auth
+          run_case connection-pressure
+          echo "${failures}" > backend/load_tests/results/edge-failure-count.txt
+          exit "${failures}"
+
+      - name: Upload raw performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-backend-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend/load_tests/results
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Enforce benchmark gates
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary_failures="$(cat backend/load_tests/results/primary-failure-count.txt 2>/dev/null || echo 1)"
+          edge_failures="$(cat backend/load_tests/results/edge-failure-count.txt 2>/dev/null || echo 1)"
+          if [[ "${primary_failures}" != "0" || "${edge_failures}" != "0" ]]; then
+            echo "::error::One or more k6 scenarios failed thresholds or contracts."
+            exit 1
+          fi

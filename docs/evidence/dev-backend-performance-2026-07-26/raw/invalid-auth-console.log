@@ -1,0 +1,67 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /work/backend/load_tests/dev_backend_baseline.js
+        output: json (/work/backend/load_tests/results/invalid-auth-points.json)
+
+     scenarios: (100.00%) 1 scenario, 3 max VUs, 1m0s max duration (incl. graceful stop):
+              * invalid-auth: 12 iterations shared among 3 VUs (maxDuration: 30s, gracefulStop: 30s)
+
+
+running (0m01.0s), 3/3 VUs, 6 complete and 0 interrupted iterations
+invalid-auth   [  50% ] 3 VUs  01.0s/30s  06/12 shared iters
+
+
+  █ THRESHOLDS 
+
+    timeout_count
+    ✓ 'count==0' count=0
+
+    unexpected_5xx_count
+    ✓ 'count==0' count=0
+
+    unexpected_error_rate
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 24      13.943871/s
+    checks_succeeded...: 100.00% 24 out of 24
+    checks_failed......: 0.00%   0 out of 24
+
+
+    CUSTOM
+    http_status_count..............: 12     6.971935/s
+    latency_invalid_auth...........: avg=340.55ms min=296.17ms p(50)=311.24ms p(95)=482.72ms p(99)=626.14ms max=662ms   
+    timeout_count..................: 0      0/s
+    unexpected_5xx_count...........: 0      0/s
+    unexpected_error_rate..........: 0.00%  0 out of 12
+
+    HTTP
+    http_req_duration..............: avg=340.55ms min=296.17ms p(50)=311.24ms p(95)=482.72ms p(99)=626.14ms max=662ms   
+      { expected_response:true }...: avg=340.55ms min=296.17ms p(50)=311.24ms p(95)=482.72ms p(99)=626.14ms max=662ms   
+    http_req_failed................: 0.00%  0 out of 12
+    http_reqs......................: 12     6.971935/s
+
+    EXECUTION
+    iteration_duration.............: avg=368.03ms min=296.42ms p(50)=312.22ms p(95)=543.45ms p(99)=638.47ms max=662.23ms
+    iterations.....................: 12     6.971935/s
+    vus............................: 3      min=3       max=3
+    vus_max........................: 3      min=3       max=3
+
+    NETWORK
+    data_received..................: 14 kB  8.1 kB/s
+    data_sent......................: 6.0 kB 3.5 kB/s
+
+
+
+
+running (0m01.7s), 0/3 VUs, 12 complete and 0 interrupted iterations
+invalid-auth ✓ [ 100% ] 3 VUs  01.7s/30s  12/12 shared iters
