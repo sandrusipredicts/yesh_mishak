@@ -1,13 +1,28 @@
 name: Dev backend performance baseline
 
+# MANUAL EXECUTION ONLY - workflow_dispatch is the only permitted trigger.
+#
+# Do not add push, pull_request, or schedule triggers to this workflow.
+#
+# Why this must never run automatically:
+#   * It authenticates against the isolated dev backend using real test-account
+#     secrets, so every run exercises authenticated dev state.
+#   * The controlled-write scenario mutates dev data (it saves and then deletes
+#     a synthetic push token), so runs are not side-effect free.
+#   * Load is applied to a shared dev deployment; unattended runs can collide
+#     with other testing or deployments.
+#
+# Artifact handling:
+#   k6 writes the value returned by the test's setup() function into every
+#   --summary-export file under "setup_data", and that has previously included
+#   a live access token. Raw results are therefore sanitized and then verified
+#   before upload. Log masking alone is NOT sufficient: ::add-mask:: redacts
+#   console output but does not alter files written to disk or uploaded as
+#   artifacts. If the verification step finds credential-shaped content, the
+#   upload is skipped and the job fails closed.
+
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/perf-baseline-dev
-    paths:
-      - .github/workflows/dev-backend-performance.yml
-      - backend/load_tests/dev_backend_baseline.js
 
 permissions:
   contents: read
@@ -174,8 +189,85 @@ jobs:
           echo "${failures}" > backend/load_tests/results/edge-failure-count.txt
           exit "${failures}"
 
-      - name: Upload raw performance evidence
+      - name: Sanitize raw evidence
         if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          results = pathlib.Path("backend/load_tests/results")
+
+          # k6 persists the setup() return value into every summary export.
+          # It carries the access token used by the authenticated scenarios,
+          # so drop the whole block rather than trying to filter keys.
+          for summary in sorted(results.glob("*-summary.json")):
+              data = json.loads(summary.read_text(encoding="utf-8"))
+              if data.pop("setup_data", None) is not None:
+                  summary.write_text(
+                      json.dumps(data, indent=2, sort_keys=True),
+                      encoding="utf-8",
+                  )
+                  print(f"removed setup_data from {summary.name}")
+
+          # Per-request infrastructure trace identifiers.
+          headers = results / "initial-health-headers.txt"
+          if headers.exists():
+              redacted = re.sub(
+                  r"(?im)^(x-railway-request-id|x-request-id|x-hikari-trace):.*$",
+                  lambda m: f"{m.group(1)}: [redacted]",
+                  headers.read_text(encoding="utf-8"),
+              )
+              headers.write_text(redacted, encoding="utf-8")
+              print("redacted trace identifiers from initial-health-headers.txt")
+          PY
+
+      - name: Verify raw evidence contains no credentials
+        id: sanitization
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          results = pathlib.Path("backend/load_tests/results")
+
+          # JWT-shaped strings and bearer headers. Report file names and match
+          # counts only - never the matched value itself.
+          patterns = {
+              "jwt": re.compile(rb"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+              "bearer header": re.compile(rb"(?i)authorization\s*:\s*bearer\s+\S"),
+              "setup_data block": re.compile(rb'"setup_data"'),
+          }
+
+          offenders = []
+          for path in sorted(results.rglob("*")):
+              if not path.is_file():
+                  continue
+              blob = path.read_bytes()
+              for label, pattern in patterns.items():
+                  hits = pattern.findall(blob)
+                  if hits:
+                      offenders.append((path.name, label, len(hits)))
+
+          if offenders:
+              for name, label, count in offenders:
+                  print(f"::error::{name}: {count} {label} match(es)")
+              print("::error::Credential-shaped content found; artifact upload will be skipped.")
+              sys.exit(1)
+
+          print("Sanitization verified: no credential-shaped content in raw results.")
+          PY
+
+      - name: Upload raw performance evidence
+        # Fail closed: never upload when sanitization did not verify clean.
+        if: always() && steps.sanitization.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: dev-backend-performance-${{ github.run_id }}-${{ github.run_attempt }}
