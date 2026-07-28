@@ -1,0 +1,137 @@
+name: iOS Simulator Build Validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-simulator-build-validation.yml"
+      - "frontend/ios/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/capacitor.config.ts"
+      - "frontend/src/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: frontend
+
+jobs:
+  build:
+    name: Build unsigned iOS Simulator app
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+
+      - name: Show Xcode environment
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Sync Capacitor iOS project
+        run: |
+          set -euo pipefail
+          npx cap sync ios 2>&1 | tee cap-sync.log
+          git status --short -- ios | tee cap-sync-git-status.log
+
+      - name: Install CocoaPods dependencies when present
+        run: |
+          set -euo pipefail
+          if [[ -f ios/App/Podfile ]]; then
+            echo "Podfile found; installing CocoaPods dependencies."
+            (cd ios/App && pod install --repo-update) 2>&1 | tee pod-install.log
+          else
+            echo "No Podfile found; this Capacitor project uses Swift Package Manager."
+          fi
+
+      - name: Locate Xcode container and scheme
+        id: xcode
+        run: |
+          set -euo pipefail
+          cd ios/App
+
+          if [[ -d App.xcworkspace && -f App.xcworkspace/contents.xcworkspacedata ]]; then
+            container_flag="-workspace"
+            container_path="App.xcworkspace"
+          elif [[ -d App.xcodeproj ]]; then
+            container_flag="-project"
+            container_path="App.xcodeproj"
+          else
+            echo "::error::Neither App.xcworkspace nor App.xcodeproj was found under frontend/ios/App."
+            find . -maxdepth 2 -print
+            exit 1
+          fi
+
+          xcodebuild -list -json "$container_flag" "$container_path" | tee xcode-list.json
+          scheme=$(jq -r \
+            '(.workspace.schemes // .project.schemes // []) | map(select(. == "App")) | first // empty' \
+            xcode-list.json)
+          if [[ -z "$scheme" ]]; then
+            echo "::error::Expected shared scheme 'App' was not found."
+            jq -r '.workspace.schemes // .project.schemes // []' xcode-list.json
+            exit 1
+          fi
+
+          echo "container_flag=$container_flag" >> "$GITHUB_OUTPUT"
+          echo "container_path=$container_path" >> "$GITHUB_OUTPUT"
+          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+          echo "Using $container_flag $container_path with scheme $scheme."
+
+      - name: Build for iOS Simulator without signing
+        run: |
+          set -o pipefail
+          mkdir -p ios/App/build-results
+          cd ios/App
+          xcodebuild \
+            "${{ steps.xcode.outputs.container_flag }}" "${{ steps.xcode.outputs.container_path }}" \
+            -scheme "${{ steps.xcode.outputs.scheme }}" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            -resultBundlePath build-results/iOSBuild.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build-results/xcodebuild.log
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-build-diagnostics-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            frontend/cap-sync.log
+            frontend/cap-sync-git-status.log
+            frontend/pod-install.log
+            frontend/ios/App/xcode-list.json
+            frontend/ios/App/build-results/

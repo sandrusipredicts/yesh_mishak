@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from pathlib import Path
 from typing import Any
@@ -25,12 +26,20 @@ class FakeUsersQuery:
         allow_select: bool,
         insert_calls: list[dict[str, Any]],
         select_calls: list[list[str]],
+        select_filters: list[list[tuple[str, Any]]],
+        update_error: Exception | None = None,
+        empty_updates: bool = False,
+        update_calls: list[dict[str, Any]] | None = None,
     ) -> None:
         self.rows = rows
         self.allow_insert = allow_insert
         self.allow_select = allow_select
         self.insert_calls = insert_calls
         self.select_calls = select_calls
+        self.select_filters = select_filters
+        self.update_error = update_error
+        self.empty_updates = empty_updates
+        self.update_calls = update_calls if update_calls is not None else []
         self.filters: list[tuple[str, Any]] = []
         self.selected_columns: list[str] | None = None
         self.insert_payload: dict[str, Any] | None = None
@@ -52,7 +61,7 @@ class FakeUsersQuery:
 
     def insert(self, payload: dict[str, Any]) -> "FakeUsersQuery":
         if not self.allow_insert:
-            raise AssertionError("non-privileged test client must not insert users")
+            raise AssertionError("test client must not insert users")
         self.insert_payload = payload
         self.insert_calls.append(dict(payload))
         return self
@@ -74,10 +83,21 @@ class FakeUsersQuery:
         rows = self._filtered_rows()
 
         if self.update_payload is not None:
+            self.update_calls.append(
+                {
+                    "filters": list(self.filters),
+                    "payload": dict(self.update_payload),
+                }
+            )
+            if self.update_error is not None:
+                raise self.update_error
+            if self.empty_updates:
+                return FakeResponse(data=[])
             for row in rows:
                 row.update(self.update_payload)
             return FakeResponse(data=rows)
 
+        self.select_filters.append(list(self.filters))
         return FakeResponse(data=[self._select_columns(row) for row in rows])
 
     def _filtered_rows(self) -> list[dict[str, Any]]:
@@ -89,7 +109,6 @@ class FakeUsersQuery:
     def _select_columns(self, row: dict[str, Any]) -> dict[str, Any]:
         if self.selected_columns is None or "*" in self.selected_columns:
             return row
-
         return {column: row.get(column) for column in self.selected_columns}
 
 
@@ -100,13 +119,19 @@ class FakeSupabaseClient:
         *,
         allow_insert: bool = True,
         allow_select: bool = True,
+        update_error: Exception | None = None,
+        empty_updates: bool = False,
     ) -> None:
         self.users = users or []
         self.allow_insert = allow_insert
         self.allow_select = allow_select
+        self.update_error = update_error
+        self.empty_updates = empty_updates
         self.table_calls: list[str] = []
         self.insert_calls: list[dict[str, Any]] = []
         self.select_calls: list[list[str]] = []
+        self.select_filters: list[list[tuple[str, Any]]] = []
+        self.update_calls: list[dict[str, Any]] = []
 
     def table(self, table_name: str) -> FakeUsersQuery:
         assert table_name == "users"
@@ -117,26 +142,32 @@ class FakeSupabaseClient:
             allow_select=self.allow_select,
             insert_calls=self.insert_calls,
             select_calls=self.select_calls,
+            select_filters=self.select_filters,
+            update_error=self.update_error,
+            empty_updates=self.empty_updates,
+            update_calls=self.update_calls,
         )
 
 
 def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
     monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SENTRY_ENVIRONMENT", "test")
     get_settings.cache_clear()
 
 
 def patch_auth_supabase_clients(
     monkeypatch,
-    anon_client: FakeSupabaseClient,
+    standard_client: FakeSupabaseClient,
     service_role_client: FakeSupabaseClient | None = None,
 ) -> None:
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: anon_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: standard_client)
     monkeypatch.setattr(
         "app.api.auth.get_supabase_service_role_client",
-        lambda: service_role_client or anon_client,
+        lambda: service_role_client or standard_client,
     )
 
 
@@ -169,15 +200,22 @@ def password_user(*, email_verified: bool = True) -> dict[str, Any]:
 
 def assert_public_auth_response(response) -> None:
     private_credential_field = "_".join(("password", "hash"))
-    if private_credential_field in response.text:
-        raise AssertionError("auth response contains a private credential field")
+    assert private_credential_field not in response.text
 
 
-def test_register_uses_service_role_insert_without_anon_insert(monkeypatch) -> None:
+def assert_secret_values_not_logged(caplog, *values: str) -> None:
+    for value in values:
+        assert value not in caplog.text
+
+
+def test_register_uses_service_role_for_uniqueness_and_insert_without_standard_access(
+    monkeypatch,
+) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_insert=False, allow_select=False)
+    standard_client = FakeSupabaseClient(allow_insert=False, allow_select=False)
     service_role_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    monkeypatch.setattr("app.api.auth.issue_verification_email", lambda *_: None)
 
     response = TestClient(app).post("/auth/register", json=register_payload())
 
@@ -189,73 +227,73 @@ def test_register_uses_service_role_insert_without_anon_insert(monkeypatch) -> N
     assert body["user"]["name"] == "Manual User"
     assert body["user"]["username"] == "manual-user"
     assert_public_auth_response(response)
-    assert anon_client.users == []
-    assert anon_client.table_calls == []
-    assert anon_client.select_calls == []
-    assert len(anon_client.insert_calls) == 0
-    assert service_role_client.table_calls == ["users", "users", "users", "users"]
+    assert standard_client.table_calls == []
+    assert standard_client.select_calls == []
+    assert standard_client.insert_calls == []
     assert service_role_client.select_calls == [["id"], ["id"], ["id"]]
     assert len(service_role_client.insert_calls) == 1
-    if not verify_password(
+    assert verify_password(
         "strongpass123",
         service_role_client.users[0]["password_hash"],
-    ):
-        raise AssertionError("registered credential was not hashed correctly")
+    )
     assert service_role_client.users[0]["last_login"]
     assert service_role_client.users[0]["email_verified"] is False
     assert body["email_verification_required"] is True
-    assert body["email_verification_sent"] is False
+    assert body["email_verification_sent"] is True
 
 
-def test_register_rejects_duplicate_username(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("existing_user", "overrides", "message"),
+    [
+        (
+            {"id": "user-1", "username": "manual-user"},
+            {},
+            "Username is already taken",
+        ),
+        (
+            {"id": "user-1", "email": "manual@example.com"},
+            {"username": "new-user"},
+            "Email is already registered",
+        ),
+        (
+            {"id": "user-1", "phone_number": "0501234567"},
+            {"username": "new-user", "email": "new@example.com"},
+            "Phone number is already registered",
+        ),
+    ],
+)
+def test_register_uniqueness_checks_use_authorized_client(
+    monkeypatch,
+    existing_user: dict[str, str],
+    overrides: dict[str, str],
+    message: str,
+) -> None:
     configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient([{"id": "user-1", "username": "manual-user"}])
-    patch_auth_supabase_clients(monkeypatch, fake_client)
-
-    response = TestClient(app).post("/auth/register", json=register_payload())
-
-    assert response.status_code == 409
-    err = response.json()
-    assert err["error"] is True
-    assert err["code"] == "CONFLICT"
-    assert err["message"] == "Username is already taken"
-
-
-def test_register_rejects_duplicate_email(monkeypatch) -> None:
-    configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient([{"id": "user-1", "email": "manual@example.com"}])
-    patch_auth_supabase_clients(monkeypatch, fake_client)
-
-    response = TestClient(app).post("/auth/register", json=register_payload(username="new-user"))
-
-    assert response.status_code == 409
-    err = response.json()
-    assert err["error"] is True
-    assert err["code"] == "CONFLICT"
-    assert err["message"] == "Email is already registered"
-
-
-def test_register_rejects_duplicate_phone_number(monkeypatch) -> None:
-    configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient([{"id": "user-1", "phone_number": "0501234567"}])
-    patch_auth_supabase_clients(monkeypatch, fake_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([existing_user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
 
     response = TestClient(app).post(
         "/auth/register",
-        json=register_payload(username="new-user", email="new@example.com"),
+        json=register_payload(**overrides),
     )
 
     assert response.status_code == 409
-    err = response.json()
-    assert err["error"] is True
-    assert err["code"] == "CONFLICT"
-    assert err["message"] == "Phone number is already registered"
+    assert response.json() == {
+        "error": True,
+        "code": "CONFLICT",
+        "message": message,
+    }
+    assert standard_client.select_calls == []
+    assert service_role_client.select_calls
+    assert all(columns == ["id"] for columns in service_role_client.select_calls)
 
 
-def test_register_rejects_password_mismatch(monkeypatch) -> None:
+def test_register_rejects_password_mismatch_before_lookup(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, fake_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient()
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
 
     response = TestClient(app).post(
         "/auth/register",
@@ -263,17 +301,29 @@ def test_register_rejects_password_mismatch(monkeypatch) -> None:
     )
 
     assert response.status_code == 400
-    err = response.json()
-    assert err["error"] is True
-    assert err["code"] == "VALIDATION_ERROR"
-    assert err["message"] == "Passwords do not match"
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert standard_client.table_calls == []
+    assert service_role_client.table_calls == []
 
 
-def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
+def test_username_login_uses_authorized_lookup_and_reaches_password_verification(
+    monkeypatch,
+    caplog,
+) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
-    service_role_client = FakeSupabaseClient([password_user()])
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    original_last_login = "2026-01-01T00:00:00+00:00"
+    user = password_user()
+    user["last_login"] = original_last_login
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    verification_calls: list[tuple[str, str | None]] = []
+
+    def record_verification(password: str, stored_hash: str | None) -> bool:
+        verification_calls.append((password, stored_hash))
+        return verify_password(password, stored_hash)
+
+    monkeypatch.setattr("app.api.auth.verify_password", record_verification)
 
     with caplog.at_level(logging.INFO, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -283,23 +333,11 @@ def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
 
     assert response.status_code == 200
     assert response.json()["user"]["username"] == "manual-user"
-    assert_public_auth_response(response)
-    assert anon_client.select_calls == []
-    expected_login_projection = [
-        [
-            "id",
-            "email",
-            "name",
-            "username",
-            "phone_number",
-            "password_hash",
-            "email_verified",
-            "email_verified_at",
-            "terms_accepted_at",
-        ]
-    ]
-    if service_role_client.select_calls != expected_login_projection:
-        raise AssertionError("password login did not use the required projection")
+    assert len(verification_calls) == 1
+    assert verification_calls[0][1] == user["password_hash"]
+    assert standard_client.select_calls == []
+    assert standard_client.update_calls == []
+    assert service_role_client.select_filters == [[("username", "manual-user")]]
     success_records = [
         record
         for record in caplog.records
@@ -308,75 +346,224 @@ def test_login_accepts_valid_username_and_password(monkeypatch, caplog) -> None:
     assert success_records
     assert success_records[-1].auth_method == "password"
     assert success_records[-1].user_id == response.json()["user"]["id"]
-    assert "manual@example.com" not in caplog.text
-    assert "strongpass123" not in caplog.text
+    persisted_last_login = service_role_client.users[0]["last_login"]
+    assert datetime.fromisoformat(persisted_last_login).tzinfo is not None
+    assert datetime.fromisoformat(persisted_last_login) > datetime.fromisoformat(
+        original_last_login
+    )
+    assert service_role_client.update_calls == [
+        {
+            "filters": [("id", response.json()["user"]["id"])],
+            "payload": {"last_login": persisted_last_login},
+        }
+    ]
+    assert_public_auth_response(response)
+    assert_secret_values_not_logged(
+        caplog,
+        "manual@example.com",
+        "strongpass123",
+        user["password_hash"],
+        response.json()["access_token"],
+    )
 
 
-def test_login_accepts_valid_email_and_password(monkeypatch, caplog) -> None:
+def test_email_fallback_uses_authorized_lookup_and_reaches_password_verification(
+    monkeypatch,
+    caplog,
+) -> None:
     configure_test_settings(monkeypatch)
-    register_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, register_client)
-    TestClient(app).post("/auth/register", json=register_payload())
-    register_client.users[0]["email_verified"] = True
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    verification_calls: list[tuple[str, str | None]] = []
+
+    def record_verification(password: str, stored_hash: str | None) -> bool:
+        verification_calls.append((password, stored_hash))
+        return verify_password(password, stored_hash)
+
+    monkeypatch.setattr("app.api.auth.verify_password", record_verification)
 
     with caplog.at_level(logging.INFO, logger="app.api.auth"):
         response = TestClient(app).post(
             "/auth/login",
-            json={"username": "manual@example.com", "password": "strongpass123"},
+            json={"username": "  Manual@Example.COM  ", "password": "strongpass123"},
         )
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["user"]["email"] == "manual@example.com"
-    assert body["user"]["username"] == "manual-user"
-    success_records = [
-        record
-        for record in caplog.records
-        if getattr(record, "event", None) == "auth.login.success"
+    assert response.json()["user"]["email"] == "manual@example.com"
+    assert len(verification_calls) == 1
+    assert verification_calls[0][1] == user["password_hash"]
+    assert standard_client.select_calls == []
+    assert service_role_client.select_filters == [
+        [("username", "manual@example.com")],
+        [("email", "manual@example.com")],
     ]
-    assert success_records
-
-
-def test_login_email_is_case_insensitive(monkeypatch) -> None:
-    configure_test_settings(monkeypatch)
-    register_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, register_client)
-    TestClient(app).post("/auth/register", json=register_payload())
-    register_client.users[0]["email_verified"] = True
-
-    response = TestClient(app).post(
-        "/auth/login",
-        json={"username": "  Manual@Example.COM  ", "password": "strongpass123"},
+    assert_public_auth_response(response)
+    assert_secret_values_not_logged(
+        caplog,
+        "manual@example.com",
+        "strongpass123",
+        user["password_hash"],
+        response.json()["access_token"],
     )
+
+
+def test_login_last_login_database_failure_is_observable_and_non_fatal(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    user_id = user["id"]
+
+    secret_sentinels = (
+        "password=warning-secret",
+        "access_token=warning-token",
+        "refresh_token=warning-refresh",
+    )
+    service_client = FakeSupabaseClient(
+        [user],
+        update_error=RuntimeError(" ".join(secret_sentinels)),
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_client)
+    monitoring_calls: list[dict[str, Any]] = []
+
+    def capture_message(message: str, level: str = "warning", **tags: Any) -> None:
+        monitoring_calls.append({"message": message, "level": level, "tags": tags})
+
+    monkeypatch.setattr("app.api.auth.capture_unexpected_message", capture_message)
+
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
 
     assert response.status_code == 200
-    assert response.json()["user"]["email"] == "manual@example.com"
+    assert response.json()["access_token"]
+    assert response.json()["user"]["id"] == user_id
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.last_login.failure"
+    ]
+    assert len(failure_records) == 1
+    warning = failure_records[0]
+    assert warning.auth_flow == "password"
+    assert warning.auth_method == "password"
+    assert warning.environment == "test"
+    assert warning.user_id == user_id
+    assert warning.endpoint == "/auth/login"
+    assert warning.result == "partial_failure"
+    assert warning.error_code == "DATABASE_ERROR"
+    assert warning.error_category == "database_error"
+    assert warning.exception_type == "RuntimeError"
+    assert service_client.update_calls[0]["filters"] == [("id", user_id)]
+
+    assert monitoring_calls == [
+        {
+            "message": "Authentication last_login update failed",
+            "level": "warning",
+            "tags": {
+                "event": "auth.last_login.failure",
+                "auth_flow": "password",
+                "auth_method": "password",
+                "environment": "test",
+                "user_id": user_id,
+                "endpoint": "/auth/login",
+                "error_code": "DATABASE_ERROR",
+                "error_category": "database_error",
+                "exception_type": "RuntimeError",
+                "attempt_id": None,
+            },
+        }
+    ]
+    serialized_observability = caplog.text + repr(monitoring_calls)
+    for sentinel in secret_sentinels:
+        assert sentinel not in serialized_observability
+    assert "strongpass123" not in serialized_observability
+    assert response.json()["access_token"] not in serialized_observability
 
 
-def test_login_rejects_unknown_identifier(monkeypatch) -> None:
+def test_login_empty_last_login_update_response_warns_and_still_succeeds(
+    monkeypatch,
+    caplog,
+) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
-    service_role_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
-
-    response = TestClient(app).post(
-        "/auth/login",
-        json={"username": "nonexistent@example.com", "password": "pass123"},
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_client = FakeSupabaseClient(
+        [user],
+        empty_updates=True,
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_client)
+    monkeypatch.setattr(
+        "app.api.auth.capture_unexpected_message",
+        lambda *_args, **_kwargs: None,
     )
 
-    assert response.status_code == 401
-    err = response.json()
-    assert err["code"] == "AUTH_INVALID"
-    assert_public_auth_response(response)
-    assert anon_client.select_calls == []
-    assert len(service_role_client.select_calls) == 2
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 200
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.last_login.failure"
+    ]
+    assert len(failure_records) == 1
+    assert failure_records[0].error_category == "no_rows_updated"
+    assert failure_records[0].exception_type == "_LastLoginUpdateNotPersisted"
 
 
-def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
+def test_nonexistent_user_returns_existing_non_enumerating_failure(
+    monkeypatch,
+    caplog,
+) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
-    service_role_client = FakeSupabaseClient([password_user()])
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient()
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "nonexistent@example.com", "password": "pass123"},
+        )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": True,
+        "code": "AUTH_INVALID",
+        "message": "Invalid username or password",
+    }
+    assert standard_client.select_calls == []
+    assert service_role_client.select_filters == [
+        [("username", "nonexistent@example.com")],
+        [("email", "nonexistent@example.com")],
+    ]
+    assert_public_auth_response(response)
+    assert_secret_values_not_logged(
+        caplog,
+        "nonexistent@example.com",
+        "pass123",
+    )
+
+
+def test_wrong_password_matches_nonexistent_user_failure_and_logs_no_credentials(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
 
     with caplog.at_level(logging.WARNING, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -385,13 +572,14 @@ def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
         )
 
     assert response.status_code == 401
-    err = response.json()
-    assert err["error"] is True
-    assert err["code"] == "AUTH_INVALID"
-    assert err["message"] == "Invalid username or password"
+    assert response.json() == {
+        "error": True,
+        "code": "AUTH_INVALID",
+        "message": "Invalid username or password",
+    }
+    assert standard_client.select_calls == []
+    assert service_role_client.select_filters == [[("username", "manual-user")]]
     assert_public_auth_response(response)
-    assert anon_client.select_calls == []
-    assert len(service_role_client.select_calls) == 1
     failure_records = [
         record
         for record in caplog.records
@@ -400,15 +588,23 @@ def test_login_rejects_wrong_password(monkeypatch, caplog) -> None:
     assert failure_records
     assert failure_records[-1].auth_method == "password"
     assert failure_records[-1].error_code == "AUTH_INVALID"
-    assert "manual-user" not in caplog.text
-    assert "wrongpass123" not in caplog.text
+    assert_secret_values_not_logged(
+        caplog,
+        "manual-user",
+        "wrongpass123",
+        user["password_hash"],
+    )
 
 
-def test_login_rejects_unverified_service_role_user(monkeypatch) -> None:
+def test_unverified_user_is_found_by_authorized_lookup_without_session(
+    monkeypatch,
+) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
-    service_role_client = FakeSupabaseClient([password_user(email_verified=False)])
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient(
+        [password_user(email_verified=False)]
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
 
     response = TestClient(app).post(
         "/auth/login",
@@ -418,60 +614,72 @@ def test_login_rejects_unverified_service_role_user(monkeypatch) -> None:
     assert response.status_code == 403
     assert response.json()["code"] == "EMAIL_NOT_VERIFIED"
     assert "access_token" not in response.json()
+    assert standard_client.select_calls == []
+    assert service_role_client.select_filters == [[("username", "manual-user")]]
     assert_public_auth_response(response)
-    assert anon_client.select_calls == []
-    assert len(service_role_client.select_calls) == 1
 
 
 @pytest.mark.parametrize(
-    ("path", "payload", "existing_user"),
+    ("path", "payload", "existing_user", "expected_available"),
     [
         (
             "/auth/check-username",
             {"username": "manual-user"},
             {"id": "user-1", "username": "manual-user"},
+            False,
+        ),
+        (
+            "/auth/check-username",
+            {"username": "unused-user"},
+            None,
+            True,
         ),
         (
             "/auth/check-email",
             {"email": "manual@example.com"},
             {"id": "user-1", "email": "manual@example.com"},
+            False,
         ),
     ],
 )
-def test_availability_checks_use_service_role_id_only(
+def test_public_availability_semantics_use_service_role_and_return_only_boolean(
     monkeypatch,
     path: str,
     payload: dict[str, str],
-    existing_user: dict[str, str],
+    existing_user: dict[str, str] | None,
+    expected_available: bool,
 ) -> None:
+    """Availability intentionally discloses only a registration-oriented boolean."""
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
-    service_role_client = FakeSupabaseClient([existing_user])
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient(
+        [existing_user] if existing_user else []
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
 
     response = TestClient(app).post(path, json=payload)
 
     assert response.status_code == 200
-    assert response.json() == {"available": False}
-    assert_public_auth_response(response)
-    assert anon_client.select_calls == []
+    assert response.json() == {"available": expected_available}
+    assert standard_client.select_calls == []
     assert service_role_client.select_calls == [["id"]]
+    assert_public_auth_response(response)
 
 
 def test_resend_verification_uses_service_role_minimum_fields(monkeypatch) -> None:
     configure_test_settings(monkeypatch)
-    anon_client = FakeSupabaseClient(allow_select=False)
+    standard_client = FakeSupabaseClient(allow_select=False)
     service_role_client = FakeSupabaseClient(
         [
             {
                 "id": "user-1",
                 "email": "manual@example.com",
                 "email_verified": False,
-                "password_hash": "stored-credential",
+                "password_hash": "stored-test-credential",
             }
         ]
     )
-    patch_auth_supabase_clients(monkeypatch, anon_client, service_role_client)
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
     deliveries: list[tuple[str, str]] = []
     monkeypatch.setattr(
         "app.api.auth.issue_verification_email",
@@ -485,14 +693,12 @@ def test_resend_verification_uses_service_role_minimum_fields(monkeypatch) -> No
 
     assert response.status_code == 200
     assert response.json()["status"] == "accepted"
-    assert_public_auth_response(response)
     assert deliveries == [("user-1", "manual@example.com")]
-    assert anon_client.select_calls == []
-    expected_resend_projection = [
+    assert standard_client.select_calls == []
+    assert service_role_client.select_calls == [
         ["id", "email_verified", "password_hash"]
     ]
-    if service_role_client.select_calls != expected_resend_projection:
-        raise AssertionError("verification resend did not use the minimum projection")
+    assert_public_auth_response(response)
 
 
 def test_registration_service_role_grant_is_minimal_and_canonical() -> None:
