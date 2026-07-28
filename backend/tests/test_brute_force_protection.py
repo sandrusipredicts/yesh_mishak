@@ -17,7 +17,10 @@ from test_manual_auth import FakeSupabaseClient, configure_test_settings
 
 def _patch_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
-    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
 
 
 def _user(username: str = "manual-user") -> dict[str, str]:

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -54,6 +55,14 @@ class FakeIssueClient:
     def table(self, name: str) -> FakeIssueQuery:
         assert name == "email_verification_tokens"
         return self.query
+
+
+@pytest.fixture(autouse=True)
+def stub_auth_service_role_client(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: object(),
+    )
 
 
 def test_verify_token_hashes_raw_token_before_rpc(monkeypatch) -> None:
@@ -205,12 +214,22 @@ def test_legacy_user_without_verification_column_still_logs_in(monkeypatch) -> N
 
 
 def test_registration_delivery_failure_keeps_account_recoverable_without_session(monkeypatch) -> None:
-    from test_manual_auth import FakeSupabaseClient, configure_test_settings, register_payload
+    from test_manual_auth import (
+        FakeSupabaseClient,
+        configure_test_settings,
+        patch_auth_supabase_clients,
+        register_payload,
+    )
     from app.services.email_verification import VerificationDeliveryError
 
     configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient()
-    monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient(allow_insert=False)
+    patch_auth_supabase_clients(
+        monkeypatch,
+        standard_client,
+        service_role_client,
+    )
     monkeypatch.setattr(
         "app.api.auth.issue_verification_email",
         lambda *_: (_ for _ in ()).throw(VerificationDeliveryError("smtp failed")),
@@ -219,7 +238,7 @@ def test_registration_delivery_failure_keeps_account_recoverable_without_session
     assert response.status_code == 201
     assert response.json()["email_verification_sent"] is False
     assert "access_token" not in response.text
-    assert fake_client.users[0]["email_verified"] is False
+    assert standard_client.users[0]["email_verified"] is False
 
 
 def test_resend_can_recover_after_registration_delivery_failure(monkeypatch) -> None:
