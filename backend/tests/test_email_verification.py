@@ -223,8 +223,13 @@ def test_registration_delivery_failure_keeps_account_recoverable_without_session
     from app.services.email_verification import VerificationDeliveryError
 
     configure_test_settings(monkeypatch)
-    fake_client = FakeSupabaseClient()
-    patch_auth_supabase_clients(monkeypatch, fake_client)
+    standard_client = FakeSupabaseClient(allow_insert=False, allow_select=False)
+    service_role_client = FakeSupabaseClient()
+    patch_auth_supabase_clients(
+        monkeypatch,
+        standard_client,
+        service_role_client,
+    )
     monkeypatch.setattr(
         "app.api.auth.issue_verification_email",
         lambda *_: (_ for _ in ()).throw(VerificationDeliveryError("smtp failed")),
@@ -233,7 +238,7 @@ def test_registration_delivery_failure_keeps_account_recoverable_without_session
     assert response.status_code == 201
     assert response.json()["email_verification_sent"] is False
     assert "access_token" not in response.text
-    assert fake_client.users[0]["email_verified"] is False
+    assert service_role_client.users[0]["email_verified"] is False
 
 
 def test_resend_can_recover_after_registration_delivery_failure(monkeypatch) -> None:

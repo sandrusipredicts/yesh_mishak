@@ -1,0 +1,11 @@
+tested_commit_sha=7caa56bdb63c6a676450a3c4e2d3620687f3533d
+tested_branch=codex/perf-baseline-dev
+github_run_id=30196456021
+github_run_attempt=1
+target_host=yeshmishak-dev.up.railway.app
+deployed_backend_commit_sha=0fc29edc6964d736da9d322748b86596f52fc0f0
+railway_project_id=[redacted-railway-project-id]
+railway_service_id=[redacted-railway-service-id]
+railway_environment_id=[redacted-railway-environment-id]
+railway_deployment_id=[redacted-railway-deployment-id]
+started_at_utc=2026-07-26T09:26:26Z
