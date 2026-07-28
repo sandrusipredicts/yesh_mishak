@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from typing import Any
 
@@ -25,6 +26,9 @@ class FakeUsersQuery:
         insert_calls: list[dict[str, Any]],
         select_calls: list[list[str]],
         select_filters: list[list[tuple[str, Any]]],
+        update_error: Exception | None = None,
+        empty_updates: bool = False,
+        update_calls: list[dict[str, Any]] | None = None,
     ) -> None:
         self.rows = rows
         self.allow_insert = allow_insert
@@ -32,6 +36,9 @@ class FakeUsersQuery:
         self.insert_calls = insert_calls
         self.select_calls = select_calls
         self.select_filters = select_filters
+        self.update_error = update_error
+        self.empty_updates = empty_updates
+        self.update_calls = update_calls if update_calls is not None else []
         self.filters: list[tuple[str, Any]] = []
         self.selected_columns: list[str] | None = None
         self.insert_payload: dict[str, Any] | None = None
@@ -75,6 +82,16 @@ class FakeUsersQuery:
         rows = self._filtered_rows()
 
         if self.update_payload is not None:
+            self.update_calls.append(
+                {
+                    "filters": list(self.filters),
+                    "payload": dict(self.update_payload),
+                }
+            )
+            if self.update_error is not None:
+                raise self.update_error
+            if self.empty_updates:
+                return FakeResponse(data=[])
             for row in rows:
                 row.update(self.update_payload)
             return FakeResponse(data=rows)
@@ -101,14 +118,19 @@ class FakeSupabaseClient:
         *,
         allow_insert: bool = True,
         allow_select: bool = True,
+        update_error: Exception | None = None,
+        empty_updates: bool = False,
     ) -> None:
         self.users = users or []
         self.allow_insert = allow_insert
         self.allow_select = allow_select
+        self.update_error = update_error
+        self.empty_updates = empty_updates
         self.table_calls: list[str] = []
         self.insert_calls: list[dict[str, Any]] = []
         self.select_calls: list[list[str]] = []
         self.select_filters: list[list[tuple[str, Any]]] = []
+        self.update_calls: list[dict[str, Any]] = []
 
     def table(self, table_name: str) -> FakeUsersQuery:
         assert table_name == "users"
@@ -120,6 +142,9 @@ class FakeSupabaseClient:
             insert_calls=self.insert_calls,
             select_calls=self.select_calls,
             select_filters=self.select_filters,
+            update_error=self.update_error,
+            empty_updates=self.empty_updates,
+            update_calls=self.update_calls,
         )
 
 
@@ -129,6 +154,7 @@ def configure_test_settings(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-google-client")
     monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SENTRY_ENVIRONMENT", "test")
     get_settings.cache_clear()
 
 
@@ -283,7 +309,9 @@ def test_username_login_uses_authorized_lookup_and_reaches_password_verification
     caplog,
 ) -> None:
     configure_test_settings(monkeypatch)
+    original_last_login = "2026-01-01T00:00:00+00:00"
     user = password_user()
+    user["last_login"] = original_last_login
     standard_client = FakeSupabaseClient(allow_select=False)
     service_role_client = FakeSupabaseClient([user])
     patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
@@ -306,7 +334,27 @@ def test_username_login_uses_authorized_lookup_and_reaches_password_verification
     assert len(verification_calls) == 1
     assert verification_calls[0][1] == user["password_hash"]
     assert standard_client.select_calls == []
+    assert standard_client.update_calls == []
     assert service_role_client.select_filters == [[("username", "manual-user")]]
+    success_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.login.success"
+    ]
+    assert success_records
+    assert success_records[-1].auth_method == "password"
+    assert success_records[-1].user_id == response.json()["user"]["id"]
+    persisted_last_login = service_role_client.users[0]["last_login"]
+    assert datetime.fromisoformat(persisted_last_login).tzinfo is not None
+    assert datetime.fromisoformat(persisted_last_login) > datetime.fromisoformat(
+        original_last_login
+    )
+    assert service_role_client.update_calls == [
+        {
+            "filters": [("id", response.json()["user"]["id"])],
+            "payload": {"last_login": persisted_last_login},
+        }
+    ]
     assert_public_auth_response(response)
     assert_secret_values_not_logged(
         caplog,
@@ -357,6 +405,118 @@ def test_email_fallback_uses_authorized_lookup_and_reaches_password_verification
         user["password_hash"],
         response.json()["access_token"],
     )
+
+
+def test_login_last_login_database_failure_is_observable_and_non_fatal(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    user_id = user["id"]
+
+    secret_sentinels = (
+        "password=warning-secret",
+        "access_token=warning-token",
+        "refresh_token=warning-refresh",
+    )
+    service_client = FakeSupabaseClient(
+        [user],
+        update_error=RuntimeError(" ".join(secret_sentinels)),
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_client)
+    monitoring_calls: list[dict[str, Any]] = []
+
+    def capture_message(message: str, level: str = "warning", **tags: Any) -> None:
+        monitoring_calls.append({"message": message, "level": level, "tags": tags})
+
+    monkeypatch.setattr("app.api.auth.capture_unexpected_message", capture_message)
+
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    assert response.json()["user"]["id"] == user_id
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.last_login.failure"
+    ]
+    assert len(failure_records) == 1
+    warning = failure_records[0]
+    assert warning.auth_flow == "password"
+    assert warning.auth_method == "password"
+    assert warning.environment == "test"
+    assert warning.user_id == user_id
+    assert warning.endpoint == "/auth/login"
+    assert warning.result == "partial_failure"
+    assert warning.error_code == "DATABASE_ERROR"
+    assert warning.error_category == "database_error"
+    assert warning.exception_type == "RuntimeError"
+    assert service_client.update_calls[0]["filters"] == [("id", user_id)]
+
+    assert monitoring_calls == [
+        {
+            "message": "Authentication last_login update failed",
+            "level": "warning",
+            "tags": {
+                "event": "auth.last_login.failure",
+                "auth_flow": "password",
+                "auth_method": "password",
+                "environment": "test",
+                "user_id": user_id,
+                "endpoint": "/auth/login",
+                "error_code": "DATABASE_ERROR",
+                "error_category": "database_error",
+                "exception_type": "RuntimeError",
+                "attempt_id": None,
+            },
+        }
+    ]
+    serialized_observability = caplog.text + repr(monitoring_calls)
+    for sentinel in secret_sentinels:
+        assert sentinel not in serialized_observability
+    assert "strongpass123" not in serialized_observability
+    assert response.json()["access_token"] not in serialized_observability
+
+
+def test_login_empty_last_login_update_response_warns_and_still_succeeds(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_client = FakeSupabaseClient(
+        [user],
+        empty_updates=True,
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_client)
+    monkeypatch.setattr(
+        "app.api.auth.capture_unexpected_message",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.api.auth"):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 200
+    failure_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "auth.last_login.failure"
+    ]
+    assert len(failure_records) == 1
+    assert failure_records[0].error_category == "no_rows_updated"
+    assert failure_records[0].exception_type == "_LastLoginUpdateNotPersisted"
 
 
 def test_nonexistent_user_returns_existing_non_enumerating_failure(

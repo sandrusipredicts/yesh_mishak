@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -655,6 +656,7 @@ def test_password_user_links_then_both_login_methods_return_original_user(monkey
     assert len(fake_client.tables["user_identities"]) == 1
     assert user["profile_id"] == "profile-1"
     assert user["owned_game_ids"] == ["game-1", "game-2"]
+    assert datetime.fromisoformat(user["last_login"]).tzinfo is not None
 
 
 def test_link_google_requires_auth(monkeypatch) -> None:

@@ -13,8 +13,10 @@ from app.auth.google import find_or_create_google_user, verify_google_token
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.brute_force import record_failed_login_and_delay, reset_failed_login_state
+from app.core.config import get_settings
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import error_response, raise_api_error
+from app.monitoring import capture_unexpected_message, resolve_environment
 from app.rate_limit import check_rate_limit_by_ip, check_rate_limit_by_user
 from app.schemas.auth import (
     AccountMethodsMutationResponse,
@@ -121,33 +123,111 @@ def _ensure_unique(client: Client, column: str, value: str, message: str) -> Non
         )
 
 
-def _update_last_login(user_id: str, attempt_id: str = "unknown") -> None:
+class _LastLoginUpdateNotPersisted(RuntimeError):
+    pass
+
+
+def _parse_aware_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
     try:
-        get_supabase_client().table("users").update({"last_login": _now_iso()}).eq("id", user_id).execute()
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed
+
+
+def _last_login_error_category(exc: Exception) -> str:
+    if isinstance(exc, _LastLoginUpdateNotPersisted):
+        return "no_rows_updated"
+    if isinstance(exc, HTTPException):
+        return "configuration_error"
+    if isinstance(exc, APIError):
+        return "postgrest_api_error"
+    return "database_error"
+
+
+def _update_last_login(
+    user_id: str,
+    *,
+    auth_flow: str,
+    attempt_id: str | None = None,
+) -> None:
+    endpoint = "/auth/login" if auth_flow == "password" else "/auth/google"
+    environment = "unknown"
+    try:
+        environment = resolve_environment(get_settings().sentry_environment)
+        response = (
+            get_supabase_service_role_client()
+            .table("users")
+            .update({"last_login": _now_iso()})
+            .eq("id", user_id)
+            .execute()
+        )
+        updated_rows = response.data if isinstance(response.data, list) else []
+        updated_user = next(
+            (
+                row
+                for row in updated_rows
+                if isinstance(row, dict) and str(row.get("id")) == user_id
+            ),
+            None,
+        )
+        if updated_user is None or _parse_aware_timestamp(updated_user.get("last_login")) is None:
+            raise _LastLoginUpdateNotPersisted
+
+        success_context = {
+            "event": "auth.last_login.success",
+            "auth_flow": auth_flow,
+            "auth_method": auth_flow,
+            "environment": environment,
+            "user_id": user_id,
+            "endpoint": endpoint,
+            "method": "POST",
+            "result": "success",
+        }
+        if attempt_id:
+            success_context["attempt_id"] = attempt_id
         logger.info(
             "auth last_login update succeeded",
-            extra={
-                "event": "auth.last_login.success",
-                "auth_method": attempt_id,
-                "user_id": user_id,
-                "endpoint": "/auth/login" if attempt_id == "password" else "/auth/google",
-                "method": "POST",
-                "result": "success",
-            },
+            extra=success_context,
         )
     except Exception as exc:
+        error_category = _last_login_error_category(exc)
+        failure_context = {
+            "event": "auth.last_login.failure",
+            "auth_flow": auth_flow,
+            "auth_method": auth_flow,
+            "environment": environment,
+            "user_id": user_id,
+            "endpoint": endpoint,
+            "method": "POST",
+            "result": "partial_failure",
+            "error_code": "DATABASE_ERROR",
+            "error_category": error_category,
+            "exception_type": exc.__class__.__name__,
+        }
+        if attempt_id:
+            failure_context["attempt_id"] = attempt_id
         logger.warning(
             "auth last_login update failed but login will continue",
-            extra={
-                "event": "auth.last_login.failure",
-                "auth_method": attempt_id,
-                "user_id": user_id,
-                "endpoint": "/auth/login" if attempt_id == "password" else "/auth/google",
-                "method": "POST",
-                "result": "partial_failure",
-                "error_code": "DATABASE_ERROR",
-                "exception_type": exc.__class__.__name__,
-            },
+            extra=failure_context,
+        )
+        capture_unexpected_message(
+            "Authentication last_login update failed",
+            level="warning",
+            event="auth.last_login.failure",
+            auth_flow=auth_flow,
+            auth_method=auth_flow,
+            environment=environment,
+            user_id=user_id,
+            endpoint=endpoint,
+            error_code="DATABASE_ERROR",
+            error_category=error_category,
+            exception_type=exc.__class__.__name__,
+            attempt_id=attempt_id,
         )
 
 
@@ -198,7 +278,11 @@ def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
         )
         raise
 
-    _update_last_login(str(user["id"]), attempt_id=attempt_id)
+    _update_last_login(
+        str(user["id"]),
+        auth_flow="google",
+        attempt_id=attempt_id,
+    )
     token_response = _create_token_response(user)
     logger.info(
         "google login succeeded",
@@ -392,7 +476,7 @@ def login(request: Request, payload: LoginRequest) -> TokenResponse:
         )
 
     reset_failed_login_state(request, payload.username)
-    _update_last_login(str(user["id"]), attempt_id="password")
+    _update_last_login(str(user["id"]), auth_flow="password")
     token_response = _create_token_response(user)
     logger.info(
         "password login succeeded",
