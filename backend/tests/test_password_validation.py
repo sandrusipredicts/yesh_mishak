@@ -17,6 +17,10 @@ from test_manual_auth import FakeSupabaseClient, configure_test_settings, regist
 
 def _patch_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
 
 
 # ---- Unit tests for validate_password ----
