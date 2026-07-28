@@ -273,6 +273,10 @@ def patch_password_reset(monkeypatch, fake_client: FakeResetSupabaseClient, emai
         lambda: email,
     )
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
 
 

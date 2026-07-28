@@ -166,6 +166,7 @@ def auth_headers(user: dict[str, Any]) -> dict[str, str]:
 def _patch_supabase(monkeypatch, fake: FakeSupabase) -> None:
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.api.auth.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake)
     monkeypatch.setattr("app.routers.field_reports.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
