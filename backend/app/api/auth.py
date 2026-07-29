@@ -1010,9 +1010,16 @@ def unlink_google_account(
         return rate_limit_hit
 
     result = account_linking.unlink_google(str(current_user["id"]), payload.current_password, request)
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "google account unlinked",
-        extra={"event": "auth.account_linking.unlink_google.success", "user_id": current_user["id"]},
+        extra={
+            "event": "auth.account_linking.unlink_google.success",
+            "auth_method": "password",
+            "revocation_reason": "google_unlinked",
+            "user_id_present": True,
+        },
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1032,9 +1039,16 @@ def set_account_password(
     result = account_linking.set_password_for_user(
         str(current_user["id"]), payload.google_token, payload.password, payload.password_confirm
     )
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "account password set",
-        extra={"event": "auth.account_linking.set_password.success", "user_id": current_user["id"]},
+        extra={
+            "event": "auth.account_linking.set_password.success",
+            "auth_method": "google",
+            "revocation_reason": "password_set",
+            "user_id_present": True,
+        },
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1052,9 +1066,16 @@ def remove_account_password(
         return rate_limit_hit
 
     result = account_linking.remove_password_for_user(str(current_user["id"]), payload.google_token)
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "account password removed",
-        extra={"event": "auth.account_linking.remove_password.success", "user_id": current_user["id"]},
+        extra={
+            "event": "auth.account_linking.remove_password.success",
+            "auth_method": "google",
+            "revocation_reason": "password_removed",
+            "user_id_present": True,
+        },
     )
     return AccountMethodsMutationResponse(**result)
 

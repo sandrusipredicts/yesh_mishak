@@ -9,9 +9,8 @@ import os
 from pathlib import Path
 from uuid import UUID
 
+import psycopg
 import pytest
-
-psycopg = pytest.importorskip("psycopg")
 
 DATABASE_URL = os.getenv("ANALYTICS_EVENTS_DATABASE_URL")
 pytestmark = pytest.mark.skipif(

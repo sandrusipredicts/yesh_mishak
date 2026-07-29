@@ -232,17 +232,17 @@ class FakeSupabaseClient:
         user["tokens_valid_after"] = "2026-01-01T00:00:00+00:00"
         return "removed"
 
-    def rpc_delete_user_account(self, params: dict[str, Any]) -> str:
+    def rpc_delete_user_account(self, params: dict[str, Any]) -> dict[str, Any]:
         user = self._find_user(params["p_user_id"])
         if user is None:
-            return "user_not_found"
+            return {"error": "user_not_found"}
         self.tables["users"].remove(user)
         self.tables["user_identities"] = [
             identity
             for identity in self.tables["user_identities"]
             if identity["user_id"] != params["p_user_id"]
         ]
-        return "deleted"
+        return {"deleted": True, "games_reconciled": 0}
 
 
 def configure_test_settings(monkeypatch) -> None:

@@ -151,3 +151,84 @@ def record_authentication_event(
             error_category=error_category,
         )
         return False
+
+
+def record_token_revocation_event(
+    *,
+    outcome: Outcome,
+    auth_method: AuthMethod,
+    revocation_reason: RevocationReason,
+    user_id: str | None,
+    failure_category: FailureCategory | None = None,
+) -> bool:
+    """Persist one independently correlated revocation outcome.
+
+    Event and correlation identifiers are generated exactly once per durable
+    event. Failure observability contains only bounded taxonomy values; the
+    high-cardinality identifiers remain confined to the persistence helper's
+    structured log and are never monitoring tags.
+    """
+    try:
+        event_id = new_audit_event_id()
+        correlation_id = new_auth_correlation_id()
+        persisted = record_authentication_event(
+            event_id=event_id,
+            event_type="token_revocation",
+            outcome=outcome,
+            auth_method=auth_method,
+            correlation_id=correlation_id,
+            user_id=user_id,
+            failure_category=failure_category,
+            revocation_reason=revocation_reason,
+        )
+    except Exception:  # noqa: BLE001 - every audit step is non-fatal
+        safe_auth_log(
+            logger,
+            "warning",
+            "authentication audit event construction failed; authentication will continue",
+            extra={
+                "event": "auth.audit.construct.failure",
+                "audit_event_type": "token_revocation",
+                "outcome": outcome,
+                "auth_method": auth_method,
+                "failure_category": failure_category,
+                "revocation_reason": revocation_reason,
+                "user_id_present": user_id is not None,
+                "result": "partial_failure",
+            },
+        )
+        safe_auth_monitor(
+            "Authentication audit event construction failed",
+            level="warning",
+            event="auth.audit.construct.failure",
+            audit_event_type="token_revocation",
+            outcome=outcome,
+            auth_method=auth_method,
+            failure_category=failure_category,
+            revocation_reason=revocation_reason,
+            user_id_present=user_id is not None,
+        )
+        persisted = False
+    if outcome == "failed":
+        safe_auth_log(
+            logger,
+            "warning",
+            "authoritative authentication token revocation failed",
+            extra={
+                "event": "auth.token_revocation.failure",
+                "auth_method": auth_method,
+                "failure_category": failure_category,
+                "revocation_reason": revocation_reason,
+                "user_id_present": user_id is not None,
+            },
+        )
+        safe_auth_monitor(
+            "Authoritative authentication token revocation failed",
+            level="warning",
+            event="auth.token_revocation.failure",
+            auth_method=auth_method,
+            failure_category=failure_category,
+            revocation_reason=revocation_reason,
+            user_id_present=user_id is not None,
+        )
+    return persisted
