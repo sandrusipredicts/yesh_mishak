@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
 import jwt as pyjwt
@@ -184,6 +185,40 @@ def patch_all_supabase(monkeypatch, fake_client: FakeSupabaseClient) -> None:
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.services.api_request_metrics.get_supabase_service_role_client", lambda: fake_client, raising=False)
+
+
+def capture_authentication_audit_events(monkeypatch) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+
+    def capture(**event: Any) -> bool:
+        events.append(dict(event))
+        return True
+
+    monkeypatch.setattr("app.api.auth.record_authentication_event", capture)
+    return events
+
+
+def patch_throwing_global_auth_observability(
+    monkeypatch,
+    captured_exceptions: list[BaseException],
+    monitoring_sentinel: str,
+    logger_sentinel: str,
+) -> None:
+    def capture_then_fail(exc: BaseException, **tags: Any) -> None:
+        assert "request_id" not in tags
+        captured_exceptions.append(exc)
+        raise RuntimeError(monitoring_sentinel)
+
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_exception",
+        capture_then_fail,
+    )
+    monkeypatch.setattr(
+        "app.main.logger.exception",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError(logger_sentinel)
+        ),
+    )
 
 
 
@@ -398,6 +433,7 @@ def test_logout_invalidates_token(monkeypatch) -> None:
     user = dict(REGULAR_USER)
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
 
     token = _make_token_seconds_ago(user)
 
@@ -416,6 +452,22 @@ def test_logout_invalidates_token(monkeypatch) -> None:
     assert logout_response.status_code == 200
     assert logout_response.json()["message"] == "Logged out successfully"
     assert user.get("tokens_valid_after") is not None
+    assert len(audit_events) == 2
+    assert {event["event_type"] for event in audit_events} == {
+        "logout",
+        "token_revocation",
+    }
+    assert {event["outcome"] for event in audit_events} == {"succeeded"}
+    assert {event["auth_method"] for event in audit_events} == {"bearer"}
+    assert {event["correlation_id"] for event in audit_events} == {
+        audit_events[0]["correlation_id"]
+    }
+    revocation_event = next(
+        event for event in audit_events if event["event_type"] == "token_revocation"
+    )
+    assert revocation_event["revocation_reason"] == "logout"
+    assert revocation_event["user_id"] == user["id"]
+    assert token not in repr(audit_events)
 
     invalidate_cached_user(user["id"])
 
@@ -424,6 +476,455 @@ def test_logout_invalidates_token(monkeypatch) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 401
+
+
+def test_logout_revocation_failure_emits_failed_logout_and_revocation_events(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    secret = "Authorization=Bearer revocation-database-private"
+    monitoring_failure_sentinel = "monitoring-revocation-private"
+    logger_failure_sentinel = "logger-revocation-private"
+    captured_exceptions: list[BaseException] = []
+    patch_throwing_global_auth_observability(
+        monkeypatch,
+        captured_exceptions,
+        monitoring_failure_sentinel,
+        logger_failure_sentinel,
+    )
+
+    class BrokenRevocationClient:
+        def rpc(self, _name, _params):
+            raise RuntimeError(secret)
+
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: BrokenRevocationClient(),
+    )
+    token = _make_token_seconds_ago(user)
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "Logout failed",
+    }
+    assert len(audit_events) == 2
+    assert {event["event_type"] for event in audit_events} == {
+        "logout",
+        "token_revocation",
+    }
+    assert {event["outcome"] for event in audit_events} == {"failed"}
+    assert {event["failure_category"] for event in audit_events} == {
+        "service_unavailable"
+    }
+    assert len({event["correlation_id"] for event in audit_events}) == 1
+    assert len(captured_exceptions) == 1
+    assert captured_exceptions[0].__cause__ is None
+    assert captured_exceptions[0].__context__ is None
+    serialized = (
+        caplog.text
+        + response.text
+        + repr(audit_events)
+        + repr(captured_exceptions)
+    )
+    assert secret not in serialized
+    assert token not in serialized
+    assert monitoring_failure_sentinel not in serialized
+    assert logger_failure_sentinel not in serialized
+
+
+def test_logout_cache_invalidation_failure_preserves_revocation_and_success(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    secret = "refresh_token=cache-invalidation-private"
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.api.auth.invalidate_cached_user",
+        lambda _user_id: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, level="warning", **tags: monitoring_calls.append(
+            {"message": message, "level": level, "tags": tags}
+        ),
+    )
+    token = _make_token_seconds_ago(user)
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Logged out successfully"}
+    assert len(audit_events) == 2
+    assert {event["event_type"] for event in audit_events} == {
+        "logout",
+        "token_revocation",
+    }
+    assert {event["outcome"] for event in audit_events} == {"succeeded"}
+    assert len({event["correlation_id"] for event in audit_events}) == 1
+    assert len({event["event_id"] for event in audit_events}) == 2
+    assert monitoring_calls == [
+        {
+            "message": "Authentication logout cache invalidation failed",
+            "level": "warning",
+            "tags": {
+                "event": "auth.logout.cache_invalidation.failure",
+                "auth_method": "bearer",
+                "exception_type": "RuntimeError",
+                "user_id_present": True,
+                "result": "partial_failure",
+            },
+        }
+    ]
+    serialized = caplog.text + response.text + repr(audit_events) + repr(monitoring_calls)
+    assert secret not in serialized
+    assert token not in serialized
+
+    # The dependency re-reads tokens_valid_after even though the local cache
+    # entry could not be removed, so the revoked bearer token stays rejected.
+    protected_response = TestClient(app).get(
+        "/games/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert protected_response.status_code == 401
+    assert protected_response.json()["code"] == "TOKEN_REVOKED"
+
+
+def test_logout_cache_invalidation_and_observability_failures_stay_non_fatal(
+    monkeypatch,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.auth.invalidate_cached_user",
+        lambda _user_id: (_ for _ in ()).throw(
+            RuntimeError("access_token=cache-private")
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.auth.logger.warning",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("authorization=logger-private")
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("refresh_token=monitor-private")
+        ),
+    )
+    token = _make_token_seconds_ago(user)
+
+    response = TestClient(app).post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Logged out successfully"}
+    assert len(audit_events) == 2
+    assert {event["outcome"] for event in audit_events} == {"succeeded"}
+    assert len({event["correlation_id"] for event in audit_events}) == 1
+    assert len({event["event_id"] for event in audit_events}) == 2
+
+
+def test_logout_unexpected_revocation_result_uses_invalid_state_category(
+    monkeypatch,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+
+    class UnexpectedRevocationRpc:
+        def execute(self) -> FakeResponse:
+            return FakeResponse([{"result": "not-a-supported-result"}])
+
+    class UnexpectedRevocationClient:
+        def rpc(self, _name, _params) -> UnexpectedRevocationRpc:
+            return UnexpectedRevocationRpc()
+
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: UnexpectedRevocationClient(),
+    )
+    token = _make_token_seconds_ago(user)
+
+    response = TestClient(app).post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 500
+    assert len(audit_events) == 2
+    assert {event["failure_category"] for event in audit_events} == {
+        "invalid_state"
+    }
+
+
+def test_logout_user_deleted_during_request_records_nullable_user_id(
+    monkeypatch,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+
+    class MissingUserRevocationRpc:
+        def execute(self) -> FakeResponse:
+            return FakeResponse([{"result": "user_not_found"}])
+
+    class MissingUserRevocationClient:
+        def rpc(self, _name, _params) -> MissingUserRevocationRpc:
+            return MissingUserRevocationRpc()
+
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: MissingUserRevocationClient(),
+    )
+    token = _make_token_seconds_ago(user)
+
+    response = TestClient(app).post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert len(audit_events) == 2
+    assert {event["outcome"] for event in audit_events} == {"succeeded"}
+    assert {event["user_id"] for event in audit_events} == {None}
+
+
+def test_auth_audit_persistence_failure_does_not_change_logout_response(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+
+    class BrokenAuditRpc:
+        def execute(self):
+            raise RuntimeError("Authorization=Bearer private-token")
+
+    class BrokenAuditClient:
+        def rpc(self, _name, _params):
+            return BrokenAuditRpc()
+
+    monkeypatch.setattr(
+        "app.services.authentication_audit_events.get_supabase_service_role_client",
+        lambda: BrokenAuditClient(),
+    )
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, level="warning", **tags: monitoring_calls.append(
+            {"message": message, "level": level, "tags": tags}
+        ),
+    )
+    token = _make_token_seconds_ago(user)
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Logged out successfully"
+    assert user.get("tokens_valid_after") is not None
+    serialized = caplog.text + repr(monitoring_calls)
+    assert "Authorization=Bearer private-token" not in serialized
+    assert token not in serialized
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_status"),
+    [
+        ("missing", 401),
+        ("malformed", 401),
+        ("expired", 401),
+        ("revoked", 401),
+        ("banned", 403),
+        ("suspended", 403),
+    ],
+)
+def test_dependency_stage_logout_rejections_are_outside_audit_taxonomy(
+    monkeypatch,
+    case: str,
+    expected_status: int,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    if case in {"banned", "suspended"}:
+        user["status"] = case
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    invalidate_cached_user(user["id"])
+
+    headers: dict[str, str] = {}
+    if case == "malformed":
+        headers = {"Authorization": "Bearer not-a-jwt"}
+    elif case == "expired":
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        payload = make_payload(
+            user,
+            iat=now - timedelta(hours=2),
+            exp=now - timedelta(hours=1),
+        )
+        token = pyjwt.encode(
+            payload,
+            settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+    elif case == "revoked":
+        token = _make_token_seconds_ago(user)
+        user["tokens_valid_after"] = datetime.now(timezone.utc).isoformat()
+        headers = {"Authorization": f"Bearer {token}"}
+    elif case in {"banned", "suspended"}:
+        headers = {"Authorization": f"Bearer {_make_token_seconds_ago(user)}"}
+
+    response = TestClient(app).post("/auth/logout", headers=headers)
+
+    assert response.status_code == expected_status
+    assert audit_events == []
+
+
+def test_logout_partial_audit_persistence_is_non_fatal_and_observable(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    token = _make_token_seconds_ago(user)
+    secret = "Authorization=Bearer partial-audit-private"
+
+    class PartialAuditCall:
+        def __init__(self, client: "PartialAuditClient") -> None:
+            self.client = client
+
+        def execute(self):
+            if len(self.client.calls) == 1:
+                return type("Response", (), {"data": True})()
+            raise RuntimeError(secret)
+
+    class PartialAuditClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def rpc(self, name: str, params: dict[str, Any]) -> PartialAuditCall:
+            self.calls.append((name, dict(params)))
+            return PartialAuditCall(self)
+
+    audit_client = PartialAuditClient()
+    monkeypatch.setattr(
+        "app.services.authentication_audit_events.get_supabase_service_role_client",
+        lambda: audit_client,
+    )
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, level="warning", **tags: monitoring_calls.append(
+            {"message": message, "level": level, "tags": tags}
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    assert len(audit_client.calls) == 2
+    first_payload = audit_client.calls[0][1]
+    second_payload = audit_client.calls[1][1]
+    assert first_payload["p_event_type"] == "token_revocation"
+    assert second_payload["p_event_type"] == "logout"
+    assert first_payload["p_correlation_id"] == second_payload["p_correlation_id"]
+    assert first_payload["p_event_id"] != second_payload["p_event_id"]
+    assert monitoring_calls[0]["tags"]["audit_event_type"] == "logout"
+    serialized = caplog.text + repr(monitoring_calls) + repr(audit_client.calls)
+    assert secret not in serialized
+    assert token not in serialized
+
+
+def test_logout_success_and_failure_ignore_throwing_log_handlers(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = dict(REGULAR_USER)
+    fake_client = FakeSupabaseClient([user])
+    patch_all_supabase(monkeypatch, fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.auth.logger.info",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("log down")),
+    )
+    monkeypatch.setattr(
+        "app.api.auth.logger.warning",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("log down")),
+    )
+
+    success_token = _make_token_seconds_ago(user)
+    success = TestClient(app).post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {success_token}"},
+    )
+    assert success.status_code == 200
+    assert [event["outcome"] for event in audit_events] == [
+        "succeeded",
+        "succeeded",
+    ]
+
+    invalidate_cached_user(user["id"])
+    fresh_token = create_access_token(subject=user["id"], email=user["email"])
+
+    class BrokenRevocationClient:
+        def rpc(self, _name, _params):
+            raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: BrokenRevocationClient(),
+    )
+    failure = TestClient(app).post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {fresh_token}"},
+    )
+
+    assert failure.status_code == 500
+    assert [event["outcome"] for event in audit_events[-2:]] == ["failed", "failed"]
 
 
 # ---- Token rejected after logout has TOKEN_REVOKED code ----

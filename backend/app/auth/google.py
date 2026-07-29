@@ -8,9 +8,26 @@ from google.oauth2 import id_token
 
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_service_role_client
-from app.errors import raise_api_error
+from app.errors import error_response
+from app.services.authentication_observability import safe_auth_log
 
 logger = logging.getLogger(__name__)
+
+
+class GoogleLoginError(HTTPException):
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message: str,
+        audit_user_id: str | None = None,
+    ) -> None:
+        super().__init__(
+            status_code=status_code,
+            detail=error_response(code=code, message=message),
+        )
+        self.audit_user_id = audit_user_id
 
 
 def _token_debug_claims(token: str) -> dict[str, Any]:
@@ -28,11 +45,12 @@ def _token_debug_claims(token: str) -> dict[str, Any]:
         "email_verified_present": claims.get("email_verified") is not None,
     }
 
-from datetime import datetime, timezone
 
 def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, Any]:
     settings = get_settings()
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "google token verification started",
         extra={
             "event": "auth.google_token.verify.start",
@@ -41,6 +59,7 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         },
     )
 
+    verification_exception_type: str | None = None
     try:
         token_info = id_token.verify_oauth2_token(
             token,
@@ -48,21 +67,26 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
             settings.allowed_google_client_ids,
         )
     except Exception as exc:
-        logger.exception(
-            "google token verification failed "
-            "exception_type=%s "
-            "exception_message=%r "
-            "allowed_audiences=%r "
-            "server_utc=%s",
-            type(exc).__name__,
-            str(exc),
-            settings.allowed_google_client_ids,
-            datetime.now(timezone.utc).isoformat(),
+        verification_exception_type = exc.__class__.__name__
+
+    if verification_exception_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
+            "google token verification failed",
+            extra={
+                "event": "auth.google_token.verify.failure",
+                "auth_method": "google",
+                "attempt_id": attempt_id,
+                "error_code": "AUTH_INVALID",
+                "exception_type": verification_exception_type,
+                "result": "failure",
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token",
-        ) from exc
+        ) from None
 
     email_claim = token_info.get("email")
     subject_claim = token_info.get("sub")
@@ -71,7 +95,9 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
     google_sub = subject_claim.strip() if isinstance(subject_claim, str) else ""
 
     if not email or not google_sub:
-        logger.warning(
+        safe_auth_log(
+            logger,
+            "warning",
             "google token required claims missing",
             extra={
                 "event": "auth.login.failure",
@@ -91,7 +117,9 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         )
 
     if email_verified is not True:
-        logger.warning(
+        safe_auth_log(
+            logger,
+            "warning",
             "google token email not verified",
             extra={
                 "event": "auth.login.failure",
@@ -99,7 +127,7 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
                 "attempt_id": attempt_id,
                 "status_code": status.HTTP_403_FORBIDDEN,
                 "error_code": "EMAIL_NOT_VERIFIED",
-                "email_verified_value": email_verified,
+                "email_verified_is_true": False,
                 "result": "failure",
             },
         )
@@ -109,7 +137,9 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
         )
 
     name = token_info.get("name") or email.split("@", maxsplit=1)[0]
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "google token verified",
         extra={
             "event": "auth.google_token.verify.success",
@@ -131,7 +161,9 @@ def verify_google_token(token: str, attempt_id: str = "unknown") -> dict[str, An
 
 def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "unknown") -> dict[str, Any]:
     service_client = get_supabase_service_role_client()
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "resolving Google identity",
         extra={
             "event": "auth.google_identity.resolve.start",
@@ -140,6 +172,7 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
         },
     )
 
+    resolution_exception_type: str | None = None
     try:
         response = service_client.rpc(
             "resolve_google_login",
@@ -151,29 +184,36 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
             },
         ).execute()
     except Exception as exc:
-        logger.exception(
+        resolution_exception_type = exc.__class__.__name__
+
+    if resolution_exception_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
             "Google identity resolution failed",
             extra={
                 "event": "auth.google_identity.resolve.failure",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
                 "error_code": "DATABASE_ERROR",
-                "exception_type": exc.__class__.__name__,
+                "exception_type": resolution_exception_type,
                 "result": "failure",
             },
         )
-        raise_api_error(
+        raise GoogleLoginError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_SERVER_ERROR",
             message="Failed to resolve Google identity",
-        )
+        ) from None
 
     row = response.data[0] if isinstance(response.data, list) and response.data else None
     result = row.get("result") if isinstance(row, dict) else None
     user_id = row.get("user_id") if isinstance(row, dict) else None
 
     if result == "account_link_required":
-        logger.warning(
+        safe_auth_log(
+            logger,
+            "warning",
             "Google login requires explicit account linking",
             extra={
                 "event": "auth.login.failure",
@@ -184,32 +224,37 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
                 "result": "failure",
             },
         )
-        raise_api_error(
+        raise GoogleLoginError(
             status_code=status.HTTP_409_CONFLICT,
             code="ACCOUNT_LINK_REQUIRED",
             message=(
                 "An account with this email already exists. Sign in with the existing "
                 "method, then connect Google from Settings."
             ),
+            audit_user_id=str(user_id) if user_id else None,
         )
 
     if result not in {"existing", "created"} or not user_id:
-        logger.error(
+        safe_auth_log(
+            logger,
+            "error",
             "Google identity resolver returned an invalid result",
             extra={
                 "event": "auth.google_identity.resolve.failure",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
-                "resolver_result": result,
+                "resolver_result_type": result.__class__.__name__,
                 "result": "failure",
             },
         )
-        raise_api_error(
+        raise GoogleLoginError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="IDENTITY_DATA_CONFLICT",
             message="Google identity data requires administrator review",
+            audit_user_id=str(user_id) if user_id else None,
         )
 
+    lookup_exception_type: str | None = None
     try:
         user_response = (
             service_client.table("users")
@@ -219,32 +264,41 @@ def find_or_create_google_user(google_user: dict[str, Any], attempt_id: str = "u
             .execute()
         )
     except Exception as exc:
-        logger.exception(
+        lookup_exception_type = exc.__class__.__name__
+
+    if lookup_exception_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
             "Resolved Google user lookup failed",
             extra={
                 "event": "auth.google_user.lookup.failure",
                 "auth_method": "google",
                 "attempt_id": attempt_id,
                 "user_id": user_id,
-                "exception_type": exc.__class__.__name__,
+                "exception_type": lookup_exception_type,
                 "result": "failure",
             },
         )
-        raise_api_error(
+        raise GoogleLoginError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_SERVER_ERROR",
             message="Failed to load the linked user",
-        )
+            audit_user_id=str(user_id),
+        ) from None
 
     if not user_response.data:
-        raise_api_error(
+        raise GoogleLoginError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="IDENTITY_DATA_CONFLICT",
             message="The linked application user does not exist",
+            audit_user_id=str(user_id),
         )
 
     user = user_response.data[0]
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "Google identity resolved",
         extra={
             "event": "auth.google_identity.resolve.success",

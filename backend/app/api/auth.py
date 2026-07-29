@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 import logging
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -16,7 +15,7 @@ from app.brute_force import record_failed_login_and_delay, reset_failed_login_st
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import error_response, raise_api_error
-from app.monitoring import capture_unexpected_message, resolve_environment
+from app.monitoring import resolve_environment
 from app.rate_limit import check_rate_limit_by_ip, check_rate_limit_by_user
 from app.schemas.auth import (
     AccountMethodsMutationResponse,
@@ -44,6 +43,13 @@ from app.schemas.auth import (
 )
 from app.services import account_linking
 from app.services.account_deletion import delete_account
+from app.services.authentication_audit_events import (
+    FailureCategory,
+    new_audit_event_id,
+    new_auth_correlation_id,
+    record_authentication_event,
+)
+from app.services.authentication_observability import safe_auth_log, safe_auth_monitor
 from app.services.email_verification import (
     GENERIC_RESEND_MESSAGE,
     VerificationDeliveryError,
@@ -127,6 +133,10 @@ class _LastLoginUpdateNotPersisted(RuntimeError):
     pass
 
 
+class _SanitizedAuthenticationFailure(RuntimeError):
+    """Constant-text boundary for unexpected auth errors sent to global monitoring."""
+
+
 def _parse_aware_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -190,7 +200,9 @@ def _update_last_login(
         }
         if attempt_id:
             success_context["attempt_id"] = attempt_id
-        logger.info(
+        safe_auth_log(
+            logger,
+            "info",
             "auth last_login update succeeded",
             extra=success_context,
         )
@@ -211,23 +223,24 @@ def _update_last_login(
         }
         if attempt_id:
             failure_context["attempt_id"] = attempt_id
-        logger.warning(
+        safe_auth_log(
+            logger,
+            "warning",
             "auth last_login update failed but login will continue",
             extra=failure_context,
         )
-        capture_unexpected_message(
+        safe_auth_monitor(
             "Authentication last_login update failed",
             level="warning",
             event="auth.last_login.failure",
             auth_flow=auth_flow,
             auth_method=auth_flow,
             environment=environment,
-            user_id=user_id,
+            user_id_present=True,
             endpoint=endpoint,
             error_code="DATABASE_ERROR",
             error_category=error_category,
             exception_type=exc.__class__.__name__,
-            attempt_id=attempt_id,
         )
 
 
@@ -240,16 +253,58 @@ def _client_ip(request: Request) -> str:
     return "unknown"
 
 
+def _http_error_code(exc: HTTPException) -> str | None:
+    if isinstance(exc.detail, dict):
+        code = exc.detail.get("code")
+        return str(code) if code else None
+    return None
+
+
+def _login_failure_category(
+    exc: HTTPException,
+    *,
+    auth_method: str,
+) -> FailureCategory:
+    code = _http_error_code(exc)
+    if code == "EMAIL_NOT_VERIFIED" or (
+        auth_method == "google"
+        and exc.status_code == status.HTTP_403_FORBIDDEN
+    ):
+        return "email_not_verified"
+    if code == "ACCOUNT_LINK_REQUIRED":
+        return "account_link_required"
+    if code == "IDENTITY_DATA_CONFLICT":
+        return "identity_conflict"
+    if code == "RATE_LIMITED" or exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        return "rate_limited"
+    if exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        return "service_unavailable"
+    if auth_method == "google":
+        return "invalid_provider_credential"
+    return "invalid_credentials"
+
+
 @router.post("/google", response_model=TokenResponse)
 def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
+    attempt_id = new_auth_correlation_id()
+    audit_event_id = new_audit_event_id()
     rate_limit_hit = check_rate_limit_by_ip(
         request, "auth_google", [(10, 60), (50, 3600)]
     )
     if rate_limit_hit:
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="google",
+            correlation_id=attempt_id,
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    attempt_id = uuid4().hex[:10]
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "google login request started",
         extra={
             "event": "auth.login.start",
@@ -259,11 +314,34 @@ def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
             "attempt_id": attempt_id,
         },
     )
+    user: dict[str, Any] | None = None
+    token_response: TokenResponse | None = None
+    unexpected_error_type: str | None = None
     try:
         google_user = verify_google_token(payload.token, attempt_id=attempt_id)
         user = find_or_create_google_user(google_user, attempt_id=attempt_id)
+        token_response = _create_token_response(user)
+        _update_last_login(
+            str(user["id"]),
+            auth_flow="google",
+            attempt_id=attempt_id,
+        )
     except HTTPException as exc:
-        logger.warning(
+        audit_user_id = getattr(exc, "audit_user_id", None)
+        if audit_user_id is None and user is not None:
+            audit_user_id = str(user.get("id")) if user.get("id") else None
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="google",
+            correlation_id=attempt_id,
+            user_id=audit_user_id,
+            failure_category=_login_failure_category(exc, auth_method="google"),
+        )
+        safe_auth_log(
+            logger,
+            "warning",
             "google login failed",
             extra={
                 "event": "auth.login.failure",
@@ -277,14 +355,53 @@ def google_login(request: Request, payload: GoogleAuthRequest) -> TokenResponse:
             },
         )
         raise
+    except Exception as exc:
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="google",
+            correlation_id=attempt_id,
+            user_id=str(user.get("id")) if user and user.get("id") else None,
+            failure_category="internal_error",
+        )
+        unexpected_error_type = exc.__class__.__name__
 
-    _update_last_login(
-        str(user["id"]),
-        auth_flow="google",
-        attempt_id=attempt_id,
+    if unexpected_error_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
+            "google login failed unexpectedly",
+            extra={
+                "event": "auth.login.failure",
+                "auth_method": "google",
+                "endpoint": "/auth/google",
+                "method": "POST",
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "exception_type": unexpected_error_type,
+                "result": "failure",
+            },
+        )
+        raise _SanitizedAuthenticationFailure(
+            "Google authentication failed unexpectedly"
+        ) from None
+
+    if token_response is None:
+        raise _SanitizedAuthenticationFailure(
+            "Google authentication did not produce a token response"
+        ) from None
+
+    record_authentication_event(
+        event_id=audit_event_id,
+        event_type="login",
+        outcome="succeeded",
+        auth_method="google",
+        correlation_id=attempt_id,
+        user_id=token_response.user.id,
     )
-    token_response = _create_token_response(user)
-    logger.info(
+    safe_auth_log(
+        logger,
+        "info",
         "google login succeeded",
         extra={
             "event": "auth.login.success",
@@ -412,73 +529,154 @@ def register(request: Request, payload: RegisterRequest) -> RegistrationResponse
 
 @router.post("/login", response_model=TokenResponse)
 def login(request: Request, payload: LoginRequest) -> TokenResponse:
+    attempt_id = new_auth_correlation_id()
+    audit_event_id = new_audit_event_id()
     rate_limit_hit = check_rate_limit_by_ip(
         request, "auth_login", [(10, 60), (50, 3600)]
     )
     if rate_limit_hit:
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="password",
+            correlation_id=attempt_id,
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    service_role_client = get_supabase_service_role_client()
-    login_columns = (
-        "id,email,name,username,phone_number,password_hash,email_verified,"
-        "email_verified_at,terms_accepted_at"
-    )
-    user = _get_user_by_column(
-        service_role_client,
-        "username",
-        payload.username,
-        login_columns,
-    )
-    if not user and "@" in payload.username:
+    user: dict[str, Any] | None = None
+    token_response: TokenResponse | None = None
+    unexpected_error_type: str | None = None
+    unexpected_failure_category: FailureCategory = "service_unavailable"
+    try:
+        service_role_client = get_supabase_service_role_client()
+        login_columns = (
+            "id,email,name,username,phone_number,password_hash,email_verified,"
+            "email_verified_at,terms_accepted_at"
+        )
         user = _get_user_by_column(
             service_role_client,
-            "email",
+            "username",
             payload.username,
             login_columns,
         )
-    if not user or not verify_password(payload.password, user.get("password_hash")):
-        delay_seconds = record_failed_login_and_delay(request, payload.username)
-        if delay_seconds > 0:
-            logger.warning(
-                "password login progressive delay applied",
+        if not user and "@" in payload.username:
+            user = _get_user_by_column(
+                service_role_client,
+                "email",
+                payload.username,
+                login_columns,
+            )
+        unexpected_failure_category = "internal_error"
+        if not user or not verify_password(payload.password, user.get("password_hash")):
+            delay_seconds = record_failed_login_and_delay(request, payload.username)
+            if delay_seconds > 0:
+                safe_auth_log(
+                    logger,
+                    "warning",
+                    "password login progressive delay applied",
+                    extra={
+                        "event": "auth.login.progressive_delay",
+                        "auth_method": "password",
+                        "endpoint": "/auth/login",
+                        "method": "POST",
+                        "delay_seconds": delay_seconds,
+                        "result": "delayed",
+                    },
+                )
+            safe_auth_log(
+                logger,
+                "warning",
+                "password login failed",
                 extra={
-                    "event": "auth.login.progressive_delay",
+                    "event": "auth.login.failure",
                     "auth_method": "password",
                     "endpoint": "/auth/login",
                     "method": "POST",
-                    "delay_seconds": delay_seconds,
-                    "result": "delayed",
+                    "status_code": status.HTTP_401_UNAUTHORIZED,
+                    "error_code": "AUTH_INVALID",
+                    "result": "failure",
                 },
             )
-        logger.warning(
-            "password login failed",
+            raise_api_error(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                code="AUTH_INVALID",
+                message="Invalid username or password",
+            )
+
+        if user.get("email_verified") is False:
+            raise_api_error(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="EMAIL_NOT_VERIFIED",
+                message="Email verification is required before signing in.",
+            )
+
+        reset_failed_login_state(request, payload.username)
+        token_response = _create_token_response(user)
+        _update_last_login(
+            str(user["id"]),
+            auth_flow="password",
+            attempt_id=attempt_id,
+        )
+    except HTTPException as exc:
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="password",
+            correlation_id=attempt_id,
+            user_id=str(user.get("id")) if user and user.get("id") else None,
+            failure_category=_login_failure_category(exc, auth_method="password"),
+        )
+        raise
+    except Exception as exc:
+        record_authentication_event(
+            event_id=audit_event_id,
+            event_type="login",
+            outcome="failed",
+            auth_method="password",
+            correlation_id=attempt_id,
+            user_id=str(user.get("id")) if user and user.get("id") else None,
+            failure_category=unexpected_failure_category,
+        )
+        unexpected_error_type = exc.__class__.__name__
+
+    if unexpected_error_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
+            "password login failed unexpectedly",
             extra={
                 "event": "auth.login.failure",
                 "auth_method": "password",
                 "endpoint": "/auth/login",
                 "method": "POST",
-                "status_code": status.HTTP_401_UNAUTHORIZED,
-                "error_code": "AUTH_INVALID",
+                "error_code": "INTERNAL_SERVER_ERROR",
+                "exception_type": unexpected_error_type,
                 "result": "failure",
             },
         )
-        raise_api_error(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="AUTH_INVALID",
-            message="Invalid username or password",
-        )
+        raise _SanitizedAuthenticationFailure(
+            "Password authentication failed unexpectedly"
+        ) from None
 
-    if user.get("email_verified") is False:
-        raise_api_error(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="EMAIL_NOT_VERIFIED",
-            message="Email verification is required before signing in.",
-        )
+    if token_response is None:
+        raise _SanitizedAuthenticationFailure(
+            "Password authentication did not produce a token response"
+        ) from None
 
-    reset_failed_login_state(request, payload.username)
-    _update_last_login(str(user["id"]), auth_flow="password")
-    token_response = _create_token_response(user)
-    logger.info(
+    record_authentication_event(
+        event_id=audit_event_id,
+        event_type="login",
+        outcome="succeeded",
+        auth_method="password",
+        correlation_id=attempt_id,
+        user_id=token_response.user.id,
+    )
+    safe_auth_log(
+        logger,
+        "info",
         "password login succeeded",
         extra={
             "event": "auth.login.success",
@@ -539,6 +737,13 @@ def confirm_password_reset(request: Request, payload: PasswordResetConfirmReques
 @router.post("/logout")
 def logout(current_user: dict = Depends(require_active_user)) -> dict:
     user_id = current_user["id"]
+    correlation_id = new_auth_correlation_id()
+    logout_event_id = new_audit_event_id()
+    revocation_event_id = new_audit_event_id()
+    failure_category: FailureCategory = "service_unavailable"
+    audit_user_id: str | None = str(user_id)
+    revocation_failed = False
+    revocation_exception_type: str | None = None
     try:
         # revoke_user_tokens bumps tokens_valid_after atomically to
         # GREATEST(current value, now()) under a per-user advisory lock, so a
@@ -552,13 +757,42 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
         )
         result = response.data[0].get("result") if response.data else None
         if result not in ("revoked", "user_not_found"):
-            raise RuntimeError(f"unexpected revoke_user_tokens result: {result}")
-    except Exception:
-        logger.warning(
+            failure_category = "invalid_state"
+            raise RuntimeError("unexpected revoke_user_tokens result")
+        if result == "user_not_found":
+            audit_user_id = None
+    except Exception as exc:
+        revocation_failed = True
+        revocation_exception_type = exc.__class__.__name__
+
+    if revocation_failed:
+        record_authentication_event(
+            event_id=revocation_event_id,
+            event_type="token_revocation",
+            outcome="failed",
+            auth_method="bearer",
+            correlation_id=correlation_id,
+            user_id=audit_user_id,
+            failure_category=failure_category,
+            revocation_reason="logout",
+        )
+        record_authentication_event(
+            event_id=logout_event_id,
+            event_type="logout",
+            outcome="failed",
+            auth_method="bearer",
+            correlation_id=correlation_id,
+            user_id=audit_user_id,
+            failure_category=failure_category,
+        )
+        safe_auth_log(
+            logger,
+            "warning",
             "logout tokens_valid_after update failed",
             extra={
                 "event": "auth.logout.failure",
                 "user_id": user_id,
+                "exception_type": revocation_exception_type,
             },
         )
         raise_api_error(
@@ -566,8 +800,60 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
             code="INTERNAL_SERVER_ERROR",
             message="Logout failed",
         )
-    invalidate_cached_user(user_id)
-    logger.info(
+
+    cache_invalidation_exception_type: str | None = None
+    try:
+        # Authentication dependencies re-read tokens_valid_after from the
+        # database on every request, including cache hits. This local cache
+        # cleanup is therefore an optimization after authoritative revocation,
+        # not part of the revocation security boundary.
+        invalidate_cached_user(user_id)
+    except Exception as exc:  # noqa: BLE001 - revocation already succeeded
+        cache_invalidation_exception_type = exc.__class__.__name__
+
+    if cache_invalidation_exception_type is not None:
+        safe_auth_log(
+            logger,
+            "warning",
+            "logout cache invalidation failed after token revocation",
+            extra={
+                "event": "auth.logout.cache_invalidation.failure",
+                "auth_method": "bearer",
+                "exception_type": cache_invalidation_exception_type,
+                "user_id_present": True,
+                "result": "partial_failure",
+            },
+        )
+        safe_auth_monitor(
+            "Authentication logout cache invalidation failed",
+            level="warning",
+            event="auth.logout.cache_invalidation.failure",
+            auth_method="bearer",
+            exception_type=cache_invalidation_exception_type,
+            user_id_present=True,
+            result="partial_failure",
+        )
+
+    record_authentication_event(
+        event_id=revocation_event_id,
+        event_type="token_revocation",
+        outcome="succeeded",
+        auth_method="bearer",
+        correlation_id=correlation_id,
+        user_id=audit_user_id,
+        revocation_reason="logout",
+    )
+    record_authentication_event(
+        event_id=logout_event_id,
+        event_type="logout",
+        outcome="succeeded",
+        auth_method="bearer",
+        correlation_id=correlation_id,
+        user_id=audit_user_id,
+    )
+    safe_auth_log(
+        logger,
+        "info",
         "user logged out",
         extra={
             "event": "auth.logout.success",

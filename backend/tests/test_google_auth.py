@@ -5,8 +5,11 @@ import logging
 from threading import Lock
 from typing import Any
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.auth.google import find_or_create_google_user, verify_google_token
 from app.core.config import get_settings
 from app.main import app
 
@@ -268,6 +271,41 @@ def configure_test_settings(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def capture_authentication_audit_events(monkeypatch) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+
+    def capture(**event: Any) -> bool:
+        events.append(dict(event))
+        return True
+
+    monkeypatch.setattr("app.api.auth.record_authentication_event", capture)
+    return events
+
+
+def patch_throwing_global_auth_observability(
+    monkeypatch,
+    captured_exceptions: list[Exception],
+    *,
+    monitoring_sentinel: str,
+    logger_sentinel: str,
+) -> None:
+    def capture_then_fail(exc: Exception, **kwargs: Any) -> None:
+        assert "request_id" not in kwargs
+        captured_exceptions.append(exc)
+        raise RuntimeError(monitoring_sentinel)
+
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_exception",
+        capture_then_fail,
+    )
+    monkeypatch.setattr(
+        "app.main.logger.exception",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError(logger_sentinel)
+        ),
+    )
+
+
 def patch_google_token_verifier(monkeypatch, token_claims: dict[str, dict[str, str]]) -> None:
     def fake_verify_oauth2_token(token: str, request: Any, audience: Any) -> dict[str, str]:
         if token not in token_claims:
@@ -291,6 +329,7 @@ def test_google_login_create_logout_and_login_again_without_phone_or_username(mo
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -327,6 +366,19 @@ def test_google_login_create_logout_and_login_again_without_phone_or_username(mo
     assert first_timestamp.tzinfo is not None
     assert second_timestamp.tzinfo is not None
     assert second_timestamp >= first_timestamp
+    assert len(audit_events) == 2
+    assert {event["outcome"] for event in audit_events} == {"succeeded"}
+    assert {event["auth_method"] for event in audit_events} == {"google"}
+    assert len({event["event_id"] for event in audit_events}) == 2
+    assert len({event["correlation_id"] for event in audit_events}) == 2
+    for sentinel in (
+        "first-login-token",
+        "second-login-token",
+        "google-sub-1",
+        "google@example.com",
+        "Google User",
+    ):
+        assert sentinel not in repr(audit_events)
 
 
 def test_google_login_existing_email_without_identity_requires_explicit_link(monkeypatch) -> None:
@@ -343,6 +395,7 @@ def test_google_login_existing_email_without_identity_requires_explicit_link(mon
     fake_client = FakeSupabaseClient([existing_user])
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -360,6 +413,12 @@ def test_google_login_existing_email_without_identity_requires_explicit_link(mon
     assert response.json()["code"] == "ACCOUNT_LINK_REQUIRED"
     assert fake_client.identities == []
     assert existing_user["google_sub"] is None
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["auth_method"] == "google"
+    assert audit_events[0]["failure_category"] == "account_link_required"
+    assert audit_events[0]["user_id"] == existing_user["id"]
 
 
 def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_phone(
@@ -387,7 +446,10 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
     def capture_message(message: str, level: str = "warning", **tags: Any) -> None:
         monitoring_calls.append({"message": message, "level": level, "tags": tags})
 
-    monkeypatch.setattr("app.api.auth.capture_unexpected_message", capture_message)
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        capture_message,
+    )
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -424,10 +486,67 @@ def test_google_login_succeeds_if_last_login_update_is_blocked_for_user_without_
     assert monitoring_calls[0]["tags"]["event"] == "auth.last_login.failure"
     assert monitoring_calls[0]["tags"]["auth_flow"] == "google"
     assert monitoring_calls[0]["tags"]["auth_method"] == "google"
-    assert monitoring_calls[0]["tags"]["user_id"] == existing_user["id"]
-    assert monitoring_calls[0]["tags"]["attempt_id"]
+    assert monitoring_calls[0]["tags"]["user_id_present"] is True
+    assert "user_id" not in monitoring_calls[0]["tags"]
+    assert "attempt_id" not in monitoring_calls[0]["tags"]
     assert "valid-google-token" not in caplog.text
     assert "valid-google-token" not in repr(monitoring_calls)
+
+
+def test_auth_audit_persistence_failure_does_not_change_google_login_response(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "google-audit-secret-token": {
+                "sub": "google-audit-subject",
+                "email": "audit-private@example.com",
+                "email_verified": True,
+                "name": "Audit Private User",
+            },
+        },
+    )
+
+    class BrokenAuditRpc:
+        def execute(self):
+            raise RuntimeError("provider_subject=private-subject access_token=private-token")
+
+    class BrokenAuditClient:
+        def rpc(self, _name, _params):
+            return BrokenAuditRpc()
+
+    monkeypatch.setattr(
+        "app.services.authentication_audit_events.get_supabase_service_role_client",
+        lambda: BrokenAuditClient(),
+    )
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, level="warning", **tags: monitoring_calls.append(
+            {"message": message, "level": level, "tags": tags}
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/google",
+            json={"token": "google-audit-secret-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    serialized = caplog.text + repr(monitoring_calls)
+    assert "google-audit-secret-token" not in serialized
+    assert "audit-private@example.com" not in serialized
+    assert "private-subject" not in serialized
+    assert "private-token" not in serialized
+    assert response.json()["access_token"] not in serialized
 
 
 def test_google_login_rejects_unverified_email(monkeypatch) -> None:
@@ -435,6 +554,7 @@ def test_google_login_rejects_unverified_email(monkeypatch) -> None:
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -452,6 +572,10 @@ def test_google_login_rejects_unverified_email(monkeypatch) -> None:
     assert response.status_code == 403
     assert response.json()["message"] == "Google email address is not verified"
     assert len(fake_client.users) == 0
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "email_not_verified"
+    assert audit_events[0].get("user_id") is None
 
 
 def test_google_login_rejects_missing_email_verified(monkeypatch) -> None:
@@ -459,6 +583,7 @@ def test_google_login_rejects_missing_email_verified(monkeypatch) -> None:
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -475,6 +600,10 @@ def test_google_login_rejects_missing_email_verified(monkeypatch) -> None:
     assert response.status_code == 403
     assert response.json()["message"] == "Google email address is not verified"
     assert len(fake_client.users) == 0
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "email_not_verified"
+    assert audit_events[0].get("user_id") is None
 
 
 def test_google_login_rejects_unverified_email_for_existing_user(monkeypatch) -> None:
@@ -514,6 +643,7 @@ def test_google_login_accepts_verified_email(monkeypatch) -> None:
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(
         monkeypatch,
         {
@@ -531,6 +661,18 @@ def test_google_login_accepts_verified_email(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["user"]["email"] == "verified@example.com"
     assert len(fake_client.users) == 1
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "succeeded"
+    assert audit_events[0]["auth_method"] == "google"
+    assert audit_events[0]["user_id"] == fake_client.users[0]["id"]
+    for sentinel in (
+        "verified-token",
+        "google-sub-verified",
+        "verified@example.com",
+        "Verified User",
+    ):
+        assert sentinel not in repr(audit_events)
 
 
 def test_google_login_existing_linked_subject_logs_in(monkeypatch) -> None:
@@ -670,18 +812,336 @@ def test_google_login_manual_password_user_gets_409_conflict(monkeypatch) -> Non
     assert existing_user["google_sub"] is None
 
 
-def test_google_login_rejects_invalid_token(monkeypatch) -> None:
+def test_google_login_rejects_invalid_token(monkeypatch, caplog) -> None:
     configure_test_settings(monkeypatch)
     fake_client = FakeSupabaseClient()
     monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
     monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     patch_google_token_verifier(monkeypatch, {})
 
-    response = TestClient(app).post("/auth/google", json={"token": "invalid-token"})
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/google",
+            json={"token": "invalid-token-secret-sentinel"},
+        )
 
     assert response.status_code == 401
     assert fake_client.users == []
     assert fake_client.identities == []
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "invalid_provider_credential"
+    assert audit_events[0].get("user_id") is None
+    assert "invalid-token-secret-sentinel" not in caplog.text
+
+
+def test_invalid_google_credential_has_no_raw_exception_chain(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    secret = "access_token=google-private provider_subject=google-private-subject"
+    monkeypatch.setattr(
+        "app.auth.google.id_token.verify_oauth2_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_google_token("private-google-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
+    assert secret not in repr(exc_info.value)
+
+
+def test_google_jwt_failure_emits_one_sanitized_failure_event(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "jwt-failure-token": {
+                "sub": "jwt-failure-subject",
+                "email": "jwt-failure@example.com",
+                "email_verified": True,
+                "name": "JWT Failure",
+            },
+        },
+    )
+    secret = "refresh_token=jwt-private GoogleCredential=private"
+    monitoring_failure_sentinel = "Authorization=Bearer google-monitor-private"
+    logger_failure_sentinel = "email=google-logger-private@example.com"
+    captured_exceptions: list[Exception] = []
+    monkeypatch.setattr(
+        "app.api.auth.create_access_token",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
+    patch_throwing_global_auth_observability(
+        monkeypatch,
+        captured_exceptions,
+        monitoring_sentinel=monitoring_failure_sentinel,
+        logger_sentinel=logger_failure_sentinel,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/auth/google",
+            json={"token": "jwt-failure-token"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "An internal server error occurred",
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "internal_error"
+    assert audit_events[0]["user_id"] == fake_client.users[0]["id"]
+    assert "last_login" not in fake_client.users[0]
+    exception_chain = (
+        repr(captured_exceptions[0].__cause__)
+        + repr(captured_exceptions[0].__context__)
+    )
+    serialized = (
+        caplog.text
+        + response.text
+        + repr(audit_events)
+        + repr(captured_exceptions)
+        + exception_chain
+    )
+    for sentinel in (
+        secret,
+        "jwt-failure-token",
+        "jwt-failure-subject",
+        "jwt-failure@example.com",
+        monitoring_failure_sentinel,
+        logger_failure_sentinel,
+    ):
+        assert sentinel not in serialized
+
+
+def test_google_identity_resolution_failure_is_sanitized_and_audited_once(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    secret = "email=identity-private@example.com provider_subject=private-sub"
+
+    class BrokenResolutionRpc:
+        def execute(self):
+            raise RuntimeError(secret)
+
+    class BrokenResolutionClient(FakeSupabaseClient):
+        def rpc(self, _name: str, _params: dict[str, Any]) -> BrokenResolutionRpc:
+            return BrokenResolutionRpc()
+
+    fake_client = BrokenResolutionClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    monitoring_failure_sentinel = "access_token=identity-monitor-private"
+    logger_failure_sentinel = "email=identity-logger-private@example.com"
+    captured_exceptions: list[Exception] = []
+    patch_throwing_global_auth_observability(
+        monkeypatch,
+        captured_exceptions,
+        monitoring_sentinel=monitoring_failure_sentinel,
+        logger_sentinel=logger_failure_sentinel,
+    )
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "identity-rpc-token": {
+                "sub": "identity-rpc-subject",
+                "email": "identity-rpc@example.com",
+                "email_verified": True,
+            },
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/google",
+            json={"token": "identity-rpc-token"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "Failed to resolve Google identity",
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "service_unavailable"
+    assert audit_events[0].get("user_id") is None
+    assert captured_exceptions[0].__cause__ is None
+    assert captured_exceptions[0].__context__ is None
+    serialized = caplog.text + response.text + repr(audit_events) + repr(captured_exceptions)
+    assert secret not in serialized
+    assert "identity-rpc-token" not in serialized
+    assert monitoring_failure_sentinel not in serialized
+    assert logger_failure_sentinel not in serialized
+
+
+def test_google_linked_user_lookup_failure_is_sanitized_and_retains_user(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user_id = "00000000-0000-4000-8000-000000001039"
+    secret = "Authorization=Bearer linked-private-token"
+
+    class BrokenLookupQuery(FakeUsersQuery):
+        def execute(self) -> FakeResponse:
+            raise RuntimeError(secret)
+
+    class BrokenLookupClient(FakeSupabaseClient):
+        def resolve_google_login(self, _params: dict[str, Any]) -> dict[str, Any]:
+            return {"result": "existing", "user_id": user_id}
+
+        def table(self, table_name: str) -> Any:
+            if table_name == "users":
+                return BrokenLookupQuery(self.users)
+            return super().table(table_name)
+
+    fake_client = BrokenLookupClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    captured_exceptions: list[Exception] = []
+    monitoring_failure_sentinel = "monitoring-linked-user-private"
+    logger_failure_sentinel = "logger-linked-user-private"
+    patch_throwing_global_auth_observability(
+        monkeypatch,
+        captured_exceptions,
+        monitoring_sentinel=monitoring_failure_sentinel,
+        logger_sentinel=logger_failure_sentinel,
+    )
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "lookup-failure-token": {
+                "sub": "lookup-failure-subject",
+                "email": "lookup-failure@example.com",
+                "email_verified": True,
+            },
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = TestClient(app).post(
+            "/auth/google",
+            json={"token": "lookup-failure-token"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "Failed to load the linked user",
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0]["failure_category"] == "service_unavailable"
+    assert audit_events[0]["user_id"] == user_id
+    assert captured_exceptions[0].__cause__ is None
+    assert captured_exceptions[0].__context__ is None
+    serialized = caplog.text + response.text + repr(audit_events) + repr(captured_exceptions)
+    assert secret not in serialized
+    assert "lookup-failure-token" not in serialized
+    assert monitoring_failure_sentinel not in serialized
+    assert logger_failure_sentinel not in serialized
+
+
+def test_google_identity_conflict_emits_exactly_one_failure_event(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    existing_user = {
+        "id": "00000000-0000-4000-8000-000000001040",
+        "email": "identity-conflict@example.com",
+        "name": "Identity Conflict",
+        "google_sub": "identity-conflict-subject",
+        "username": None,
+        "phone_number": None,
+        "role": "user",
+    }
+    conflicting_identity = {
+        "id": "identity-conflict-id",
+        "user_id": existing_user["id"],
+        "provider": "google",
+        "provider_subject": "different-subject",
+    }
+    fake_client = FakeSupabaseClient([existing_user], [conflicting_identity])
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "identity-conflict-token": {
+                "sub": "identity-conflict-subject",
+                "email": "identity-conflict@example.com",
+                "email_verified": True,
+            },
+        },
+    )
+
+    response = TestClient(app).post(
+        "/auth/google",
+        json={"token": "identity-conflict-token"},
+    )
+
+    assert response.status_code == 500
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "identity_conflict"
+    assert audit_events[0].get("user_id") is None
+
+
+def test_google_success_and_failure_ignore_throwing_log_handlers(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    fake_client = FakeSupabaseClient()
+    monkeypatch.setattr("app.auth.google.get_supabase_service_role_client", lambda: fake_client)
+    monkeypatch.setattr("app.api.auth.get_supabase_service_role_client", lambda: fake_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    patch_google_token_verifier(
+        monkeypatch,
+        {
+            "safe-log-google-token": {
+                "sub": "safe-log-subject",
+                "email": "safe-log@example.com",
+                "email_verified": True,
+            },
+        },
+    )
+    for logger_path in ("app.api.auth.logger", "app.auth.google.logger"):
+        for method in ("info", "warning", "error"):
+            monkeypatch.setattr(
+                f"{logger_path}.{method}",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("log down")
+                ),
+            )
+
+    success = TestClient(app).post(
+        "/auth/google",
+        json={"token": "safe-log-google-token"},
+    )
+    failure = TestClient(app).post(
+        "/auth/google",
+        json={"token": "unknown-safe-log-token"},
+    )
+
+    assert success.status_code == 200
+    assert failure.status_code == 401
+    assert [event["outcome"] for event in audit_events] == ["succeeded", "failed"]
 
 
 def test_concurrent_google_login_resolution_creates_one_user_and_identity(monkeypatch) -> None:

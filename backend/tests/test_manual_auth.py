@@ -171,6 +171,17 @@ def patch_auth_supabase_clients(
     )
 
 
+def capture_authentication_audit_events(monkeypatch) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+
+    def capture(**event: Any) -> bool:
+        events.append(dict(event))
+        return True
+
+    monkeypatch.setattr("app.api.auth.record_authentication_event", capture)
+    return events
+
+
 def register_payload(**overrides: str) -> dict[str, str]:
     payload = {
         "full_name": "Manual User",
@@ -317,6 +328,7 @@ def test_username_login_uses_authorized_lookup_and_reaches_password_verification
     standard_client = FakeSupabaseClient(allow_select=False)
     service_role_client = FakeSupabaseClient([user])
     patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
     verification_calls: list[tuple[str, str | None]] = []
 
     def record_verification(password: str, stored_hash: str | None) -> bool:
@@ -357,6 +369,13 @@ def test_username_login_uses_authorized_lookup_and_reaches_password_verification
             "payload": {"last_login": persisted_last_login},
         }
     ]
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "succeeded"
+    assert audit_events[0]["auth_method"] == "password"
+    assert audit_events[0]["user_id"] == user["id"]
+    assert audit_events[0].get("failure_category") is None
+    assert audit_events[0]["correlation_id"]
     assert_public_auth_response(response)
     assert_secret_values_not_logged(
         caplog,
@@ -433,7 +452,10 @@ def test_login_last_login_database_failure_is_observable_and_non_fatal(
     def capture_message(message: str, level: str = "warning", **tags: Any) -> None:
         monitoring_calls.append({"message": message, "level": level, "tags": tags})
 
-    monkeypatch.setattr("app.api.auth.capture_unexpected_message", capture_message)
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        capture_message,
+    )
 
     with caplog.at_level(logging.WARNING, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -462,7 +484,12 @@ def test_login_last_login_database_failure_is_observable_and_non_fatal(
     assert warning.exception_type == "RuntimeError"
     assert service_client.update_calls[0]["filters"] == [("id", user_id)]
 
-    assert monitoring_calls == [
+    last_login_monitoring_calls = [
+        call
+        for call in monitoring_calls
+        if call["message"] == "Authentication last_login update failed"
+    ]
+    assert last_login_monitoring_calls == [
         {
             "message": "Authentication last_login update failed",
             "level": "warning",
@@ -471,15 +498,16 @@ def test_login_last_login_database_failure_is_observable_and_non_fatal(
                 "auth_flow": "password",
                 "auth_method": "password",
                 "environment": "test",
-                "user_id": user_id,
+                "user_id_present": True,
                 "endpoint": "/auth/login",
                 "error_code": "DATABASE_ERROR",
                 "error_category": "database_error",
                 "exception_type": "RuntimeError",
-                "attempt_id": None,
             },
         }
     ]
+    assert "user_id" not in last_login_monitoring_calls[0]["tags"]
+    assert "attempt_id" not in last_login_monitoring_calls[0]["tags"]
     serialized_observability = caplog.text + repr(monitoring_calls)
     for sentinel in secret_sentinels:
         assert sentinel not in serialized_observability
@@ -500,7 +528,7 @@ def test_login_empty_last_login_update_response_warns_and_still_succeeds(
     )
     patch_auth_supabase_clients(monkeypatch, standard_client, service_client)
     monkeypatch.setattr(
-        "app.api.auth.capture_unexpected_message",
+        "app.services.authentication_observability.capture_unexpected_message",
         lambda *_args, **_kwargs: None,
     )
 
@@ -521,6 +549,313 @@ def test_login_empty_last_login_update_response_warns_and_still_succeeds(
     assert failure_records[0].exception_type == "_LastLoginUpdateNotPersisted"
 
 
+def test_auth_audit_persistence_failure_does_not_change_password_login_response(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    secret = "password=audit-persistence-secret"
+
+    class BrokenAuditRpc:
+        def execute(self):
+            raise RuntimeError(secret)
+
+    class BrokenAuditClient:
+        def rpc(self, _name, _params):
+            return BrokenAuditRpc()
+
+    monkeypatch.setattr(
+        "app.services.authentication_audit_events.get_supabase_service_role_client",
+        lambda: BrokenAuditClient(),
+    )
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, level="warning", **tags: monitoring_calls.append(
+            {"message": message, "level": level, "tags": tags}
+        ),
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="app.services.authentication_audit_events",
+    ):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    assert any(
+        getattr(record, "event", None) == "auth.audit.persist.failure"
+        for record in caplog.records
+    )
+    assert monitoring_calls[0]["message"] == "Authentication audit event persistence failed"
+    assert secret not in caplog.text
+    assert secret not in repr(monitoring_calls)
+    assert "strongpass123" not in caplog.text
+    assert response.json()["access_token"] not in caplog.text
+
+
+def test_password_jwt_failure_emits_one_sanitized_failure_event(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    secret = "password=jwt-private email=jwt-private@example.com"
+    monitoring_failure_sentinel = "Authorization=Bearer monitoring-private"
+    logger_failure_sentinel = "password=logger-private"
+    captured_exceptions: list[Exception] = []
+
+    def capture_then_fail(exc: Exception, **kwargs: Any) -> None:
+        assert "request_id" not in kwargs
+        captured_exceptions.append(exc)
+        raise RuntimeError(monitoring_failure_sentinel)
+
+    monkeypatch.setattr(
+        "app.api.auth.create_access_token",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_exception",
+        capture_then_fail,
+    )
+    monkeypatch.setattr(
+        "app.main.logger.exception",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError(logger_failure_sentinel)
+        ),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/auth/login",
+            json={"username": "manual-user", "password": "strongpass123"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "An internal server error occurred",
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["auth_method"] == "password"
+    assert audit_events[0]["failure_category"] == "internal_error"
+    assert audit_events[0]["user_id"] == user["id"]
+    assert service_role_client.update_calls == []
+    assert captured_exceptions
+    exception_chain = (
+        repr(captured_exceptions[0].__cause__)
+        + repr(captured_exceptions[0].__context__)
+    )
+    serialized = (
+        caplog.text
+        + response.text
+        + repr(audit_events)
+        + repr(captured_exceptions)
+        + exception_chain
+    )
+    assert secret not in serialized
+    assert "jwt-private@example.com" not in serialized
+    assert monitoring_failure_sentinel not in serialized
+    assert logger_failure_sentinel not in serialized
+
+
+def test_password_database_lookup_failure_is_service_unavailable_and_sanitized(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    secret = "password=lookup-private email=lookup-private@example.com"
+    audit_events = capture_authentication_audit_events(monkeypatch)
+
+    class BrokenLookupQuery:
+        def select(self, _columns: str):
+            raise RuntimeError(secret)
+
+    class BrokenLookupClient:
+        def table(self, table_name: str) -> BrokenLookupQuery:
+            assert table_name == "users"
+            return BrokenLookupQuery()
+
+    monkeypatch.setattr(
+        "app.api.auth.get_supabase_service_role_client",
+        lambda: BrokenLookupClient(),
+    )
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_exception",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/auth/login",
+            json={"username": "lookup-private@example.com", "password": "lookup-private"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": True,
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "An internal server error occurred",
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["auth_method"] == "password"
+    assert audit_events[0]["failure_category"] == "service_unavailable"
+    assert audit_events[0].get("user_id") is None
+    serialized = caplog.text + response.text + repr(audit_events)
+    assert secret not in serialized
+    assert "lookup-private@example.com" not in serialized
+
+
+def test_password_success_and_failure_ignore_throwing_log_handlers(monkeypatch) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient([user])
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.auth.logger.info",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("log down")),
+    )
+    monkeypatch.setattr(
+        "app.api.auth.logger.warning",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("log down")),
+    )
+
+    success = TestClient(app).post(
+        "/auth/login",
+        json={"username": "manual-user", "password": "strongpass123"},
+    )
+    failure = TestClient(app).post(
+        "/auth/login",
+        json={"username": "manual-user", "password": "wrongpass123"},
+    )
+
+    assert success.status_code == 200
+    assert failure.status_code == 401
+    assert [event["outcome"] for event in audit_events] == ["succeeded", "failed"]
+
+
+def test_password_login_personal_data_and_credentials_never_reach_audit_rpc(
+    monkeypatch,
+    caplog,
+) -> None:
+    configure_test_settings(monkeypatch)
+    private_username = "private-username-sentinel"
+    private_email = "private-email-sentinel@example.com"
+    private_password = "strongpass123"
+    user = password_user()
+    user["username"] = private_username
+    user["email"] = private_email
+
+    class AuditRpc:
+        data = True
+
+        def execute(self) -> "AuditRpc":
+            return self
+
+    class RecordingAuditClient(FakeSupabaseClient):
+        def __init__(self) -> None:
+            super().__init__([user])
+            self.rpc_calls: list[tuple[str, dict[str, Any]]] = []
+
+        def rpc(self, name: str, params: dict[str, Any]) -> AuditRpc:
+            self.rpc_calls.append((name, dict(params)))
+            return AuditRpc()
+
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = RecordingAuditClient()
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    monitoring_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda message, **tags: monitoring_calls.append(
+            {"message": message, "tags": tags}
+        ),
+    )
+
+    with caplog.at_level(logging.INFO):
+        response = TestClient(app).post(
+            "/auth/login",
+            json={"username": private_username, "password": private_password},
+        )
+
+    assert response.status_code == 200
+    assert len(service_role_client.rpc_calls) == 1
+    rpc_name, rpc_payload = service_role_client.rpc_calls[0]
+    assert rpc_name == "record_authentication_audit_event"
+    assert set(rpc_payload) == {
+        "p_event_id",
+        "p_event_type",
+        "p_outcome",
+        "p_auth_method",
+        "p_user_id",
+        "p_failure_category",
+        "p_revocation_reason",
+        "p_correlation_id",
+        "p_source_environment",
+    }
+    serialized_observability = (
+        repr(service_role_client.rpc_calls)
+        + caplog.text
+        + repr(monitoring_calls)
+    )
+    for sentinel in (
+        private_username,
+        private_email,
+        private_password,
+        response.json()["access_token"],
+    ):
+        assert sentinel not in serialized_observability
+
+
+def test_last_login_logging_and_monitoring_failures_remain_non_fatal(
+    monkeypatch,
+) -> None:
+    configure_test_settings(monkeypatch)
+    user = password_user()
+    secret = "Authorization=Bearer last-login-private"
+    standard_client = FakeSupabaseClient(allow_select=False)
+    service_role_client = FakeSupabaseClient(
+        [user],
+        update_error=RuntimeError(secret),
+    )
+    patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    monkeypatch.setattr(
+        "app.api.auth.logger.warning",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("log down")),
+    )
+    monkeypatch.setattr(
+        "app.services.authentication_observability.capture_unexpected_message",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("monitor down")),
+    )
+
+    response = TestClient(app).post(
+        "/auth/login",
+        json={"username": "manual-user", "password": "strongpass123"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
 def test_nonexistent_user_returns_existing_non_enumerating_failure(
     monkeypatch,
     caplog,
@@ -529,6 +864,7 @@ def test_nonexistent_user_returns_existing_non_enumerating_failure(
     standard_client = FakeSupabaseClient(allow_select=False)
     service_role_client = FakeSupabaseClient()
     patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
 
     with caplog.at_level(logging.WARNING, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -547,6 +883,12 @@ def test_nonexistent_user_returns_existing_non_enumerating_failure(
         [("username", "nonexistent@example.com")],
         [("email", "nonexistent@example.com")],
     ]
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_type"] == "login"
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["auth_method"] == "password"
+    assert audit_events[0].get("user_id") is None
+    assert audit_events[0]["failure_category"] == "invalid_credentials"
     assert_public_auth_response(response)
     assert_secret_values_not_logged(
         caplog,
@@ -564,6 +906,7 @@ def test_wrong_password_matches_nonexistent_user_failure_and_logs_no_credentials
     standard_client = FakeSupabaseClient(allow_select=False)
     service_role_client = FakeSupabaseClient([user])
     patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
 
     with caplog.at_level(logging.WARNING, logger="app.api.auth"):
         response = TestClient(app).post(
@@ -588,6 +931,10 @@ def test_wrong_password_matches_nonexistent_user_failure_and_logs_no_credentials
     assert failure_records
     assert failure_records[-1].auth_method == "password"
     assert failure_records[-1].error_code == "AUTH_INVALID"
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "invalid_credentials"
+    assert audit_events[0]["user_id"] == user["id"]
     assert_secret_values_not_logged(
         caplog,
         "manual-user",
@@ -605,6 +952,7 @@ def test_unverified_user_is_found_by_authorized_lookup_without_session(
         [password_user(email_verified=False)]
     )
     patch_auth_supabase_clients(monkeypatch, standard_client, service_role_client)
+    audit_events = capture_authentication_audit_events(monkeypatch)
 
     response = TestClient(app).post(
         "/auth/login",
@@ -616,6 +964,10 @@ def test_unverified_user_is_found_by_authorized_lookup_without_session(
     assert "access_token" not in response.json()
     assert standard_client.select_calls == []
     assert service_role_client.select_filters == [[("username", "manual-user")]]
+    assert len(audit_events) == 1
+    assert audit_events[0]["outcome"] == "failed"
+    assert audit_events[0]["failure_category"] == "email_not_verified"
+    assert audit_events[0]["user_id"] == service_role_client.users[0]["id"]
     assert_public_auth_response(response)
 
 

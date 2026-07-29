@@ -174,6 +174,124 @@ create table if not exists user_moderation_audit (
     created_at timestamptz not null default now()
 );
 
+create table if not exists authentication_audit_events (
+    id uuid primary key,
+    occurred_at timestamptz not null default pg_catalog.now(),
+    event_type text not null check (
+        event_type in ('login', 'logout', 'token_revocation')
+    ),
+    outcome text not null check (
+        outcome in ('succeeded', 'failed')
+    ),
+    auth_method text not null check (
+        auth_method in ('password', 'google', 'bearer', 'recovery')
+    ),
+    user_id uuid references users(id) on delete set null,
+    failure_category text check (
+        failure_category is null
+        or failure_category in (
+            'invalid_credentials',
+            'invalid_provider_credential',
+            'email_not_verified',
+            'account_link_required',
+            'rate_limited',
+            'identity_conflict',
+            'service_unavailable',
+            'invalid_state',
+            'internal_error'
+        )
+    ),
+    revocation_reason text check (
+        revocation_reason is null
+        or revocation_reason in (
+            'logout',
+            'google_unlinked',
+            'password_set',
+            'password_removed',
+            'password_reset',
+            'account_deleted'
+        )
+    ),
+    correlation_id text not null check (
+        char_length(correlation_id) between 8 and 64
+        and correlation_id ~ '^[A-Za-z0-9_-]+$'
+    ),
+    source_environment text not null check (
+        char_length(source_environment) between 1 and 32
+        and source_environment ~ '^[A-Za-z0-9._-]+$'
+    ),
+    constraint authentication_audit_events_outcome_failure_check check (
+        (outcome = 'succeeded' and failure_category is null)
+        or (outcome = 'failed' and failure_category is not null)
+    ),
+    constraint authentication_audit_events_revocation_presence_check check (
+        (event_type = 'token_revocation' and revocation_reason is not null)
+        or (event_type <> 'token_revocation' and revocation_reason is null)
+    ),
+    constraint authentication_audit_events_method_check check (
+        (event_type = 'login' and auth_method in ('password', 'google'))
+        or (event_type = 'logout' and auth_method = 'bearer')
+        or event_type = 'token_revocation'
+    ),
+    constraint authentication_audit_events_failure_context_check check (
+        failure_category is null
+        or (
+            event_type = 'login'
+            and (
+                (
+                    auth_method = 'password'
+                    and failure_category in (
+                        'invalid_credentials',
+                        'email_not_verified',
+                        'rate_limited',
+                        'service_unavailable',
+                        'internal_error'
+                    )
+                )
+                or (
+                    auth_method = 'google'
+                    and failure_category in (
+                        'invalid_provider_credential',
+                        'email_not_verified',
+                        'account_link_required',
+                        'rate_limited',
+                        'identity_conflict',
+                        'service_unavailable',
+                        'invalid_state',
+                        'internal_error'
+                    )
+                )
+            )
+        )
+        or (
+            event_type in ('logout', 'token_revocation')
+            and failure_category in (
+                'service_unavailable',
+                'invalid_state',
+                'internal_error'
+            )
+        )
+    ),
+    constraint authentication_audit_events_revocation_method_check check (
+        event_type <> 'token_revocation'
+        or (
+            revocation_reason in (
+                'logout',
+                'google_unlinked',
+                'password_set',
+                'password_removed',
+                'account_deleted'
+            )
+            and auth_method = 'bearer'
+        )
+        or (
+            revocation_reason = 'password_reset'
+            and auth_method = 'recovery'
+        )
+    )
+);
+alter table public.authentication_audit_events owner to current_user;
+
 create table if not exists job_runs (
     id uuid primary key default gen_random_uuid(),
     job_name text not null check (length(job_name) between 1 and 120),
@@ -310,12 +428,88 @@ create table if not exists share_events (
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_users_last_login on users(last_login);
 alter table user_moderation_audit enable row level security;
+alter table authentication_audit_events enable row level security;
 alter table job_runs enable row level security;
 alter table push_delivery_attempts enable row level security;
 alter table api_request_metrics enable row level security;
 alter table share_events enable row level security;
 
 grant select, insert on public.user_moderation_audit to service_role;
+do $authentication_audit_table_acl$
+declare
+    grantee_name text;
+begin
+    revoke all privileges on table public.authentication_audit_events from public cascade;
+
+    for grantee_name in
+        select distinct role_definition.rolname
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                table_definition.relacl,
+                pg_catalog.acldefault('r', table_definition.relowner)
+            )
+        ) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where table_definition.oid =
+              'public.authentication_audit_events'::pg_catalog.regclass
+    loop
+        execute pg_catalog.format(
+            'revoke all privileges on table public.authentication_audit_events from %I cascade',
+            grantee_name
+        );
+    end loop;
+end;
+$authentication_audit_table_acl$;
+do $authentication_audit_column_acl$
+declare
+    grantee_name text;
+    column_list text;
+begin
+    select pg_catalog.string_agg(
+        pg_catalog.format('%I', attribute_definition.attname),
+        ','
+        order by attribute_definition.attnum
+    )
+    into column_list
+    from pg_catalog.pg_attribute as attribute_definition
+    where attribute_definition.attrelid =
+          'public.authentication_audit_events'::pg_catalog.regclass
+      and attribute_definition.attnum > 0
+      and not attribute_definition.attisdropped;
+
+    execute pg_catalog.format(
+        'revoke all privileges (%s) on table public.authentication_audit_events from public cascade',
+        column_list
+    );
+
+    for grantee_name in
+        select distinct role_definition.rolname
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(attribute_definition.attacl) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where attribute_definition.attrelid =
+              'public.authentication_audit_events'::pg_catalog.regclass
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+    loop
+        execute pg_catalog.format(
+            'revoke all privileges (%s) on table public.authentication_audit_events from %I cascade',
+            column_list,
+            grantee_name
+        );
+    end loop;
+end;
+$authentication_audit_column_acl$;
+-- The schema installer is the trusted table/RPC owner. SELECT and INSERT are
+-- needed by the SECURITY DEFINER implementation; UPDATE(user_id) is limited
+-- to PostgreSQL's ON DELETE SET NULL referential action.
+grant select, insert on table public.authentication_audit_events to current_user;
+grant update (user_id)
+    on table public.authentication_audit_events to current_user;
+grant select on table public.authentication_audit_events to service_role;
 grant select, insert, update on public.job_runs to service_role;
 grant select, insert, update on public.push_delivery_attempts to service_role;
 grant select, insert, delete on public.api_request_metrics to service_role;
@@ -351,6 +545,13 @@ alter table user_blocks enable row level security;
 
 create index if not exists idx_user_moderation_audit_target_user_id on user_moderation_audit(target_user_id);
 create index if not exists idx_user_moderation_audit_created_at on user_moderation_audit(created_at desc);
+create index if not exists idx_authentication_audit_events_occurred_at
+    on authentication_audit_events(occurred_at desc);
+create index if not exists idx_authentication_audit_events_type_outcome_occurred_at
+    on authentication_audit_events(event_type, outcome, occurred_at desc);
+create index if not exists idx_authentication_audit_events_user_occurred_at
+    on authentication_audit_events(user_id, occurred_at desc)
+    where user_id is not null;
 create index if not exists idx_job_runs_job_name_started_at on job_runs(job_name, started_at desc);
 create index if not exists idx_job_runs_status_started_at on job_runs(status, started_at desc);
 create index if not exists idx_job_runs_started_at on job_runs(started_at desc);
@@ -463,6 +664,125 @@ create index if not exists idx_user_identities_lookup on user_identities(provide
 create index if not exists idx_content_reports_status_created on content_reports(status, created_at desc);
 create index if not exists idx_content_reports_target on content_reports(target_type, target_id);
 create index if not exists idx_user_blocks_blocker on user_blocks(blocker_user_id);
+
+create or replace function public.record_authentication_audit_event(
+    p_event_id uuid,
+    p_event_type text,
+    p_outcome text,
+    p_auth_method text,
+    p_user_id uuid,
+    p_failure_category text,
+    p_revocation_reason text,
+    p_correlation_id text,
+    p_source_environment text
+)
+returns boolean
+language plpgsql
+volatile
+parallel unsafe
+security definer
+set search_path = pg_catalog
+as $$
+declare
+    inserted_count integer;
+begin
+    -- Serialize intentional retries of one application-generated event ID.
+    -- Different event IDs remain fully concurrent.
+    perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(p_event_id::text, 1031)
+    );
+
+    insert into public.authentication_audit_events (
+        id,
+        event_type,
+        outcome,
+        auth_method,
+        user_id,
+        failure_category,
+        revocation_reason,
+        correlation_id,
+        source_environment
+    )
+    values (
+        p_event_id,
+        p_event_type,
+        p_outcome,
+        p_auth_method,
+        p_user_id,
+        p_failure_category,
+        p_revocation_reason,
+        p_correlation_id,
+        p_source_environment
+    )
+    on conflict (id) do nothing;
+
+    get diagnostics inserted_count = row_count;
+    if inserted_count = 1 then
+        return true;
+    end if;
+
+    if exists (
+        select 1
+        from public.authentication_audit_events as existing_event
+        where existing_event.id = p_event_id
+          and existing_event.event_type is not distinct from p_event_type
+          and existing_event.outcome is not distinct from p_outcome
+          and existing_event.auth_method is not distinct from p_auth_method
+          and existing_event.user_id is not distinct from p_user_id
+          and existing_event.failure_category is not distinct from p_failure_category
+          and existing_event.revocation_reason is not distinct from p_revocation_reason
+          and existing_event.correlation_id is not distinct from p_correlation_id
+          and existing_event.source_environment is not distinct from p_source_environment
+    ) then
+        return false;
+    end if;
+
+    raise exception using
+        errcode = '23505',
+        message = 'authentication audit event ID conflicts with existing immutable payload';
+end;
+$$;
+
+alter function public.record_authentication_audit_event(
+    uuid, text, text, text, uuid, text, text, text, text
+) owner to current_user;
+
+do $authentication_audit_function_acl$
+declare
+    grantee_name text;
+begin
+    revoke all privileges on function public.record_authentication_audit_event(
+        uuid, text, text, text, uuid, text, text, text, text
+    ) from public cascade;
+
+    for grantee_name in
+        select distinct role_definition.rolname
+        from pg_catalog.pg_proc as function_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                function_definition.proacl,
+                pg_catalog.acldefault('f', function_definition.proowner)
+            )
+        ) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where function_definition.oid =
+              'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)'::pg_catalog.regprocedure
+    loop
+        execute pg_catalog.format(
+            'revoke all privileges on function public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text) from %I cascade',
+            grantee_name
+        );
+    end loop;
+end;
+$authentication_audit_function_acl$;
+
+grant execute on function public.record_authentication_audit_event(
+    uuid, text, text, text, uuid, text, text, text, text
+) to current_user;
+grant execute on function public.record_authentication_audit_event(
+    uuid, text, text, text, uuid, text, text, text, text
+) to service_role;
 
 create or replace function public.cleanup_api_request_metrics(retention_days integer default 14)
 returns integer
