@@ -180,6 +180,11 @@ def test_login_11th_request_returns_429(monkeypatch) -> None:
     configure_settings(monkeypatch)
     fake = FakeSupabase({"users": []})
     _patch_supabase(monkeypatch, fake)
+    audit_events: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.api.auth.record_authentication_event",
+        lambda **event: audit_events.append(dict(event)) or True,
+    )
     client = TestClient(app)
 
     for _ in range(10):
@@ -187,6 +192,17 @@ def test_login_11th_request_returns_429(monkeypatch) -> None:
 
     response = client.post("/auth/login", json={"username": "user-1", "password": "wrong"})
     assert response.status_code == 429
+    assert len(audit_events) == 11
+    assert [event["event_type"] for event in audit_events] == ["login"] * 11
+    assert [event["outcome"] for event in audit_events] == ["failed"] * 11
+    assert [event["failure_category"] for event in audit_events] == [
+        *(["invalid_credentials"] * 10),
+        "rate_limited",
+    ]
+    assert len({event["event_id"] for event in audit_events}) == 11
+    assert len({event["correlation_id"] for event in audit_events}) == 11
+    assert [event["auth_method"] for event in audit_events] == ["password"] * 11
+    assert [event.get("user_id") for event in audit_events] == [None] * 11
 
 
 def test_login_429_includes_retry_after_and_rate_limited_code(monkeypatch) -> None:
@@ -304,6 +320,11 @@ def test_google_login_11th_request_returns_429(monkeypatch) -> None:
     configure_settings(monkeypatch)
     fake = FakeSupabase({"users": []})
     _patch_supabase(monkeypatch, fake)
+    audit_events: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.api.auth.record_authentication_event",
+        lambda **event: audit_events.append(dict(event)) or True,
+    )
     client = TestClient(app)
 
     mock_verify = MagicMock(
@@ -321,6 +342,17 @@ def test_google_login_11th_request_returns_429(monkeypatch) -> None:
 
     assert response.status_code == 429
     assert mock_verify.call_count == 10
+    assert len(audit_events) == 11
+    assert [event["event_type"] for event in audit_events] == ["login"] * 11
+    assert [event["outcome"] for event in audit_events] == ["failed"] * 11
+    assert [event["failure_category"] for event in audit_events] == [
+        *(["invalid_provider_credential"] * 10),
+        "rate_limited",
+    ]
+    assert len({event["event_id"] for event in audit_events}) == 11
+    assert len({event["correlation_id"] for event in audit_events}) == 11
+    assert [event["auth_method"] for event in audit_events] == ["google"] * 11
+    assert [event.get("user_id") for event in audit_events] == [None] * 11
 
 
 # ---- Game creation rate limiting ----

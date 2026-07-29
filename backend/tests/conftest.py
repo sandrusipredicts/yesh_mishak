@@ -43,3 +43,16 @@ def route_auth_dependencies_service_client_to_test_double(monkeypatch):
         "get_supabase_service_role_client",
         lambda: dependencies.get_supabase_client(),
     )
+
+
+@pytest.fixture(autouse=True)
+def route_auth_audit_service_client_to_auth_test_double(monkeypatch):
+    """Keep auth audit writes on the same per-test privileged fake client."""
+    from app.api import auth
+    from app.services import authentication_audit_events
+
+    monkeypatch.setattr(
+        authentication_audit_events,
+        "get_supabase_service_role_client",
+        lambda: auth.get_supabase_service_role_client(),
+    )

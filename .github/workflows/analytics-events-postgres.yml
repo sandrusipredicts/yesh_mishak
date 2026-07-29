@@ -8,6 +8,11 @@ on:
       - "backend/scripts/analytics_events_migration_preflight.sql"
       - "backend/scripts/verify_analytics_events_migration.sql"
       - "backend/tests/test_analytics_events_migration_postgres.py"
+      - "backend/migrations/authentication_audit_events.sql"
+      - "backend/scripts/authentication_audit_events_migration_preflight.sql"
+      - "backend/scripts/verify_authentication_audit_events_migration.sql"
+      - "backend/tests/test_authentication_audit_events_migration_postgres.py"
+      - "backend/schema.sql"
       - ".github/workflows/analytics-events-postgres.yml"
 
 permissions:
@@ -31,6 +36,7 @@ jobs:
           --health-retries 10
     env:
       ANALYTICS_EVENTS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
+      AUTHENTICATION_AUDIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,8 +49,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
-      - name: Run analytics migration PostgreSQL checks
+      - name: Run observability migration PostgreSQL checks
         working-directory: backend
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/test_analytics_events_migration_postgres.py -q
+        run: >-
+          python -m pytest
+          tests/test_analytics_events_migration_postgres.py
+          tests/test_authentication_audit_events_migration_postgres.py
+          -q

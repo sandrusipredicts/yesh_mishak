@@ -11,12 +11,60 @@ from app.middleware.request_context import request_context_middleware
 from app.middleware.request_metrics import request_metrics_middleware
 from app.monitoring import capture_unexpected_exception, init_monitoring, resolve_environment
 from app.routers import analytics_events, field_reports, fields, games, moderation, notifications, share_events
+from app.services.authentication_observability import safe_auth_exception
 
 logger = logging.getLogger("app")
 
 app = FastAPI(title="yesh_mishak API", version="0.1.0")
 
 init_monitoring(get_settings())
+
+
+def _route_template(request: Request) -> str | None:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) else None
+
+
+def _is_auth_request(request: Request) -> bool:
+    route = _route_template(request)
+    path = request.url.path
+    return (
+        route == "/auth"
+        or bool(route and route.startswith("/auth/"))
+        or path == "/auth"
+        or path.startswith("/auth/")
+    )
+
+
+def _report_unexpected_exception(
+    request: Request,
+    exc: BaseException,
+    *,
+    status_code: int,
+    code: str | None,
+) -> None:
+    route = _route_template(request)
+    if _is_auth_request(request):
+        safe_auth_exception(
+            logger,
+            "Unhandled authentication error occurred during request processing",
+            exc,
+            route=route,
+            method=request.method,
+            status_code=status_code,
+            code=code,
+        )
+        return
+
+    capture_unexpected_exception(
+        exc,
+        request_id=getattr(request.state, "request_id", None),
+        route=route,
+        method=request.method,
+        status_code=status_code,
+        code=code,
+    )
 
 # Global exception handlers for standardizing API error responses
 @app.exception_handler(HTTPException)
@@ -32,11 +80,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         # internal failure -- captured with only the safe code/route/method
         # tags already computed below, never the request body or headers.
         if status_code >= 500:
-            capture_unexpected_exception(
+            _report_unexpected_exception(
+                request,
                 exc,
-                request_id=getattr(request.state, "request_id", None),
-                route=_route_template(request),
-                method=request.method,
                 status_code=status_code,
                 code=code,
             )
@@ -62,11 +108,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         code = "INTERNAL_SERVER_ERROR"
 
     if status_code >= 500:
-        capture_unexpected_exception(
+        _report_unexpected_exception(
+            request,
             exc,
-            request_id=getattr(request.state, "request_id", None),
-            route=_route_template(request),
-            method=request.method,
             status_code=status_code,
             code=code,
         )
@@ -79,12 +123,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "message": message
         }
     )
-
-
-def _route_template(request: Request) -> str | None:
-    route = request.scope.get("route")
-    path = getattr(route, "path", None)
-    return path if isinstance(path, str) else None
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -111,15 +149,23 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled error occurred during request processing")
-    capture_unexpected_exception(
-        exc,
-        request_id=getattr(request.state, "request_id", None),
-        route=_route_template(request),
-        method=request.method,
-        status_code=500,
-        code="INTERNAL_SERVER_ERROR",
-    )
+    if _is_auth_request(request):
+        _report_unexpected_exception(
+            request,
+            exc,
+            status_code=500,
+            code="INTERNAL_SERVER_ERROR",
+        )
+    else:
+        logger.exception("Unhandled error occurred during request processing")
+        capture_unexpected_exception(
+            exc,
+            request_id=getattr(request.state, "request_id", None),
+            route=_route_template(request),
+            method=request.method,
+            status_code=500,
+            code="INTERNAL_SERVER_ERROR",
+        )
     return JSONResponse(
         status_code=500,
         content={
