@@ -8,7 +8,7 @@ set local lock_timeout = '5s';
 
 -- Build a transaction-local canonical schema and compare PostgreSQL's own
 -- normalized catalog representation with the deployed relation.
-create temporary table authentication_audit_events_expected (
+create table public.authentication_audit_events_expected (
     id uuid primary key,
     occurred_at timestamptz not null default pg_catalog.now(),
     event_type text not null check (
@@ -123,7 +123,7 @@ create temporary table authentication_audit_events_expected (
             and auth_method = 'recovery'
         )
     )
-) on commit drop;
+);
 
 create index authentication_audit_events_expected_occurred_at
     on authentication_audit_events_expected(occurred_at desc);
@@ -136,7 +136,9 @@ create index authentication_audit_events_expected_user_occurred_at
 do $schema_verification$
 declare
     audit_table regclass := to_regclass('public.authentication_audit_events');
-    expected_table regclass := to_regclass('pg_temp.authentication_audit_events_expected');
+    expected_table regclass := to_regclass(
+        'public.authentication_audit_events_expected'
+    );
     record_function regprocedure := to_regprocedure(
         'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)'
     );

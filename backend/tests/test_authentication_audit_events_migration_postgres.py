@@ -237,9 +237,14 @@ def test_preflight_and_rollback_only_verification() -> None:
     apply_migration()
     run_sql_file(VERIFICATION)
     assert execute(
-        "select count(*) from public.authentication_audit_events",
+        """
+        select
+            count(*),
+            to_regclass('public.authentication_audit_events_expected') is null
+        from public.authentication_audit_events
+        """,
         fetch=True,
-    ) == [(0,)]
+    ) == [(0, True)]
 
 
 def test_supported_fresh_migration_runs_as_non_superuser_owner() -> None:
