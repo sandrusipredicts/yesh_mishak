@@ -992,8 +992,26 @@ begin
     if exists (
         select 1
         from pg_catalog.pg_roles as role_definition
-        where role_definition.rolname !~ '^pg_'
-          and not role_definition.rolsuper
+        where not role_definition.rolsuper
+          and not role_definition.rolbypassrls
+          -- PostgreSQL reserves the pg_ prefix for predefined/system roles.
+          and role_definition.rolname !~ '^pg_'
+          -- These Supabase-managed roles are documented database-system
+          -- identities. In hosted projects they may inherit unavoidable
+          -- cluster-wide capabilities without receiving an audit-object ACL.
+          -- Exact direct ACL checks above remain authoritative for every role.
+          and role_definition.rolname not in (
+              'postgres',
+              'supabase_admin',
+              'supabase_auth_admin',
+              'supabase_storage_admin',
+              'supabase_realtime_admin',
+              'supabase_replication_admin',
+              'supabase_etl_admin',
+              'supabase_read_only_user',
+              'dashboard_user',
+              'authenticator'
+          )
           and role_definition.oid not in (
               current_owner_id,
               service_role_id

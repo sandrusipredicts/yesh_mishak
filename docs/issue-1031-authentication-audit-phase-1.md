@@ -74,6 +74,17 @@ RPC privileges. No application role has schema `CREATE`. Reapplication revokes
 permitted table, column, and function ACL drift and restores this allowlist;
 ownership drift is rejected before any DDL.
 
+Direct table, column, function, and scoped schema ACLs are the authoritative
+least-privilege boundary. Verification rejects every unexpected direct
+audit-object grantee, privilege, or grant option, including grants to
+`BYPASSRLS` roles. Effective-access discovery is a secondary defense for
+ordinary application roles. It intentionally distinguishes direct grants from
+unavoidable capabilities held by superusers, `BYPASSRLS` identities,
+PostgreSQL's predefined `pg_*` roles, and documented Supabase system roles such
+as `postgres`, `supabase_admin`, `supabase_etl_admin`, and
+`supabase_read_only_user`. Those system capabilities are managed by PostgreSQL
+or Supabase and must not be manually revoked during rollout.
+
 Then:
 
 1. Run `backend/scripts/authentication_audit_events_migration_preflight.sql`.

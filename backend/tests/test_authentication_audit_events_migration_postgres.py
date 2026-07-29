@@ -230,6 +230,75 @@ select public.record_authentication_audit_event(
 """
 
 
+def direct_audit_acl_rows() -> list[tuple]:
+    return execute(
+        """
+        with direct_acl as (
+            select
+                'table'::text as object_kind,
+                privilege.grantee,
+                privilege.privilege_type,
+                privilege.is_grantable
+            from pg_catalog.pg_class as table_definition
+            cross join lateral pg_catalog.aclexplode(
+                coalesce(
+                    table_definition.relacl,
+                    pg_catalog.acldefault('r', table_definition.relowner)
+                )
+            ) as privilege
+            where table_definition.oid =
+                  'public.authentication_audit_events'::regclass
+
+            union all
+
+            select
+                'column:' || attribute_definition.attname,
+                privilege.grantee,
+                privilege.privilege_type,
+                privilege.is_grantable
+            from pg_catalog.pg_attribute as attribute_definition
+            cross join lateral pg_catalog.aclexplode(
+                attribute_definition.attacl
+            ) as privilege
+            where attribute_definition.attrelid =
+                  'public.authentication_audit_events'::regclass
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+
+            union all
+
+            select
+                'function'::text,
+                privilege.grantee,
+                privilege.privilege_type,
+                privilege.is_grantable
+            from pg_catalog.pg_proc as function_definition
+            cross join lateral pg_catalog.aclexplode(
+                coalesce(
+                    function_definition.proacl,
+                    pg_catalog.acldefault('f', function_definition.proowner)
+                )
+            ) as privilege
+            where function_definition.oid =
+                  'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)'::regprocedure
+        )
+        select
+            direct_acl.object_kind,
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            direct_acl.privilege_type,
+            direct_acl.is_grantable
+        from direct_acl
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = direct_acl.grantee
+        order by
+            direct_acl.object_kind,
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            direct_acl.privilege_type
+        """,
+        fetch=True,
+    )
+
+
 def test_preflight_and_rollback_only_verification() -> None:
     run_sql_file(PREFLIGHT)
     apply_migration()
@@ -910,6 +979,169 @@ def test_unrelated_owners_are_rejected_without_changing_existing_state() -> None
         fetch=True,
     )
     assert after == before
+
+
+def test_verification_accepts_system_effective_privileges_without_direct_acl() -> None:
+    apply_migration()
+    migration_owner = execute("select current_user", fetch=True)[0][0]
+    execute(
+        """
+        drop role if exists authentication_audit_test_superuser;
+        drop role if exists supabase_audit_test_system_role;
+        drop role if exists supabase_read_only_user;
+        create role authentication_audit_test_superuser nologin superuser;
+        create role supabase_audit_test_system_role nologin bypassrls;
+        create role supabase_read_only_user nologin;
+        grant pg_read_all_data to supabase_audit_test_system_role;
+        grant pg_read_all_data to supabase_read_only_user;
+        """
+    )
+    try:
+        assert execute(
+            """
+            select
+                has_table_privilege(
+                    'authentication_audit_test_superuser',
+                    'public.authentication_audit_events',
+                    'DELETE'
+                ),
+                has_function_privilege(
+                    'authentication_audit_test_superuser',
+                    'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)',
+                    'EXECUTE'
+                ),
+                has_table_privilege(
+                    'pg_read_all_data',
+                    'public.authentication_audit_events',
+                    'SELECT'
+                ),
+                has_table_privilege(
+                    'pg_write_all_data',
+                    'public.authentication_audit_events',
+                    'INSERT'
+                ),
+                has_table_privilege(
+                    'supabase_audit_test_system_role',
+                    'public.authentication_audit_events',
+                    'SELECT'
+                ),
+                has_table_privilege(
+                    'supabase_read_only_user',
+                    'public.authentication_audit_events',
+                    'SELECT'
+                )
+            """,
+            fetch=True,
+        ) == [(True, True, True, True, True, True)]
+        assert direct_audit_acl_rows() == sorted(
+            [
+                ("column:user_id", migration_owner, "UPDATE", False),
+                ("function", migration_owner, "EXECUTE", False),
+                ("function", "service_role", "EXECUTE", False),
+                ("table", migration_owner, "INSERT", False),
+                ("table", migration_owner, "SELECT", False),
+                ("table", "service_role", "SELECT", False),
+            ]
+        )
+
+        run_sql_file(VERIFICATION)
+    finally:
+        execute(
+            """
+            revoke pg_read_all_data from supabase_audit_test_system_role;
+            revoke pg_read_all_data from supabase_read_only_user;
+            drop role authentication_audit_test_superuser;
+            drop role supabase_audit_test_system_role;
+            drop role supabase_read_only_user;
+            """
+        )
+
+
+def test_verification_rejects_ordinary_effective_and_direct_access() -> None:
+    apply_migration()
+    execute(
+        """
+        drop role if exists authentication_audit_test_ordinary_rogue;
+        create role authentication_audit_test_ordinary_rogue nologin;
+        grant pg_read_all_data to authentication_audit_test_ordinary_rogue;
+        """
+    )
+    try:
+        assert execute(
+            """
+            select
+                has_table_privilege(
+                    'authentication_audit_test_ordinary_rogue',
+                    'public.authentication_audit_events',
+                    'SELECT'
+                ),
+                not exists (
+                    select 1
+                    from pg_catalog.pg_class as table_definition
+                    cross join lateral pg_catalog.aclexplode(
+                        coalesce(
+                            table_definition.relacl,
+                            pg_catalog.acldefault(
+                                'r',
+                                table_definition.relowner
+                            )
+                        )
+                    ) as privilege
+                    where table_definition.oid =
+                          'public.authentication_audit_events'::regclass
+                      and privilege.grantee =
+                          to_regrole(
+                              'authentication_audit_test_ordinary_rogue'
+                          )
+                )
+            """,
+            fetch=True,
+        ) == [(True, True)]
+        with pytest.raises(
+            psycopg.errors.RaiseException,
+            match="unexpected role has effective",
+        ):
+            run_sql_file(VERIFICATION)
+
+        execute(
+            """
+            revoke pg_read_all_data
+                from authentication_audit_test_ordinary_rogue;
+            grant select on public.authentication_audit_events
+                to authentication_audit_test_ordinary_rogue;
+            """
+        )
+        with pytest.raises(
+            psycopg.errors.RaiseException,
+            match="table ACL contains an unexpected grant",
+        ):
+            run_sql_file(VERIFICATION)
+    finally:
+        execute(
+            """
+            revoke all privileges on public.authentication_audit_events
+                from authentication_audit_test_ordinary_rogue;
+            revoke pg_read_all_data
+                from authentication_audit_test_ordinary_rogue;
+            drop role authentication_audit_test_ordinary_rogue;
+            """
+        )
+
+
+def test_verification_rejects_direct_acl_for_bypassrls_role() -> None:
+    apply_migration()
+    execute(
+        """
+        grant select on public.authentication_audit_events
+            to rogue_auth_role
+        """
+    )
+
+    with pytest.raises(
+        psycopg.errors.RaiseException,
+        match="table ACL contains an unexpected grant",
+    ):
+        run_sql_file(VERIFICATION)
 
 
 def test_migration_removes_rogue_table_column_and_function_grants() -> None:

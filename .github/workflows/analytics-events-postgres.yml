@@ -60,6 +60,9 @@ jobs:
           tests/test_authentication_audit_events_migration_postgres.py::test_fk_set_null_requires_only_owner_user_id_column_update
           tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_missing_approved_index_before_repair
           tests/test_authentication_audit_events_migration_postgres.py::test_migration_removes_rogue_table_column_and_function_grants
+          tests/test_authentication_audit_events_migration_postgres.py::test_verification_accepts_system_effective_privileges_without_direct_acl
+          tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_ordinary_effective_and_direct_access
+          tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_direct_acl_for_bypassrls_role
           -q
       - name: Run observability migration PostgreSQL checks
         working-directory: backend
