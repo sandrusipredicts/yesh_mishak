@@ -34,6 +34,12 @@ VERIFICATION = (
     BACKEND_DIR / "scripts" / "verify_authentication_audit_events_migration.sql"
 )
 SCHEMA = BACKEND_DIR / "schema.sql"
+PUSH_NOTIFICATIONS_MIGRATION = (
+    BACKEND_DIR / "migrations" / "push_notifications.sql"
+)
+PUSH_TOKEN_METADATA_MIGRATION = (
+    BACKEND_DIR / "migrations" / "push_token_device_metadata.sql"
+)
 
 
 def execute(sql: str, params: tuple = (), *, fetch: bool = False):
@@ -152,6 +158,14 @@ def reset_public_for_full_schema() -> None:
         """
         drop schema if exists public cascade;
         create schema public;
+        create schema if not exists auth;
+        create or replace function auth.uid()
+        returns uuid
+        language sql
+        stable
+        as $auth_uid$
+            select null::uuid
+        $auth_uid$;
         """
     )
 
@@ -288,6 +302,105 @@ def audit_object_snapshot() -> dict[str, list[tuple]]:
             fetch=True,
         ),
         "direct_acls": direct_audit_acl_rows(),
+    }
+
+
+def push_token_object_snapshot() -> dict[str, list[tuple]]:
+    return {
+        "table": execute(
+            """
+            select
+                pg_catalog.pg_get_userbyid(table_definition.relowner),
+                table_definition.relrowsecurity,
+                table_definition.relforcerowsecurity,
+                table_definition.relacl::text
+            from pg_catalog.pg_class as table_definition
+            where table_definition.oid = 'public.push_tokens'::regclass
+            """,
+            fetch=True,
+        ),
+        "columns": execute(
+            """
+            select
+                attribute_definition.attnum,
+                attribute_definition.attname,
+                pg_catalog.format_type(
+                    attribute_definition.atttypid,
+                    attribute_definition.atttypmod
+                ),
+                attribute_definition.attnotnull,
+                pg_catalog.pg_get_expr(
+                    default_definition.adbin,
+                    default_definition.adrelid
+                ),
+                attribute_definition.attacl::text
+            from pg_catalog.pg_attribute as attribute_definition
+            left join pg_catalog.pg_attrdef as default_definition
+              on default_definition.adrelid = attribute_definition.attrelid
+             and default_definition.adnum = attribute_definition.attnum
+            where attribute_definition.attrelid =
+                  'public.push_tokens'::regclass
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+            order by attribute_definition.attnum
+            """,
+            fetch=True,
+        ),
+        "constraints": execute(
+            """
+            select
+                constraint_definition.conname,
+                constraint_definition.contype,
+                pg_catalog.pg_get_constraintdef(
+                    constraint_definition.oid,
+                    true
+                )
+            from pg_catalog.pg_constraint as constraint_definition
+            where constraint_definition.conrelid =
+                  'public.push_tokens'::regclass
+            order by constraint_definition.conname
+            """,
+            fetch=True,
+        ),
+        "indexes": execute(
+            """
+            select
+                index_definition.relname,
+                pg_catalog.pg_get_indexdef(index_catalog.indexrelid),
+                index_catalog.indisunique,
+                index_catalog.indisprimary,
+                index_catalog.indisvalid,
+                index_catalog.indisready,
+                index_catalog.indislive
+            from pg_catalog.pg_index as index_catalog
+            join pg_catalog.pg_class as index_definition
+              on index_definition.oid = index_catalog.indexrelid
+            where index_catalog.indrelid = 'public.push_tokens'::regclass
+            order by index_definition.relname
+            """,
+            fetch=True,
+        ),
+        "policies": execute(
+            """
+            select
+                policy_definition.polname,
+                policy_definition.polcmd,
+                policy_definition.polpermissive,
+                policy_definition.polroles,
+                pg_catalog.pg_get_expr(
+                    policy_definition.polqual,
+                    policy_definition.polrelid
+                ),
+                pg_catalog.pg_get_expr(
+                    policy_definition.polwithcheck,
+                    policy_definition.polrelid
+                )
+            from pg_catalog.pg_policy as policy_definition
+            where policy_definition.polrelid = 'public.push_tokens'::regclass
+            order by policy_definition.polname
+            """,
+            fetch=True,
+        ),
     }
 
 
@@ -428,6 +541,25 @@ def test_fresh_schema_and_sequential_migrations_have_equivalent_audit_objects() 
     sequential_snapshot = audit_object_snapshot()
 
     assert fresh_snapshot == sequential_snapshot
+
+
+def test_fresh_schema_push_tokens_match_canonical_migrations() -> None:
+    reset_public_for_full_schema()
+    run_sql_file(SCHEMA)
+    fresh_snapshot = push_token_object_snapshot()
+
+    execute(
+        """
+        drop schema public cascade;
+        create schema public;
+        create table public.users (id uuid primary key);
+        """
+    )
+    run_sql_file(PUSH_NOTIFICATIONS_MIGRATION)
+    run_sql_file(PUSH_TOKEN_METADATA_MIGRATION)
+    canonical_snapshot = push_token_object_snapshot()
+
+    assert fresh_snapshot == canonical_snapshot
 
 
 def test_phase_2_reapplication_is_exactly_idempotent() -> None:
