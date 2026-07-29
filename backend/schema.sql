@@ -504,8 +504,11 @@ begin
 end;
 $authentication_audit_column_acl$;
 -- The schema installer is the trusted table/RPC owner. SELECT and INSERT are
--- the only table privileges needed by the SECURITY DEFINER implementation.
+-- needed by the SECURITY DEFINER implementation; UPDATE(user_id) is limited
+-- to PostgreSQL's ON DELETE SET NULL referential action.
 grant select, insert on table public.authentication_audit_events to current_user;
+grant update (user_id)
+    on table public.authentication_audit_events to current_user;
 grant select on table public.authentication_audit_events to service_role;
 grant select, insert, update on public.job_runs to service_role;
 grant select, insert, update on public.push_delivery_attempts to service_role;

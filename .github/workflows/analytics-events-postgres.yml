@@ -49,6 +49,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
+      - name: Run focused authentication audit privilege checks
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: >-
+          python -m pytest
+          tests/test_authentication_audit_events_migration_postgres.py::test_preflight_and_rollback_only_verification
+          tests/test_authentication_audit_events_migration_postgres.py::test_supported_fresh_migration_runs_as_non_superuser_owner
+          tests/test_authentication_audit_events_migration_postgres.py::test_fk_set_null_requires_only_owner_user_id_column_update
+          tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_missing_approved_index_before_repair
+          tests/test_authentication_audit_events_migration_postgres.py::test_migration_removes_rogue_table_column_and_function_grants
+          -q
       - name: Run observability migration PostgreSQL checks
         working-directory: backend
         env:

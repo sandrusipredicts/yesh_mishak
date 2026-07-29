@@ -58,9 +58,16 @@ roles must already have `USAGE` without `CREATE` or schema grant options; the
 migration intentionally does not rewrite unrelated Supabase schema grants.
 
 That trusted migration role is also the table owner and SECURITY DEFINER RPC
-owner. Its exact direct audit-table privileges are `SELECT` and `INSERT`, and
-its exact RPC privilege is `EXECUTE`; the function needs both table privileges
-to insert new events and compare an existing immutable payload during replay.
+owner. Its exact direct audit-table privileges are `SELECT` and `INSERT`, its
+only column privilege is `UPDATE(user_id)`, and its exact RPC privilege is
+`EXECUTE`. The function needs the table privileges to insert new events and
+compare an existing immutable payload during replay. PostgreSQL executes the
+`ON DELETE SET NULL` foreign-key action as an update of `user_id`; the narrowly
+scoped column grant permits that referential action without granting
+table-wide `UPDATE` or any `DELETE`. The PostgreSQL 16 regression removes that
+column grant first and observes SQLSTATE `42501` from the referential
+`UPDATE ONLY ... SET user_id = NULL`, then restores only `UPDATE(user_id)` and
+proves the same service-role-invoked SECURITY DEFINER deletion succeeds.
 `service_role` has table `SELECT` and RPC `EXECUTE` only. `PUBLIC`, `anon`,
 `authenticated`, and every other non-superuser role have no table, column, or
 RPC privileges. No application role has schema `CREATE`. Reapplication revokes

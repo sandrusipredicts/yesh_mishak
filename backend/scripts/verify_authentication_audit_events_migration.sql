@@ -146,12 +146,14 @@ declare
     anon_id oid := to_regrole('anon');
     authenticated_id oid := to_regrole('authenticated');
     current_owner_id oid := to_regrole(current_user);
+    current_owner_is_superuser boolean;
     table_owner_id oid;
     function_owner_id oid;
     rls_enabled boolean;
     owner_table_select_count integer;
     owner_table_insert_count integer;
     service_table_select_count integer;
+    owner_user_id_update_count integer;
     owner_function_execute_count integer;
     service_function_execute_count integer;
     expected_function_body text := $expected_body$
@@ -218,6 +220,11 @@ begin
     if anon_id is null or authenticated_id is null or service_role_id is null then
         raise exception 'authentication audit verification failed: required roles are missing';
     end if;
+
+    select role_definition.rolsuper
+    into current_owner_is_superuser
+    from pg_catalog.pg_roles as role_definition
+    where role_definition.oid = current_owner_id;
 
     if audit_table is null or expected_table is null or record_function is null then
         raise exception 'authentication audit verification failed: table or RPC is missing';
@@ -833,8 +840,14 @@ begin
        or service_table_select_count <> 1
        or not has_table_privilege(current_user, audit_table, 'SELECT')
        or not has_table_privilege(current_user, audit_table, 'INSERT')
-       or has_table_privilege(current_user, audit_table, 'UPDATE')
-       or has_table_privilege(current_user, audit_table, 'DELETE')
+       or (
+           not current_owner_is_superuser
+           and has_table_privilege(current_user, audit_table, 'UPDATE')
+       )
+       or (
+           not current_owner_is_superuser
+           and has_table_privilege(current_user, audit_table, 'DELETE')
+       )
        or not has_table_privilege('service_role', audit_table, 'SELECT')
        or has_table_privilege('service_role', audit_table, 'INSERT')
        or has_table_privilege('service_role', audit_table, 'UPDATE')
@@ -857,10 +870,52 @@ begin
         where attribute_definition.attrelid = audit_table
           and attribute_definition.attnum > 0
           and not attribute_definition.attisdropped
-    )
-       or not has_any_column_privilege(current_user, audit_table, 'SELECT')
-       or not has_any_column_privilege(current_user, audit_table, 'INSERT')
-       or has_any_column_privilege(current_user, audit_table, 'UPDATE')
+          and (
+              attribute_definition.attname <> 'user_id'
+              or privilege.grantee <> table_owner_id
+              or privilege.privilege_type <> 'UPDATE'
+              or privilege.is_grantable
+          )
+    ) then
+        raise exception 'authentication audit verification failed: column ACL contains an unexpected grant';
+    end if;
+
+    select count(*)
+    into owner_user_id_update_count
+    from pg_catalog.pg_attribute as attribute_definition
+    cross join lateral pg_catalog.aclexplode(attribute_definition.attacl) as privilege
+    where attribute_definition.attrelid = audit_table
+      and attribute_definition.attnum > 0
+      and not attribute_definition.attisdropped
+      and attribute_definition.attname = 'user_id'
+      and privilege.grantee = table_owner_id
+      and privilege.privilege_type = 'UPDATE'
+      and not privilege.is_grantable;
+
+    if owner_user_id_update_count <> 1
+       or not has_column_privilege(
+           current_user,
+           audit_table,
+           'user_id',
+           'UPDATE'
+       )
+       or (
+           not current_owner_is_superuser
+           and exists (
+               select 1
+               from pg_catalog.pg_attribute as attribute_definition
+               where attribute_definition.attrelid = audit_table
+                 and attribute_definition.attnum > 0
+                 and not attribute_definition.attisdropped
+                 and attribute_definition.attname <> 'user_id'
+                 and has_column_privilege(
+                     current_owner_id,
+                     audit_table,
+                     attribute_definition.attnum,
+                     'UPDATE'
+                 )
+           )
+       )
        or not has_any_column_privilege('service_role', audit_table, 'SELECT')
        or has_any_column_privilege('service_role', audit_table, 'INSERT')
        or has_any_column_privilege('service_role', audit_table, 'UPDATE')

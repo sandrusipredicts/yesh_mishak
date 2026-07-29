@@ -4,8 +4,9 @@
 -- The explicit BEGIN/COMMIT keeps object creation, ownership changes, and ACL
 -- revocation atomic, including when the file is executed outside psql.
 -- One trusted migration operator owns both the table and SECURITY DEFINER RPC.
--- Its only direct table DML is SELECT/INSERT, which is the minimum needed by
--- the RPC's insert and immutable-payload replay check.
+-- Its direct table DML is SELECT/INSERT for the RPC plus column-scoped
+-- UPDATE(user_id), which PostgreSQL requires for the FK's ON DELETE SET NULL
+-- referential action. It receives no table-wide UPDATE or DELETE.
 
 begin;
 
@@ -363,6 +364,8 @@ end;
 $authentication_audit_column_acl$;
 
 grant select, insert on table public.authentication_audit_events to current_user;
+grant update (user_id)
+    on table public.authentication_audit_events to current_user;
 grant select on table public.authentication_audit_events to service_role;
 
 create index if not exists idx_authentication_audit_events_occurred_at

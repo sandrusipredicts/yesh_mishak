@@ -320,10 +320,200 @@ def test_supported_fresh_migration_runs_as_non_superuser_owner() -> None:
                 'authentication_audit_migrator',
                 'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)',
                 'EXECUTE'
+            ),
+            has_column_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            ),
+            has_column_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'source_environment',
+                'UPDATE'
             )
         """,
         fetch=True,
-    ) == [(True, True, False, False, True)]
+    ) == [(True, True, False, False, True, True, False)]
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as denied:
+        execute_as_session(
+            "authentication_audit_migrator",
+            """
+            update public.authentication_audit_events
+            set source_environment = 'changed'
+            where id = %s
+            """,
+            (owner_rpc_event_id,),
+        )
+    assert denied.value.sqlstate == "42501"
+
+
+def test_fk_set_null_requires_only_owner_user_id_column_update() -> None:
+    apply_migration_as_session("authentication_audit_migrator")
+    execute_as_session(
+        "authentication_audit_migrator",
+        """
+        create function public.delete_authentication_audit_test_user(
+            p_user_id uuid
+        )
+        returns boolean
+        language plpgsql
+        security definer
+        set search_path = pg_catalog
+        as $$
+        begin
+            delete from public.users where id = p_user_id;
+            return found;
+        end;
+        $$;
+        revoke all on function public.delete_authentication_audit_test_user(uuid)
+            from public, anon, authenticated;
+        grant execute on function
+            public.delete_authentication_audit_test_user(uuid)
+            to service_role;
+        """,
+    )
+    user_id = add_user()
+    event_id = str(uuid4())
+    assert execute_as(
+        "service_role",
+        RPC_SQL,
+        rpc_params(event_id=event_id, user_id=user_id),
+        fetch=True,
+    ) == [(True,)]
+
+    # Reproduce the pre-fix hosted-like privilege model. service_role invokes a
+    # SECURITY DEFINER user-deletion function owned by the same non-superuser
+    # trusted role as the audit RPC and table.
+    execute_as_session(
+        "authentication_audit_migrator",
+        """
+        revoke update (user_id)
+            on public.authentication_audit_events
+            from current_user
+        """,
+    )
+    assert execute(
+        """
+        select
+            has_schema_privilege(
+                'authentication_audit_migrator',
+                'public',
+                'USAGE'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'SELECT'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'INSERT'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'UPDATE'
+            ),
+            has_column_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'DELETE'
+            )
+        """,
+        fetch=True,
+    ) == [(True, True, True, False, False, False)]
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as denied:
+        execute_as(
+            "service_role",
+            """
+            select public.delete_authentication_audit_test_user(%s)
+            """,
+            (user_id,),
+            fetch=True,
+        )
+    assert denied.value.sqlstate == "42501"
+    privilege_context = denied.value.diag.context or ""
+    assert 'UPDATE ONLY "public"."authentication_audit_events"' in privilege_context
+    assert '"user_id" = NULL' in privilege_context
+    assert execute(
+        "select count(*) from public.users where id = %s",
+        (user_id,),
+        fetch=True,
+    ) == [(1,)]
+    assert execute(
+        """
+        select user_id
+        from public.authentication_audit_events
+        where id = %s
+        """,
+        (event_id,),
+        fetch=True,
+    ) == [(UUID(user_id),)]
+
+    execute_as_session(
+        "authentication_audit_migrator",
+        """
+        grant update (user_id)
+            on public.authentication_audit_events
+            to current_user
+        """,
+    )
+    assert execute(
+        """
+        select
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'UPDATE'
+            ),
+            has_column_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            ),
+            has_column_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'source_environment',
+                'UPDATE'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'DELETE'
+            )
+        """,
+        fetch=True,
+    ) == [(False, True, False, False)]
+    assert execute_as(
+        "service_role",
+        """
+        select public.delete_authentication_audit_test_user(%s)
+        """,
+        (user_id,),
+        fetch=True,
+    ) == [(True,)]
+    assert execute(
+        """
+        select user_id
+        from public.authentication_audit_events
+        where id = %s
+        """,
+        (event_id,),
+        fetch=True,
+    ) == [(None,)]
 
 
 def test_non_superuser_without_service_role_authorization_is_rejected() -> None:
@@ -724,6 +914,7 @@ def test_unrelated_owners_are_rejected_without_changing_existing_state() -> None
 
 def test_migration_removes_rogue_table_column_and_function_grants() -> None:
     apply_migration()
+    migration_owner = execute("select current_user", fetch=True)[0][0]
     execute(
         """
         grant usage on schema public to rogue_auth_role;
@@ -758,18 +949,28 @@ def test_migration_removes_rogue_table_column_and_function_grants() -> None:
 
     assert execute(
         """
-        select count(*)
+        select
+            attribute_definition.attname,
+            role_definition.rolname,
+            privilege.privilege_type,
+            privilege.is_grantable
         from pg_catalog.pg_attribute as attribute_definition
         cross join lateral pg_catalog.aclexplode(
             attribute_definition.attacl
         ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
         where attribute_definition.attrelid =
               'public.authentication_audit_events'::regclass
           and attribute_definition.attnum > 0
           and not attribute_definition.attisdropped
+        order by
+            attribute_definition.attname,
+            role_definition.rolname,
+            privilege.privilege_type
         """,
         fetch=True,
-    ) == [(0,)]
+    ) == [("user_id", migration_owner, "UPDATE", False)]
     assert execute(
         """
         select
@@ -921,15 +1122,28 @@ def test_schema_rls_grants_indexes_fk_and_no_json_or_correlation_uniqueness() ->
     ) == [(True, True, True, False, False, False)]
     assert execute(
         """
-        select count(*)
-        from pg_catalog.pg_attribute
-        where attrelid='public.authentication_audit_events'::regclass
-          and attnum > 0
-          and not attisdropped
-          and attacl is not null
+        select
+            attribute_definition.attname,
+            role_definition.rolname,
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(
+            attribute_definition.attacl
+        ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where attribute_definition.attrelid =
+              'public.authentication_audit_events'::regclass
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+        order by
+            attribute_definition.attname,
+            role_definition.rolname,
+            privilege.privilege_type
         """,
         fetch=True,
-    ) == [(0,)]
+    ) == [("user_id", migration_owner, "UPDATE", False)]
     assert execute(
         """
         select
@@ -937,11 +1151,29 @@ def test_schema_rls_grants_indexes_fk_and_no_json_or_correlation_uniqueness() ->
             has_table_privilege('service_role','public.authentication_audit_events','INSERT'),
             has_table_privilege('service_role','public.authentication_audit_events','UPDATE'),
             has_table_privilege('service_role','public.authentication_audit_events','DELETE'),
+            has_column_privilege(
+                'service_role',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            ),
             has_table_privilege('anon','public.authentication_audit_events','SELECT'),
-            has_table_privilege('authenticated','public.authentication_audit_events','INSERT')
+            has_column_privilege(
+                'anon',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            ),
+            has_table_privilege('authenticated','public.authentication_audit_events','INSERT'),
+            has_column_privilege(
+                'authenticated',
+                'public.authentication_audit_events',
+                'user_id',
+                'UPDATE'
+            )
         """,
         fetch=True,
-    ) == [(True, False, False, False, False, False)]
+    ) == [(True, False, False, False, False, False, False, False, False)]
 
     function_security = execute(
         """
@@ -1395,6 +1627,14 @@ def test_exact_table_and_rpc_permissions_are_exercised() -> None:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             execute_as(
                 role,
+                """
+                update public.authentication_audit_events
+                set user_id = null
+                """,
+            )
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            execute_as(
+                role,
                 "delete from public.authentication_audit_events",
             )
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -1427,6 +1667,10 @@ def test_exact_table_and_rpc_permissions_are_exercised() -> None:
         """
         update public.authentication_audit_events
         set outcome='failed'
+        """,
+        """
+        update public.authentication_audit_events
+        set user_id = null
         """,
         "delete from public.authentication_audit_events",
     ):
