@@ -149,7 +149,10 @@ declare
     table_owner_id oid;
     function_owner_id oid;
     rls_enabled boolean;
+    owner_table_select_count integer;
+    owner_table_insert_count integer;
     service_table_select_count integer;
+    owner_function_execute_count integer;
     service_function_execute_count integer;
     expected_function_body text := $expected_body$
 declare
@@ -255,9 +258,7 @@ begin
     end if;
 
     if exists (
-        select 1
-        from (
-            (
+        (
                 select
                     attribute.attnum,
                     attribute.attname,
@@ -302,8 +303,9 @@ begin
                   and attribute.attnum > 0
                   and not attribute.attisdropped
             )
-            union all
-            (
+    )
+    or exists (
+        (
                 select
                     attribute.attnum,
                     attribute.attname,
@@ -348,15 +350,12 @@ begin
                   and attribute.attnum > 0
                   and not attribute.attisdropped
             )
-        ) as column_drift
     ) then
         raise exception 'authentication audit verification failed: exact columns, types, nullability, or defaults do not match';
     end if;
 
     if exists (
-        select 1
-        from (
-            (
+        (
                 select
                     constraint_definition.contype,
                     pg_catalog.pg_get_constraintdef(
@@ -379,8 +378,9 @@ begin
                 where constraint_definition.conrelid = expected_table
                   and constraint_definition.contype in ('p', 'u', 'f', 'c', 'x')
             )
-            union all
-            (
+    )
+    or exists (
+        (
                 select
                     constraint_definition.contype,
                     pg_catalog.pg_get_constraintdef(
@@ -403,15 +403,12 @@ begin
                 where constraint_definition.conrelid = audit_table
                   and constraint_definition.contype in ('p', 'u', 'f', 'c', 'x')
             )
-        ) as constraint_drift
     ) then
         raise exception 'authentication audit verification failed: exact PK, FK, or CHECK semantics do not match';
     end if;
 
     if exists (
-        select 1
-        from (
-            (
+        (
                 select
                     index_definition.relname as index_name,
                     index_catalog.indisunique,
@@ -543,8 +540,9 @@ begin
                   on access_method.oid = index_definition.relam
                 where index_catalog.indrelid = expected_table
             )
-            union all
-            (
+    )
+    or exists (
+        (
                 select
                     case index_definition.relname
                         when 'authentication_audit_events_expected_pkey'
@@ -676,7 +674,6 @@ begin
                   on access_method.oid = index_definition.relam
                 where index_catalog.indrelid = audit_table
             )
-        ) as index_drift
     ) then
         raise exception 'authentication audit verification failed: exact named index definitions or health flags do not match';
     end if;
@@ -736,7 +733,9 @@ begin
         raise exception 'authentication audit verification failed: exact RPC contract or implementation does not match';
     end if;
 
-    if not has_schema_privilege('anon', 'public', 'USAGE')
+    if not has_schema_privilege(current_user, 'public', 'USAGE')
+       or not has_schema_privilege(current_user, 'public', 'CREATE')
+       or not has_schema_privilege('anon', 'public', 'USAGE')
        or not has_schema_privilege('authenticated', 'public', 'USAGE')
        or not has_schema_privilege('service_role', 'public', 'USAGE')
        or has_schema_privilege('anon', 'public', 'CREATE')
@@ -782,6 +781,13 @@ begin
           and (
               privilege.grantee not in (table_owner_id, service_role_id)
               or (
+                  privilege.grantee = table_owner_id
+                  and (
+                      privilege.privilege_type not in ('SELECT', 'INSERT')
+                      or privilege.is_grantable
+                  )
+              )
+              or (
                   privilege.grantee = service_role_id
                   and (
                       privilege.privilege_type <> 'SELECT'
@@ -793,8 +799,26 @@ begin
         raise exception 'authentication audit verification failed: table ACL contains an unexpected grant';
     end if;
 
-    select count(*)
-    into service_table_select_count
+    select
+        count(*) filter (
+            where privilege.grantee = table_owner_id
+              and privilege.privilege_type = 'SELECT'
+              and not privilege.is_grantable
+        ),
+        count(*) filter (
+            where privilege.grantee = table_owner_id
+              and privilege.privilege_type = 'INSERT'
+              and not privilege.is_grantable
+        ),
+        count(*) filter (
+            where privilege.grantee = service_role_id
+              and privilege.privilege_type = 'SELECT'
+              and not privilege.is_grantable
+        )
+    into
+        owner_table_select_count,
+        owner_table_insert_count,
+        service_table_select_count
     from pg_catalog.pg_class as table_definition
     cross join lateral pg_catalog.aclexplode(
         coalesce(
@@ -802,12 +826,16 @@ begin
             pg_catalog.acldefault('r', table_definition.relowner)
         )
     ) as privilege
-    where table_definition.oid = audit_table
-      and privilege.grantee = service_role_id
-      and privilege.privilege_type = 'SELECT'
-      and not privilege.is_grantable;
+    where table_definition.oid = audit_table;
 
-    if service_table_select_count <> 1
+    if owner_table_select_count <> 1
+       or owner_table_insert_count <> 1
+       or service_table_select_count <> 1
+       or not has_table_privilege(current_user, audit_table, 'SELECT')
+       or not has_table_privilege(current_user, audit_table, 'INSERT')
+       or has_table_privilege(current_user, audit_table, 'UPDATE')
+       or has_table_privilege(current_user, audit_table, 'DELETE')
+       or not has_table_privilege('service_role', audit_table, 'SELECT')
        or has_table_privilege('service_role', audit_table, 'INSERT')
        or has_table_privilege('service_role', audit_table, 'UPDATE')
        or has_table_privilege('service_role', audit_table, 'DELETE')
@@ -830,6 +858,10 @@ begin
           and attribute_definition.attnum > 0
           and not attribute_definition.attisdropped
     )
+       or not has_any_column_privilege(current_user, audit_table, 'SELECT')
+       or not has_any_column_privilege(current_user, audit_table, 'INSERT')
+       or has_any_column_privilege(current_user, audit_table, 'UPDATE')
+       or not has_any_column_privilege('service_role', audit_table, 'SELECT')
        or has_any_column_privilege('service_role', audit_table, 'INSERT')
        or has_any_column_privilege('service_role', audit_table, 'UPDATE')
        or has_any_column_privilege('anon', audit_table, 'SELECT')
@@ -854,6 +886,13 @@ begin
           and (
               privilege.grantee not in (function_owner_id, service_role_id)
               or (
+                  privilege.grantee = function_owner_id
+                  and (
+                      privilege.privilege_type <> 'EXECUTE'
+                      or privilege.is_grantable
+                  )
+              )
+              or (
                   privilege.grantee = service_role_id
                   and (
                       privilege.privilege_type <> 'EXECUTE'
@@ -865,8 +904,18 @@ begin
         raise exception 'authentication audit verification failed: RPC ACL contains an unexpected grant';
     end if;
 
-    select count(*)
-    into service_function_execute_count
+    select
+        count(*) filter (
+            where privilege.grantee = function_owner_id
+              and privilege.privilege_type = 'EXECUTE'
+              and not privilege.is_grantable
+        ),
+        count(*) filter (
+            where privilege.grantee = service_role_id
+              and privilege.privilege_type = 'EXECUTE'
+              and not privilege.is_grantable
+        )
+    into owner_function_execute_count, service_function_execute_count
     from pg_catalog.pg_proc as function_definition
     cross join lateral pg_catalog.aclexplode(
         coalesce(
@@ -874,16 +923,70 @@ begin
             pg_catalog.acldefault('f', function_definition.proowner)
         )
     ) as privilege
-    where function_definition.oid = record_function
-      and privilege.grantee = service_role_id
-      and privilege.privilege_type = 'EXECUTE'
-      and not privilege.is_grantable;
+    where function_definition.oid = record_function;
 
-    if service_function_execute_count <> 1
+    if owner_function_execute_count <> 1
+       or service_function_execute_count <> 1
+       or not has_function_privilege(current_user, record_function, 'EXECUTE')
        or not has_function_privilege('service_role', record_function, 'EXECUTE')
        or has_function_privilege('anon', record_function, 'EXECUTE')
        or has_function_privilege('authenticated', record_function, 'EXECUTE') then
         raise exception 'authentication audit verification failed: RPC execution privileges are not the exact allowlist';
+    end if;
+
+    if exists (
+        select 1
+        from pg_catalog.pg_roles as role_definition
+        where role_definition.rolname !~ '^pg_'
+          and not role_definition.rolsuper
+          and role_definition.oid not in (
+              current_owner_id,
+              service_role_id
+          )
+          and (
+              has_table_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'SELECT'
+              )
+              or has_table_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'INSERT'
+              )
+              or has_table_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'UPDATE'
+              )
+              or has_table_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'DELETE'
+              )
+              or has_any_column_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'SELECT'
+              )
+              or has_any_column_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'INSERT'
+              )
+              or has_any_column_privilege(
+                  role_definition.oid,
+                  audit_table,
+                  'UPDATE'
+              )
+              or has_function_privilege(
+                  role_definition.oid,
+                  record_function,
+                  'EXECUTE'
+              )
+          )
+    ) then
+        raise exception 'authentication audit verification failed: an unexpected role has effective table, column, or RPC privileges';
     end if;
 end;
 $schema_verification$;

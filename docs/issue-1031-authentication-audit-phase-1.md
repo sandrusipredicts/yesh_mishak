@@ -57,6 +57,16 @@ or an unexpected RPC overload, is rejected before DDL. The hosted application
 roles must already have `USAGE` without `CREATE` or schema grant options; the
 migration intentionally does not rewrite unrelated Supabase schema grants.
 
+That trusted migration role is also the table owner and SECURITY DEFINER RPC
+owner. Its exact direct audit-table privileges are `SELECT` and `INSERT`, and
+its exact RPC privilege is `EXECUTE`; the function needs both table privileges
+to insert new events and compare an existing immutable payload during replay.
+`service_role` has table `SELECT` and RPC `EXECUTE` only. `PUBLIC`, `anon`,
+`authenticated`, and every other non-superuser role have no table, column, or
+RPC privileges. No application role has schema `CREATE`. Reapplication revokes
+permitted table, column, and function ACL drift and restores this allowlist;
+ownership drift is rejected before any DDL.
+
 Then:
 
 1. Run `backend/scripts/authentication_audit_events_migration_preflight.sql`.

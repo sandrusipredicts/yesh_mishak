@@ -251,6 +251,8 @@ def test_supported_fresh_migration_runs_as_non_superuser_owner() -> None:
     run_sql_file_as_session("authentication_audit_migrator", PREFLIGHT)
     apply_migration_as_session("authentication_audit_migrator")
     run_sql_file_as_session("authentication_audit_migrator", VERIFICATION)
+    owner_rpc_event_id = str(uuid4())
+    service_rpc_event_id = str(uuid4())
 
     assert execute(
         """
@@ -266,6 +268,62 @@ def test_supported_fresh_migration_runs_as_non_superuser_owner() -> None:
         """,
         fetch=True,
     ) == [("authentication_audit_migrator", "authentication_audit_migrator")]
+    assert execute_as_session(
+        "authentication_audit_migrator",
+        RPC_SQL,
+        rpc_params(event_id=owner_rpc_event_id),
+        fetch=True,
+    ) == [(True,)]
+    assert execute_as(
+        "service_role",
+        RPC_SQL,
+        rpc_params(event_id=service_rpc_event_id),
+        fetch=True,
+    ) == [(True,)]
+    assert execute_as_session(
+        "authentication_audit_migrator",
+        """
+        select id
+        from public.authentication_audit_events
+        where id in (%s, %s)
+        order by id
+        """,
+        (owner_rpc_event_id, service_rpc_event_id),
+        fetch=True,
+    ) == sorted(
+        [(UUID(owner_rpc_event_id),), (UUID(service_rpc_event_id),)]
+    )
+    assert execute(
+        """
+        select
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'SELECT'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'INSERT'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'UPDATE'
+            ),
+            has_table_privilege(
+                'authentication_audit_migrator',
+                'public.authentication_audit_events',
+                'DELETE'
+            ),
+            has_function_privilege(
+                'authentication_audit_migrator',
+                'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)',
+                'EXECUTE'
+            )
+        """,
+        fetch=True,
+    ) == [(True, True, False, False, True)]
 
 
 def test_non_superuser_without_service_role_authorization_is_rejected() -> None:
@@ -424,6 +482,10 @@ def test_injected_late_failure_restores_all_preexisting_security_state() -> None
         """,
         """
         alter table public.authentication_audit_events
+        drop column source_environment
+        """,
+        """
+        alter table public.authentication_audit_events
         alter column source_environment type varchar(32)
         """,
         """
@@ -443,6 +505,15 @@ def test_injected_late_failure_restores_all_preexisting_security_state() -> None
         drop constraint authentication_audit_events_event_type_check;
         alter table public.authentication_audit_events
         add constraint authentication_audit_events_event_type_check check (true)
+        """,
+        """
+        alter table public.authentication_audit_events
+        add constraint authentication_audit_events_unapproved_check
+        check (char_length(source_environment) > 0)
+        """,
+        """
+        alter table public.authentication_audit_events
+        drop constraint authentication_audit_events_source_environment_check
         """,
         """
         drop index public.idx_authentication_audit_events_occurred_at;
@@ -483,11 +554,14 @@ def test_injected_late_failure_restores_all_preexisting_security_state() -> None
     ],
     ids=[
         "extra-metadata-json",
+        "missing-column",
         "wrong-column-type",
         "wrong-nullability",
         "missing-occurred-at-default",
         "database-id-default",
         "dummy-check",
+        "extra-check",
+        "missing-check",
         "wrong-index",
         "swapped-index-names",
         "extra-index",
@@ -541,6 +615,20 @@ def test_verification_rejects_unhealthy_approved_index(
         match="authentication audit verification failed",
     ):
         run_sql_file(VERIFICATION)
+
+
+def test_verification_rejects_missing_approved_index_before_repair() -> None:
+    apply_migration()
+    execute("drop index public.idx_authentication_audit_events_occurred_at")
+
+    with pytest.raises(
+        psycopg.errors.RaiseException,
+        match="authentication audit verification failed",
+    ):
+        run_sql_file(VERIFICATION)
+
+    apply_migration()
+    run_sql_file(VERIFICATION)
 
 
 @pytest.mark.parametrize(
@@ -785,6 +873,33 @@ def test_schema_rls_grants_indexes_fk_and_no_json_or_correlation_uniqueness() ->
     ) == [(True,)]
     assert execute(
         """
+        select
+            role_definition.rolname,
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                table_definition.relacl,
+                pg_catalog.acldefault('r', table_definition.relowner)
+            )
+        ) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where table_definition.oid =
+              'public.authentication_audit_events'::regclass
+        order by role_definition.rolname, privilege.privilege_type
+        """,
+        fetch=True,
+    ) == sorted(
+        [
+            (migration_owner, "INSERT", False),
+            (migration_owner, "SELECT", False),
+            ("service_role", "SELECT", False),
+        ]
+    )
+    assert execute(
+        """
         select count(*)
         from pg_catalog.pg_policies
         where schemaname='public'
@@ -857,6 +972,32 @@ def test_schema_rls_grants_indexes_fk_and_no_json_or_correlation_uniqueness() ->
             False,
         )
     ]
+    assert execute(
+        """
+        select
+            role_definition.rolname,
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_proc as function_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                function_definition.proacl,
+                pg_catalog.acldefault('f', function_definition.proowner)
+            )
+        ) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where function_definition.oid =
+              'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)'::regprocedure
+        order by role_definition.rolname
+        """,
+        fetch=True,
+    ) == sorted(
+        [
+            (migration_owner, "EXECUTE", False),
+            ("service_role", "EXECUTE", False),
+        ]
+    )
 
     indexes = execute(
         """

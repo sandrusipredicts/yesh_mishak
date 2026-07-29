@@ -1,5 +1,8 @@
 -- ISSUE-1031 authentication audit rollout gate.
 -- Read-only: run before the explicitly transactional migration file.
+-- The supported operator is the single trusted non-application role that owns
+-- both audit objects. Reapplication may repair ACL drift only while that
+-- operator still owns every pre-existing audit object.
 
 do $authentication_audit_preflight$
 declare

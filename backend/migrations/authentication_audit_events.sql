@@ -3,6 +3,9 @@
 -- Supported application procedure: run this entire file as one transaction.
 -- The explicit BEGIN/COMMIT keeps object creation, ownership changes, and ACL
 -- revocation atomic, including when the file is executed outside psql.
+-- One trusted migration operator owns both the table and SECURITY DEFINER RPC.
+-- Its only direct table DML is SELECT/INSERT, which is the minimum needed by
+-- the RPC's insert and immutable-payload replay check.
 
 begin;
 
@@ -359,6 +362,7 @@ begin
 end;
 $authentication_audit_column_acl$;
 
+grant select, insert on table public.authentication_audit_events to current_user;
 grant select on table public.authentication_audit_events to service_role;
 
 create index if not exists idx_authentication_audit_events_occurred_at
@@ -486,6 +490,9 @@ begin
 end;
 $authentication_audit_function_acl$;
 
+grant execute on function public.record_authentication_audit_event(
+    uuid, text, text, text, uuid, text, text, text, text
+) to current_user;
 grant execute on function public.record_authentication_audit_event(
     uuid, text, text, text, uuid, text, text, text, text
 ) to service_role;
