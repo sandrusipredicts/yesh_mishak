@@ -145,7 +145,23 @@ begin
         raise exception 'authentication audit retention verification failed: function ACL differs';
     end if;
 
-    if not has_function_privilege(
+    if not has_table_privilege(
+        current_user,
+        audit_table,
+        'SELECT'
+    )
+       or not has_column_privilege(
+           current_user,
+           audit_table,
+           'user_id',
+           'UPDATE'
+       )
+       or not has_table_privilege(
+           current_user,
+           audit_table,
+           'DELETE'
+       )
+       or not has_function_privilege(
         'service_role',
         cleanup_function,
         'EXECUTE'
@@ -192,7 +208,11 @@ begin
           and (
               (
                   privilege.grantee = current_owner_id
-                  and privilege.privilege_type in ('SELECT', 'INSERT')
+                  and privilege.privilege_type in (
+                      'SELECT',
+                      'INSERT',
+                      'DELETE'
+                  )
                   and not privilege.is_grantable
               )
               or (
@@ -201,7 +221,7 @@ begin
                   and not privilege.is_grantable
               )
           )
-    ) <> 3
+    ) <> 4
        or exists (
            select 1
            from pg_catalog.pg_class as table_definition
@@ -215,7 +235,11 @@ begin
              and not (
                  (
                      privilege.grantee = current_owner_id
-                     and privilege.privilege_type in ('SELECT', 'INSERT')
+                     and privilege.privilege_type in (
+                         'SELECT',
+                         'INSERT',
+                         'DELETE'
+                     )
                      and not privilege.is_grantable
                  )
                  or (
@@ -556,6 +580,85 @@ begin
     end;
 end;
 $authentication_audit_retention_invalid_arguments$;
+
+select
+    pg_catalog.pg_get_userbyid(table_definition.relowner) as table_owner,
+    pg_catalog.pg_get_userbyid(function_definition.proowner)
+        as cleanup_function_owner,
+    table_definition.relacl::text as table_acl,
+    (
+        select pg_catalog.string_agg(
+            attribute_definition.attname
+            || '='
+            || attribute_definition.attacl::text,
+            ';'
+            order by attribute_definition.attnum
+        )
+        from pg_catalog.pg_attribute as attribute_definition
+        where attribute_definition.attrelid = table_definition.oid
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+          and attribute_definition.attacl is not null
+    ) as column_acl,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'SELECT'
+    ) as owner_select,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'UPDATE'
+    ) as owner_table_update,
+    has_column_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'user_id',
+        'UPDATE'
+    ) as owner_user_id_update,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'DELETE'
+    ) as owner_delete,
+    has_table_privilege(
+        'service_role',
+        table_definition.oid,
+        'SELECT'
+    ) as service_select,
+    has_table_privilege(
+        'service_role',
+        table_definition.oid,
+        'DELETE'
+    ) as service_delete,
+    has_function_privilege(
+        'service_role',
+        function_definition.oid,
+        'EXECUTE'
+    ) as service_execute,
+    has_function_privilege(
+        'anon',
+        function_definition.oid,
+        'EXECUTE'
+    ) as anon_execute,
+    has_function_privilege(
+        'authenticated',
+        function_definition.oid,
+        'EXECUTE'
+    ) as authenticated_execute,
+    has_function_privilege(
+        'public',
+        function_definition.oid,
+        'EXECUTE'
+    ) as public_execute,
+    table_definition.relrowsecurity as rls_enabled,
+    table_definition.relforcerowsecurity as force_rls
+from pg_catalog.pg_class as table_definition
+cross join pg_catalog.pg_proc as function_definition
+where table_definition.oid =
+      'public.authentication_audit_events'::pg_catalog.regclass
+  and function_definition.oid =
+      'public.cleanup_authentication_audit_events(timestamptz,integer)'::pg_catalog.regprocedure;
 
 do $authentication_audit_retention_verification_passed$
 begin

@@ -143,9 +143,31 @@ from public.authentication_audit_events;
 
 `PUBLIC`, `anon`, and `authenticated` have no execute privilege. `service_role`
 has execute privilege but still has no direct `DELETE` privilege on the audit
-table. The trusted audit table owner also owns the function. Existing RLS, the
-no-policy client denial, the append-only record RPC, table ACLs, and event
-taxonomy remain unchanged.
+table. The trusted audit table owner also owns the function and has the exact
+direct table privileges `SELECT`, `INSERT`, and `DELETE`; its only column
+privilege is `UPDATE(user_id)`. Existing RLS, the no-policy client denial, the
+append-only record RPC, and event taxonomy remain unchanged.
+
+The owner-only `DELETE` grant is required, not discretionary. PostgreSQL lets
+an object owner revoke its own ordinary privileges. The original append-only
+migration revoked all table privileges from every role, including the owner,
+then restored owner `SELECT`/`INSERT` and `UPDATE(user_id)` but not `DELETE`.
+`SECURITY DEFINER` switches execution to that owner; it does not restore a
+revoked ordinary privilege. The existing `SELECT` covers candidate IDs,
+timestamps, the delete predicate, and `RETURNING id`.
+`UPDATE(user_id)` supplies the at-least-one-column `UPDATE` privilege required
+by `SELECT ... FOR UPDATE`; table-level `UPDATE` is unnecessary. The bounded
+`DELETE ... RETURNING` requires table-level `DELETE`, so the retention
+migration grants only that privilege to the existing trusted owner.
+
+This preserves the access boundary:
+
+- trusted owner: direct `SELECT`, `INSERT`, and `DELETE`, plus
+  `UPDATE(user_id)`;
+- `service_role`: direct `SELECT`, cleanup-function `EXECUTE`, and no direct
+  `DELETE`;
+- `PUBLIC`, `anon`, and `authenticated`: no cleanup `EXECUTE` and no audit
+  table DML.
 
 Each RPC call is one database transaction. A failed call retains that batch
 for retry. Rows committed by an earlier successful batch were already expired
@@ -185,11 +207,14 @@ schedule for the same environment.
 ## Proving the policy is functioning
 
 The post-migration verifier checks owner, exact function signature and body
-guards, function ACL, table ACL, RLS/no-policy state, direct-delete denial, and
-the healthy `occurred_at` index. Inside a transaction it inserts reserved
-synthetic rows around `2000-01-01`, proves oldest-first batching and the exact
-cutoff boundary through `service_role`, proves client execution and direct
-deletion are denied, reaches a zero result, and rolls everything back.
+guards, function ACL, exact table and column ACLs, effective owner and
+service-role privileges, RLS/no-policy state, direct-delete denial, and the
+healthy `occurred_at` index. It emits one bounded ACL diagnostic row containing
+role names, ACL text, privilege booleans, and RLS flags—never row contents or
+identifiers. Inside a transaction it inserts reserved synthetic rows around
+`2000-01-01`, proves oldest-first batching and the exact cutoff boundary
+through `service_role`, proves client execution and direct deletion are
+denied, reaches a zero result, and rolls everything back.
 
 During an incident, use aggregate evidence rather than row contents to confirm
 enforcement:
@@ -229,11 +254,18 @@ Production rollout is documentation only in this change.
 
 1. Confirm the reviewed branch, clean diff, and zero-skip CI evidence.
 2. Against an isolated dev database, run
-   `authentication_audit_retention_migration_preflight.sql`.
+   `authentication_audit_retention_migration_preflight.sql` and preserve its
+   bounded ACL diagnostic row with rollout evidence.
 3. Apply the complete transactional
-   `authentication_audit_retention.sql` migration.
+   `authentication_audit_retention.sql` migration. Reapply this same file on
+   an environment that already received its first version; the owner-only
+   `DELETE` grant and function ACL repair are idempotent and atomic. Do not
+   apply an ad hoc grant.
 4. Run `verify_authentication_audit_retention_migration.sql`; use its
-   rollback-only synthetic cleanup as the controlled safety run.
+   rollback-only synthetic cleanup as the controlled safety run. Confirm its
+   diagnostic shows matching table/function owners, owner `DELETE = true`,
+   service `DELETE = false`, service `EXECUTE = true`, client/PUBLIC
+   `EXECUTE = false`, RLS enabled, and FORCE RLS disabled.
 5. Deploy the cleanup-job code only after database verification succeeds.
 6. Configure the single daily Railway schedule and command documented above.
 7. Trigger one controlled job execution and confirm a succeeded `job_runs`
@@ -251,7 +283,12 @@ Production rollout is documentation only in this change.
 4. Leave the cleanup RPC in place because it is inert without a caller. Drop
    it only through a separately reviewed forward migration with explicit
    approval.
-5. Confirm no later cleanup job run exists after schedule disablement, the
+5. Leave the trusted owner's `DELETE` grant in place while the cleanup RPC
+   exists. If a separately approved forward migration drops the RPC, that
+   migration may also restore the pre-retention owner ACL after proving no
+   remaining trusted function requires `DELETE`; do not make an ad hoc grant
+   or revoke.
+6. Confirm no later cleanup job run exists after schedule disablement, the
    prior application still records audit events, direct service-role deletion
    remains denied, and the remaining row count no longer falls due to cleanup.
 

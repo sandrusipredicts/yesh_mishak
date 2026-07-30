@@ -3,7 +3,9 @@
 -- Apply after authentication_audit_events.sql and
 -- authentication_audit_revocation_phase_2.sql. The table remains restricted:
 -- service_role receives EXECUTE on this dedicated RPC, never direct DELETE.
--- Reapplication is safe and repairs function ACL drift transactionally.
+-- The trusted table/function owner receives DELETE solely for the
+-- SECURITY DEFINER implementation. Reapplication is safe and repairs the
+-- owner DELETE grant and function ACL drift transactionally.
 
 begin;
 
@@ -125,8 +127,128 @@ begin
             errcode = '42501',
             message = 'authentication audit retention migration rejects unexpected cleanup RPC overloads';
     end if;
+
+    if not has_table_privilege(current_user, audit_table, 'SELECT')
+       or not has_table_privilege(current_user, audit_table, 'INSERT')
+       or not has_column_privilege(
+           current_user,
+           audit_table,
+           'user_id',
+           'UPDATE'
+       )
+       or not has_table_privilege(
+           'service_role',
+           audit_table,
+           'SELECT'
+       )
+       or has_table_privilege(
+           'service_role',
+           audit_table,
+           'DELETE'
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention migration found unsafe prerequisite privileges';
+    end if;
+
+    if (
+        select count(*)
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                table_definition.relacl,
+                pg_catalog.acldefault('r', table_definition.relowner)
+            )
+        ) as privilege
+        where table_definition.oid = audit_table
+          and (
+              (
+                  privilege.grantee = current_owner_id
+                  and privilege.privilege_type in ('SELECT', 'INSERT')
+                  and not privilege.is_grantable
+              )
+              or (
+                  privilege.grantee = to_regrole('service_role')
+                  and privilege.privilege_type = 'SELECT'
+                  and not privilege.is_grantable
+              )
+          )
+    ) <> 3
+       or exists (
+           select 1
+           from pg_catalog.pg_class as table_definition
+           cross join lateral pg_catalog.aclexplode(
+               coalesce(
+                   table_definition.relacl,
+                   pg_catalog.acldefault('r', table_definition.relowner)
+               )
+           ) as privilege
+           where table_definition.oid = audit_table
+             and not (
+                 (
+                     privilege.grantee = current_owner_id
+                     and privilege.privilege_type in (
+                         'SELECT',
+                         'INSERT',
+                         'DELETE'
+                     )
+                     and not privilege.is_grantable
+                 )
+                 or (
+                     privilege.grantee = to_regrole('service_role')
+                     and privilege.privilege_type = 'SELECT'
+                     and not privilege.is_grantable
+                  )
+             )
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention migration found unexpected table ACL entries';
+    end if;
+
+    if (
+        select count(*)
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(
+            attribute_definition.attacl
+        ) as privilege
+        where attribute_definition.attrelid = audit_table
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+          and attribute_definition.attname = 'user_id'
+          and privilege.grantee = current_owner_id
+          and privilege.privilege_type = 'UPDATE'
+          and not privilege.is_grantable
+    ) <> 1
+       or exists (
+           select 1
+           from pg_catalog.pg_attribute as attribute_definition
+           cross join lateral pg_catalog.aclexplode(
+               attribute_definition.attacl
+           ) as privilege
+           where attribute_definition.attrelid = audit_table
+             and attribute_definition.attnum > 0
+             and not attribute_definition.attisdropped
+             and not (
+                 attribute_definition.attname = 'user_id'
+                 and privilege.grantee = current_owner_id
+                 and privilege.privilege_type = 'UPDATE'
+                 and not privilege.is_grantable
+             )
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention migration found unexpected column ACL entries';
+    end if;
 end;
 $authentication_audit_retention_prerequisites$;
+
+-- authentication_audit_events.sql revokes the owner's ordinary privileges
+-- before restoring its append-only grants. PostgreSQL owners can revoke their
+-- own ordinary privileges, so SECURITY DEFINER does not imply DELETE. The
+-- cleanup owner needs DELETE for the bounded DELETE ... RETURNING statement.
+-- SELECT plus UPDATE(user_id) already cover candidate reads and row locking.
+grant delete on table public.authentication_audit_events to current_user;
 
 create or replace function public.cleanup_authentication_audit_events(
     p_cutoff timestamptz,

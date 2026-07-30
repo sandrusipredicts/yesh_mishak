@@ -67,8 +67,26 @@ def execute_as(
             return cursor.fetchall() if fetch else None
 
 
+def execute_as_session(
+    role: str,
+    sql: str,
+    params: tuple = (),
+    *,
+    fetch: bool = False,
+):
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(f"set session authorization {role}")
+            cursor.execute(sql, params if params else None)
+            return cursor.fetchall() if fetch else None
+
+
 def run_sql_file(path: Path) -> None:
     execute(path.read_text(encoding="utf-8"))
+
+
+def run_sql_file_as_session(role: str, path: Path) -> None:
+    execute_as_session(role, path.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -101,13 +119,39 @@ def clean_database() -> None:
         exception when duplicate_object then null;
         end
         $$;
+        do $$
+        begin
+            create role retention_acl_migrator nologin noinherit;
+        exception when duplicate_object then null;
+        end
+        $$;
         alter role service_role bypassrls;
+        alter role retention_acl_migrator noinherit;
         grant usage on schema public to service_role, anon, authenticated;
+        grant usage, create on schema public to retention_acl_migrator;
+        do $$
+        begin
+            if current_setting('server_version_num')::integer >= 160000 then
+                execute
+                    'grant service_role to retention_acl_migrator '
+                    'with set true';
+                execute
+                    'grant anon, authenticated to retention_acl_migrator '
+                    'with set true';
+            else
+                execute 'grant service_role to retention_acl_migrator';
+                execute
+                    'grant anon, authenticated to retention_acl_migrator';
+            end if;
+        end
+        $$;
         create table public.users (
             id uuid primary key,
             email text,
             name text not null
         );
+        grant select, insert, update, delete, references
+        on table public.users to retention_acl_migrator;
         """
     )
 
@@ -120,6 +164,16 @@ def apply_audit_prerequisites() -> None:
 def apply_retention() -> None:
     apply_audit_prerequisites()
     run_sql_file(RETENTION_MIGRATION)
+
+
+def apply_audit_prerequisites_as_session(role: str) -> None:
+    run_sql_file_as_session(role, AUDIT_MIGRATION)
+    run_sql_file_as_session(role, PHASE_2_MIGRATION)
+
+
+def apply_retention_as_session(role: str) -> None:
+    apply_audit_prerequisites_as_session(role)
+    run_sql_file_as_session(role, RETENTION_MIGRATION)
 
 
 def insert_event(event_id: str, occurred_at: datetime) -> None:
@@ -206,6 +260,48 @@ def retention_snapshot() -> dict[str, list[tuple]]:
             from pg_catalog.pg_class as table_definition
             where table_definition.oid =
                   'public.authentication_audit_events'::regclass
+            """,
+            fetch=True,
+        ),
+        "table_acl": execute(
+            """
+            select
+                coalesce(role_definition.rolname, 'PUBLIC'),
+                privilege.privilege_type,
+                privilege.is_grantable
+            from pg_catalog.pg_class as table_definition
+            cross join lateral pg_catalog.aclexplode(
+                coalesce(
+                    table_definition.relacl,
+                    pg_catalog.acldefault('r', table_definition.relowner)
+                )
+            ) as privilege
+            left join pg_catalog.pg_roles as role_definition
+              on role_definition.oid = privilege.grantee
+            where table_definition.oid =
+                  'public.authentication_audit_events'::regclass
+            order by 1, 2
+            """,
+            fetch=True,
+        ),
+        "column_acl": execute(
+            """
+            select
+                attribute_definition.attname,
+                coalesce(role_definition.rolname, 'PUBLIC'),
+                privilege.privilege_type,
+                privilege.is_grantable
+            from pg_catalog.pg_attribute as attribute_definition
+            cross join lateral pg_catalog.aclexplode(
+                attribute_definition.attacl
+            ) as privilege
+            left join pg_catalog.pg_roles as role_definition
+              on role_definition.oid = privilege.grantee
+            where attribute_definition.attrelid =
+                  'public.authentication_audit_events'::regclass
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+            order by 1, 2, 3
             """,
             fetch=True,
         ),
@@ -380,6 +476,57 @@ def test_exact_security_properties_acl_rls_and_role_enforcement() -> None:
     assert execute(
         """
         select
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                table_definition.relacl,
+                pg_catalog.acldefault('r', table_definition.relowner)
+            )
+        ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where table_definition.oid =
+              'public.authentication_audit_events'::regclass
+        order by 1, 2
+        """,
+        fetch=True,
+    ) == sorted(
+        [
+            (owner, "DELETE", False),
+            (owner, "INSERT", False),
+            (owner, "SELECT", False),
+            ("service_role", "SELECT", False),
+        ]
+    )
+
+    assert execute(
+        """
+        select
+            attribute_definition.attname,
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(
+            attribute_definition.attacl
+        ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where attribute_definition.attrelid =
+              'public.authentication_audit_events'::regclass
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+        order by 1, 2, 3
+        """,
+        fetch=True,
+    ) == [("user_id", owner, "UPDATE", False)]
+
+    assert execute(
+        """
+        select
             pg_catalog.pg_get_userbyid(table_definition.relowner),
             table_definition.relrowsecurity,
             table_definition.relforcerowsecurity,
@@ -399,14 +546,44 @@ def test_exact_security_properties_acl_rls_and_role_enforcement() -> None:
                 'EXECUTE'
             ),
             has_function_privilege('anon', %s, 'EXECUTE'),
-            has_function_privilege('authenticated', %s, 'EXECUTE')
+            has_function_privilege('authenticated', %s, 'EXECUTE'),
+            has_table_privilege(
+                %s,
+                table_definition.oid,
+                'DELETE'
+            ),
+            has_column_privilege(
+                %s,
+                table_definition.oid,
+                'user_id',
+                'UPDATE'
+            )
         from pg_catalog.pg_class as table_definition
         where table_definition.oid =
               'public.authentication_audit_events'::regclass
         """,
-        (cleanup_function, cleanup_function, cleanup_function),
+        (
+            cleanup_function,
+            cleanup_function,
+            cleanup_function,
+            owner,
+            owner,
+        ),
         fetch=True,
-    ) == [(owner, True, False, 0, False, True, False, False)]
+    ) == [
+        (
+            owner,
+            True,
+            False,
+            0,
+            False,
+            True,
+            False,
+            False,
+            True,
+            True,
+        )
+    ]
 
     assert cleanup_as("service_role", CUTOFF, 1) == 0
     for role in ("anon", "authenticated"):
@@ -425,6 +602,259 @@ def test_exact_security_properties_acl_rls_and_role_enforcement() -> None:
         )
 
 
+def test_non_superuser_definer_repairs_hosted_v1_owner_delete_acl() -> None:
+    owner = "retention_acl_migrator"
+    apply_audit_prerequisites_as_session(owner)
+
+    migration_sql = RETENTION_MIGRATION.read_text(encoding="utf-8")
+    owner_delete_grant = (
+        "grant delete on table public.authentication_audit_events "
+        "to current_user;\n"
+    )
+    assert migration_sql.count(owner_delete_grant) == 1
+    hosted_v1_sql = migration_sql.replace(owner_delete_grant, "", 1)
+    execute_as_session(owner, hosted_v1_sql)
+
+    assert execute(
+        """
+        select
+            pg_catalog.pg_get_userbyid(table_definition.relowner),
+            pg_catalog.pg_get_userbyid(function_definition.proowner),
+            function_definition.prosecdef,
+            table_definition.relrowsecurity,
+            table_definition.relforcerowsecurity,
+            has_table_privilege(%s, table_definition.oid, 'SELECT'),
+            has_table_privilege(%s, table_definition.oid, 'UPDATE'),
+            has_column_privilege(
+                %s,
+                table_definition.oid,
+                'user_id',
+                'UPDATE'
+            ),
+            has_table_privilege(%s, table_definition.oid, 'DELETE'),
+            has_table_privilege(
+                'service_role',
+                table_definition.oid,
+                'SELECT'
+            ),
+            has_table_privilege(
+                'service_role',
+                table_definition.oid,
+                'DELETE'
+            ),
+            has_function_privilege(
+                'service_role',
+                function_definition.oid,
+                'EXECUTE'
+            ),
+            has_function_privilege(
+                'anon',
+                function_definition.oid,
+                'EXECUTE'
+            ),
+            has_function_privilege(
+                'authenticated',
+                function_definition.oid,
+                'EXECUTE'
+            ),
+            has_function_privilege(
+                'public',
+                function_definition.oid,
+                'EXECUTE'
+            )
+        from pg_catalog.pg_class as table_definition
+        cross join pg_catalog.pg_proc as function_definition
+        where table_definition.oid =
+              'public.authentication_audit_events'::regclass
+          and function_definition.oid =
+              'public.cleanup_authentication_audit_events(timestamptz,integer)'::regprocedure
+        """,
+        (owner, owner, owner, owner),
+        fetch=True,
+    ) == [
+        (
+            owner,
+            owner,
+            True,
+            True,
+            False,
+            True,
+            False,
+            True,
+            False,
+            True,
+            False,
+            True,
+            False,
+            False,
+            False,
+        )
+    ]
+    assert execute(
+        """
+        select
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            table_definition.relacl
+        ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where table_definition.oid =
+              'public.authentication_audit_events'::regclass
+        order by 1, 2
+        """,
+        fetch=True,
+    ) == sorted(
+        [
+            (owner, "INSERT", False),
+            (owner, "SELECT", False),
+            ("service_role", "SELECT", False),
+        ]
+    )
+    assert execute(
+        """
+        select
+            attribute_definition.attname,
+            coalesce(role_definition.rolname, 'PUBLIC'),
+            privilege.privilege_type,
+            privilege.is_grantable
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(
+            attribute_definition.attacl
+        ) as privilege
+        left join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where attribute_definition.attrelid =
+              'public.authentication_audit_events'::regclass
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+        order by 1, 2, 3
+        """,
+        fetch=True,
+    ) == [("user_id", owner, "UPDATE", False)]
+
+    event_ids = [str(uuid4()) for _ in range(5)]
+    insert_event(event_ids[0], CUTOFF - timedelta(seconds=3))
+    insert_event(event_ids[1], CUTOFF - timedelta(seconds=2))
+    insert_event(event_ids[2], CUTOFF)
+    insert_event(event_ids[3], CUTOFF + timedelta(seconds=1))
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        cleanup_as("service_role", CUTOFF, 1)
+    assert execute(
+        """
+        select count(*)
+        from public.authentication_audit_events
+        where id = any(%s::uuid[])
+        """,
+        (event_ids[:4],),
+        fetch=True,
+    ) == [(4,)]
+
+    run_sql_file_as_session(owner, PREFLIGHT)
+    run_sql_file_as_session(owner, RETENTION_MIGRATION)
+
+    assert execute(
+        """
+        select
+            has_table_privilege(
+                %s,
+                'public.authentication_audit_events',
+                'DELETE'
+            ),
+            has_table_privilege(
+                'service_role',
+                'public.authentication_audit_events',
+                'DELETE'
+            )
+        """,
+        (owner,),
+        fetch=True,
+    ) == [(True, False)]
+    assert cleanup_as("service_role", CUTOFF, 1) == 1
+    assert execute(
+        """
+        select id::text
+        from public.authentication_audit_events
+        order by occurred_at, id
+        """,
+        fetch=True,
+    ) == [
+        (event_ids[1],),
+        (event_ids[2],),
+        (event_ids[3],),
+    ]
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        execute_as(
+            "service_role",
+            """
+            delete from public.authentication_audit_events
+            where occurred_at < %s
+            """,
+            (CUTOFF,),
+        )
+    for role in ("anon", "authenticated"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            cleanup_as(role, CUTOFF, 1)
+
+    insert_event(event_ids[4], CUTOFF - timedelta(seconds=1))
+    execute(
+        """
+        create function public.reject_retention_acl_regression_delete()
+        returns trigger
+        language plpgsql
+        as $$
+        begin
+            raise exception 'synthetic retention ACL rollback';
+        end;
+        $$;
+        create trigger reject_retention_acl_regression_delete
+        before delete on public.authentication_audit_events
+        for each statement
+        execute function public.reject_retention_acl_regression_delete();
+        """,
+    )
+    with pytest.raises(
+        psycopg.errors.RaiseException,
+        match="synthetic retention ACL rollback",
+    ):
+        cleanup_as("service_role", CUTOFF, 1000)
+    assert execute(
+        """
+        select id::text
+        from public.authentication_audit_events
+        where id in (%s, %s)
+        order by occurred_at, id
+        """,
+        (event_ids[1], event_ids[4]),
+        fetch=True,
+    ) == [(event_ids[1],), (event_ids[4],)]
+
+    execute(
+        """
+        drop trigger reject_retention_acl_regression_delete
+            on public.authentication_audit_events;
+        drop function public.reject_retention_acl_regression_delete();
+        """,
+    )
+    assert cleanup_as("service_role", CUTOFF, 1000) == 2
+    assert cleanup_as("service_role", CUTOFF, 1000) == 0
+    assert execute(
+        """
+        select id::text
+        from public.authentication_audit_events
+        order by occurred_at, id
+        """,
+        fetch=True,
+    ) == [(event_ids[2],), (event_ids[3],)]
+
+    run_sql_file_as_session(owner, VERIFICATION)
+
+
 def test_late_migration_failure_rolls_back_function_creation_and_acl() -> None:
     apply_audit_prerequisites()
     migration_sql = RETENTION_MIGRATION.read_text(encoding="utf-8")
@@ -438,12 +868,24 @@ def test_late_migration_failure_rolls_back_function_creation_and_acl() -> None:
 
     assert execute(
         """
-        select to_regprocedure(
-            'public.cleanup_authentication_audit_events(timestamptz,integer)'
-        )
+        select
+            to_regprocedure(
+                'public.cleanup_authentication_audit_events(timestamptz,integer)'
+            ),
+            exists (
+                select 1
+                from pg_catalog.pg_class as table_definition
+                cross join lateral pg_catalog.aclexplode(
+                    table_definition.relacl
+                ) as privilege
+                where table_definition.oid =
+                      'public.authentication_audit_events'::regclass
+                  and privilege.grantee = to_regrole(current_user)
+                  and privilege.privilege_type = 'DELETE'
+            )
         """,
         fetch=True,
-    ) == [(None,)]
+    ) == [(None, False)]
 
 
 def test_failed_delete_statement_preserves_all_existing_rows_for_retry() -> None:

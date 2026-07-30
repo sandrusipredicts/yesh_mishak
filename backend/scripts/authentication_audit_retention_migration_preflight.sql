@@ -125,10 +125,224 @@ begin
             message = 'authentication audit retention preflight failed: unexpected cleanup RPC overload exists';
     end if;
 
+    if not has_table_privilege(current_user, audit_table, 'SELECT')
+       or not has_table_privilege(current_user, audit_table, 'INSERT')
+       or not has_column_privilege(
+           current_user,
+           audit_table,
+           'user_id',
+           'UPDATE'
+       )
+       or not has_table_privilege(
+           'service_role',
+           audit_table,
+           'SELECT'
+       )
+       or has_table_privilege(
+           'service_role',
+           audit_table,
+           'DELETE'
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention preflight failed: prerequisite effective privileges are unsafe';
+    end if;
+
+    if (
+        select count(*)
+        from pg_catalog.pg_class as table_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                table_definition.relacl,
+                pg_catalog.acldefault('r', table_definition.relowner)
+            )
+        ) as privilege
+        where table_definition.oid = audit_table
+          and (
+              (
+                  privilege.grantee = current_owner_id
+                  and privilege.privilege_type in ('SELECT', 'INSERT')
+                  and not privilege.is_grantable
+              )
+              or (
+                  privilege.grantee = service_role_id
+                  and privilege.privilege_type = 'SELECT'
+                  and not privilege.is_grantable
+              )
+          )
+    ) <> 3
+       or exists (
+           select 1
+           from pg_catalog.pg_class as table_definition
+           cross join lateral pg_catalog.aclexplode(
+               coalesce(
+                   table_definition.relacl,
+                   pg_catalog.acldefault('r', table_definition.relowner)
+               )
+           ) as privilege
+           where table_definition.oid = audit_table
+             and not (
+                 (
+                     privilege.grantee = current_owner_id
+                     and privilege.privilege_type in (
+                         'SELECT',
+                         'INSERT',
+                         'DELETE'
+                     )
+                     and not privilege.is_grantable
+                 )
+                 or (
+                     privilege.grantee = service_role_id
+                     and privilege.privilege_type = 'SELECT'
+                     and not privilege.is_grantable
+                 )
+             )
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention preflight failed: table ACL is outside the pre- or post-repair allowlist';
+    end if;
+
+    if (
+        select count(*)
+        from pg_catalog.pg_attribute as attribute_definition
+        cross join lateral pg_catalog.aclexplode(
+            attribute_definition.attacl
+        ) as privilege
+        where attribute_definition.attrelid = audit_table
+          and attribute_definition.attnum > 0
+          and not attribute_definition.attisdropped
+          and attribute_definition.attname = 'user_id'
+          and privilege.grantee = current_owner_id
+          and privilege.privilege_type = 'UPDATE'
+          and not privilege.is_grantable
+    ) <> 1
+       or exists (
+           select 1
+           from pg_catalog.pg_attribute as attribute_definition
+           cross join lateral pg_catalog.aclexplode(
+               attribute_definition.attacl
+           ) as privilege
+           where attribute_definition.attrelid = audit_table
+             and attribute_definition.attnum > 0
+             and not attribute_definition.attisdropped
+             and not (
+                 attribute_definition.attname = 'user_id'
+                 and privilege.grantee = current_owner_id
+                 and privilege.privilege_type = 'UPDATE'
+                 and not privilege.is_grantable
+             )
+       ) then
+        raise exception using
+            errcode = '42501',
+            message = 'authentication audit retention preflight failed: column ACL differs';
+    end if;
+
     if cleanup_function is null then
         raise notice 'authentication audit retention preflight passed: cleanup RPC is not yet applied';
+    elsif not has_table_privilege(
+        current_user,
+        audit_table,
+        'DELETE'
+    ) then
+        raise notice 'authentication audit retention preflight passed: owner DELETE is missing and will be repaired transactionally';
     else
         raise notice 'authentication audit retention preflight passed: transactional reapplication is allowed';
     end if;
 end;
 $authentication_audit_retention_preflight$;
+
+-- Preserve this bounded, identifier-free row with rollout evidence. Before
+-- repairing the first migration version it shows owner_delete = false while
+-- service_execute = true; after migration it shows owner_delete = true.
+select
+    pg_catalog.pg_get_userbyid(table_definition.relowner) as table_owner,
+    (
+        select pg_catalog.pg_get_userbyid(function_definition.proowner)
+        from pg_catalog.pg_proc as function_definition
+        where function_definition.oid = to_regprocedure(
+            'public.cleanup_authentication_audit_events(timestamptz,integer)'
+        )
+    ) as cleanup_function_owner,
+    table_definition.relacl::text as table_acl,
+    coalesce(
+        (
+            select pg_catalog.string_agg(
+                attribute_definition.attname
+                || '='
+                || attribute_definition.attacl::text,
+                ';'
+                order by attribute_definition.attnum
+            )
+            from pg_catalog.pg_attribute as attribute_definition
+            where attribute_definition.attrelid = table_definition.oid
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+              and attribute_definition.attacl is not null
+        ),
+        ''
+    ) as column_acl,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'SELECT'
+    ) as owner_select,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'UPDATE'
+    ) as owner_table_update,
+    has_column_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'user_id',
+        'UPDATE'
+    ) as owner_user_id_update,
+    has_table_privilege(
+        pg_catalog.pg_get_userbyid(table_definition.relowner),
+        table_definition.oid,
+        'DELETE'
+    ) as owner_delete,
+    has_table_privilege(
+        'service_role',
+        table_definition.oid,
+        'SELECT'
+    ) as service_select,
+    has_table_privilege(
+        'service_role',
+        table_definition.oid,
+        'DELETE'
+    ) as service_delete,
+    has_function_privilege(
+        'service_role',
+        to_regprocedure(
+            'public.cleanup_authentication_audit_events(timestamptz,integer)'
+        ),
+        'EXECUTE'
+    ) as service_execute,
+    has_function_privilege(
+        'anon',
+        to_regprocedure(
+            'public.cleanup_authentication_audit_events(timestamptz,integer)'
+        ),
+        'EXECUTE'
+    ) as anon_execute,
+    has_function_privilege(
+        'authenticated',
+        to_regprocedure(
+            'public.cleanup_authentication_audit_events(timestamptz,integer)'
+        ),
+        'EXECUTE'
+    ) as authenticated_execute,
+    has_function_privilege(
+        'public',
+        to_regprocedure(
+            'public.cleanup_authentication_audit_events(timestamptz,integer)'
+        ),
+        'EXECUTE'
+    ) as public_execute,
+    table_definition.relrowsecurity as rls_enabled,
+    table_definition.relforcerowsecurity as force_rls
+from pg_catalog.pg_class as table_definition
+where table_definition.oid =
+      'public.authentication_audit_events'::pg_catalog.regclass;
