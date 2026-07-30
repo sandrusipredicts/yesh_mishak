@@ -10,11 +10,20 @@ on:
       - "backend/tests/test_analytics_events_migration_postgres.py"
       - "backend/migrations/authentication_audit_events.sql"
       - "backend/migrations/authentication_audit_revocation_phase_2.sql"
+      - "backend/migrations/authentication_audit_retention.sql"
       - "backend/scripts/authentication_audit_events_migration_preflight.sql"
+      - "backend/scripts/authentication_audit_retention_migration_preflight.sql"
       - "backend/scripts/verify_authentication_audit_events_migration.sql"
+      - "backend/scripts/verify_authentication_audit_retention_migration.sql"
       - "backend/scripts/verify_postgres_junit_reports.py"
       - "backend/tests/test_authentication_audit_events_migration_postgres.py"
+      - "backend/tests/test_authentication_audit_retention_migration_postgres.py"
       - "backend/tests/test_postgres_junit_guard.py"
+      - "backend/app/services/authentication_audit_retention.py"
+      - "backend/app/jobs/cleanup_authentication_audit_events.py"
+      - "backend/app/services/job_runs.py"
+      - "backend/tests/test_authentication_audit_retention.py"
+      - "docs/issue-1031-authentication-audit-retention.md"
       - "backend/schema.sql"
       - ".github/workflows/analytics-events-postgres.yml"
 
@@ -112,6 +121,15 @@ jobs:
           python -m pytest
           tests/test_authentication_audit_events_migration_postgres.py
           --junitxml=authentication-audit-postgres-results.xml
+          -q
+      - name: Run authentication audit retention PostgreSQL checks
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: >-
+          python -m pytest
+          tests/test_authentication_audit_retention_migration_postgres.py
+          --junitxml=authentication-audit-retention-postgres-results.xml
           -q
       - name: Verify PostgreSQL tests executed without skips
         if: always()

@@ -13,6 +13,9 @@ from scripts.verify_postgres_junit_reports import (
 
 ANALYTICS_MODULE = "test_analytics_events_migration_postgres"
 AUTHENTICATION_AUDIT_MODULE = "test_authentication_audit_events_migration_postgres"
+AUTHENTICATION_AUDIT_RETENTION_MODULE = (
+    "test_authentication_audit_retention_migration_postgres"
+)
 
 
 def _write_report(
@@ -49,25 +52,35 @@ def _write_report(
 def _requirements(
     analytics_report: Path,
     authentication_audit_report: Path,
-) -> tuple[RequiredReport, RequiredReport]:
+    authentication_audit_retention_report: Path,
+) -> tuple[RequiredReport, RequiredReport, RequiredReport]:
     return (
         RequiredReport(analytics_report, ANALYTICS_MODULE),
         RequiredReport(authentication_audit_report, AUTHENTICATION_AUDIT_MODULE),
+        RequiredReport(
+            authentication_audit_retention_report,
+            AUTHENTICATION_AUDIT_RETENTION_MODULE,
+        ),
     )
 
 
 def test_guard_rejects_reports_containing_only_analytics(tmp_path: Path) -> None:
     analytics = tmp_path / "analytics.xml"
     mislabeled_authentication = tmp_path / "authentication.xml"
+    retention = tmp_path / "retention.xml"
     _write_report(analytics, module_name=ANALYTICS_MODULE)
     _write_report(mislabeled_authentication, module_name=ANALYTICS_MODULE)
+    _write_report(
+        retention,
+        module_name=AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    )
 
     with pytest.raises(
         PostgreSQLJUnitVerificationError,
         match="authentication_audit_events",
     ):
         verify_required_reports(
-            _requirements(analytics, mislabeled_authentication)
+            _requirements(analytics, mislabeled_authentication, retention)
         )
 
 
@@ -76,35 +89,74 @@ def test_guard_rejects_reports_containing_only_authentication_audit(
 ) -> None:
     mislabeled_analytics = tmp_path / "analytics.xml"
     authentication = tmp_path / "authentication.xml"
+    retention = tmp_path / "retention.xml"
     _write_report(mislabeled_analytics, module_name=AUTHENTICATION_AUDIT_MODULE)
     _write_report(authentication, module_name=AUTHENTICATION_AUDIT_MODULE)
+    _write_report(
+        retention,
+        module_name=AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    )
 
     with pytest.raises(
         PostgreSQLJUnitVerificationError,
         match="analytics_events",
     ):
         verify_required_reports(
-            _requirements(mislabeled_analytics, authentication)
+            _requirements(mislabeled_analytics, authentication, retention)
         )
 
 
-def test_guard_accepts_both_executed_non_skipped_modules(tmp_path: Path) -> None:
+def test_guard_rejects_missing_retention_module(tmp_path: Path) -> None:
     analytics = tmp_path / "analytics.xml"
     authentication = tmp_path / "authentication.xml"
+    mislabeled_retention = tmp_path / "retention.xml"
     _write_report(analytics, module_name=ANALYTICS_MODULE)
     _write_report(authentication, module_name=AUTHENTICATION_AUDIT_MODULE)
+    _write_report(
+        mislabeled_retention,
+        module_name=AUTHENTICATION_AUDIT_MODULE,
+    )
+
+    with pytest.raises(
+        PostgreSQLJUnitVerificationError,
+        match="authentication_audit_retention",
+    ):
+        verify_required_reports(
+            _requirements(
+                analytics,
+                authentication,
+                mislabeled_retention,
+            )
+        )
+
+
+def test_guard_accepts_all_executed_non_skipped_modules(tmp_path: Path) -> None:
+    analytics = tmp_path / "analytics.xml"
+    authentication = tmp_path / "authentication.xml"
+    retention = tmp_path / "retention.xml"
+    _write_report(analytics, module_name=ANALYTICS_MODULE)
+    _write_report(authentication, module_name=AUTHENTICATION_AUDIT_MODULE)
+    _write_report(
+        retention,
+        module_name=AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    )
 
     assert verify_required_reports(
-        _requirements(analytics, authentication)
+        _requirements(analytics, authentication, retention)
     ) == {
         ANALYTICS_MODULE: 1,
         AUTHENTICATION_AUDIT_MODULE: 1,
+        AUTHENTICATION_AUDIT_RETENTION_MODULE: 1,
     }
 
 
 @pytest.mark.parametrize(
     "skipped_module",
-    [ANALYTICS_MODULE, AUTHENTICATION_AUDIT_MODULE],
+    [
+        ANALYTICS_MODULE,
+        AUTHENTICATION_AUDIT_MODULE,
+        AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    ],
 )
 def test_guard_rejects_any_skipped_postgresql_test(
     tmp_path: Path,
@@ -112,6 +164,7 @@ def test_guard_rejects_any_skipped_postgresql_test(
 ) -> None:
     analytics = tmp_path / "analytics.xml"
     authentication = tmp_path / "authentication.xml"
+    retention = tmp_path / "retention.xml"
     _write_report(
         analytics,
         module_name=ANALYTICS_MODULE,
@@ -122,13 +175,18 @@ def test_guard_rejects_any_skipped_postgresql_test(
         module_name=AUTHENTICATION_AUDIT_MODULE,
         skipped=skipped_module == AUTHENTICATION_AUDIT_MODULE,
     )
+    _write_report(
+        retention,
+        module_name=AUTHENTICATION_AUDIT_RETENTION_MODULE,
+        skipped=skipped_module == AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    )
 
     with pytest.raises(
         PostgreSQLJUnitVerificationError,
         match="skipped PostgreSQL tests",
     ):
         verify_required_reports(
-            _requirements(analytics, authentication)
+            _requirements(analytics, authentication, retention)
         )
 
 
@@ -139,6 +197,7 @@ def test_guard_rejects_failures_and_errors(
 ) -> None:
     analytics = tmp_path / "analytics.xml"
     authentication = tmp_path / "authentication.xml"
+    retention = tmp_path / "retention.xml"
     _write_report(
         analytics,
         module_name=ANALYTICS_MODULE,
@@ -146,11 +205,15 @@ def test_guard_rejects_failures_and_errors(
         errored=result_kind == "error",
     )
     _write_report(authentication, module_name=AUTHENTICATION_AUDIT_MODULE)
+    _write_report(
+        retention,
+        module_name=AUTHENTICATION_AUDIT_RETENTION_MODULE,
+    )
 
     with pytest.raises(
         PostgreSQLJUnitVerificationError,
         match="failures or errors",
     ):
         verify_required_reports(
-            _requirements(analytics, authentication)
+            _requirements(analytics, authentication, retention)
         )

@@ -869,6 +869,106 @@ grant execute on function public.record_authentication_audit_event(
     uuid, text, text, text, uuid, text, text, text, text
 ) to service_role;
 
+-- Authentication audit retention is fixed at 180 days by the scheduled job.
+-- service_role can delete expired rows only through this bounded RPC.
+create or replace function public.cleanup_authentication_audit_events(
+    p_cutoff timestamptz,
+    p_batch_limit integer
+)
+returns integer
+language plpgsql
+volatile
+parallel unsafe
+security definer
+set search_path = pg_catalog
+as $$
+declare
+    deleted_count integer;
+begin
+    if p_cutoff is null or not pg_catalog.isfinite(p_cutoff) then
+        raise exception using
+            errcode = '22023',
+            message = 'p_cutoff must be a finite timestamp';
+    end if;
+
+    if p_cutoff > pg_catalog.now() then
+        raise exception using
+            errcode = '22023',
+            message = 'p_cutoff must not be in the future';
+    end if;
+
+    if p_batch_limit is null
+       or p_batch_limit < 1
+       or p_batch_limit > 1000 then
+        raise exception using
+            errcode = '22023',
+            message = 'p_batch_limit must be between 1 and 1000';
+    end if;
+
+    with candidates as materialized (
+        select audit_event.id
+        from public.authentication_audit_events as audit_event
+        where audit_event.occurred_at < p_cutoff
+        order by audit_event.occurred_at asc, audit_event.id asc
+        limit p_batch_limit
+        for update of audit_event skip locked
+    ),
+    deleted_rows as (
+        delete from public.authentication_audit_events as audit_event
+        using candidates
+        where audit_event.id = candidates.id
+          and audit_event.occurred_at < p_cutoff
+        returning audit_event.id
+    )
+    select pg_catalog.count(*)::integer
+    into deleted_count
+    from deleted_rows;
+
+    return deleted_count;
+end;
+$$;
+
+alter function public.cleanup_authentication_audit_events(
+    timestamptz, integer
+) owner to current_user;
+
+do $authentication_audit_retention_function_acl$
+declare
+    grantee_name text;
+begin
+    revoke all privileges on function public.cleanup_authentication_audit_events(
+        timestamptz, integer
+    ) from public cascade;
+
+    for grantee_name in
+        select distinct role_definition.rolname
+        from pg_catalog.pg_proc as function_definition
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                function_definition.proacl,
+                pg_catalog.acldefault('f', function_definition.proowner)
+            )
+        ) as privilege
+        join pg_catalog.pg_roles as role_definition
+          on role_definition.oid = privilege.grantee
+        where function_definition.oid =
+              'public.cleanup_authentication_audit_events(timestamptz,integer)'::pg_catalog.regprocedure
+    loop
+        execute pg_catalog.format(
+            'revoke all privileges on function public.cleanup_authentication_audit_events(timestamptz,integer) from %I cascade',
+            grantee_name
+        );
+    end loop;
+end;
+$authentication_audit_retention_function_acl$;
+
+grant execute on function public.cleanup_authentication_audit_events(
+    timestamptz, integer
+) to current_user;
+grant execute on function public.cleanup_authentication_audit_events(
+    timestamptz, integer
+) to service_role;
+
 create or replace function public.cleanup_api_request_metrics(retention_days integer default 14)
 returns integer
 language plpgsql
