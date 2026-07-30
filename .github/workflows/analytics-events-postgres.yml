@@ -11,19 +11,24 @@ on:
       - "backend/migrations/authentication_audit_events.sql"
       - "backend/migrations/authentication_audit_revocation_phase_2.sql"
       - "backend/migrations/authentication_audit_retention.sql"
+      - "backend/migrations/security_request_attribution.sql"
       - "backend/scripts/authentication_audit_events_migration_preflight.sql"
       - "backend/scripts/authentication_audit_retention_migration_preflight.sql"
       - "backend/scripts/verify_authentication_audit_events_migration.sql"
       - "backend/scripts/verify_authentication_audit_retention_migration.sql"
+      - "backend/scripts/security_request_attribution_migration_preflight.sql"
+      - "backend/scripts/verify_security_request_attribution_migration.sql"
       - "backend/scripts/verify_postgres_junit_reports.py"
       - "backend/tests/test_authentication_audit_events_migration_postgres.py"
       - "backend/tests/test_authentication_audit_retention_migration_postgres.py"
+      - "backend/tests/test_security_request_attribution_migration_postgres.py"
       - "backend/tests/test_postgres_junit_guard.py"
       - "backend/app/services/authentication_audit_retention.py"
       - "backend/app/jobs/cleanup_authentication_audit_events.py"
       - "backend/app/services/job_runs.py"
       - "backend/tests/test_authentication_audit_retention.py"
       - "docs/issue-1031-authentication-audit-retention.md"
+      - "docs/issue-1031-security-attribution-schema.md"
       - "backend/schema.sql"
       - ".github/workflows/analytics-events-postgres.yml"
 
@@ -49,6 +54,7 @@ jobs:
     env:
       ANALYTICS_EVENTS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
       AUTHENTICATION_AUDIT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
+      SECURITY_ATTRIBUTION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/analytics_events_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,6 +77,7 @@ jobs:
           variables = (
               "ANALYTICS_EVENTS_DATABASE_URL",
               "AUTHENTICATION_AUDIT_DATABASE_URL",
+              "SECURITY_ATTRIBUTION_DATABASE_URL",
           )
           missing = [name for name in variables if not os.environ.get(name)]
           if missing:
@@ -130,6 +137,15 @@ jobs:
           python -m pytest
           tests/test_authentication_audit_retention_migration_postgres.py
           --junitxml=authentication-audit-retention-postgres-results.xml
+          -q
+      - name: Run security attribution PostgreSQL checks
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: >-
+          python -m pytest
+          tests/test_security_request_attribution_migration_postgres.py
+          --junitxml=security-attribution-postgres-results.xml
           -q
       - name: Verify PostgreSQL tests executed without skips
         if: always()

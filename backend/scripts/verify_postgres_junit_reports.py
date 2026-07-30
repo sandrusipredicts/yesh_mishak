@@ -78,6 +78,10 @@ DEFAULT_REQUIREMENTS = (
         Path("authentication-audit-retention-postgres-results.xml"),
         "test_authentication_audit_retention_migration_postgres",
     ),
+    RequiredReport(
+        Path("security-attribution-postgres-results.xml"),
+        "test_security_request_attribution_migration_postgres",
+    ),
 )
 
 
