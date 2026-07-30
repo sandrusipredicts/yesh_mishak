@@ -9,9 +9,12 @@ on:
       - "backend/scripts/verify_analytics_events_migration.sql"
       - "backend/tests/test_analytics_events_migration_postgres.py"
       - "backend/migrations/authentication_audit_events.sql"
+      - "backend/migrations/authentication_audit_revocation_phase_2.sql"
       - "backend/scripts/authentication_audit_events_migration_preflight.sql"
       - "backend/scripts/verify_authentication_audit_events_migration.sql"
+      - "backend/scripts/verify_postgres_junit_reports.py"
       - "backend/tests/test_authentication_audit_events_migration_postgres.py"
+      - "backend/tests/test_postgres_junit_guard.py"
       - "backend/schema.sql"
       - ".github/workflows/analytics-events-postgres.yml"
 
@@ -49,6 +52,34 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
+      - name: Verify PostgreSQL test prerequisites
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+
+          variables = (
+              "ANALYTICS_EVENTS_DATABASE_URL",
+              "AUTHENTICATION_AUDIT_DATABASE_URL",
+          )
+          missing = [name for name in variables if not os.environ.get(name)]
+          if missing:
+              raise SystemExit(
+                  "missing required PostgreSQL test URLs: " + ", ".join(missing)
+              )
+          for name in variables:
+              with psycopg.connect(os.environ[name]) as connection:
+                  with connection.cursor() as cursor:
+                      cursor.execute("select 1")
+                      if cursor.fetchone() != (1,):
+                          raise SystemExit(f"{name} did not execute a database query")
+          PY
+      - name: Verify PostgreSQL report guard
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_postgres_junit_guard.py -q
       - name: Run focused authentication audit privilege checks
         working-directory: backend
         env:
@@ -64,12 +95,25 @@ jobs:
           tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_ordinary_effective_and_direct_access
           tests/test_authentication_audit_events_migration_postgres.py::test_verification_rejects_direct_acl_for_bypassrls_role
           -q
-      - name: Run observability migration PostgreSQL checks
+      - name: Run analytics migration PostgreSQL checks
         working-directory: backend
         env:
           PYTHONPATH: .
         run: >-
           python -m pytest
           tests/test_analytics_events_migration_postgres.py
-          tests/test_authentication_audit_events_migration_postgres.py
+          --junitxml=analytics-postgres-results.xml
           -q
+      - name: Run authentication audit migration PostgreSQL checks
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: >-
+          python -m pytest
+          tests/test_authentication_audit_events_migration_postgres.py
+          --junitxml=authentication-audit-postgres-results.xml
+          -q
+      - name: Verify PostgreSQL tests executed without skips
+        if: always()
+        working-directory: backend
+        run: python scripts/verify_postgres_junit_reports.py

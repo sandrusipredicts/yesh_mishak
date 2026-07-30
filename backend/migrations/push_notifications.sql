@@ -30,7 +30,7 @@ begin
                 from unnest(c.conkey) as cols(attnum)
                 join pg_attribute a
                     on a.attrelid = c.conrelid and a.attnum = cols.attnum
-            ) = array['user_id']
+            ) = array['user_id']::name[]
     loop
         execute format('alter table push_tokens drop constraint %I', con.conname);
     end loop;
@@ -45,7 +45,7 @@ begin
                 from unnest(c.conkey) as cols(attnum)
                 join pg_attribute a
                     on a.attrelid = c.conrelid and a.attnum = cols.attnum
-            ) = array['token']
+            ) = array['token']::name[]
     ) then
         alter table push_tokens add constraint push_tokens_token_key unique (token);
     end if;

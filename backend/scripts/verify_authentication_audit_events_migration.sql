@@ -109,18 +109,24 @@ create table public.authentication_audit_events_expected (
     check (
         event_type <> 'token_revocation'
         or (
-            revocation_reason in (
-                'logout',
-                'google_unlinked',
-                'password_set',
-                'password_removed',
-                'account_deleted'
-            )
+            revocation_reason = 'logout'
             and auth_method = 'bearer'
+        )
+        or (
+            revocation_reason = 'google_unlinked'
+            and auth_method = 'password'
+        )
+        or (
+            revocation_reason in ('password_set', 'password_removed')
+            and auth_method = 'google'
         )
         or (
             revocation_reason = 'password_reset'
             and auth_method = 'recovery'
+        )
+        or (
+            revocation_reason = 'account_deleted'
+            and auth_method in ('password', 'google')
         )
     )
 );

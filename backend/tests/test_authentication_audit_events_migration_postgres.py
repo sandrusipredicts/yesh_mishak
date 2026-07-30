@@ -9,11 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import psycopg
 import pytest
 
-psycopg = pytest.importorskip("psycopg")
+from app.services.account_deletion import _validated_delete_account_response
 
 DATABASE_URL = os.getenv("AUTHENTICATION_AUDIT_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -22,11 +24,21 @@ pytestmark = pytest.mark.skipif(
 )
 BACKEND_DIR = Path(__file__).parents[1]
 MIGRATION = BACKEND_DIR / "migrations" / "authentication_audit_events.sql"
+PHASE_2_MIGRATION = (
+    BACKEND_DIR / "migrations" / "authentication_audit_revocation_phase_2.sql"
+)
 PREFLIGHT = (
     BACKEND_DIR / "scripts" / "authentication_audit_events_migration_preflight.sql"
 )
 VERIFICATION = (
     BACKEND_DIR / "scripts" / "verify_authentication_audit_events_migration.sql"
+)
+SCHEMA = BACKEND_DIR / "schema.sql"
+PUSH_NOTIFICATIONS_MIGRATION = (
+    BACKEND_DIR / "migrations" / "push_notifications.sql"
+)
+PUSH_TOKEN_METADATA_MIGRATION = (
+    BACKEND_DIR / "migrations" / "push_token_device_metadata.sql"
 )
 
 
@@ -133,17 +145,57 @@ def clean_database() -> None:
 
 def apply_migration() -> None:
     run_sql_file(MIGRATION)
+    run_sql_file(PHASE_2_MIGRATION)
 
 
 def apply_migration_as_session(role: str) -> None:
     run_sql_file_as_session(role, MIGRATION)
+    run_sql_file_as_session(role, PHASE_2_MIGRATION)
+
+
+def reset_public_for_full_schema() -> None:
+    execute(
+        """
+        drop schema if exists public cascade;
+        create schema public;
+        create schema if not exists auth;
+        create or replace function auth.uid()
+        returns uuid
+        language sql
+        stable
+        as $auth_uid$
+            select null::uuid
+        $auth_uid$;
+        """
+    )
+
+
+def reset_public_for_audit_migrations() -> None:
+    execute(
+        """
+        drop schema if exists public cascade;
+        create schema public;
+        grant usage on schema public to service_role, anon, authenticated;
+        grant usage, create on schema public to authentication_audit_migrator;
+        create table public.users (
+            id uuid primary key,
+            email text,
+            name text not null
+        );
+        grant select, insert, update, delete, references
+        on table public.users to authentication_audit_migrator;
+        """
+    )
 
 
 def audit_object_snapshot() -> dict[str, list[tuple]]:
     return {
         "table": execute(
             """
-            select relowner, relacl::text, relrowsecurity, relforcerowsecurity
+            select
+                pg_catalog.pg_get_userbyid(relowner),
+                relrowsecurity,
+                relforcerowsecurity
             from pg_catalog.pg_class
             where oid='public.authentication_audit_events'::regclass
             """,
@@ -151,20 +203,61 @@ def audit_object_snapshot() -> dict[str, list[tuple]]:
         ),
         "columns": execute(
             """
-            select attname, attacl::text
-            from pg_catalog.pg_attribute
-            where attrelid='public.authentication_audit_events'::regclass
-              and attnum > 0
-              and not attisdropped
-            order by attnum
+            select
+                attribute_definition.attnum,
+                attribute_definition.attname,
+                pg_catalog.format_type(
+                    attribute_definition.atttypid,
+                    attribute_definition.atttypmod
+                ),
+                attribute_definition.attnotnull,
+                pg_catalog.pg_get_expr(
+                    default_definition.adbin,
+                    default_definition.adrelid
+                )
+            from pg_catalog.pg_attribute as attribute_definition
+            left join pg_catalog.pg_attrdef as default_definition
+              on default_definition.adrelid=attribute_definition.attrelid
+             and default_definition.adnum=attribute_definition.attnum
+            where attribute_definition.attrelid =
+                  'public.authentication_audit_events'::regclass
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+            order by attribute_definition.attnum
+            """,
+            fetch=True,
+        ),
+        "constraints": execute(
+            """
+            select
+                constraint_definition.conname,
+                constraint_definition.contype,
+                pg_catalog.pg_get_constraintdef(
+                    constraint_definition.oid,
+                    true
+                )
+            from pg_catalog.pg_constraint as constraint_definition
+            where constraint_definition.conrelid =
+                  'public.authentication_audit_events'::regclass
+            order by constraint_definition.conname
             """,
             fetch=True,
         ),
         "function": execute(
             """
-            select proowner, proacl::text, prosecdef, proconfig
-            from pg_catalog.pg_proc
-            where oid =
+            select
+                pg_catalog.pg_get_userbyid(function_definition.proowner),
+                pg_catalog.pg_get_function_identity_arguments(
+                    function_definition.oid
+                ),
+                pg_catalog.pg_get_function_result(function_definition.oid),
+                function_definition.prosecdef,
+                function_definition.provolatile,
+                function_definition.proparallel,
+                function_definition.proconfig,
+                pg_catalog.pg_get_functiondef(function_definition.oid)
+            from pg_catalog.pg_proc as function_definition
+            where function_definition.oid =
                   'public.record_authentication_audit_event(uuid,text,text,text,uuid,text,text,text,text)'::regprocedure
             """,
             fetch=True,
@@ -183,6 +276,128 @@ def audit_object_snapshot() -> dict[str, list[tuple]]:
             where index_catalog.indrelid =
                   'public.authentication_audit_events'::regclass
             order by index_definition.relname
+            """,
+            fetch=True,
+        ),
+        "policies": execute(
+            """
+            select
+                policy_definition.polname,
+                policy_definition.polcmd,
+                policy_definition.polpermissive,
+                policy_definition.polroles,
+                pg_catalog.pg_get_expr(
+                    policy_definition.polqual,
+                    policy_definition.polrelid
+                ),
+                pg_catalog.pg_get_expr(
+                    policy_definition.polwithcheck,
+                    policy_definition.polrelid
+                )
+            from pg_catalog.pg_policy as policy_definition
+            where policy_definition.polrelid =
+                  'public.authentication_audit_events'::regclass
+            order by policy_definition.polname
+            """,
+            fetch=True,
+        ),
+        "direct_acls": direct_audit_acl_rows(),
+    }
+
+
+def push_token_object_snapshot() -> dict[str, list[tuple]]:
+    return {
+        "table": execute(
+            """
+            select
+                pg_catalog.pg_get_userbyid(table_definition.relowner),
+                table_definition.relrowsecurity,
+                table_definition.relforcerowsecurity,
+                table_definition.relacl::text
+            from pg_catalog.pg_class as table_definition
+            where table_definition.oid = 'public.push_tokens'::regclass
+            """,
+            fetch=True,
+        ),
+        "columns": execute(
+            """
+            select
+                attribute_definition.attnum,
+                attribute_definition.attname,
+                pg_catalog.format_type(
+                    attribute_definition.atttypid,
+                    attribute_definition.atttypmod
+                ),
+                attribute_definition.attnotnull,
+                pg_catalog.pg_get_expr(
+                    default_definition.adbin,
+                    default_definition.adrelid
+                ),
+                attribute_definition.attacl::text
+            from pg_catalog.pg_attribute as attribute_definition
+            left join pg_catalog.pg_attrdef as default_definition
+              on default_definition.adrelid = attribute_definition.attrelid
+             and default_definition.adnum = attribute_definition.attnum
+            where attribute_definition.attrelid =
+                  'public.push_tokens'::regclass
+              and attribute_definition.attnum > 0
+              and not attribute_definition.attisdropped
+            order by attribute_definition.attnum
+            """,
+            fetch=True,
+        ),
+        "constraints": execute(
+            """
+            select
+                constraint_definition.conname,
+                constraint_definition.contype,
+                pg_catalog.pg_get_constraintdef(
+                    constraint_definition.oid,
+                    true
+                )
+            from pg_catalog.pg_constraint as constraint_definition
+            where constraint_definition.conrelid =
+                  'public.push_tokens'::regclass
+            order by constraint_definition.conname
+            """,
+            fetch=True,
+        ),
+        "indexes": execute(
+            """
+            select
+                index_definition.relname,
+                pg_catalog.pg_get_indexdef(index_catalog.indexrelid),
+                index_catalog.indisunique,
+                index_catalog.indisprimary,
+                index_catalog.indisvalid,
+                index_catalog.indisready,
+                index_catalog.indislive
+            from pg_catalog.pg_index as index_catalog
+            join pg_catalog.pg_class as index_definition
+              on index_definition.oid = index_catalog.indexrelid
+            where index_catalog.indrelid = 'public.push_tokens'::regclass
+            order by index_definition.relname
+            """,
+            fetch=True,
+        ),
+        "policies": execute(
+            """
+            select
+                policy_definition.polname,
+                policy_definition.polcmd,
+                policy_definition.polpermissive,
+                policy_definition.polroles,
+                pg_catalog.pg_get_expr(
+                    policy_definition.polqual,
+                    policy_definition.polrelid
+                ),
+                pg_catalog.pg_get_expr(
+                    policy_definition.polwithcheck,
+                    policy_definition.polrelid
+                )
+            from pg_catalog.pg_policy as policy_definition
+            where policy_definition.polrelid = 'public.push_tokens'::regclass
+            order by policy_definition.polname
             """,
             fetch=True,
         ),
@@ -314,6 +529,115 @@ def test_preflight_and_rollback_only_verification() -> None:
         """,
         fetch=True,
     ) == [(0, True)]
+
+
+def test_fresh_schema_and_sequential_migrations_have_equivalent_audit_objects() -> None:
+    reset_public_for_full_schema()
+    run_sql_file(SCHEMA)
+    fresh_snapshot = audit_object_snapshot()
+
+    reset_public_for_audit_migrations()
+    apply_migration()
+    sequential_snapshot = audit_object_snapshot()
+
+    assert fresh_snapshot == sequential_snapshot
+
+
+def test_fresh_schema_push_tokens_match_canonical_migrations() -> None:
+    reset_public_for_full_schema()
+    run_sql_file(SCHEMA)
+    fresh_snapshot = push_token_object_snapshot()
+
+    execute(
+        """
+        drop schema public cascade;
+        create schema public;
+        create table public.users (id uuid primary key);
+        """
+    )
+    run_sql_file(PUSH_NOTIFICATIONS_MIGRATION)
+    run_sql_file(PUSH_TOKEN_METADATA_MIGRATION)
+    canonical_snapshot = push_token_object_snapshot()
+
+    assert fresh_snapshot == canonical_snapshot
+
+
+def test_phase_2_reapplication_is_exactly_idempotent() -> None:
+    run_sql_file(MIGRATION)
+    run_sql_file(PHASE_2_MIGRATION)
+    before = audit_object_snapshot()
+
+    run_sql_file(PHASE_2_MIGRATION)
+
+    assert audit_object_snapshot() == before
+
+
+def test_phase_2_late_failure_restores_pre_phase_2_catalog_and_acls() -> None:
+    run_sql_file(MIGRATION)
+    before = audit_object_snapshot()
+    migration_sql = PHASE_2_MIGRATION.read_text(encoding="utf-8")
+    failing_sql = migration_sql.rsplit("commit;", maxsplit=1)[0] + (
+        "select 1 / 0;\ncommit;\n"
+    )
+
+    with pytest.raises(psycopg.errors.DivisionByZero):
+        execute(failing_sql)
+
+    assert audit_object_snapshot() == before
+
+
+def test_fresh_schema_account_deletion_and_post_delete_audit_row() -> None:
+    reset_public_for_full_schema()
+    run_sql_file(SCHEMA)
+    user_id = str(uuid4())
+    execute(
+        """
+        insert into public.users(id,email,name)
+        values (%s,%s,'Fresh Schema Delete')
+        """,
+        (user_id, f"{user_id}@example.invalid"),
+    )
+
+    rpc_rows = execute_as(
+        "service_role",
+        "select public.delete_user_account(%s)",
+        (user_id,),
+        fetch=True,
+    )
+    parsed = _validated_delete_account_response(
+        SimpleNamespace(data=rpc_rows[0][0])
+    )
+    assert parsed == {"deleted": True, "games_reconciled": 0}
+    assert execute(
+        "select count(*) from public.users where id=%s",
+        (user_id,),
+        fetch=True,
+    ) == [(0,)]
+
+    event_id = str(uuid4())
+    assert execute_as(
+        "service_role",
+        RPC_SQL,
+        rpc_params(
+            event_id=event_id,
+            event_type="token_revocation",
+            outcome="succeeded",
+            auth_method="password",
+            user_id=None,
+            revocation_reason="account_deleted",
+            correlation_id="fresh-delete-correlation",
+        ),
+        fetch=True,
+    ) == [(True,)]
+    assert execute(
+        """
+        select revocation_reason, auth_method, user_id
+        from public.authentication_audit_events
+        where id=%s
+        """,
+        (event_id,),
+        fetch=True,
+    ) == [("account_deleted", "password", None)]
 
 
 def test_supported_fresh_migration_runs_as_non_superuser_owner() -> None:
@@ -1622,6 +1946,26 @@ def test_schema_rls_grants_indexes_fk_and_no_json_or_correlation_uniqueness() ->
             "auth_method": "bearer",
             "revocation_reason": "password_reset",
         },
+        {
+            "event_type": "token_revocation",
+            "auth_method": "google",
+            "revocation_reason": "google_unlinked",
+        },
+        {
+            "event_type": "token_revocation",
+            "auth_method": "password",
+            "revocation_reason": "password_set",
+        },
+        {
+            "event_type": "token_revocation",
+            "auth_method": "password",
+            "revocation_reason": "password_removed",
+        },
+        {
+            "event_type": "token_revocation",
+            "auth_method": "recovery",
+            "revocation_reason": "account_deleted",
+        },
         {"correlation_id": "short"},
         {"correlation_id": "contains spaces"},
         {"source_environment": ""},
@@ -1641,6 +1985,45 @@ def test_rpc_rejects_invalid_or_cross_column_values(overrides: dict) -> None:
 
     with pytest.raises(psycopg.errors.CheckViolation):
         execute_as("service_role", RPC_SQL, rpc_params(**params))
+
+
+def test_phase_2_revocation_reason_and_method_matrix() -> None:
+    apply_migration()
+    approved = [
+        ("logout", "bearer"),
+        ("google_unlinked", "password"),
+        ("password_set", "google"),
+        ("password_removed", "google"),
+        ("password_reset", "recovery"),
+        ("account_deleted", "password"),
+        ("account_deleted", "google"),
+    ]
+
+    for index, (reason, method) in enumerate(approved):
+        assert execute_as(
+            "service_role",
+            RPC_SQL,
+            rpc_params(
+                event_id=f"00000000-0000-4000-8000-{index + 1:012d}",
+                event_type="token_revocation",
+                outcome="succeeded",
+                auth_method=method,
+                revocation_reason=reason,
+                correlation_id=f"phase2-{index:02d}",
+            ),
+            fetch=True,
+        ) == [(True,)]
+
+    assert execute(
+        """
+        select revocation_reason, auth_method, outcome
+        from public.authentication_audit_events
+        order by revocation_reason, auth_method
+        """,
+        fetch=True,
+    ) == sorted(
+        [(reason, method, "succeeded") for reason, method in approved]
+    )
 
 
 def test_event_id_is_idempotency_key_and_correlation_is_grouping_only() -> None:

@@ -163,6 +163,21 @@ create table if not exists notifications (
     created_at timestamptz not null default now()
 );
 
+-- Canonical fresh-bootstrap form of migrations/push_notifications.sql plus
+-- migrations/push_token_device_metadata.sql. This table must precede
+-- push_delivery_attempts, whose push_token_id foreign key references it.
+create table if not exists push_tokens (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references users(id) on delete cascade,
+    token text not null unique,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    platform text,
+    installation_id text,
+    constraint push_tokens_platform_check
+        check (platform is null or platform in ('android', 'ios', 'web'))
+);
+
 create table if not exists user_moderation_audit (
     id uuid primary key default gen_random_uuid(),
     target_user_id uuid not null references users(id) on delete cascade,
@@ -275,18 +290,24 @@ create table if not exists authentication_audit_events (
     constraint authentication_audit_events_revocation_method_check check (
         event_type <> 'token_revocation'
         or (
-            revocation_reason in (
-                'logout',
-                'google_unlinked',
-                'password_set',
-                'password_removed',
-                'account_deleted'
-            )
+            revocation_reason = 'logout'
             and auth_method = 'bearer'
+        )
+        or (
+            revocation_reason = 'google_unlinked'
+            and auth_method = 'password'
+        )
+        or (
+            revocation_reason in ('password_set', 'password_removed')
+            and auth_method = 'google'
         )
         or (
             revocation_reason = 'password_reset'
             and auth_method = 'recovery'
+        )
+        or (
+            revocation_reason = 'account_deleted'
+            and auth_method in ('password', 'google')
         )
     )
 );
@@ -427,12 +448,34 @@ create table if not exists share_events (
 
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_users_last_login on users(last_login);
+alter table push_tokens enable row level security;
 alter table user_moderation_audit enable row level security;
 alter table authentication_audit_events enable row level security;
 alter table job_runs enable row level security;
 alter table push_delivery_attempts enable row level security;
 alter table api_request_metrics enable row level security;
 alter table share_events enable row level security;
+
+drop policy if exists push_tokens_select_own on push_tokens;
+create policy push_tokens_select_own
+    on push_tokens for select
+    using (auth.uid() = user_id);
+
+drop policy if exists push_tokens_insert_own on push_tokens;
+create policy push_tokens_insert_own
+    on push_tokens for insert
+    with check (auth.uid() = user_id);
+
+drop policy if exists push_tokens_update_own on push_tokens;
+create policy push_tokens_update_own
+    on push_tokens for update
+    using (auth.uid() = user_id)
+    with check (auth.uid() = user_id);
+
+drop policy if exists push_tokens_delete_own on push_tokens;
+create policy push_tokens_delete_own
+    on push_tokens for delete
+    using (auth.uid() = user_id);
 
 grant select, insert on public.user_moderation_audit to service_role;
 do $authentication_audit_table_acl$
@@ -520,23 +563,60 @@ grant select, insert, update on public.content_reports to service_role;
 grant select, insert, delete on public.user_blocks to service_role;
 
 create or replace function public.delete_user_account(p_user_id uuid)
-returns table (result text)
+returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+    v_game record;
+    v_new_count integer;
+    v_new_status text;
+    v_reconciled integer := 0;
 begin
-    if not exists (select 1 from public.users where id = p_user_id) then
-        return query select 'user_not_found'::text;
-        return;
+    -- 1. Revoke all sessions (set tokens_valid_after to now)
+    update users
+    set tokens_valid_after = now()
+    where id = p_user_id;
+
+    if not found then
+        return jsonb_build_object('error', 'user_not_found');
     end if;
 
-    delete from public.users where id = p_user_id;
-    return query select 'deleted'::text;
+    -- 2. Reconcile game counters for active games
+    for v_game in
+        select g.id, g.players_present, g.max_players, g.status
+        from games g
+        join game_players gp on gp.game_id = g.id
+        where gp.user_id = p_user_id
+          and g.status in ('open', 'full')
+    loop
+        v_new_count := greatest(0, v_game.players_present - 1);
+        v_new_status := case
+            when v_new_count < v_game.max_players then 'open'
+            else v_game.status
+        end;
+
+        update games
+        set players_present = v_new_count,
+            status = v_new_status
+        where id = v_game.id;
+
+        v_reconciled := v_reconciled + 1;
+    end loop;
+
+    -- 3. Delete the user row (CASCADE handles dependent rows)
+    delete from users where id = p_user_id;
+
+    return jsonb_build_object(
+        'deleted', true,
+        'games_reconciled', v_reconciled
+    );
 end;
 $$;
 
-revoke all on function public.delete_user_account(uuid) from public;
+revoke all on function public.delete_user_account(uuid)
+from public, anon, authenticated;
 grant execute on function public.delete_user_account(uuid) to service_role;
 
 alter table user_identities enable row level security;
@@ -658,6 +738,11 @@ create unique index if not exists idx_notifications_user_type_game_unique
 create unique index if not exists idx_notifications_user_game_extended_end_time_unique
     on notifications(user_id, type, game_id, (data ->> 'new_end_time'))
     where game_id is not null and type = 'game_extended' and data ? 'new_end_time';
+create index if not exists idx_push_tokens_user_id on push_tokens(user_id);
+create index if not exists idx_push_tokens_token on push_tokens(token);
+create index if not exists idx_push_tokens_user_id_token on push_tokens(user_id, token);
+create index if not exists idx_push_tokens_user_id_installation_id
+    on push_tokens(user_id, installation_id);
 
 create index if not exists idx_user_identities_user_id on user_identities(user_id);
 create index if not exists idx_user_identities_lookup on user_identities(provider, provider_subject);
