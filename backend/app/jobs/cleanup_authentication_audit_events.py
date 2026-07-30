@@ -15,8 +15,9 @@ from app.services.authentication_audit_retention import (
     MAX_MAX_BATCHES,
     MIN_BATCH_SIZE,
     MIN_MAX_BATCHES,
+    SecurityEvidenceCleanupError,
     UnexpectedAuthenticationAuditCleanupResponse,
-    cleanup_authentication_audit_events,
+    cleanup_security_evidence_events,
 )
 from app.services.job_runs import JobRun, JobRunRecorder
 
@@ -27,7 +28,7 @@ ENTRY_POINT = "app.jobs.cleanup_authentication_audit_events"
 
 
 class AuthenticationAuditCleanupJobFailure(RuntimeError):
-    """A bounded failure category safe for job-run persistence."""
+    """A bounded security-evidence failure safe for job-run persistence."""
 
 
 def _bounded_integer(
@@ -77,7 +78,7 @@ def _safe_warning(message: str, *, extra: dict[str, Any]) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Delete authentication audit events older than the fixed "
+            "Delete security evidence older than the fixed "
             f"{AUTHENTICATION_AUDIT_RETENTION_DAYS}-day retention window."
         ),
     )
@@ -99,6 +100,8 @@ def _failure_category(exc: BaseException) -> str:
         return "unexpected_response"
     if isinstance(exc, AuthenticationAuditCleanupRpcError):
         return "cleanup_rpc_failure"
+    if isinstance(exc, SecurityEvidenceCleanupError):
+        return exc.failure_category
     return "cleanup_rpc_failure"
 
 
@@ -119,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                 "batch_size": args.batch_size,
                 "max_batches": args.max_batches,
                 "entry_point": ENTRY_POINT,
+                "cleanup_target_count": 3,
             },
         )
     except Exception:
@@ -134,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     try:
-        result = cleanup_authentication_audit_events(
+        result = cleanup_security_evidence_events(
             batch_size=args.batch_size,
             max_batches=args.max_batches,
         )

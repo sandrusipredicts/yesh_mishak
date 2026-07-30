@@ -183,14 +183,22 @@ cd backend && python -m app.jobs.cleanup_authentication_audit_events --batch-siz
 ```
 
 It computes one UTC cutoff at run start from the fixed 180-day rule and reuses
-that cutoff for every batch. It stops only after the RPC returns zero or the
-maximum batch count is reached.
+that cutoff for every batch and security-evidence target. After Issue #1031
+item 3 implementation PR 1, the same entry point invokes independent bounded
+RPCs for authentication audit, request-attribution evidence, and
+investigation-access evidence. Each target stops after its RPC returns zero
+or reaches the maximum batch count. A failure on one target does not roll
+back successful transactions for another target, but the overall job returns
+failure so the next daily run retries incomplete work. No second schedule is
+required.
 
 The job reuses `JobRunRecorder` with job name
-`authentication_audit_retention_cleanup`. The start record contains only the
-retention days, bounded work controls, and entry-point category. Completion
-records processed count, batch count, and `reached_max_batches`; no row,
-user, event, or correlation identifiers are recorded.
+`authentication_audit_retention_cleanup`. The stable name preserves existing
+schedule and monitoring continuity. The start record contains only retention
+days, target count, bounded work controls, and entry-point category.
+Completion records aggregate processed count, batch count, and
+`reached_max_batches`; no row, user, event, pseudonym, access-event, or
+correlation identifiers are recorded.
 
 RPC failure returns a nonzero process exit, attempts to persist a failed job
 run with only `cleanup_rpc_failure` or `unexpected_response`, and emits a

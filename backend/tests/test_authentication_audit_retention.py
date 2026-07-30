@@ -16,8 +16,10 @@ from app.services.authentication_audit_retention import (
     DEFAULT_MAX_BATCHES,
     MAX_BATCH_SIZE,
     MAX_MAX_BATCHES,
+    SecurityEvidenceCleanupError,
     UnexpectedAuthenticationAuditCleanupResponse,
     cleanup_authentication_audit_events,
+    cleanup_security_evidence_events,
 )
 from app.services.job_runs import JobRun, JobRunRecorder
 
@@ -119,6 +121,39 @@ def cleanup_result(
         "retention_days": AUTHENTICATION_AUDIT_RETENTION_DAYS,
         "batch_size": batch_size,
         "max_batches": max_batches,
+    }
+
+
+def security_cleanup_result(
+    *,
+    authentication_deleted: int = 0,
+    attribution_deleted: int = 0,
+    investigation_deleted: int = 0,
+    batch_count: int = 3,
+    reached_max_batches: bool = False,
+) -> dict[str, int | bool]:
+    processed_count = (
+        authentication_deleted
+        + attribution_deleted
+        + investigation_deleted
+    )
+    target_batch_count = batch_count // 3
+    return {
+        "processed_count": processed_count,
+        "deleted_count": processed_count,
+        "batch_count": batch_count,
+        "reached_max_batches": reached_max_batches,
+        "retention_days": AUTHENTICATION_AUDIT_RETENTION_DAYS,
+        "batch_size": DEFAULT_BATCH_SIZE,
+        "max_batches": DEFAULT_MAX_BATCHES,
+        "target_count": 3,
+        "failed_target_count": 0,
+        "authentication_audit_deleted_count": authentication_deleted,
+        "authentication_audit_batch_count": target_batch_count,
+        "security_attribution_deleted_count": attribution_deleted,
+        "security_attribution_batch_count": target_batch_count,
+        "investigation_access_deleted_count": investigation_deleted,
+        "investigation_access_batch_count": target_batch_count,
     }
 
 
@@ -254,13 +289,83 @@ def test_rpc_failure_can_be_retried_without_changing_the_cutoff() -> None:
     assert first_attempt.calls[0][1] == retry.calls[0][1]
 
 
+def test_security_cleanup_processes_all_targets_with_one_fixed_cutoff() -> None:
+    client = FakeRpcClient([2, 0, 3, 0, 4, 0])
+
+    result = cleanup_security_evidence_events(
+        supabase=client,
+        now=NOW,
+    )
+
+    assert result == security_cleanup_result(
+        authentication_deleted=2,
+        attribution_deleted=3,
+        investigation_deleted=4,
+        batch_count=6,
+    )
+    assert [call[0] for call in client.calls] == [
+        "cleanup_authentication_audit_events",
+        "cleanup_authentication_audit_events",
+        "cleanup_security_request_attribution_events",
+        "cleanup_security_request_attribution_events",
+        "cleanup_security_investigation_access_events",
+        "cleanup_security_investigation_access_events",
+    ]
+    assert len({call[1]["p_cutoff"] for call in client.calls}) == 1
+
+
+def test_security_cleanup_attempts_other_targets_after_one_rpc_failure() -> None:
+    client = FakeRpcClient(
+        [1, 0, 2, 0],
+        errors=[None, None, RuntimeError("database secret"), None, None],
+    )
+
+    with pytest.raises(
+        SecurityEvidenceCleanupError,
+        match="cleanup_rpc_failure",
+    ) as exc_info:
+        cleanup_security_evidence_events(
+            supabase=client,
+            now=NOW,
+        )
+
+    assert [call[0] for call in client.calls] == [
+        "cleanup_authentication_audit_events",
+        "cleanup_authentication_audit_events",
+        "cleanup_security_request_attribution_events",
+        "cleanup_security_investigation_access_events",
+        "cleanup_security_investigation_access_events",
+    ]
+    assert exc_info.value.partial_result == {
+        "processed_count": 3,
+        "deleted_count": 3,
+        "batch_count": 4,
+        "reached_max_batches": False,
+        "retention_days": AUTHENTICATION_AUDIT_RETENTION_DAYS,
+        "batch_size": DEFAULT_BATCH_SIZE,
+        "max_batches": DEFAULT_MAX_BATCHES,
+        "target_count": 3,
+        "failed_target_count": 1,
+        "authentication_audit_deleted_count": 1,
+        "authentication_audit_batch_count": 2,
+        "investigation_access_deleted_count": 2,
+        "investigation_access_batch_count": 2,
+    }
+    assert "secret" not in repr(exc_info.value)
+
+
 def test_job_records_bounded_success_evidence(monkeypatch, capsys) -> None:
     recorder = FakeRecorder()
-    result = cleanup_result(processed_count=7, batch_count=2)
+    result = security_cleanup_result(
+        authentication_deleted=2,
+        attribution_deleted=3,
+        investigation_deleted=2,
+        batch_count=6,
+    )
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
+        "cleanup_security_evidence_events",
         lambda **_kwargs: result,
     )
 
@@ -274,6 +379,7 @@ def test_job_records_bounded_success_evidence(monkeypatch, capsys) -> None:
                 "batch_size": DEFAULT_BATCH_SIZE,
                 "max_batches": DEFAULT_MAX_BATCHES,
                 "entry_point": cleanup_job.ENTRY_POINT,
+                "cleanup_target_count": 3,
             },
         }
     ]
@@ -299,7 +405,7 @@ def test_job_records_sanitized_failure_and_returns_nonzero(
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
+        "cleanup_security_evidence_events",
         lambda **_kwargs: (_ for _ in ()).throw(
             RuntimeError(" ".join(sentinels)),
         ),
@@ -331,7 +437,7 @@ def test_unexpected_response_uses_a_bounded_failure_category(
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
+        "cleanup_security_evidence_events",
         lambda **_kwargs: (_ for _ in ()).throw(
             UnexpectedAuthenticationAuditCleanupResponse(
                 "malformed response private-value",
@@ -361,8 +467,8 @@ def test_monitoring_failure_does_not_crash_successful_cleanup(
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
-        lambda **_kwargs: cleanup_result(),
+        "cleanup_security_evidence_events",
+        lambda **_kwargs: security_cleanup_result(),
     )
 
     assert cleanup_job.main([]) == 0
@@ -377,7 +483,7 @@ def test_failure_monitoring_and_logger_failures_do_not_crash_job(
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
+        "cleanup_security_evidence_events",
         lambda **_kwargs: (_ for _ in ()).throw(
             RuntimeError("database password=secret"),
         ),
@@ -400,10 +506,10 @@ def test_capacity_warning_logger_failure_does_not_change_success(
     monkeypatch.setattr(cleanup_job, "JobRunRecorder", lambda: recorder)
     monkeypatch.setattr(
         cleanup_job,
-        "cleanup_authentication_audit_events",
-        lambda **_kwargs: cleanup_result(
-            processed_count=50_000,
-            batch_count=50,
+        "cleanup_security_evidence_events",
+        lambda **_kwargs: security_cleanup_result(
+            authentication_deleted=50_000,
+            batch_count=52,
             reached_max_batches=True,
         ),
     )
