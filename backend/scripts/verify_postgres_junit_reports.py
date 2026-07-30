@@ -1,4 +1,4 @@
-"""Fail closed unless both PostgreSQL migration modules actually executed."""
+"""Fail closed unless every required PostgreSQL migration module executed."""
 
 from __future__ import annotations
 
@@ -73,6 +73,10 @@ DEFAULT_REQUIREMENTS = (
     RequiredReport(
         Path("authentication-audit-postgres-results.xml"),
         "test_authentication_audit_events_migration_postgres",
+    ),
+    RequiredReport(
+        Path("authentication-audit-retention-postgres-results.xml"),
+        "test_authentication_audit_retention_migration_postgres",
     ),
 )
 

@@ -96,11 +96,14 @@ class JobRunRecorder:
     def mark_succeeded(self, job_run: JobRun, result: dict[str, Any]) -> None:
         finished_at = utc_now()
         reconciled_count = _safe_int(result.get("reconciled_count"))
+        processed_count = _safe_int(result.get("processed_count"))
+        if processed_count is None:
+            processed_count = reconciled_count
         payload = {
             "status": "succeeded",
             "finished_at": finished_at.isoformat(),
             "duration_ms": _duration_ms(job_run.start_monotonic),
-            "processed_count": reconciled_count,
+            "processed_count": processed_count,
             "scanned_count": _safe_int(result.get("scanned_count")),
             "reconciled_count": reconciled_count,
             "skipped_count": _safe_int(result.get("skipped_count")),

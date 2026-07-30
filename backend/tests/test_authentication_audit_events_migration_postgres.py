@@ -27,6 +27,9 @@ MIGRATION = BACKEND_DIR / "migrations" / "authentication_audit_events.sql"
 PHASE_2_MIGRATION = (
     BACKEND_DIR / "migrations" / "authentication_audit_revocation_phase_2.sql"
 )
+RETENTION_MIGRATION = (
+    BACKEND_DIR / "migrations" / "authentication_audit_retention.sql"
+)
 PREFLIGHT = (
     BACKEND_DIR / "scripts" / "authentication_audit_events_migration_preflight.sql"
 )
@@ -538,6 +541,7 @@ def test_fresh_schema_and_sequential_migrations_have_equivalent_audit_objects() 
 
     reset_public_for_audit_migrations()
     apply_migration()
+    run_sql_file(RETENTION_MIGRATION)
     sequential_snapshot = audit_object_snapshot()
 
     assert fresh_snapshot == sequential_snapshot
