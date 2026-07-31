@@ -1,5 +1,5 @@
 from fastapi import HTTPException, status
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 from app.core.config import get_settings
 
@@ -9,7 +9,10 @@ def get_supabase_client() -> Client:
     return create_client(settings.supabase_url, settings.supabase_key)
 
 
-def get_supabase_service_role_client() -> Client:
+def get_supabase_service_role_client(
+    *,
+    postgrest_timeout_seconds: float | None = None,
+) -> Client:
     settings = get_settings()
     if not settings.supabase_service_role_key:
         raise HTTPException(
@@ -17,4 +20,14 @@ def get_supabase_service_role_client() -> Client:
             detail="SUPABASE_SERVICE_ROLE_KEY is not configured",
         )
 
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+    options = None
+    if postgrest_timeout_seconds is not None:
+        if postgrest_timeout_seconds <= 0:
+            raise ValueError("PostgREST timeout must be positive")
+        options = ClientOptions(postgrest_client_timeout=postgrest_timeout_seconds)
+
+    return create_client(
+        settings.supabase_url,
+        settings.supabase_service_role_key,
+        options=options,
+    )

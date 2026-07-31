@@ -12,6 +12,9 @@ from app.middleware.request_metrics import request_metrics_middleware
 from app.monitoring import capture_unexpected_exception, init_monitoring, resolve_environment
 from app.routers import analytics_events, field_reports, fields, games, moderation, notifications, share_events
 from app.services.authentication_observability import safe_auth_exception
+from app.services.security_attribution_config import (
+    get_security_attribution_runtime_configuration,
+)
 
 logger = logging.getLogger("app")
 
@@ -176,6 +179,9 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 settings = get_settings()
+# Enabled security attribution must have one valid, current, immutable key
+# snapshot before the application accepts requests. Disabled mode is a no-op.
+get_security_attribution_runtime_configuration()
 cors_origins = [
     origin.strip()
     for origin in settings.cors_origins.split(",")
