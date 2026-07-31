@@ -242,7 +242,7 @@ def _request(client: TestClient, config: dict, headers: dict) -> Any:
     if method == "POST":
         return client.post(config["path"], json=config["body"], headers=headers)
     elif method == "DELETE":
-        return client.delete(config["path"], json=config["body"], headers=headers)
+        return client.request("DELETE", config["path"], json=config["body"], headers=headers)
     raise ValueError(f"Unsupported method {method}")
 
 
@@ -689,10 +689,8 @@ def test_rate_limited_records_denied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the rate limiter denies the request, attribution records denied/rate_limited."""
-    from app import rate_limit
-
     monkeypatch.setattr(
-        rate_limit,
+        auth_module,
         "check_rate_limit_by_user",
         lambda *a, **kw: {"error": "rate_limited"},
     )

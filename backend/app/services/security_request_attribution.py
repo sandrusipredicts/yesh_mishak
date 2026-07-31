@@ -78,7 +78,7 @@ _APPROVED_ROUTE_REGISTRY = frozenset(
 )
 _APPROVED_OUTCOME_FAILURES: dict[str, frozenset[str | None]] = {
     "succeeded": frozenset({None}),
-    "denied": frozenset({"authorization_denied", "reauthentication_failed"}),
+    "denied": frozenset({"authorization_denied", "reauthentication_failed", "rate_limited"}),
     "failed": frozenset(
         {
             "validation_rejected",

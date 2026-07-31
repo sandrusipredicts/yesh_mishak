@@ -402,14 +402,18 @@ def test_unsupported_route_tuple_cannot_be_recorded() -> None:
         attribution.SecurityAttributionEventValidationError,
         match=r"^security attribution route tuple is unsupported$",
     ):
-        create_event(recorder, route_key="auth_google_link")
+        create_event(
+            recorder,
+            route_key="synthetic_unsupported_route",
+            event_category="synthetic_unsupported_category",
+        )
 
     forged_event = attribution.SecurityAttributionEventRequest(
         request_event_id=EVENT_ID,
         occurred_at=NOW,
         trusted_account_uuid=ACCOUNT_UUID,
-        event_category="credential_method_change",
-        route_key="auth_google_link",
+        event_category="synthetic_unsupported_category",
+        route_key="synthetic_unsupported_route",
         http_method="POST",
         outcome="succeeded",
         failure_category=None,
