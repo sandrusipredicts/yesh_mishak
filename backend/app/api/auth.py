@@ -990,6 +990,35 @@ def resend_verification(request: Request, payload: ResendVerificationRequest) ->
     return EmailVerificationResponse(status="accepted", message=GENERIC_RESEND_MESSAGE)
 
 
+# --- Account-security attribution helper ------------------------------------
+
+
+def _security_attribution_failure(
+    exc: HTTPException,
+) -> tuple[str, str]:
+    """Map an account-route HTTPException to bounded (outcome, failure_category).
+
+    Returns only database-approved bounded values. Does not inspect the
+    exception message, body, URL, or any client-controlled field.
+    """
+    detail_code = None
+    if isinstance(exc.detail, dict):
+        detail_code = exc.detail.get("code")
+    if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        return ("denied", "rate_limited")
+    if exc.status_code == status.HTTP_403_FORBIDDEN:
+        if detail_code == "LAST_ADMIN":
+            return ("denied", "authorization_denied")
+        return ("denied", "reauthentication_failed")
+    if exc.status_code == status.HTTP_400_BAD_REQUEST:
+        return ("failed", "validation_rejected")
+    if exc.status_code == status.HTTP_404_NOT_FOUND:
+        return ("failed", "not_found")
+    if exc.status_code == status.HTTP_409_CONFLICT:
+        return ("failed", "conflict")
+    return ("failed", "internal_error")
+
+
 # --- Account linking (E01-04) -----------------------------------------------
 # Every mutating endpoint below returns a fresh access token. Linking Google is
 # additive and does not revoke existing sessions; unlinking or changing the
@@ -1012,12 +1041,39 @@ def link_google_account(
         str(current_user["id"]), "account_linking_link_google", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_google_link",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    result = account_linking.link_google(str(current_user["id"]), payload.token)
+    try:
+        result = account_linking.link_google(str(current_user["id"]), payload.token)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_google_link",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+        )
+        raise
     logger.info(
         "google account linked",
         extra={"event": "auth.account_linking.link_google.success", "user_id": current_user["id"]},
+    )
+    record_authenticated_security_event(
+        trusted_account_uuid=str(current_user["id"]),
+        route_key="auth_google_link",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1032,9 +1088,29 @@ def unlink_google_account(
         str(current_user["id"]), "account_linking_unlink_google", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_google_unlink",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    result = account_linking.unlink_google(str(current_user["id"]), payload.current_password, request)
+    try:
+        result = account_linking.unlink_google(str(current_user["id"]), payload.current_password, request)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_google_unlink",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1045,6 +1121,13 @@ def unlink_google_account(
             "revocation_reason": "google_unlinked",
             "user_id_present": True,
         },
+    )
+    record_authenticated_security_event(
+        trusted_account_uuid=str(current_user["id"]),
+        route_key="auth_google_unlink",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1059,11 +1142,31 @@ def set_account_password(
         str(current_user["id"]), "account_linking_set_password", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_password_set",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    result = account_linking.set_password_for_user(
-        str(current_user["id"]), payload.google_token, payload.password, payload.password_confirm
-    )
+    try:
+        result = account_linking.set_password_for_user(
+            str(current_user["id"]), payload.google_token, payload.password, payload.password_confirm
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_password_set",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1074,6 +1177,13 @@ def set_account_password(
             "revocation_reason": "password_set",
             "user_id_present": True,
         },
+    )
+    record_authenticated_security_event(
+        trusted_account_uuid=str(current_user["id"]),
+        route_key="auth_password_set",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1088,9 +1198,29 @@ def remove_account_password(
         str(current_user["id"]), "account_linking_remove_password", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_password_remove",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    result = account_linking.remove_password_for_user(str(current_user["id"]), payload.google_token)
+    try:
+        result = account_linking.remove_password_for_user(str(current_user["id"]), payload.google_token)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_password_remove",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1101,6 +1231,13 @@ def remove_account_password(
             "revocation_reason": "password_removed",
             "user_id_present": True,
         },
+    )
+    record_authenticated_security_event(
+        trusted_account_uuid=str(current_user["id"]),
+        route_key="auth_password_remove",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1115,14 +1252,41 @@ def delete_user_account(
         str(current_user["id"]), "account_deletion", [(3, 60), (5, 3600)]
     )
     if rate_limit_hit:
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_account_delete",
+            event_category="account_lifecycle_change",
+            http_method="DELETE",
+            outcome="denied",
+            failure_category="rate_limited",
+        )
         return rate_limit_hit
 
-    delete_account(
-        user_id=str(current_user["id"]),
-        password=payload.password,
-        current_password=payload.current_password,
-        google_token=payload.google_token,
-        request=request,
+    try:
+        delete_account(
+            user_id=str(current_user["id"]),
+            password=payload.password,
+            current_password=payload.current_password,
+            google_token=payload.google_token,
+            request=request,
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        record_authenticated_security_event(
+            trusted_account_uuid=str(current_user["id"]),
+            route_key="auth_account_delete",
+            event_category="account_lifecycle_change",
+            http_method="DELETE",
+            outcome=outcome,
+            failure_category=failure_category,
+        )
+        raise
+    record_authenticated_security_event(
+        trusted_account_uuid=str(current_user["id"]),
+        route_key="auth_account_delete",
+        event_category="account_lifecycle_change",
+        http_method="DELETE",
+        outcome="succeeded",
     )
     return MessageResponse(message="Account deleted")
 

@@ -25,9 +25,20 @@ from app.services.security_attribution_config import (
 
 logger = logging.getLogger(__name__)
 
-SecurityEventCategory = Literal["session_security_change"]
-SecurityRouteKey = Literal["auth_logout"]
-SecurityHttpMethod = Literal["POST"]
+SecurityEventCategory = Literal[
+    "session_security_change",
+    "credential_method_change",
+    "account_lifecycle_change",
+]
+SecurityRouteKey = Literal[
+    "auth_logout",
+    "auth_google_link",
+    "auth_google_unlink",
+    "auth_password_set",
+    "auth_password_remove",
+    "auth_account_delete",
+]
+SecurityHttpMethod = Literal["POST", "DELETE"]
 SecurityOutcome = Literal["succeeded", "denied", "failed", "ambiguous"]
 SecurityFailureCategory = Literal[
     "authorization_denied",
@@ -56,7 +67,14 @@ RecorderStatus = Literal[
 
 SECURITY_ATTRIBUTION_RPC_TIMEOUT_SECONDS = 2.0
 _APPROVED_ROUTE_REGISTRY = frozenset(
-    {("session_security_change", "auth_logout", "POST")}
+    {
+        ("session_security_change", "auth_logout", "POST"),
+        ("credential_method_change", "auth_google_link", "POST"),
+        ("credential_method_change", "auth_google_unlink", "POST"),
+        ("credential_method_change", "auth_password_set", "POST"),
+        ("credential_method_change", "auth_password_remove", "POST"),
+        ("account_lifecycle_change", "auth_account_delete", "DELETE"),
+    }
 )
 _APPROVED_OUTCOME_FAILURES: dict[str, frozenset[str | None]] = {
     "succeeded": frozenset({None}),
