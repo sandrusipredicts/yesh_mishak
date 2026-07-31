@@ -1,6 +1,6 @@
 ﻿from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -85,6 +85,26 @@ class Settings(BaseSettings):
     # app/monitoring.py:is_monitoring_enabled. None (unset) is treated as
     # False; local development reporting is disabled by default.
     sentry_enabled: bool | None = Field(default=None, alias="SENTRY_ENABLED")
+    security_attribution_enabled: bool = Field(
+        default=False,
+        alias="SECURITY_ATTRIBUTION_ENABLED",
+    )
+    security_attribution_environment: str | None = Field(
+        default=None,
+        alias="SECURITY_ATTRIBUTION_ENVIRONMENT",
+    )
+    security_attribution_active_epoch: str | None = Field(
+        default=None,
+        alias="SECURITY_ATTRIBUTION_ACTIVE_EPOCH",
+    )
+    security_attribution_key_version: int | None = Field(
+        default=None,
+        alias="SECURITY_ATTRIBUTION_KEY_VERSION",
+    )
+    security_attribution_hmac_key_base64: SecretStr | None = Field(
+        default=None,
+        alias="SECURITY_ATTRIBUTION_HMAC_KEY_BASE64",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

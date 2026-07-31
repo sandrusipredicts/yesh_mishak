@@ -11,6 +11,7 @@ from app.auth.dependencies import _user_cache, invalidate_cached_user
 from app.auth.jwt import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.main import app
+from app.services.security_request_attribution import SecurityAttributionRecordResult
 
 _EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
@@ -434,6 +435,19 @@ def test_logout_invalidates_token(monkeypatch) -> None:
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
     audit_events = capture_authentication_audit_events(monkeypatch)
+    attribution_events: list[dict[str, Any]] = []
+
+    def fail_open_attribution(**event: Any) -> SecurityAttributionRecordResult:
+        attribution_events.append(event)
+        return SecurityAttributionRecordResult(
+            status="failed",
+            failure_category="ingestion_rpc_failed",
+        )
+
+    monkeypatch.setattr(
+        "app.api.auth.record_authenticated_security_event",
+        fail_open_attribution,
+    )
 
     token = _make_token_seconds_ago(user)
 
@@ -468,6 +482,17 @@ def test_logout_invalidates_token(monkeypatch) -> None:
     assert revocation_event["revocation_reason"] == "logout"
     assert revocation_event["user_id"] == user["id"]
     assert token not in repr(audit_events)
+    assert attribution_events == [
+        {
+            "trusted_account_uuid": user["id"],
+            "route_key": "auth_logout",
+            "event_category": "session_security_change",
+            "http_method": "POST",
+            "outcome": "succeeded",
+            "failure_category": None,
+            "server_correlation_id": audit_events[0]["correlation_id"],
+        }
+    ]
 
     invalidate_cached_user(user["id"])
 
@@ -487,6 +512,11 @@ def test_logout_revocation_failure_emits_failed_logout_and_revocation_events(
     fake_client = FakeSupabaseClient([user])
     patch_all_supabase(monkeypatch, fake_client)
     audit_events = capture_authentication_audit_events(monkeypatch)
+    attribution_events: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.api.auth.record_authenticated_security_event",
+        lambda **event: attribution_events.append(event),
+    )
     secret = "Authorization=Bearer revocation-database-private"
     monitoring_failure_sentinel = "monitoring-revocation-private"
     logger_failure_sentinel = "logger-revocation-private"
@@ -530,6 +560,17 @@ def test_logout_revocation_failure_emits_failed_logout_and_revocation_events(
         "service_unavailable"
     }
     assert len({event["correlation_id"] for event in audit_events}) == 1
+    assert attribution_events == [
+        {
+            "trusted_account_uuid": user["id"],
+            "route_key": "auth_logout",
+            "event_category": "session_security_change",
+            "http_method": "POST",
+            "outcome": "failed",
+            "failure_category": "dependency_unavailable",
+            "server_correlation_id": audit_events[0]["correlation_id"],
+        }
+    ]
     assert len(captured_exceptions) == 1
     assert captured_exceptions[0].__cause__ is None
     assert captured_exceptions[0].__context__ is None
@@ -1164,6 +1205,20 @@ def test_token_with_wrong_audience_is_rejected(monkeypatch) -> None:
 def test_logout_requires_authentication() -> None:
     response = TestClient(app).post("/auth/logout")
     assert response.status_code == 401
+
+
+def test_uninstrumented_ordinary_route_emits_no_security_attribution(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.api.auth.record_authenticated_security_event",
+        lambda **event: calls.append(event),
+    )
+
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert calls == []
 
 
 # ---- Token issued after revocation timestamp is accepted ----

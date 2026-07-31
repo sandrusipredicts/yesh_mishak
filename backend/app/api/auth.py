@@ -60,6 +60,9 @@ from app.services.password_reset import (
     PasswordResetRateLimited,
     PasswordResetService,
 )
+from app.services.security_request_attribution import (
+    record_authenticated_security_event,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -795,6 +798,19 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
                 "exception_type": revocation_exception_type,
             },
         )
+        record_authenticated_security_event(
+            trusted_account_uuid=str(user_id),
+            route_key="auth_logout",
+            event_category="session_security_change",
+            http_method="POST",
+            outcome="failed",
+            failure_category=(
+                "dependency_unavailable"
+                if failure_category == "service_unavailable"
+                else "internal_error"
+            ),
+            server_correlation_id=correlation_id,
+        )
         raise_api_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="INTERNAL_SERVER_ERROR",
@@ -859,6 +875,15 @@ def logout(current_user: dict = Depends(require_active_user)) -> dict:
             "event": "auth.logout.success",
             "user_id": user_id,
         },
+    )
+    record_authenticated_security_event(
+        trusted_account_uuid=str(user_id),
+        route_key="auth_logout",
+        event_category="session_security_change",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=correlation_id,
     )
     return {"message": "Logged out successfully"}
 
