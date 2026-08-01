@@ -10,6 +10,12 @@ from app.auth.jwt import decode_access_token
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
+from app.services.security_attribution_investigation_config import (
+    SecurityAttributionInvestigationConfigurationError,
+    SecurityAttributionInvestigatorPrincipal,
+    get_security_attribution_investigation_configuration,
+    parse_authenticated_investigator_principal,
+)
 
 # Fields that gate authentication/authorization decisions. These are never
 # served from a stale cached copy: every request re-reads them from the
@@ -233,4 +239,33 @@ def require_admin(current_user: dict[str, Any] = Depends(require_active_user)) -
         )
 
     return current_user
+
+
+def require_security_attribution_investigator(
+    current_user: dict[str, Any] = Depends(require_admin),
+) -> SecurityAttributionInvestigatorPrincipal:
+    """Require the explicit, default-deny security investigator capability."""
+
+    try:
+        configuration = get_security_attribution_investigation_configuration()
+        principal = parse_authenticated_investigator_principal(current_user.get("id"))
+    except SecurityAttributionInvestigationConfigurationError:
+        raise_api_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN",
+            message="Investigator access required",
+        )
+
+    if (
+        not configuration.enabled
+        or configuration.active is None
+        or not configuration.active.authorizes(principal)
+    ):
+        raise_api_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN",
+            message="Investigator access required",
+        )
+
+    return principal
 
