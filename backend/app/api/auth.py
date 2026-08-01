@@ -42,7 +42,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.services import account_linking
-from app.services.account_deletion import delete_account
+from app.services import account_deletion
 from app.services.authentication_audit_events import (
     FailureCategory,
     new_audit_event_id,
@@ -990,6 +990,49 @@ def resend_verification(request: Request, payload: ResendVerificationRequest) ->
     return EmailVerificationResponse(status="accepted", message=GENERIC_RESEND_MESSAGE)
 
 
+# --- Security attribution helpers (E12-10) -----------------------------------
+
+
+def _security_attribution_failure(
+    exc: HTTPException,
+) -> tuple[str, str]:
+    """Map an HTTPException to a bounded (outcome, failure_category) pair.
+
+    Only pre-approved values may reach the attribution database.  This helper
+    converts business-layer exceptions into the canonical attribution vocabulary
+    so that raw status codes and error details are never persisted.
+    """
+    code = exc.status_code
+    if code == 429:
+        return ("denied", "rate_limited")
+    if code == 403:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        detail_code = detail.get("code", "")
+        if detail_code in ("REAUTHENTICATION_REQUIRED", "INVALID_GOOGLE_TOKEN"):
+            return ("denied", "reauthentication_failed")
+        return ("denied", "authorization_denied")
+    if code == 400:
+        return ("failed", "validation_rejected")
+    if code == 404:
+        return ("failed", "not_found")
+    if code == 409:
+        return ("failed", "conflict")
+    return ("failed", "internal_error")
+
+
+def _safe_record_attribution(**kwargs: Any) -> None:
+    """Record attribution event, absorbing any unexpected recorder failure.
+
+    Defense-in-depth: record_authenticated_security_event is itself fail-open,
+    but the route must remain authoritative even if an unforeseen exception
+    escapes the recorder.
+    """
+    try:
+        record_authenticated_security_event(**kwargs)
+    except Exception:  # noqa: BLE001 - fail-open by design
+        pass
+
+
 # --- Account linking (E01-04) -----------------------------------------------
 # Every mutating endpoint below returns a fresh access token. Linking Google is
 # additive and does not revoke existing sessions; unlinking or changing the
@@ -1008,16 +1051,48 @@ def link_google_account(
     payload: LinkGoogleRequest,
     current_user: dict = Depends(require_active_user),
 ) -> AccountMethodsMutationResponse:
+    user_id = str(current_user["id"])
     rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "account_linking_link_google", [(10, 60), (30, 3600)]
+        user_id, "account_linking_link_google", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_google_link",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+            server_correlation_id=None,
+        )
         return rate_limit_hit
 
-    result = account_linking.link_google(str(current_user["id"]), payload.token)
+    try:
+        result = account_linking.link_google(user_id, payload.token)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_google_link",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
     logger.info(
         "google account linked",
         extra={"event": "auth.account_linking.link_google.success", "user_id": current_user["id"]},
+    )
+    _safe_record_attribution(
+        trusted_account_uuid=user_id,
+        route_key="auth_google_link",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
     )
     return AccountMethodsMutationResponse(**result)
 
@@ -1028,13 +1103,36 @@ def unlink_google_account(
     payload: UnlinkGoogleRequest,
     current_user: dict = Depends(require_active_user),
 ) -> AccountMethodsMutationResponse:
+    user_id = str(current_user["id"])
     rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "account_linking_unlink_google", [(10, 60), (30, 3600)]
+        user_id, "account_linking_unlink_google", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_google_unlink",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+            server_correlation_id=None,
+        )
         return rate_limit_hit
 
-    result = account_linking.unlink_google(str(current_user["id"]), payload.current_password, request)
+    try:
+        result = account_linking.unlink_google(user_id, payload.current_password, request)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_google_unlink",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1046,6 +1144,15 @@ def unlink_google_account(
             "user_id_present": True,
         },
     )
+    _safe_record_attribution(
+        trusted_account_uuid=user_id,
+        route_key="auth_google_unlink",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
+    )
     return AccountMethodsMutationResponse(**result)
 
 
@@ -1055,15 +1162,38 @@ def set_account_password(
     payload: SetPasswordRequest,
     current_user: dict = Depends(require_active_user),
 ) -> AccountMethodsMutationResponse:
+    user_id = str(current_user["id"])
     rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "account_linking_set_password", [(10, 60), (30, 3600)]
+        user_id, "account_linking_set_password", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_password_set",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+            server_correlation_id=None,
+        )
         return rate_limit_hit
 
-    result = account_linking.set_password_for_user(
-        str(current_user["id"]), payload.google_token, payload.password, payload.password_confirm
-    )
+    try:
+        result = account_linking.set_password_for_user(
+            user_id, payload.google_token, payload.password, payload.password_confirm
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_password_set",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1075,6 +1205,15 @@ def set_account_password(
             "user_id_present": True,
         },
     )
+    _safe_record_attribution(
+        trusted_account_uuid=user_id,
+        route_key="auth_password_set",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
+    )
     return AccountMethodsMutationResponse(**result)
 
 
@@ -1084,13 +1223,36 @@ def remove_account_password(
     payload: RemovePasswordRequest,
     current_user: dict = Depends(require_active_user),
 ) -> AccountMethodsMutationResponse:
+    user_id = str(current_user["id"])
     rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "account_linking_remove_password", [(10, 60), (30, 3600)]
+        user_id, "account_linking_remove_password", [(10, 60), (30, 3600)]
     )
     if rate_limit_hit:
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_password_remove",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome="denied",
+            failure_category="rate_limited",
+            server_correlation_id=None,
+        )
         return rate_limit_hit
 
-    result = account_linking.remove_password_for_user(str(current_user["id"]), payload.google_token)
+    try:
+        result = account_linking.remove_password_for_user(user_id, payload.google_token)
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_password_remove",
+            event_category="credential_method_change",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
     safe_auth_log(
         logger,
         "info",
@@ -1102,6 +1264,15 @@ def remove_account_password(
             "user_id_present": True,
         },
     )
+    _safe_record_attribution(
+        trusted_account_uuid=user_id,
+        route_key="auth_password_remove",
+        event_category="credential_method_change",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
+    )
     return AccountMethodsMutationResponse(**result)
 
 
@@ -1111,18 +1282,50 @@ def delete_user_account(
     payload: DeleteAccountRequest,
     current_user: dict = Depends(require_active_user),
 ) -> MessageResponse:
+    user_id = str(current_user["id"])
     rate_limit_hit = check_rate_limit_by_user(
-        str(current_user["id"]), "account_deletion", [(3, 60), (5, 3600)]
+        user_id, "account_deletion", [(3, 60), (5, 3600)]
     )
     if rate_limit_hit:
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_account_delete",
+            event_category="account_lifecycle_change",
+            http_method="DELETE",
+            outcome="denied",
+            failure_category="rate_limited",
+            server_correlation_id=None,
+        )
         return rate_limit_hit
 
-    delete_account(
-        user_id=str(current_user["id"]),
-        password=payload.password,
-        current_password=payload.current_password,
-        google_token=payload.google_token,
-        request=request,
+    try:
+        account_deletion.delete_account(
+            user_id=user_id,
+            password=payload.password,
+            current_password=payload.current_password,
+            google_token=payload.google_token,
+            request=request,
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _security_attribution_failure(exc)
+        _safe_record_attribution(
+            trusted_account_uuid=user_id,
+            route_key="auth_account_delete",
+            event_category="account_lifecycle_change",
+            http_method="DELETE",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
+    _safe_record_attribution(
+        trusted_account_uuid=user_id,
+        route_key="auth_account_delete",
+        event_category="account_lifecycle_change",
+        http_method="DELETE",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
     )
     return MessageResponse(message="Account deleted")
 
