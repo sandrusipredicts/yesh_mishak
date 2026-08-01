@@ -1,6 +1,6 @@
 ﻿from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +105,30 @@ class Settings(BaseSettings):
         default=None,
         alias="SECURITY_ATTRIBUTION_HMAC_KEY_BASE64",
     )
+    security_attribution_investigation_enabled: bool = Field(
+        default=False,
+        alias="SECURITY_ATTRIBUTION_INVESTIGATION_ENABLED",
+    )
+    security_attribution_investigator_principals: SecretStr | None = Field(
+        default=None,
+        alias="SECURITY_ATTRIBUTION_INVESTIGATOR_PRINCIPALS",
+    )
+
+    @field_validator("security_attribution_investigation_enabled", mode="before")
+    @classmethod
+    def parse_security_attribution_investigation_enabled(
+        cls,
+        value: object,
+    ) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        raise ValueError(
+            "SECURITY_ATTRIBUTION_INVESTIGATION_ENABLED must be true or false"
+        )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

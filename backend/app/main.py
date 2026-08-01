@@ -15,6 +15,9 @@ from app.services.authentication_observability import safe_auth_exception
 from app.services.security_attribution_config import (
     get_security_attribution_runtime_configuration,
 )
+from app.services.security_attribution_investigation_config import (
+    get_security_attribution_investigation_configuration,
+)
 
 logger = logging.getLogger("app")
 
@@ -182,6 +185,10 @@ settings = get_settings()
 # Enabled security attribution must have one valid, current, immutable key
 # snapshot before the application accepts requests. Disabled mode is a no-op.
 get_security_attribution_runtime_configuration()
+# Investigator authorization is an independent default-deny snapshot. Enabled
+# but incomplete configuration fails before requests are accepted; disabled
+# mode requires neither principals nor a database query credential.
+get_security_attribution_investigation_configuration()
 cors_origins = [
     origin.strip()
     for origin in settings.cors_origins.split(",")

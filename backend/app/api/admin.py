@@ -3,12 +3,15 @@ from time import perf_counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from typing import Any, Optional
 from app.errors import raise_api_error, validate_uuid_id
 
-from app.auth.dependencies import require_admin
+from app.auth.dependencies import (
+    require_admin,
+    require_security_attribution_investigator,
+)
 from app.db.supabase import get_supabase_client, get_supabase_service_role_client
 from app.errors import raise_api_error
 from app.routers.fields import (
@@ -44,6 +47,23 @@ from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
 from app.services.field_photos import create_field_photo_signed_url
+from app.schemas.security_attribution_investigation import (
+    SecurityAttributionInvestigationRequest,
+    SecurityAttributionInvestigationResponse,
+)
+from app.services.authentication_observability import (
+    safe_auth_log,
+    safe_auth_monitor,
+)
+from app.services.security_attribution_investigation import (
+    SecurityAttributionInvestigationError,
+    SecurityAttributionInvestigationGateway,
+    get_security_attribution_investigation_gateway,
+    investigate_security_attribution,
+)
+from app.services.security_attribution_investigation_config import (
+    SecurityAttributionInvestigatorPrincipal,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -633,6 +653,74 @@ def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
         "name": current_user["name"],
         "role": current_user["role"],
     }
+
+
+@router.post(
+    "/security-attribution/investigate",
+    response_model=SecurityAttributionInvestigationResponse,
+)
+def investigate_security_attribution_events(
+    body: SecurityAttributionInvestigationRequest,
+    request: Request,
+    investigator_principal: SecurityAttributionInvestigatorPrincipal = Depends(
+        require_security_attribution_investigator
+    ),
+    gateway: SecurityAttributionInvestigationGateway = Depends(
+        get_security_attribution_investigation_gateway
+    ),
+) -> SecurityAttributionInvestigationResponse:
+    safe_fields = {
+        "event": "security_attribution.investigation",
+        "route_key": "admin_security_attribution_investigate",
+        "environment": body.environment,
+        "request_id": getattr(request.state, "request_id", None),
+    }
+    try:
+        response = investigate_security_attribution(
+            body,
+            investigator_principal=investigator_principal,
+            gateway=gateway,
+        )
+    except SecurityAttributionInvestigationError as exc:
+        failure_fields = {
+            **safe_fields,
+            "failure_category": exc.failure_category,
+            "result_count": 0,
+        }
+        safe_auth_log(
+            logger,
+            "warning",
+            "security attribution investigation failed; no evidence returned",
+            extra=failure_fields,
+        )
+        safe_auth_monitor(
+            "Security attribution investigation failed",
+            level="warning",
+            **failure_fields,
+        )
+        if exc.failure_category == "validation_rejected":
+            raise_api_error(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="VALIDATION_ERROR",
+                message="Investigation request was rejected",
+            )
+        raise_api_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="SECURITY_ATTRIBUTION_INVESTIGATION_UNAVAILABLE",
+            message="Security attribution investigation is unavailable",
+        )
+
+    safe_auth_log(
+        logger,
+        "info",
+        "security attribution investigation succeeded",
+        extra={
+            **safe_fields,
+            "failure_category": None,
+            "result_count": response.result_count,
+        },
+    )
+    return response
 
 
 @router.get("/users")
