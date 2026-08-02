@@ -126,11 +126,15 @@ existing APIs, not silently treated as shipped UI functionality.
 
 ### Automated evidence (2026-08-02)
 
-- Focused backend admin/moderation/attribution suite: `296 passed`.
+- Focused backend admin/moderation/attribution/ACL suite: `300 passed`.
+- Disposable PostgreSQL 16 ACL migration suite: `14 passed`. It verifies the
+  exact ACL matrix, DML preservation, unchanged policy/RLS catalogs,
+  idempotence, fresh-schema default-ACL repair, and runtime TRUNCATE denial.
 - Focused admin/monitoring Playwright suite: `31 passed`.
-- Full backend suite with coverage: `1705 passed, 152 skipped`; coverage
+- Full backend suite with coverage: `1709 passed, 166 skipped`; coverage
   `90.98%`, above the required `89%` gate. The skips are PostgreSQL integration
-  cases that require an external test database and are not hidden.
+  cases that require external disposable test databases and are not hidden;
+  the 14 new ACL cases were also run separately against disposable PostgreSQL.
 - Full Playwright suite: `374 passed`. An initial six-worker run had one
   unrelated deep-link timing failure; that case passed alone (`1 passed`) and
   the complete four-worker rerun passed cleanly.
@@ -142,7 +146,8 @@ Commands:
 
 ```text
 cd backend
-python -m pytest tests/test_admin_me.py tests/test_admin_user_moderation.py tests/test_field_report_admin_integration.py tests/test_field_edit.py tests/test_field_delete.py tests/test_inactive_field_lifecycle.py tests/test_security_attribution_admin_mutation_routes.py tests/test_admin_engagement.py -q --tb=short
+python -m pytest tests/test_core_table_acl_hardening.py tests/test_admin_me.py tests/test_admin_user_moderation.py tests/test_field_report_admin_integration.py tests/test_field_edit.py tests/test_field_delete.py tests/test_inactive_field_lifecycle.py tests/test_security_attribution_admin_mutation_routes.py tests/test_admin_engagement.py -q --tb=short
+CORE_TABLE_ACL_DATABASE_URL=<disposable PostgreSQL 16 DSN> python -m pytest tests/test_core_table_acl_hardening_migration_postgres.py -q --tb=short
 python -m pytest tests/ --cov=app --cov-fail-under=89 --cov-report=term --basetemp C:\Users\orel1\yesh_mishak\backend\.pytest-tmp-issue917-full-final
 python -m compileall -q app
 
@@ -180,6 +185,50 @@ fact by querying as anon.
 moderation/edit/status operations, and game operations now use the existing
 service-role client. The service key remains server-side. No frontend code,
 schema, grant, policy, migration, or application response contract changed.
+
+### Hosted follow-up — public-role non-row privileges
+
+Hosted-dev catalog verification then found `TRUNCATE`, `TRIGGER`, and
+`REFERENCES` granted to both `anon` and `authenticated` on `users`, `fields`,
+`games`, `field_reports`, and `user_moderation_audit`. RLS does not govern
+`TRUNCATE`; the other two are schema/trigger capabilities that no runtime route
+needs.
+
+No repository migration or fresh-schema statement granted these privileges.
+The bounded root cause is therefore a repository hardening gap: provider or
+historical hosted ACL defaults were allowed to persist because core-table ACLs
+were never normalized after table creation. The exact historical external
+granting action remains unknown without provider/default-ACL audit evidence.
+
+`migrations/core_table_acl_hardening.sql` transactionally and idempotently
+revokes only those three privileges from the two public roles. It deliberately
+does not mention `SELECT`, `INSERT`, `UPDATE`, or `DELETE`, and it does not alter
+RLS or any policy. Current public flows continue using ordinary PostgREST row
+operations: fields and games use bounded row reads/mutations, field reports use
+the intended policy-governed `SELECT`/`INSERT` path, and trusted auth/admin
+operations use the server-side service-role client.
+
+Post-migration hosted verification query:
+
+```sql
+select grantee, table_name, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public'
+  and grantee in ('anon', 'authenticated')
+  and table_name in (
+    'users',
+    'fields',
+    'games',
+    'field_reports',
+    'user_moderation_audit'
+  )
+order by grantee, table_name, privilege_type;
+```
+
+The result must contain no `TRUNCATE`, `TRIGGER`, or `REFERENCES` rows. Capture
+the `pg_policies` and `relrowsecurity` catalog rows before and after applying the
+migration and require exact equality for policy definitions/RLS state. Do not
+export application rows.
 
 ## Findings not implemented in this QA branch
 
@@ -291,44 +340,50 @@ Expected result is `1, 1, 1`.
 2. Confirm one project-controlled synthetic active admin and one
    project-controlled synthetic ordinary login identity exist. Stop if either
    identity is personal, shared with production, inactive, or unverified.
-3. Apply the fixture SQL above in the isolated dev SQL editor and run the
+3. Capture the bounded ACL, `pg_policies`, and RLS catalog snapshots; apply
+   `backend/migrations/core_table_acl_hardening.sql` through the normal isolated
+   dev migration path. Re-run the query above and prove the three dangerous
+   privileges are absent while policy definitions and RLS state are identical.
+4. Apply the fixture SQL above in the isolated dev SQL editor and run the
    verification query.
-4. Sign in as the ordinary synthetic identity and navigate directly to
+5. Sign in as the ordinary synthetic identity and navigate directly to
    `/admin`. Confirm the frontend redirects and direct `GET /admin/me`,
    `/admin/users`, and `/admin/monitoring` requests return 403 with no data.
-5. Sign in as the synthetic active admin. Confirm all seven tabs load. Confirm
+6. Sign in as the synthetic active admin. Confirm all seven tabs load. Confirm
    `/admin/users` includes the deterministic target and pending fields/reports
    include the deterministic fixtures.
-6. Search by the deterministic target label. Ban with a synthetic reason,
+7. Search by the deterministic target label. Ban with a synthetic reason,
    verify banned, verify an invalid repeat is bounded, then unban. Suspend,
    verify suspended, verify an invalid repeat is bounded, then unsuspend.
-7. Attempt to moderate the signed-in admin. Confirm the admin-target guard
+8. Attempt to moderate the signed-in admin. Confirm the admin-target guard
    rejects it and the admin remains active.
-8. Approve the deterministic field; verify approved-state semantics
+9. Approve the deterministic field; verify approved-state semantics
    (`approval_status=approved`, `verified=true`). Change it through closed,
    renovation, and open; reject and approve as needed to observe all shipped
    approval/status states. Verify each UI refresh matches an authorized SQL
    query.
-9. Manage the deterministic report through in-review and resolve. Confirm a
+10. Manage the deterministic report through in-review and resolve. Confirm a
    repeat resolve is bounded and a random nonexistent UUID returns not found.
-10. Remove the deterministic field through the UI. Confirm removal metadata is
+11. Remove the deterministic field through the UI. Confirm removal metadata is
     present and it disappears from the normal field list. Repeat removal and
     confirm bounded conflict; test a random UUID and confirm bounded not-found.
-11. Verify Stats, Monitoring, and Engagement success states. In browser DevTools,
+12. Verify Stats, Monitoring, and Engagement success states. In browser DevTools,
     block only the isolated-dev `/admin/monitoring` request, reload the tab to
     verify the bounded initial error/retry state, unblock and retry, then block
     the same request only after one successful load and press Refresh. Confirm
     the prior snapshot remains visible with the bounded error banner.
-12. Inspect browser console/network previews and sanitized screenshots. Confirm
+13. Inspect browser console/network previews and sanitized screenshots. Confirm
     no password, token, Authorization header, request body, secret, raw security
     attribution pseudonym, or personal mailbox is captured.
-13. In the authorized SQL editor, verify `user_moderation_audit` records the
+14. In the authorized SQL editor, verify `user_moderation_audit` records the
     signed-in admin as actor and the deterministic row as target. Verify the
     five PR #1044 route categories exist for the admin actor without exporting
     pseudonyms or target data.
-14. Verify the catalog/grants did not change and anon cannot perform admin-only
-    table operations. Confirm the application service-role key is server-only.
-15. Perform cleanup below, attach sanitized pass/fail evidence to the Draft PR,
+15. Confirm the only intended ACL change is removal of `TRUNCATE`, `TRIGGER`,
+    and `REFERENCES` from `anon`/`authenticated` on the five named tables;
+    ordinary DML and field-report policies remain unchanged. Confirm anon cannot
+    perform admin-only operations and the service-role key is server-only.
+16. Perform cleanup below, attach sanitized pass/fail evidence to the Draft PR,
     and record that production was untouched.
 
 ## Cleanup and retained evidence
@@ -363,8 +418,12 @@ to make fixture cleanup appear complete.
 
 ## Rollback
 
-- Code rollback: revert the QA fix commit or redeploy the preceding `dev`
-  commit. There is no migration or data transformation to reverse.
+- Code rollback: revert the QA commits or redeploy the preceding `dev` commit.
+- ACL rollback is not an ordinary application rollback because it restores a
+  verified security exposure. If isolated-dev evidence proves an approved flow
+  unexpectedly requires one of these privileges, stop and review that flow.
+  Re-grant only the exact demonstrated privilege after explicit security
+  approval; do not broadly grant all privileges or alter RLS/policies.
 - Runtime rollback: disable the branch deployment and restore the prior dev
   artifact. Do not change production.
 - Fixture rollback before any moderation action: delete the report, then field,
