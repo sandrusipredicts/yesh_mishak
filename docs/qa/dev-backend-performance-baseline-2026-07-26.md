@@ -86,7 +86,7 @@ linux/amd64)`, pinned as `grafana/k6:2.0.0`.
 Every request used a 10-second timeout and an `X-Performance-Test-Run` tag.
 The harness refuses non-HTTPS targets, requires the exact dev host, rejects
 configured production hosts, and requires an explicit test-run ID. Credentials
-came only from the GitHub `dev` environment's synthetic test-account secrets
+came only from the GitHub `dev` environment's dedicated test-account secrets
 and were never logged.
 
 ## Primary results
@@ -218,6 +218,14 @@ python backend/scripts/analyze_load_results.py \
 The same k6 command was repeated for all scenarios and run numbers listed
 above. The workflow validates the exact host before any request and uploads
 artifacts even when a contract gate fails.
+
+Future authenticated runs must follow the
+[synthetic dev test identity migration runbook](synthetic-dev-test-identity.md).
+Artifacts use only the bounded label `synthetic_dev_test_identity`; the
+sanitizer fails closed on mailbox, JWT, Authorization, access/refresh-token,
+password-field, and credential-variable patterns before upload. The historical
+identity privacy finding and remediation status remain recorded in the
+incident-response document rather than being rewritten out of the baseline.
 
 ## Acceptance review
 

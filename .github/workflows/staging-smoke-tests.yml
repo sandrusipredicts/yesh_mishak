@@ -50,7 +50,7 @@ jobs:
             fi
           done
           if [ -n "${STAGING_TEST_EMAIL:-}" ] && [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
-            echo "Tier B credentials: present — authenticated smoke tests will run."
+            echo "Tier B identity: synthetic_dev_test_identity; credentials: present."
           elif [ -n "${STAGING_TEST_EMAIL:-}" ] || [ -n "${STAGING_TEST_PASSWORD:-}" ]; then
             echo "::error::STAGING_TEST_EMAIL and STAGING_TEST_PASSWORD must be configured together (Settings > Environments > dev > Secrets)."
             missing=1

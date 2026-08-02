@@ -88,6 +88,7 @@ jobs:
             echo "github_run_id=${GITHUB_RUN_ID}"
             echo "github_run_attempt=${GITHUB_RUN_ATTEMPT}"
             echo "target_host=${EXPECTED_DEV_HOST}"
+            echo "test_identity=synthetic_dev_test_identity"
             echo "railway_deployment_id=requires_dashboard_capture"
             echo "started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > backend/load_tests/results/metadata.txt

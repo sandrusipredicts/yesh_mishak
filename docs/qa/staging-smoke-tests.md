@@ -131,11 +131,13 @@ cd frontend
 $env:STAGING_FRONTEND_URL = "https://dev-yesh-mishak.vercel.app"
 $env:STAGING_BACKEND_URL = "https://yeshmishak-dev.up.railway.app"
 $env:PRODUCTION_BACKEND_HOSTS = "yeshmishak-production.up.railway.app"
-# Optional Tier B:
-# $env:STAGING_TEST_EMAIL = "<dedicated synthetic dev account email>"
-# $env:STAGING_TEST_PASSWORD = "<its password>"
 npm run test:staging-smoke
 ```
+
+The example intentionally runs Tier A only. For a local Tier B diagnostic,
+inject both credential variables from the approved secret manager without
+putting either value in shell history; do not paste an assignment command into
+the terminal or save a local environment file.
 
 `npm run test:staging-smoke` runs Tier A first and Tier B second. The runner
 strips both credential variables from the Tier A child. With no local
@@ -266,6 +268,9 @@ timeouts.
 
 - Credentials enter only via environment variables / GitHub environment
   secrets; they are never written to code, docs, reports, or logs.
+- The identity must be project-controlled, non-personal, dev-only,
+  environment-specific, least-privilege, and receivable for verification and
+  password-reset mail. Exposure requires immediate rotation or revocation.
 - The local runner removes credentials from the Tier A child process. CI
   exposes them only to preflight and Tier B.
 - Failure assertions for authenticated calls use static text plus safe status
@@ -286,35 +291,18 @@ timeouts.
 
 ## 13. Synthetic account setup (one time, dev only)
 
-1. In the Supabase dashboard, select the isolated project
-   **`yesh_mishak_dev`** and verify its project identity before creating data.
-   Do not open or modify the production project during creation.
-2. Register the account through the dev password-registration flow at
-   `https://dev-yesh-mishak.vercel.app`. Do **not** create a Supabase Auth
-   identity: this application authenticates against its custom `public.users`
-   table and requires the backend to generate `password_hash`.
-3. Use a dedicated synthetic email, unique synthetic username and phone
-   number, and a unique strong password. Do not reuse a personal, production,
-   admin, or mutable-test identity.
-4. Complete email verification through the dev verification flow.
-5. In `yesh_mishak_dev.public.users`, verify the row has:
-   `password_hash` populated, `email_verified = true`, `role = 'user'`, and
-   `status = 'active'`. Confirm there is no privileged role or linked personal
-   identity.
-6. Confirm before every real-dev Tier B run that:
-   - `games.created_by` has zero rows for this user ID.
-   - `game_players.user_id` has zero rows for this user ID.
-   - The account is not reused by any mutable test or manual game workflow.
-7. In the production Supabase project, perform a read-only email lookup in
-   `public.users` and confirm the synthetic email has zero rows. Never create
-   this account in production.
-8. In GitHub repository Settings → Environments → **`dev`** → Environment
-   secrets, add exactly:
-   - `STAGING_TEST_EMAIL`
-   - `STAGING_TEST_PASSWORD`
-9. Keep the email and password out of repository files, command examples,
-   issue comments, workflow variables, organization/repository secrets, and
-   production configuration. The password must never be committed.
+Follow the canonical
+[synthetic dev test identity migration runbook](synthetic-dev-test-identity.md).
+It requires a receivable project-controlled mailbox, backend registration,
+email verification, a real password-reset receipt, `role = 'user'`,
+`status = 'active'`, the non-admin 403 check, write-only GitHub `dev` secret
+rotation, and a production absence check. Do **not** create a Supabase Auth
+identity: this application authenticates against `public.users` and the
+backend must generate `password_hash`.
+
+Committed evidence and workflow output identify the account only as
+`synthetic_dev_test_identity`. The mailbox, password, account UUID, tokens, and
+row contents are excluded.
 
 Recurring Tier B performs no account setup and calls no direct write endpoint.
 The normal login `last_login` telemetry update remains the sole approved
