@@ -57,6 +57,10 @@ versions; the committed evidence (commit `1c7c0a4`) is fully redacted.
   Recommendation: migrate the GitHub `dev` environment credentials to a
   dedicated synthetic identity (dedicated mailbox or alias not linked to
   a person), then delete or scrub the old test user row.
+  Issue #1027 adds repository controls and the operator runbook at
+  `docs/qa/synthetic-dev-test-identity.md`. Hosted mailbox creation, secret
+  rotation, workflow verification, and evidence-preserving retirement remain
+  pending operator actions; this note does not claim they have occurred.
 - Workflow hardening: the k6 summary export includes `setup_data`; strip
   or mask tokens before `--summary-export`, and/or mark the value with
   `::add-mask::` in the workflow so future artifacts never contain

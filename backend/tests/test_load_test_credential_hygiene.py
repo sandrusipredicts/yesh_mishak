@@ -144,6 +144,61 @@ def test_setup_data_contains_no_credentials_when_executed(tmp_path: pathlib.Path
     assert setup_data == {}, f"setup() must return an empty object, got {setup_data!r}"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_harness_rejects_a_production_target_without_sending_load(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Evaluate module configuration only and prove production is denied."""
+    harness = tmp_path / "production-guard.mjs"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            import {{ readFileSync }} from "node:fs";
+
+            const source = readFileSync({json.dumps(str(K6_SCRIPT))}, "utf8");
+            const noResponse = () => {{ throw new Error("network call attempted"); }};
+            const httpStub = new Proxy(
+              {{ expectedStatuses: () => null }},
+              {{ get: () => noResponse }}
+            );
+            const stubs = {{
+              http: httpStub,
+              check: () => true,
+              fail: (message) => {{ throw new Error(message); }},
+              sleep: () => {{}},
+              Trend: class {{ add() {{}} }},
+              Counter: class {{ add() {{}} }},
+              Rate: class {{ add() {{}} }},
+            }};
+            let code = source
+              .replace(/^import[^;]+;$/gm, "")
+              .replace(/^export default function\\s*\\(/gm, "function __defaultExport(")
+              .replace(/^export (function|const|let|class) /gm, "$1 ");
+            code += "\\nreturn {{ setup, options }};";
+
+            const factory = new Function(...Object.keys(stubs), "__ENV", code);
+            const env = {{
+              SCENARIO: "public-read",
+              BASE_URL: "https://production.example",
+              EXPECTED_DEV_HOST: "production.example",
+              PRODUCTION_BACKEND_HOSTS: "production.example",
+              TEST_RUN_ID: "production-guard",
+            }};
+            factory(...Object.values(stubs), env);
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["node", str(harness)], capture_output=True, text=True, timeout=60
+    )
+
+    assert result.returncode != 0
+    assert "Refusing to run against a production backend host" in result.stderr
+    assert "network call attempted" not in result.stderr
+
+
 # --- Layer 2: the sanitizer strips and the verifier fails closed -----------
 
 
@@ -212,6 +267,28 @@ def test_verification_fails_when_a_jwt_is_injected(tmp_path: pathlib.Path) -> No
     assert exit_code == 1, "verification must fail closed on injected credentials"
 
 
+@pytest.mark.parametrize(
+    ("content", "expected_label"),
+    [
+        ("account=reserved@example.invalid\n", "mailbox"),
+        ('{"access_token":"opaque-value"}\n', "sensitive field"),
+        ("STAGING_TEST_PASSWORD was unexpectedly present\n", "sensitive field"),
+    ],
+)
+def test_verification_rejects_mailbox_and_sensitive_fields(
+    tmp_path: pathlib.Path, content: str, expected_label: str
+) -> None:
+    sanitizer = _load_sanitizer()
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "unsafe.log").write_text(content, encoding="utf-8")
+
+    offenders = sanitizer.find_credentials(results)
+
+    assert any(label == expected_label for _, label, _ in offenders)
+    assert sanitizer.main([str(results), "--verify"]) == 1
+
+
 def test_verification_passes_on_clean_results(tmp_path: pathlib.Path) -> None:
     sanitizer = _load_sanitizer()
     results = tmp_path / "results"
@@ -235,3 +312,17 @@ def test_verifier_output_never_echoes_the_credential(tmp_path: pathlib.Path, cap
     assert "leak.log" in captured
     assert FAKE_JWT not in captured
     assert "eyJ" not in captured
+
+
+def test_verifier_output_never_echoes_a_mailbox(tmp_path: pathlib.Path, capsys) -> None:
+    sanitizer = _load_sanitizer()
+    results = tmp_path / "results"
+    results.mkdir()
+    mailbox = "reserved@example.invalid"
+    (results / "leak.log").write_text(mailbox, encoding="utf-8")
+
+    sanitizer.main([str(results), "--verify"])
+
+    captured = capsys.readouterr().out
+    assert "leak.log" in captured
+    assert mailbox not in captured

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
   DEV_BACKEND_URL,
@@ -95,6 +98,43 @@ test('a full credential pair enables Tier B without exposing values in errors', 
   }))
 
   assert.equal(config.tierB.enabled, true)
+})
+
+test('configuration failures never echo email or password values', () => {
+  const email = 'credential-sentinel@example.invalid'
+  const password = 'credential-password-sentinel'
+
+  assert.throws(
+    () => loadConfig(baseEnv({
+      STAGING_BACKEND_URL: 'https://example.invalid',
+      STAGING_TEST_EMAIL: email,
+      STAGING_TEST_PASSWORD: password,
+    })),
+    (error) => {
+      assert.equal(String(error).includes(email), false)
+      assert.equal(String(error).includes(password), false)
+      return true
+    },
+  )
+})
+
+test('runner rejects partial credentials without echoing the supplied value', () => {
+  const email = 'runner-sentinel@example.invalid'
+  const testDirectory = path.dirname(fileURLToPath(import.meta.url))
+  const frontendDirectory = path.resolve(testDirectory, '..', '..')
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/run-staging-smoke.mjs', '--tier-b'],
+    {
+      cwd: frontendDirectory,
+      env: { STAGING_TEST_EMAIL: email },
+      encoding: 'utf8',
+    },
+  )
+
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /must be provided together/)
+  assert.equal(result.stderr.includes(email), false)
 })
 
 test('the canonical production backend cannot be omitted from the denylist', () => {

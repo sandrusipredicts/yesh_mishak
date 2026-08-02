@@ -18,6 +18,7 @@ const runDuration = __ENV.RUN_DURATION || "60s";
 const pressureDuration = __ENV.PRESSURE_DURATION || "20s";
 const testEmail = __ENV.STAGING_TEST_EMAIL || "";
 const testPassword = __ENV.STAGING_TEST_PASSWORD || "";
+const testIdentityLabel = "synthetic_dev_test_identity";
 
 const supportedScenarios = new Set([
   "public-read",
@@ -195,6 +196,7 @@ function request(method, endpoint, path, expectedStatuses, body, headers, contra
       endpoint,
       test_run_id: testRunId,
       workload: scenarioName,
+      test_identity: testIdentityLabel,
       name: `${method} ${path.split("?")[0]}`,
     },
     responseCallback: http.expectedStatuses(...expectedStatuses),
@@ -239,7 +241,12 @@ function login({ record: shouldRecord = true } = {}) {
         headers,
         timeout: requestTimeout,
         responseCallback: http.expectedStatuses(200),
-        tags: { endpoint: "login_preflight", test_run_id: testRunId, workload: scenarioName },
+        tags: {
+          endpoint: "login_preflight",
+          test_run_id: testRunId,
+          workload: scenarioName,
+          test_identity: testIdentityLabel,
+        },
       });
 
   const body = parseJson(response);
@@ -443,6 +450,7 @@ export function teardown() {
         endpoint: "push_token_cleanup",
         test_run_id: testRunId,
         workload: scenarioName,
+        test_identity: testIdentityLabel,
         name: "DELETE /notifications/push-token cleanup",
       },
     }

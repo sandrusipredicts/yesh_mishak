@@ -27,6 +27,14 @@ CREDENTIAL_PATTERNS: dict[str, re.Pattern[bytes]] = {
     "jwt": re.compile(rb"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     "bearer header": re.compile(rb"(?i)authorization\s*:\s*bearer\s+\S"),
     "bearer value": re.compile(rb'(?i)"bearer\s+[A-Za-z0-9_.\-]+"'),
+    "mailbox": re.compile(
+        rb"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+        rb"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}"
+    ),
+    "sensitive field": re.compile(
+        rb'(?i)(STAGING_TEST_EMAIL|STAGING_TEST_PASSWORD|'
+        rb'"(?:access_token|refresh_token|password)"\s*:)'
+    ),
     "setup_data block": re.compile(rb'"setup_data"'),
 }
 
@@ -100,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         print("::error::Credential-shaped content found; artifact upload will be skipped.")
         return 1
 
-    print("Sanitization verified: no credential-shaped content in raw results.")
+    print("Sanitization verified: no credential- or mailbox-shaped content in raw results.")
     return 0
 
 
