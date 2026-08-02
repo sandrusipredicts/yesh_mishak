@@ -44,6 +44,9 @@ from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
 from app.services.field_photos import create_field_photo_signed_url
+from app.services.security_request_attribution import (
+    record_authenticated_security_event,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -670,7 +673,56 @@ class ModerationActionBody(BaseModel):
         return value.strip()
 
 
-def _perform_moderation_action(
+_ADMIN_USER_MODERATION_ATTRIBUTION_ROUTES = {
+    "ban": "admin_user_ban",
+    "unban": "admin_user_unban",
+    "suspend": "admin_user_suspend",
+    "unsuspend": "admin_user_unsuspend",
+}
+
+
+def _admin_security_attribution_failure(
+    exc: HTTPException,
+) -> tuple[str, str]:
+    """Map admin failures to the closed attribution outcome vocabulary."""
+
+    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    detail_code = detail.get("code")
+
+    if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        return ("denied", "rate_limited")
+    if exc.status_code in {
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_403_FORBIDDEN,
+    } or detail_code == "FORBIDDEN":
+        return ("denied", "authorization_denied")
+    if exc.status_code == status.HTTP_404_NOT_FOUND:
+        return ("failed", "not_found")
+    if exc.status_code == status.HTTP_409_CONFLICT or detail_code in {
+        "CONFLICT",
+        "FIELD_ALREADY_REMOVED",
+    }:
+        return ("failed", "conflict")
+    if exc.status_code in {
+        status.HTTP_400_BAD_REQUEST,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+    }:
+        return ("failed", "validation_rejected")
+    if exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        return ("ambiguous", "outcome_unknown")
+    return ("failed", "internal_error")
+
+
+def _safe_record_admin_security_attribution(**kwargs: Any) -> None:
+    """Keep authoritative admin behavior fail-open if attribution fails."""
+
+    try:
+        record_authenticated_security_event(**kwargs)
+    except Exception:  # noqa: BLE001 - fail-open evidence side effect
+        pass
+
+
+def _execute_moderation_action(
     user_id: str,
     action_type: str,
     body: ModerationActionBody,
@@ -751,6 +803,61 @@ def _perform_moderation_action(
     ).execute()
 
     return {"message": f"User {action_type} successful", "user": updated.data[0]}
+
+
+def _perform_moderation_action(
+    user_id: str,
+    action_type: str,
+    body: ModerationActionBody,
+    admin_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply one account-control action and attribute the authenticated admin."""
+
+    route_key = _ADMIN_USER_MODERATION_ATTRIBUTION_ROUTES[action_type]
+    actor_user_id = str(admin_user["id"])
+    try:
+        result = _execute_moderation_action(
+            user_id,
+            action_type,
+            body,
+            admin_user,
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _admin_security_attribution_failure(exc)
+        _safe_record_admin_security_attribution(
+            trusted_account_uuid=actor_user_id,
+            route_key=route_key,
+            event_category="admin_account_control",
+            http_method="POST",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
+    except Exception:
+        # The existing helper performs separate update and domain-audit calls.
+        # A transport failure cannot prove whether the status write committed.
+        _safe_record_admin_security_attribution(
+            trusted_account_uuid=actor_user_id,
+            route_key=route_key,
+            event_category="admin_account_control",
+            http_method="POST",
+            outcome="ambiguous",
+            failure_category="outcome_unknown",
+            server_correlation_id=None,
+        )
+        raise
+
+    _safe_record_admin_security_attribution(
+        trusted_account_uuid=actor_user_id,
+        route_key=route_key,
+        event_category="admin_account_control",
+        http_method="POST",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
+    )
+    return result
 
 
 @router.post("/users/{user_id}/ban")
@@ -1207,19 +1314,54 @@ def delete_admin_field(
     body: FieldRemoveBody,
     current_user: dict[str, Any] = Depends(require_admin),
 ):
-    field_id = validate_uuid_id(field_id, "field_id")
-    result = remove_field_record(field_id, body, str(current_user["id"]))
-    logger.info(
-        "field removed by admin",
-        extra={
-            "event": "fields.moderation.remove",
-            "endpoint": "/admin/fields/{field_id}",
-            "method": "DELETE",
-            "actor_user_id": current_user.get("id"),
-            "field_id": field_id,
-            "removal_reason": body.reason,
-            "result": "success",
-        },
+    actor_user_id = str(current_user["id"])
+    try:
+        field_id = validate_uuid_id(field_id, "field_id")
+        result = remove_field_record(field_id, body, actor_user_id)
+        logger.info(
+            "field removed by admin",
+            extra={
+                "event": "fields.moderation.remove",
+                "endpoint": "/admin/fields/{field_id}",
+                "method": "DELETE",
+                "actor_user_id": current_user.get("id"),
+                "field_id": field_id,
+                "removal_reason": body.reason,
+                "result": "success",
+            },
+        )
+    except HTTPException as exc:
+        outcome, failure_category = _admin_security_attribution_failure(exc)
+        _safe_record_admin_security_attribution(
+            trusted_account_uuid=actor_user_id,
+            route_key="admin_field_delete",
+            event_category="admin_content_control",
+            http_method="DELETE",
+            outcome=outcome,
+            failure_category=failure_category,
+            server_correlation_id=None,
+        )
+        raise
+    except Exception:
+        _safe_record_admin_security_attribution(
+            trusted_account_uuid=actor_user_id,
+            route_key="admin_field_delete",
+            event_category="admin_content_control",
+            http_method="DELETE",
+            outcome="ambiguous",
+            failure_category="outcome_unknown",
+            server_correlation_id=None,
+        )
+        raise
+
+    _safe_record_admin_security_attribution(
+        trusted_account_uuid=actor_user_id,
+        route_key="admin_field_delete",
+        event_category="admin_content_control",
+        http_method="DELETE",
+        outcome="succeeded",
+        failure_category=None,
+        server_correlation_id=None,
     )
     return result
 
