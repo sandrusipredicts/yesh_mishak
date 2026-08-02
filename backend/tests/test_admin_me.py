@@ -367,6 +367,10 @@ def test_admin_endpoints_allow_admin_user(monkeypatch, endpoint: str) -> None:
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
     monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
+    monkeypatch.setattr(
         "app.services.api_request_metrics.get_supabase_service_role_client",
         lambda: fake_client,
     )
@@ -502,14 +506,26 @@ def test_admin_users_returns_required_fields_only(monkeypatch) -> None:
         "google_sub": "private-provider-id",
         "picture": "https://example.com/private.png",
     }
-    fake_client = FakeSupabaseClient(
+    auth_client = FakeSupabaseClient(
+        {
+            admin_user["id"]: admin_user,
+        }
+    )
+    service_client = FakeSupabaseClient(
         {
             admin_user["id"]: admin_user,
             listed_user["id"]: listed_user,
         }
     )
-    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
-    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: auth_client)
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_client",
+        lambda: pytest.fail("admin users must not use the anon client"),
+    )
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: service_client,
+    )
 
     response = TestClient(app).get(
         "/admin/users",
@@ -563,6 +579,10 @@ def test_admin_users_rejects_regular_user(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.auth.dependencies.get_supabase_client",
         lambda: FakeSupabaseClient({regular_user["id"]: regular_user}),
+    )
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: pytest.fail("authorization must run before admin data access"),
     )
 
     response = TestClient(app).get(

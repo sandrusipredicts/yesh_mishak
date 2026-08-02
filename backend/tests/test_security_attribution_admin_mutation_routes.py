@@ -188,6 +188,38 @@ def test_successful_field_removal_attributes_authenticated_admin_only(
     assert FIELD_ADMIN["email"] not in serialized
 
 
+def test_genuinely_missing_field_records_not_found_without_target_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_field_test(monkeypatch)
+    client = make_field_client(monkeypatch, _base_tables())
+    calls = capture_attribution(monkeypatch)
+
+    response = client.request(
+        "DELETE",
+        DELETE_PATH.format("field-1"),
+        json=VALID_BODY,
+        headers=field_headers(FIELD_ADMIN),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "FIELD_NOT_FOUND"
+    assert len(calls) == 1
+    assert_event(
+        calls[0],
+        actor_id=FIELD_ADMIN["id"],
+        route_key="admin_field_delete",
+        event_category="admin_content_control",
+        method="DELETE",
+        outcome="failed",
+        failure_category="not_found",
+    )
+    serialized = repr(calls[0])
+    assert "field-1" not in serialized
+    assert VALID_BODY["reason"] not in serialized
+    assert FIELD_ADMIN["email"] not in serialized
+
+
 @pytest.mark.parametrize(
     "path,body,expected_route,expected_outcome,expected_failure",
     (

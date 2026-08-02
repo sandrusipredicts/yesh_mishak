@@ -641,7 +641,7 @@ def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
 @router.get("/users")
 def get_admin_users(_: dict[str, Any] = Depends(require_admin)):
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("users")
         .select(ADMIN_USER_COLUMNS)
         .order("created_at", desc=True)
