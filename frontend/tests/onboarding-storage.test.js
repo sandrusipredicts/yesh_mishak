@@ -167,3 +167,9 @@ test('resolveAccountCity prefers an already-set account city over migration', ()
   const result = resolveAccountCity('user-a', deviceState, storage)
   assert.equal(result, israelCities[1], 'an account\'s own saved city must win over the device blob')
 })
+
+test('setAccountCity returns false when storage write fails', () => {
+  const storage = createStorage({}, { failWrites: true })
+  assert.equal(setAccountCity('user-a', israelCities[0], storage), false)
+  assert.equal(getAccountCity('user-a', storage), '')
+})

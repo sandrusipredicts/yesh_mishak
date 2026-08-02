@@ -82,6 +82,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     password: '',
     password_confirm: '',
   })
+  const [registerErrors, setRegisterErrors] = useState({})
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
   const isGoogleButtonVisible = mode !== 'verification'
 
@@ -301,11 +302,43 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
     }
   }
 
+  function validateRegistration() {
+    const errors = {}
+
+    if (!registerForm.full_name.trim()) {
+      errors.full_name = t('auth.fullNameRequired')
+    }
+    if (!registerForm.username.trim() || registerForm.username.trim().length < 3) {
+      errors.username = t('auth.usernameMinLength')
+    }
+    if (!registerForm.email.trim()) {
+      errors.email = t('auth.emailRequired')
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registerForm.email.trim())) {
+      errors.email = t('auth.emailInvalid')
+    }
+    if (!registerForm.phone_number.trim()) {
+      errors.phone_number = t('auth.phoneRequired')
+    }
+    if (registerForm.password.length < 8) {
+      errors.password = t('auth.passwordTooShort', { count: 8 })
+    } else if (registerForm.password.length > 128) {
+      errors.password = t('auth.passwordTooLong', { count: 128 })
+    }
+    if (registerForm.password !== registerForm.password_confirm) {
+      errors.password_confirm = t('auth.passwordMismatch')
+    }
+
+    setRegisterErrors(errors)
+
+    const firstError = Object.values(errors)[0]
+    return firstError || null
+  }
+
   async function handleRegister(event) {
     event.preventDefault()
-
-    if (registerForm.password !== registerForm.password_confirm) {
-      setError(t('auth.passwordMismatch'))
+    const validationError = validateRegistration()
+    if (validationError) {
+      setError(validationError)
       return
     }
 
@@ -476,7 +509,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
                 required
                 type="text"
                 value={registerForm.full_name}
+                aria-describedby={registerErrors.full_name ? 'error-full-name' : undefined}
               />
+              {registerErrors.full_name ? (
+                <span className="form-field-error" id="error-full-name">{registerErrors.full_name}</span>
+              ) : null}
             </label>
             <label>
               <span>{t('auth.username')}</span>
@@ -488,7 +525,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
                 required
                 type="text"
                 value={registerForm.username}
+                aria-describedby={registerErrors.username ? 'error-username' : undefined}
               />
+              {registerErrors.username ? (
+                <span className="form-field-error" id="error-username">{registerErrors.username}</span>
+              ) : null}
             </label>
             <label>
               <span>{t('auth.email')}</span>
@@ -499,7 +540,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
                 required
                 type="email"
                 value={registerForm.email}
+                aria-describedby={registerErrors.email ? 'error-email' : undefined}
               />
+              {registerErrors.email ? (
+                <span className="form-field-error" id="error-email">{registerErrors.email}</span>
+              ) : null}
             </label>
             <label>
               <span>{t('auth.phoneNumber')}</span>
@@ -510,7 +555,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
                 required
                 type="tel"
                 value={registerForm.phone_number}
+                aria-describedby={registerErrors.phone_number ? 'error-phone-number' : undefined}
               />
+              {registerErrors.phone_number ? (
+                <span className="form-field-error" id="error-phone-number">{registerErrors.phone_number}</span>
+              ) : null}
             </label>
             <label>
               <span>{t('auth.password')}</span>
@@ -523,7 +572,11 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
                 required
                 type="password"
                 value={registerForm.password}
+                aria-describedby={registerErrors.password ? 'error-password' : undefined}
               />
+              {registerErrors.password ? (
+                <span className="form-field-error" id="error-password">{registerErrors.password}</span>
+              ) : null}
               <span className="form-hint">{t('auth.passwordHint')}</span>
             </label>
             <label>
@@ -580,10 +633,10 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
           </p>
         ) : null}
         {isLoading ? <p className="login-status">{t('auth.signingIn')}</p> : null}
-        <nav className="login-legal-links" aria-label="Legal pages">
-          <a href="/privacy">Privacy Policy</a>
+        <nav className="login-legal-links" aria-label={t('auth.legalLinks')}>
+          <a href="/privacy">{t('auth.privacyPolicy')}</a>
           <span aria-hidden="true">·</span>
-          <a href="/terms">Terms of Service</a>
+          <a href="/terms">{t('auth.termsOfService')}</a>
         </nav>
       </section>
     </main>
