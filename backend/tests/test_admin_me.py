@@ -365,7 +365,10 @@ def test_admin_endpoints_allow_admin_user(monkeypatch, endpoint: str) -> None:
     }
     fake_client = make_admin_matrix_client(admin_user, regular_user)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
-    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_client",
+        lambda: pytest.fail("admin data access must not use the anon client"),
+    )
     monkeypatch.setattr(
         "app.api.admin.get_supabase_service_role_client",
         lambda: fake_client,
@@ -374,7 +377,10 @@ def test_admin_endpoints_allow_admin_user(monkeypatch, endpoint: str) -> None:
         "app.services.api_request_metrics.get_supabase_service_role_client",
         lambda: fake_client,
     )
-    monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.routers.game_payloads.get_supabase_client",
+        lambda: pytest.fail("admin game enrichment must use the trusted client"),
+    )
 
     response = TestClient(app).get(
         endpoint,
@@ -416,6 +422,37 @@ def test_admin_endpoints_require_token(endpoint: str) -> None:
     response = TestClient(app).get(endpoint)
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("account_status", ["banned", "suspended"])
+@pytest.mark.parametrize("endpoint", ADMIN_ENDPOINTS)
+def test_admin_endpoints_reject_restricted_admin(
+    monkeypatch,
+    account_status: str,
+    endpoint: str,
+) -> None:
+    configure_test_settings(monkeypatch)
+    restricted_admin = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "restricted-admin@example.com",
+        "name": "Restricted Admin",
+        "role": "admin",
+        "status": account_status,
+    }
+    fake_client = FakeSupabaseClient({restricted_admin["id"]: restricted_admin})
+    monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: pytest.fail("authorization must run before admin data access"),
+    )
+
+    response = TestClient(app).get(
+        endpoint,
+        headers={"Authorization": f"Bearer {make_token(restricted_admin)}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "ACCOUNT_RESTRICTED"
 
 
 def test_admin_me_returns_current_admin(monkeypatch) -> None:
@@ -635,7 +672,14 @@ def test_admin_field_reports_returns_enriched_reports_newest_first(monkeypatch) 
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
-    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_client",
+        lambda: pytest.fail("field moderation must not use the anon client"),
+    )
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
 
     response = TestClient(app).get(
         "/admin/field-reports",
@@ -1064,7 +1108,14 @@ def test_admin_field_moderation_logs_decision(
         },
     )
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake_client)
-    monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_client",
+        lambda: pytest.fail("field moderation must not use the anon client"),
+    )
+    monkeypatch.setattr(
+        "app.api.admin.get_supabase_service_role_client",
+        lambda: fake_client,
+    )
 
     with caplog.at_level(logging.INFO, logger="app.api.admin"):
         response = TestClient(app).post(

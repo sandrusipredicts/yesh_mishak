@@ -456,6 +456,19 @@ alter table push_delivery_attempts enable row level security;
 alter table api_request_metrics enable row level security;
 alter table share_events enable row level security;
 
+-- Core-table ACL hardening from migrations/core_table_acl_hardening.sql.
+-- RLS does not govern TRUNCATE, while TRIGGER and REFERENCES are schema-level
+-- capabilities that public application roles do not need. Preserve all
+-- separately reviewed row-level DML grants and policies.
+revoke truncate, trigger, references
+    on table
+        public.users,
+        public.fields,
+        public.games,
+        public.field_reports,
+        public.user_moderation_audit
+    from anon, authenticated;
+
 drop policy if exists push_tokens_select_own on push_tokens;
 create policy push_tokens_select_own
     on push_tokens for select

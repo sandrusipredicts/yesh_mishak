@@ -344,6 +344,73 @@ test('manual refresh prevents overlapping requests', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Refresh monitoring', exact: true })).toBeEnabled()
 })
 
+test('failed background refresh keeps the last successful monitoring snapshot visible', async ({ page }) => {
+  let attempts = 0
+  await mockAdminApi(page, {
+    monitoringHandler: async (route) => {
+      attempts += 1
+      if (attempts === 1) {
+        return fulfillJson(route, monitoringData)
+      }
+      return fulfillJson(route, { detail: 'provider internals must stay hidden' }, 503)
+    },
+  })
+  await openMonitoring(page)
+
+  await expect(page.getByText('Completed API requests', { exact: true })).toBeVisible()
+  await expect(page.locator('.admin-monitoring-grid').getByText('10', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Refresh monitoring', exact: true }).click()
+
+  await expect(page.getByText(
+    'Monitoring could not be loaded. Check the backend and try again.',
+    { exact: true },
+  )).toBeVisible()
+  await expect(page.getByText('Completed API requests', { exact: true })).toBeVisible()
+  await expect(page.locator('.admin-monitoring-grid').getByText('10', { exact: true })).toBeVisible()
+  await expect(page.getByText('provider internals must stay hidden', { exact: true })).toHaveCount(0)
+})
+
+test('monitoring ignores unapproved identity, token, SQL, and request fields', async ({ page }) => {
+  const forbiddenMarkers = [
+    'synthetic-person@example.com',
+    'qa-secret-access-token',
+    'SELECT * FROM private_table',
+    'authorization-header-marker',
+    'raw-request-body-marker',
+  ]
+  const consoleMessages = []
+  page.on('console', (message) => consoleMessages.push(message.text()))
+
+  await mockAdminApi(page, {
+    monitoringHandler: async (route) => fulfillJson(route, {
+      ...monitoringData,
+      email: forbiddenMarkers[0],
+      access_token: forbiddenMarkers[1],
+      sql: forbiddenMarkers[2],
+      authorization: forbiddenMarkers[3],
+      request_body: forbiddenMarkers[4],
+      active_users: {
+        ...monitoringData.active_users,
+        account_email: forbiddenMarkers[0],
+      },
+      scheduled_jobs: {
+        ...monitoringData.scheduled_jobs,
+        recent_runs: monitoringData.scheduled_jobs.recent_runs.map((run) => ({
+          ...run,
+          query: forbiddenMarkers[2],
+        })),
+      },
+    }),
+  })
+  await openMonitoring(page)
+
+  await expect(page.getByText('Completed API requests', { exact: true })).toBeVisible()
+  for (const marker of forbiddenMarkers) {
+    await expect(page.getByText(marker, { exact: true })).toHaveCount(0)
+    expect(consoleMessages.join('\n')).not.toContain(marker)
+  }
+})
+
 test('expired admin session is reported without exposing backend details', async ({ page }) => {
   await mockAdminApi(page, {
     monitoringHandler: async (route) => fulfillJson(route, { detail: 'expired token internals' }, 401),

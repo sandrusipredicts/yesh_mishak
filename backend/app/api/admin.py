@@ -226,7 +226,11 @@ class FieldReportResolveBody(BaseModel):
 
 
 def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -> int:
-    query = get_supabase_client().table(table_name).select("id", count="exact")
+    query = (
+        get_supabase_service_role_client()
+        .table(table_name)
+        .select("id", count="exact")
+    )
 
     for column, value in filters or []:
         query = query.eq(column, value)
@@ -241,7 +245,7 @@ def _count_rows(table_name: str, filters: list[tuple[str, Any]] | None = None) -
 
 def _count_rows_in(table_name: str, column: str, values: list[str]) -> int:
     if table_name == "games" and column == "status" and values == ACTIVE_GAME_STATUSES:
-        supabase = get_supabase_client()
+        supabase = get_supabase_service_role_client()
         games = (
             supabase
             .table("games")
@@ -253,7 +257,7 @@ def _count_rows_in(table_name: str, column: str, values: list[str]) -> int:
         return len(finish_expired_games(games, supabase=supabase))
 
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table(table_name)
         .select("id", count="exact")
         .in_(column, values)
@@ -896,11 +900,15 @@ def unsuspend_user(
     return _perform_moderation_action(user_id, "unsuspend", body, current_user)
 
 
-def _attach_field_report_details(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _attach_field_report_details(
+    reports: list[dict[str, Any]],
+    *,
+    supabase: Any | None = None,
+) -> list[dict[str, Any]]:
     if not reports:
         return []
 
-    supabase = get_supabase_client()
+    supabase = supabase or get_supabase_service_role_client()
     field_ids = sorted({str(report["field_id"]) for report in reports if report.get("field_id")})
     user_ids = sorted({str(report["user_id"]) for report in reports if report.get("user_id")})
 
@@ -964,8 +972,9 @@ def get_admin_field_reports(
             message="status must be open, in_review, resolved, or rejected",
         )
 
+    supabase = get_supabase_service_role_client()
     query = (
-        get_supabase_client()
+        supabase
         .table("field_reports")
         .select(ADMIN_FIELD_REPORT_COLUMNS)
         .order("created_at", desc=True)
@@ -974,7 +983,10 @@ def get_admin_field_reports(
     if status_filter:
         query = query.eq("status", status_filter)
 
-    return _attach_field_report_details(query.execute().data or [])
+    return _attach_field_report_details(
+        query.execute().data or [],
+        supabase=supabase,
+    )
 
 
 @router.patch("/field-reports/{report_id}/status")
@@ -1229,7 +1241,7 @@ def get_admin_fields(_: dict[str, Any] = Depends(require_admin)):
     # public listing. A future "show removed fields" view should be an
     # explicit, separate filter rather than changing this default.
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("fields")
         .select(ADMIN_FIELD_COLUMNS)
         .is_("removed_at", "null")
@@ -1242,7 +1254,7 @@ def get_admin_fields(_: dict[str, Any] = Depends(require_admin)):
 @router.get("/fields/pending")
 def get_pending_fields(_: dict[str, Any] = Depends(require_admin)):
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("fields")
         .select("*")
         .eq("approval_status", "pending")
@@ -1282,7 +1294,11 @@ def update_admin_field_status(
     _: dict[str, Any] = Depends(require_admin),
 ):
     field_id = validate_uuid_id(field_id, "field_id")
-    return update_field_status_record(field_id, body)
+    return update_field_status_record(
+        field_id,
+        body,
+        supabase=get_supabase_service_role_client(),
+    )
 
 
 @router.patch("/fields/{field_id}")
@@ -1292,7 +1308,11 @@ def update_admin_field(
     current_user: dict[str, Any] = Depends(require_admin),
 ):
     field_id = validate_uuid_id(field_id, "field_id")
-    result = update_field_record(field_id, body)
+    result = update_field_record(
+        field_id,
+        body,
+        supabase=get_supabase_service_role_client(),
+    )
     logger.info(
         "field edited by admin",
         extra={
@@ -1369,7 +1389,7 @@ def delete_admin_field(
 @router.get("/fields/duplicates")
 def get_field_duplicates(_: dict[str, Any] = Depends(require_admin)):
     fields = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("fields")
         .select(ADMIN_FIELD_COLUMNS + ",added_by")
         .is_("removed_at", "null")
@@ -1380,7 +1400,11 @@ def get_field_duplicates(_: dict[str, Any] = Depends(require_admin)):
     return find_duplicates(fields)
 
 
-def _attach_field_names(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _attach_field_names(
+    games: list[dict[str, Any]],
+    *,
+    supabase: Any,
+) -> list[dict[str, Any]]:
     if not games:
         return []
 
@@ -1388,7 +1412,7 @@ def _attach_field_names(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
     fields_by_id: dict[str, str] = {}
     if field_ids:
         field_rows = (
-            get_supabase_client()
+            supabase
             .table("fields")
             .select("id,name")
             .in_("id", field_ids)
@@ -1407,9 +1431,13 @@ def _attach_field_names(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _format_admin_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    games_with_field_names = _attach_field_names(games)
-    return attach_participants_to_games(games_with_field_names)
+def _format_admin_games(
+    games: list[dict[str, Any]],
+    *,
+    supabase: Any,
+) -> list[dict[str, Any]]:
+    games_with_field_names = _attach_field_names(games, supabase=supabase)
+    return attach_participants_to_games(games_with_field_names, supabase=supabase)
 
 
 def _get_games_by_statuses(
@@ -1417,7 +1445,7 @@ def _get_games_by_statuses(
     *,
     limit: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_role_client()
     query = (
         supabase
         .table("games")
@@ -1433,12 +1461,13 @@ def _get_games_by_statuses(
     if statuses == ACTIVE_GAME_STATUSES:
         games = finish_expired_games(games, supabase=supabase)
 
-    return _format_admin_games(games)
+    return _format_admin_games(games, supabase=supabase)
 
 
 def _get_game(game_id: str) -> dict[str, Any]:
+    supabase = get_supabase_service_role_client()
     response = (
-        get_supabase_client()
+        supabase
         .table("games")
         .select("*")
         .eq("id", game_id)
@@ -1456,9 +1485,9 @@ def _get_game(game_id: str) -> dict[str, Any]:
     return response.data[0]
 
 
-def _ensure_admin_active_game(game: dict[str, Any]) -> None:
+def _ensure_admin_active_game(game: dict[str, Any], *, supabase: Any) -> None:
     try:
-        ensure_game_is_actionable(game, supabase=get_supabase_client())
+        ensure_game_is_actionable(game, supabase=supabase)
     except HTTPException:
         raise_api_error(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1603,9 +1632,9 @@ def run_notification_cleanup(current_user: dict[str, Any] = Depends(require_admi
 def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     game_id = validate_uuid_id(game_id, "game_id")
     game = _get_game(game_id)
-    _ensure_admin_active_game(game)
+    supabase = get_supabase_service_role_client()
+    _ensure_admin_active_game(game, supabase=supabase)
 
-    supabase = get_supabase_client()
     response = (
         supabase
         .table("games")
@@ -1658,7 +1687,8 @@ def close_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requir
 def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(require_admin)):
     game_id = validate_uuid_id(game_id, "game_id")
     game = _get_game(game_id)
-    _ensure_admin_active_game(game)
+    supabase = get_supabase_service_role_client()
+    _ensure_admin_active_game(game, supabase=supabase)
 
     expires_at = game.get("expires_at")
     if not expires_at:
@@ -1670,7 +1700,6 @@ def extend_admin_game(game_id: str, current_user: dict[str, Any] = Depends(requi
 
     current_expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
     new_expires = current_expires + timedelta(hours=1)
-    supabase = get_supabase_client()
     response = (
         supabase
         .table("games")
@@ -1777,7 +1806,7 @@ def _update_field_approval(
     event: str,
 ) -> dict[str, Any]:
     response = (
-        get_supabase_client()
+        get_supabase_service_role_client()
         .table("fields")
         .update(updates)
         .eq("id", field_id)
@@ -1859,7 +1888,7 @@ def get_monitoring(
     now = get_now()
     generated_at = now.isoformat()
     window_started_at = now - timedelta(minutes=window_minutes)
-    supabase = get_supabase_client()
+    supabase = get_supabase_service_role_client()
 
     # --- Active games (reuses existing logic) ---
     active_games_count = _count_rows_in("games", "status", ACTIVE_GAME_STATUSES)

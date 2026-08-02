@@ -112,6 +112,7 @@ def _make_client(monkeypatch, tables: dict[str, list]) -> TestClient:
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.game_lifecycle.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake)
     return TestClient(app)
 
 

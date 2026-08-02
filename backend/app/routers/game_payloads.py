@@ -150,7 +150,11 @@ def _split_games_by_field(
     return active_games_by_field_id, upcoming_games_by_field_id
 
 
-def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def attach_participants_to_games(
+    games: list[dict[str, Any]],
+    *,
+    supabase: Any | None = None,
+) -> list[dict[str, Any]]:
     if not games:
         return []
 
@@ -158,7 +162,7 @@ def attach_participants_to_games(games: list[dict[str, Any]]) -> list[dict[str, 
     if not game_ids:
         return [dict(game, participants=[]) for game in games]
 
-    supabase = get_supabase_client()
+    supabase = supabase or get_supabase_client()
     player_rows = _select_with_in_batches(
         supabase,
         "game_players",
