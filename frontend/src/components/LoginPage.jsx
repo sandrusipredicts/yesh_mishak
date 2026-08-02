@@ -15,7 +15,7 @@ import {
 } from '../api/nativeGoogleAuth'
 import { isAccountLinkRequiredError, mapNativeAuthError } from '../api/authErrorMapping'
 import { clearSession, isNativeRuntime } from '../api/sessionStorage'
-import { getApiErrorMessage } from '../api/errors'
+import { getApiErrorMessage, getSafeErrorMessage } from '../api/errors'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -356,7 +356,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
         await handleAuthSuccess(authData)
       }
     } catch (apiError) {
-      setError(getApiErrorMessage(apiError, t('auth.accountCreateFailed')))
+      setError(getSafeErrorMessage(apiError, t, 'auth.accountCreateFailed'))
     } finally {
       setIsLoading(false)
     }

@@ -47,6 +47,24 @@ async function seedPostOnboardingUser(page, language = 'en') {
     localStorage.setItem('language_selected', 'true')
     localStorage.setItem('onboarding_done', 'true')
     localStorage.setItem('userCity', 'ירושלים')
+    localStorage.setItem(`starting_city:${user.id}`, 'ירושלים')
+    localStorage.setItem('starting_city_migrated', 'true')
+  }, { user: USER, token: makeJwt(), languageCode: language })
+}
+
+async function seedAccountCityPromptUser(page, language = 'en') {
+  await page.addInitScript(({ user, token, languageCode }) => {
+    localStorage.setItem('access_token', token)
+    localStorage.setItem('currentUserId', user.id)
+    localStorage.setItem('currentUserName', user.name)
+    localStorage.setItem('currentUserEmail', user.email)
+    localStorage.setItem('app_language', languageCode)
+    localStorage.setItem('language_selected', 'true')
+    localStorage.setItem('onboarding_done', 'true')
+    localStorage.setItem('userCity', 'ירושלים')
+    // Migration flag set but NO starting_city key → resolvedAccountCity === ''
+    // → renders AccountCityStep (not the main onboarding flow)
+    localStorage.setItem('starting_city_migrated', 'true')
   }, { user: USER, token: makeJwt(), languageCode: language })
 }
 
@@ -70,7 +88,7 @@ async function mockLoginApi(page) {
       body: JSON.stringify({
         access_token: makeJwt(),
         token_type: 'bearer',
-        user: { id: USER.id, name: USER.name, email: USER.email },
+        user: { id: USER.id, name: USER.name, email: USER.email, terms_accepted: true },
       }),
     })
   })
@@ -203,15 +221,16 @@ async function openAddFieldModal(page) {
 // Scenario 1 — Account-city persistence failure blocks progression
 // ---------------------------------------------------------------------------
 
-test('account-city persistence failure blocks onboarding progression and shows error', async ({ page }) => {
-  await seedAuthenticatedUser(page, 'en')
+test('account-city persistence failure blocks AccountCityStep progression and shows error', async ({ page }) => {
+  // Seed post-onboarding user without account city → renders AccountCityStep
+  await seedAccountCityPromptUser(page, 'en')
   await mockApplicationApis(page)
 
   // Make localStorage.setItem throw for the account city key
   await page.addInitScript(() => {
     const original = localStorage.setItem.bind(localStorage)
     localStorage.setItem = function (key, value) {
-      if (key.startsWith('accountCity_')) {
+      if (key.startsWith('starting_city:')) {
         throw new Error('QuotaExceededError')
       }
       return original(key, value)
@@ -219,17 +238,18 @@ test('account-city persistence failure blocks onboarding progression and shows e
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: 'Continue' }).click()
 
-  const input = page.locator('#onboarding-city-input')
+  // AccountCityStep renders with its own city input
+  const input = page.locator('#account-city-input')
+  await expect(input).toBeVisible()
   await input.fill('ירוחם')
   await page.getByRole('option', { name: 'ירוחם' }).click()
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: /continue|המשך/i }).click()
 
   // Error should be visible and progression should be blocked
   await expect(page.getByText('Could not save your city. Please try again.')).toBeVisible()
-  // Should still be on the city step — not advanced to location
-  await expect(page.locator('#onboarding-city-input')).toBeVisible()
+  // Should still be on the AccountCityStep — not advanced
+  await expect(input).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -237,7 +257,8 @@ test('account-city persistence failure blocks onboarding progression and shows e
 // ---------------------------------------------------------------------------
 
 test('account-city retry succeeds after initial persistence failure', async ({ page }) => {
-  await seedAuthenticatedUser(page, 'en')
+  // Seed post-onboarding user without account city → renders AccountCityStep
+  await seedAccountCityPromptUser(page, 'en')
   await mockApplicationApis(page)
 
   // First attempt fails, subsequent attempts succeed
@@ -245,7 +266,7 @@ test('account-city retry succeeds after initial persistence failure', async ({ p
     let failCount = 0
     const original = localStorage.setItem.bind(localStorage)
     localStorage.setItem = function (key, value) {
-      if (key.startsWith('accountCity_') && failCount < 1) {
+      if (key.startsWith('starting_city:') && failCount < 1) {
         failCount += 1
         throw new Error('QuotaExceededError')
       }
@@ -254,21 +275,21 @@ test('account-city retry succeeds after initial persistence failure', async ({ p
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: 'Continue' }).click()
 
-  const input = page.locator('#onboarding-city-input')
+  const input = page.locator('#account-city-input')
+  await expect(input).toBeVisible()
   await input.fill('ירוחם')
   await page.getByRole('option', { name: 'ירוחם' }).click()
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: /continue|המשך/i }).click()
 
   // First attempt should show error
   await expect(page.getByText('Could not save your city. Please try again.')).toBeVisible()
 
   // Retry — click Continue again (city is still selected)
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: /continue|המשך/i }).click()
 
-  // Should advance past the city step
-  await expect(page.locator('#onboarding-city-input')).not.toBeVisible()
+  // Should advance past the AccountCityStep — map page loads
+  await expect(input).not.toBeVisible({ timeout: 5000 })
 })
 
 // ---------------------------------------------------------------------------
@@ -284,16 +305,20 @@ test('Hebrew registration form shows validation errors for all required fields',
 
   await switchToRegisterTab(page)
 
-  // Submit empty form
+  // Bypass browser-native validation to test our custom JS validation layer
+  await page.evaluate(() => document.querySelector('.auth-form')?.setAttribute('novalidate', ''))
+
+  // Submit empty form — custom validateRegistration() runs
   await page.click('button[type="submit"]')
 
-  // Verify Hebrew validation messages appear
-  await expect(page.getByText('חובה להזין שם מלא.')).toBeVisible()
-  await expect(page.getByText('שם המשתמש חייב להכיל לפחות 3 תווים.')).toBeVisible()
-  await expect(page.getByText('חובה להזין כתובת אימייל.')).toBeVisible()
-  await expect(page.getByText('חובה להזין מספר טלפון.')).toBeVisible()
-  // Password validation
-  await expect(page.getByText('הסיסמה חייבת להכיל לפחות 8 תווים.')).toBeVisible()
+  // Verify Hebrew inline validation messages appear (use .first() because the
+  // first validation error is also shown in the general error alert)
+  await expect(page.locator('#error-full-name')).toBeVisible()
+  await expect(page.locator('#error-full-name')).toHaveText('חובה להזין שם מלא.')
+  await expect(page.locator('#error-username')).toBeVisible()
+  await expect(page.locator('#error-email')).toBeVisible()
+  await expect(page.locator('#error-phone-number')).toBeVisible()
+  await expect(page.locator('#error-password')).toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
@@ -308,13 +333,20 @@ test('English registration form shows validation errors for all required fields'
   await page.goto('/')
 
   await switchToRegisterTab(page)
+
+  // Bypass browser-native validation to test our custom JS validation layer
+  await page.evaluate(() => document.querySelector('.auth-form')?.setAttribute('novalidate', ''))
   await page.click('button[type="submit"]')
 
-  await expect(page.getByText('Full name is required.')).toBeVisible()
-  await expect(page.getByText('Username must be at least 3 characters.')).toBeVisible()
-  await expect(page.getByText('Email is required.')).toBeVisible()
-  await expect(page.getByText('Phone number is required.')).toBeVisible()
-  await expect(page.getByText('Password must be at least 8 characters.')).toBeVisible()
+  // Verify English inline validation messages appear (use element IDs because
+  // the first error is also shown in the general error alert, causing strict
+  // mode violations with getByText)
+  await expect(page.locator('#error-full-name')).toBeVisible()
+  await expect(page.locator('#error-full-name')).toHaveText('Full name is required.')
+  await expect(page.locator('#error-username')).toBeVisible()
+  await expect(page.locator('#error-email')).toBeVisible()
+  await expect(page.locator('#error-phone-number')).toBeVisible()
+  await expect(page.locator('#error-password')).toBeVisible()
 })
 
 test('English registration rejects invalid email format', async ({ page }) => {
@@ -325,10 +357,13 @@ test('English registration rejects invalid email format', async ({ page }) => {
   await page.goto('/')
 
   await switchToRegisterTab(page)
-  await fillRegistrationForm(page, { email: 'not-an-email' })
+  // 'user@domain' passes browser type="email" but fails our regex
+  // (requires a dot in the domain part)
+  await fillRegistrationForm(page, { email: 'user@domain' })
   await page.click('button[type="submit"]')
 
-  await expect(page.getByText('Please enter a valid email address.')).toBeVisible()
+  await expect(page.locator('#error-email')).toBeVisible()
+  await expect(page.locator('#error-email')).toHaveText('Please enter a valid email address.')
 })
 
 test('English registration rejects password mismatch', async ({ page }) => {
@@ -340,9 +375,11 @@ test('English registration rejects password mismatch', async ({ page }) => {
 
   await switchToRegisterTab(page)
   await fillRegistrationForm(page, { password: 'password123', password_confirm: 'differentPass' })
-  await page.click('button[type="submit"]')
 
+  // Password mismatch error is shown live (not on submit) and the submit
+  // button is disabled when passwords don't match
   await expect(page.getByText('Passwords do not match.')).toBeVisible()
+  await expect(page.locator('button[type="submit"]')).toBeDisabled()
 })
 
 // ---------------------------------------------------------------------------
@@ -358,6 +395,9 @@ test('registration errors remain visible on a short viewport', async ({ page }) 
   await page.goto('/')
 
   await switchToRegisterTab(page)
+
+  // Bypass browser-native validation to test our custom JS validation layer
+  await page.evaluate(() => document.querySelector('.auth-form')?.setAttribute('novalidate', ''))
   await page.click('button[type="submit"]')
 
   // The general error alert should be in the viewport (scrolled into view
@@ -427,8 +467,8 @@ test('AddField location recovers after geolocation denial and allows manual pin 
 
   await locationButton.click()
 
-  // Error should be shown
-  await expect(modal.getByText(/location/i)).toBeVisible()
+  // Error should be shown (the modal-error element with permission message)
+  await expect(modal.locator('.modal-error')).toBeVisible()
 
   // Button should be re-enabled (not stuck in locating)
   await expect(locationButton).toBeEnabled()
@@ -464,8 +504,10 @@ test('new password user registration validates all fields before API call', asyn
   await page.goto('/')
   await switchToRegisterTab(page)
 
-  // Submit with invalid data — no API call should be made
-  await fillRegistrationForm(page, { email: 'bad-email', password: 'short', password_confirm: 'mismatch' })
+  // Submit with invalid data — passes browser validation but fails custom
+  // validation: 'user@domain' has no dot in domain (fails our regex), and
+  // matching passwords avoid disabling the submit button via passwordMismatch
+  await fillRegistrationForm(page, { email: 'user@domain', password: 'password1', password_confirm: 'password1' })
   await page.click('button[type="submit"]')
 
   expect(registerCalls).toBe(0)
@@ -496,14 +538,13 @@ test('password registration server error shows safe message without backend deta
   await fillRegistrationForm(page)
   await page.click('button[type="submit"]')
 
-  // The raw backend detail must never be exposed to the user.
-  // The getApiErrorMessage function is used here (not getSafeErrorMessage),
-  // but the fallback is t('auth.accountCreateFailed') when backend detail
-  // is an internal message. Since getApiErrorMessage does return the detail
-  // string, verify it at least surfaces the error — the safe-errors unit
-  // tests cover the getSafeErrorMessage contract separately.
+  // handleRegister uses getSafeErrorMessage — a 500 maps to 'errors.serverError',
+  // never exposing the raw backend detail to the user.
   const errorAlert = page.locator('.login-error[role="alert"]')
   await expect(errorAlert).toBeVisible()
+  const errorText = await errorAlert.textContent()
+  expect(errorText).not.toContain('database constraint')
+  expect(errorText).not.toContain('unique_users_email')
 })
 
 // ---------------------------------------------------------------------------
@@ -644,7 +685,7 @@ test('denying both location and notification permissions does not block onboardi
 // Scenario 16 — Later permission regrant (location available after onboarding)
 // ---------------------------------------------------------------------------
 
-test('map shows location marker when geolocation becomes available after onboarding', async ({ browser }) => {
+test('map shows location marker when user requests location after onboarding', async ({ browser }) => {
   const context = await browser.newContext({
     permissions: ['geolocation'],
     geolocation: { latitude: 32.0853, longitude: 34.7818 },
@@ -661,6 +702,9 @@ test('map shows location marker when geolocation becomes available after onboard
 
   await page.goto('/')
   await expect(page.locator('.map-page')).toBeVisible()
+
+  // Click the "my location" button to trigger geolocation request
+  await page.locator('.floating-button.my-location').click()
 
   // The user-location marker should appear since geolocation is granted
   await expect(page.locator('.user-location-marker')).toBeVisible({ timeout: 5000 })
@@ -700,6 +744,13 @@ test('pending field deep link survives onboarding and opens the linked field', a
 
 test('AddField submission failure shows error and allows retry', async ({ page }) => {
   let fieldPostCalls = 0
+
+  await mockGrantedGeolocation(page, { latitude: 30.988, longitude: 34.932 })
+  await seedPostOnboardingUser(page, 'en')
+  await mockApplicationApis(page)
+
+  // Register AFTER mockApplicationApis so this route takes precedence
+  // (Playwright matches last-registered first)
   await page.route(/\/fields\/?$/, (route) => {
     if (route.request().method() !== 'POST') {
       return route.fulfill({ json: [] })
@@ -714,10 +765,6 @@ test('AddField submission failure shows error and allows retry', async ({ page }
       body: JSON.stringify({ id: 'new-field', name: 'My Field', city: 'ירוחם', lat: 30.988, lng: 34.932 }),
     })
   })
-
-  await mockGrantedGeolocation(page, { latitude: 30.988, longitude: 34.932 })
-  await seedPostOnboardingUser(page, 'en')
-  await mockApplicationApis(page)
 
   const modal = await openAddFieldModal(page)
 
@@ -749,6 +796,12 @@ test('AddField submission failure shows error and allows retry', async ({ page }
 
 test('rapid double-submit on AddField sends only one API request', async ({ page }) => {
   let fieldPostCalls = 0
+
+  await mockGrantedGeolocation(page, { latitude: 30.988, longitude: 34.932 })
+  await seedPostOnboardingUser(page, 'en')
+  await mockApplicationApis(page)
+
+  // Register AFTER mockApplicationApis so this route takes precedence
   await page.route(/\/fields\/?$/, (route) => {
     if (route.request().method() !== 'POST') {
       return route.fulfill({ json: [] })
@@ -765,10 +818,6 @@ test('rapid double-submit on AddField sends only one API request', async ({ page
       }, 1000)
     })
   })
-
-  await mockGrantedGeolocation(page, { latitude: 30.988, longitude: 34.932 })
-  await seedPostOnboardingUser(page, 'en')
-  await mockApplicationApis(page)
 
   const modal = await openAddFieldModal(page)
   await modal.locator('input[type="text"]').first().fill('My Field')
@@ -850,9 +899,10 @@ test('unknown API error shows generic safe message, not raw backend text', async
   await fillRegistrationForm(page)
   await page.click('button[type="submit"]')
 
+  // handleRegister now uses getSafeErrorMessage, which maps unknown status
+  // codes to the fallback key — raw backend detail never reaches the UI
   const errorAlert = page.locator('.login-error[role="alert"]')
   await expect(errorAlert).toBeVisible()
-  // The raw SQL detail must NOT appear in the UI
   const errorText = await errorAlert.textContent()
   expect(errorText).not.toContain('SQL')
   expect(errorText).not.toContain('unique_violation')

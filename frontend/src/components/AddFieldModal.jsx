@@ -119,7 +119,9 @@ function AddFieldModal({ onClose, onCreated }) {
   const [selectedPhoto, setSelectedPhoto] = useState(null)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isSubmittingRef = useRef(false)
   const [isLocating, setIsLocating] = useState(false)
+  const isLocatingRef = useRef(false)
   const [isPhotoActionPending, setIsPhotoActionPending] = useState(false)
 
   const trimmedCity = city.trim()
@@ -198,7 +200,8 @@ function AddFieldModal({ onClose, onCreated }) {
   }
 
   async function useCurrentLocation() {
-    if (isLocating) return
+    if (isLocatingRef.current) return
+    isLocatingRef.current = true
     setIsLocating(true)
     try {
       const result = await getCurrentLocation({ highAccuracy: true })
@@ -219,6 +222,7 @@ function AddFieldModal({ onClose, onCreated }) {
         setError(t('addField.locationFailed'))
       }
     } finally {
+      isLocatingRef.current = false
       setIsLocating(false)
     }
   }
@@ -241,6 +245,8 @@ function AddFieldModal({ onClose, onCreated }) {
   async function handleSubmit(event) {
     event.preventDefault()
 
+    if (isSubmittingRef.current) return
+
     if (!name.trim()) {
       setError(t('addField.nameRequired'))
       return
@@ -257,6 +263,7 @@ function AddFieldModal({ onClose, onCreated }) {
     }
 
     setError('')
+    isSubmittingRef.current = true
     setIsSubmitting(true)
 
     try {
@@ -282,6 +289,7 @@ function AddFieldModal({ onClose, onCreated }) {
     } catch (submitError) {
       setError(getErrorMessage(submitError, t))
     } finally {
+      isSubmittingRef.current = false
       setIsSubmitting(false)
     }
   }
