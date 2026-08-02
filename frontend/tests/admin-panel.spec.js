@@ -127,7 +127,20 @@ async function mockMapRequests(page) {
 
 async function mockAdminApi(
   page,
-  { user = adminUser, stats = adminStats, fieldReports = makeFieldReports(), resolveHandler = null } = {},
+  {
+    user = adminUser,
+    stats = adminStats,
+    fieldReports = makeFieldReports(),
+    resolveHandler = null,
+    fieldReportStatusHandler = null,
+    users = null,
+    userActionHandler = null,
+    pendingFields = null,
+    fields = null,
+    fieldActionHandler = null,
+    games = null,
+    gameActionHandler = null,
+  } = {},
 ) {
   await page.route('**/admin/**', (route) => {
     const url = new URL(route.request().url())
@@ -173,8 +186,16 @@ async function mockAdminApi(
       })
     }
 
+    if (url.pathname.match(/^\/admin\/field-reports\/[^/]+\/status$/) && method === 'PATCH') {
+      if (fieldReportStatusHandler) {
+        return fieldReportStatusHandler(route)
+      }
+
+      return fulfillJson(route, { detail: 'Unhandled field report status mock' }, 404)
+    }
+
     if (url.pathname === '/admin/fields/pending') {
-      return fulfillJson(route, [
+      return fulfillJson(route, pendingFields ?? [
         {
           id: 'field-1',
           name: 'Central Court',
@@ -190,11 +211,27 @@ async function mockAdminApi(
     }
 
     if (url.pathname === '/admin/fields') {
-      return fulfillJson(route, [])
+      return fulfillJson(route, fields ?? [])
+    }
+
+    if (url.pathname.match(/^\/admin\/fields\/[^/]+\/(approve|reject)$/) && method === 'POST') {
+      if (fieldActionHandler) {
+        return fieldActionHandler(route)
+      }
+
+      return fulfillJson(route, { detail: 'Unhandled field moderation mock' }, 404)
+    }
+
+    if (url.pathname.match(/^\/admin\/fields\/[^/]+\/status$/) && method === 'PATCH') {
+      if (fieldActionHandler) {
+        return fieldActionHandler(route)
+      }
+
+      return fulfillJson(route, { detail: 'Unhandled field status mock' }, 404)
     }
 
     if (url.pathname === '/admin/games') {
-      return fulfillJson(route, {
+      return fulfillJson(route, games ?? {
         active: [
           {
             id: 'game-1',
@@ -212,8 +249,16 @@ async function mockAdminApi(
       })
     }
 
+    if (url.pathname.match(/^\/admin\/games\/[^/]+\/(close|extend)$/) && method === 'POST') {
+      if (gameActionHandler) {
+        return gameActionHandler(route)
+      }
+
+      return fulfillJson(route, { detail: 'Unhandled game action mock' }, 404)
+    }
+
     if (url.pathname === '/admin/users') {
-      return fulfillJson(route, [
+      return fulfillJson(route, users ?? [
         {
           id: 'regular-user-1',
           username: 'regular-user',
@@ -228,6 +273,14 @@ async function mockAdminApi(
           restricted_at: null,
         },
       ])
+    }
+
+    if (url.pathname.match(/^\/admin\/users\/[^/]+\/(ban|unban|suspend|unsuspend)$/) && method === 'POST') {
+      if (userActionHandler) {
+        return userActionHandler(route)
+      }
+
+      return fulfillJson(route, { detail: 'Unhandled user moderation mock' }, 404)
     }
 
     return fulfillJson(route, { detail: 'Unhandled admin mock' }, 404)
@@ -308,6 +361,87 @@ test('admin fields tab loads without crashing', async ({ page }) => {
   await expect(page.getByText('Central Court')).toBeVisible()
 })
 
+test('field approve, reject, and renovation status actions update the visible state', async ({ page }) => {
+  const fields = [
+    {
+      id: '10440000-0000-4000-8000-000000000101',
+      name: 'QA Pending Approve',
+      city: 'Synthetic City',
+      lat: 31.0,
+      lng: 35.0,
+      sport_type: 'basketball',
+      surface_type: 'asphalt',
+      status: 'open',
+      approval_status: 'pending',
+      verified: false,
+      created_at: '2026-08-01T10:00:00.000Z',
+    },
+    {
+      id: '10440000-0000-4000-8000-000000000102',
+      name: 'QA Pending Reject',
+      city: 'Synthetic City',
+      lat: 31.1,
+      lng: 35.1,
+      sport_type: 'football',
+      surface_type: 'grass',
+      status: 'open',
+      approval_status: 'pending',
+      verified: false,
+      created_at: '2026-08-01T11:00:00.000Z',
+    },
+  ]
+  const requests = []
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    pendingFields: fields,
+    fields,
+    fieldActionHandler: async (route) => {
+      const request = route.request()
+      const pathParts = new URL(request.url()).pathname.split('/')
+      const fieldId = pathParts[3]
+      const action = pathParts[4]
+      const target = fields.find((candidate) => candidate.id === fieldId)
+
+      if (action === 'approve') {
+        Object.assign(target, { approval_status: 'approved', verified: true })
+      } else if (action === 'reject') {
+        Object.assign(target, { approval_status: 'rejected', verified: false })
+      } else if (action === 'status') {
+        Object.assign(target, { status: request.postDataJSON().status })
+      }
+      requests.push({ action, fieldId, method: request.method() })
+      return fulfillJson(route, action === 'status' ? { field: target } : target)
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Fields', exact: true }).click()
+  await page.getByRole('row').filter({ hasText: 'QA Pending Approve' })
+    .getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(page.getByText('QA Pending Approve', { exact: true })).toHaveCount(0)
+  await page.getByRole('row').filter({ hasText: 'QA Pending Reject' })
+    .getByRole('button', { name: 'Reject', exact: true }).click()
+  await expect(page.getByText('No pending fields.', { exact: true })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'All Fields', exact: true }).click()
+  const approvedRow = page.getByRole('row').filter({ hasText: 'QA Pending Approve' })
+  const rejectedRow = page.getByRole('row').filter({ hasText: 'QA Pending Reject' })
+  await expect(approvedRow.getByText('Approved', { exact: true })).toBeVisible()
+  await expect(approvedRow.getByText('Yes', { exact: true })).toBeVisible()
+  await expect(rejectedRow.getByText('Rejected', { exact: true })).toBeVisible()
+  await approvedRow.getByRole('combobox', { name: 'Status for QA Pending Approve' })
+    .selectOption('renovation')
+  await expect(approvedRow.getByRole('combobox', { name: 'Status for QA Pending Approve' }))
+    .toHaveValue('renovation')
+
+  expect(requests).toEqual([
+    { action: 'approve', fieldId: fields[0].id, method: 'POST' },
+    { action: 'reject', fieldId: fields[1].id, method: 'POST' },
+    { action: 'status', fieldId: fields[0].id, method: 'PATCH' },
+  ])
+})
+
 test('admin games tab loads without crashing', async ({ page }) => {
   await seedAuthenticatedUser(page, adminUser)
   await mockAdminApi(page)
@@ -318,6 +452,52 @@ test('admin games tab loads without crashing', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Games', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Active Games' })).toBeVisible()
   await expect(page.getByText('Central Court')).toBeVisible()
+})
+
+test('admin can extend and close an active game with persisted refreshes', async ({ page }) => {
+  const game = {
+    id: '10440000-0000-4000-8000-000000000301',
+    field_name: 'QA Game Field',
+    sport_type: 'basketball',
+    players_present: 2,
+    max_players: 10,
+    status: 'open',
+    started_at: '2026-08-01T10:00:00.000Z',
+    expires_at: '2026-08-01T12:00:00.000Z',
+    participants: [],
+  }
+  const games = { active: [game], finished: [] }
+  const requests = []
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    games,
+    gameActionHandler: async (route) => {
+      const action = new URL(route.request().url()).pathname.split('/')[4]
+      requests.push(action)
+      if (action === 'extend') {
+        game.expires_at = '2026-08-01T13:00:00.000Z'
+        return fulfillJson(route, { game, new_expires_at: game.expires_at })
+      }
+
+      game.status = 'finished'
+      games.active = []
+      games.finished = [game]
+      return fulfillJson(route, { game })
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Games', exact: true }).click()
+  const gameRow = page.getByRole('row').filter({ hasText: 'QA Game Field' })
+  await gameRow.getByRole('button', { name: 'Extend', exact: true }).click()
+  await expect(gameRow).toContainText('4:00:00 PM')
+
+  await gameRow.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('button', { name: 'Close game', exact: true }).click()
+  await expect(page.getByText('No active games.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: 'QA Game Field' })).toContainText('finished')
+  expect(requests).toEqual(['extend', 'close'])
 })
 
 test('admin users tab loads without crashing', async ({ page }) => {
@@ -344,6 +524,128 @@ test('admin users tab loads without crashing', async ({ page }) => {
   await expect(userRow.getByRole('cell', { name: 'Active' })).toBeVisible()
   await expect(userRow.getByRole('button', { name: 'Ban' })).toBeVisible()
   await expect(userRow.getByRole('button', { name: 'Suspend' })).toBeVisible()
+})
+
+test('admin user search and all reversible moderation transitions reflect persisted state', async ({ page }) => {
+  const users = [
+    {
+      id: '10440000-0000-4000-8000-000000000001',
+      username: 'qa-target-one',
+      name: 'QA Target One',
+      email: 'qa-target-one@example.com',
+      phone_number: null,
+      created_at: '2026-08-01T10:00:00.000Z',
+      role: 'user',
+      status: 'active',
+      restriction_reason: null,
+      restricted_at: null,
+    },
+    {
+      id: '10440000-0000-4000-8000-000000000002',
+      username: 'qa-target-two',
+      name: 'QA Target Two',
+      email: 'qa-target-two@example.com',
+      phone_number: null,
+      created_at: '2026-08-01T11:00:00.000Z',
+      role: 'user',
+      status: 'active',
+      restriction_reason: null,
+      restricted_at: null,
+    },
+  ]
+  const requests = []
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    users,
+    userActionHandler: async (route) => {
+      const request = route.request()
+      const pathParts = new URL(request.url()).pathname.split('/')
+      const userId = pathParts[3]
+      const action = pathParts[4]
+      const body = request.postDataJSON()
+      const target = users.find((candidate) => candidate.id === userId)
+      const nextStatus = {
+        ban: 'banned',
+        unban: 'active',
+        suspend: 'suspended',
+        unsuspend: 'active',
+      }[action]
+
+      requests.push({ action, body, userId })
+      target.status = nextStatus
+      target.restriction_reason = body.reason ?? null
+      return fulfillJson(route, { message: `User ${action} successful`, user: target })
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Users', exact: true }).click()
+  await expect(page.getByText('qa-target-one', { exact: true })).toBeVisible()
+
+  const search = page.getByRole('searchbox', { name: 'Search users' })
+  await search.fill('target-two')
+  await expect(page.getByText('qa-target-one', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('qa-target-two', { exact: true })).toBeVisible()
+  await search.clear()
+
+  const targetRow = page.getByRole('row').filter({ hasText: 'qa-target-one' })
+  await targetRow.getByRole('button', { name: 'Ban', exact: true }).click()
+  await page.getByLabel('Reason', { exact: true }).fill('Synthetic QA moderation')
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect(targetRow.getByText('Banned', { exact: true })).toBeVisible()
+
+  await targetRow.getByRole('button', { name: 'Unban', exact: true }).click()
+  await expect(targetRow.getByText('Active', { exact: true })).toBeVisible()
+
+  await targetRow.getByRole('button', { name: 'Suspend', exact: true }).click()
+  await page.getByLabel('Reason', { exact: true }).fill('Synthetic QA suspension')
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect(targetRow.getByText('Suspended', { exact: true })).toBeVisible()
+
+  await targetRow.getByRole('button', { name: 'Unsuspend', exact: true }).click()
+  await expect(targetRow.getByText('Active', { exact: true })).toBeVisible()
+
+  expect(requests.map(({ action }) => action)).toEqual(['ban', 'unban', 'suspend', 'unsuspend'])
+  expect(requests[0].body).toEqual({ reason: 'Synthetic QA moderation' })
+  expect(requests[1].body).toEqual({})
+  expect(requests.every(({ userId }) => userId === users[0].id)).toBe(true)
+  expect(requests.every(({ body }) => !('actor_user_id' in body))).toBe(true)
+})
+
+test('failed user moderation keeps the target active and shows a bounded error', async ({ page }) => {
+  const users = [{
+    id: '10440000-0000-4000-8000-000000000003',
+    username: 'qa-failure-target',
+    name: 'QA Failure Target',
+    email: 'qa-failure-target@example.com',
+    phone_number: null,
+    created_at: '2026-08-01T12:00:00.000Z',
+    role: 'user',
+    status: 'active',
+  }]
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    users,
+    userActionHandler: async (route) => fulfillJson(
+      route,
+      { detail: 'database internals must stay hidden' },
+      500,
+    ),
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Users', exact: true }).click()
+  const targetRow = page.getByRole('row').filter({ hasText: 'qa-failure-target' })
+  await targetRow.getByRole('button', { name: 'Ban', exact: true }).click()
+  await page.getByLabel('Reason', { exact: true }).fill('Synthetic QA moderation')
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+
+  await expect(page.getByText('Moderation action failed.', { exact: true })).toBeVisible()
+  await expect(page.getByText('database internals must stay hidden', { exact: true })).toHaveCount(0)
+  await expect(targetRow.getByText('Active', { exact: true })).toBeVisible()
+  await expect(targetRow.getByRole('button', { name: 'Ban', exact: true })).toBeEnabled()
 })
 
 test('admin field reports queue displays 20 reports sorted newest first and filters by status', async ({ page }) => {
@@ -375,6 +677,56 @@ test('admin field reports queue displays 20 reports sorted newest first and filt
   await expect(rows).toHaveCount(5)
   await expect(rows.first()).toContainText('Court 18')
   await expect(rows.first()).toContainText('In Review')
+})
+
+test('managing a field report persists status and note without optimistic stale state', async ({ page }) => {
+  const fieldReports = [{
+    id: '10440000-0000-4000-8000-000000000201',
+    field_id: '10440000-0000-4000-8000-000000000101',
+    field_name: 'QA Report Field',
+    user_id: '10440000-0000-4000-8000-000000000001',
+    reporter_name: 'Synthetic Reporter',
+    reporter_email: 'synthetic-reporter@example.com',
+    category: 'wrong_information',
+    description: 'Synthetic report description',
+    status: 'open',
+    created_at: '2026-08-01T10:00:00.000Z',
+    reviewed_at: null,
+    reviewed_by: null,
+    admin_note: null,
+  }]
+  const requests = []
+
+  await seedAuthenticatedUser(page, adminUser)
+  await mockAdminApi(page, {
+    fieldReports,
+    fieldReportStatusHandler: async (route) => {
+      const body = route.request().postDataJSON()
+      requests.push(body)
+      Object.assign(fieldReports[0], {
+        status: body.status,
+        admin_note: body.admin_note,
+        reviewed_at: '2026-08-01T12:00:00.000Z',
+        reviewed_by: adminUser.id,
+      })
+      return fulfillJson(route, { report: fieldReports[0] })
+    },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Field Reports', exact: true }).click()
+  const reportRow = page.getByRole('row').filter({ hasText: 'QA Report Field' })
+  await reportRow.getByRole('button', { name: 'Manage', exact: true }).click()
+  const manageDialog = page.getByRole('alertdialog', { name: 'Manage Report' })
+  await manageDialog.getByRole('combobox').selectOption('in_review')
+  await manageDialog.getByRole('textbox').fill('Synthetic QA review note')
+  await manageDialog.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect(reportRow.getByText('In Review', { exact: true })).toBeVisible()
+  expect(requests).toEqual([{
+    status: 'in_review',
+    admin_note: 'Synthetic QA review note',
+  }])
 })
 
 test('field reports show resolve action only for unresolved reports', async ({ page }) => {

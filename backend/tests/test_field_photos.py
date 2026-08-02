@@ -68,11 +68,6 @@ class FakeStorage:
         return self.bucket
 
 
-class FakeStorageClient:
-    def __init__(self, bucket: FakeStorageBucket) -> None:
-        self.storage = FakeStorage(bucket)
-
-
 def _configure(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "test-key")
@@ -101,15 +96,18 @@ def _base_tables(*fields: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
 def _make_client(monkeypatch, tables: dict[str, list], bucket: FakeStorageBucket) -> TestClient:
     fake = FakeSupabaseClient(tables)
-    storage_client = FakeStorageClient(bucket)
+    # Production uses one service-role Supabase client for both database and
+    # storage operations. Mirror that shape so admin reads cannot accidentally
+    # fall back to the anon test client.
+    fake.storage = FakeStorage(bucket)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake)
-    monkeypatch.setattr("app.routers.fields.get_supabase_service_role_client", lambda: storage_client)
+    monkeypatch.setattr("app.routers.fields.get_supabase_service_role_client", lambda: fake)
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.game_lifecycle.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.api.admin.get_supabase_client", lambda: fake)
-    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: storage_client)
+    monkeypatch.setattr("app.api.admin.get_supabase_service_role_client", lambda: fake)
     return TestClient(app)
 
 

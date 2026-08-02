@@ -193,7 +193,12 @@ def remove_field_record(
     return {"message": "Field removed", "field": response.data[0]}
 
 
-def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[str, Any]:
+def update_field_status_record(
+    field_id: str,
+    body: FieldStatusUpdate,
+    *,
+    supabase: Any | None = None,
+) -> dict[str, Any]:
     field_id = validate_uuid_id(field_id, "field_id")
     if body.status not in ALLOWED_FIELD_STATUSES:
         raise_api_error(
@@ -202,7 +207,7 @@ def update_field_status_record(field_id: str, body: FieldStatusUpdate) -> dict[s
             message="Invalid field status",
         )
 
-    supabase = get_supabase_client()
+    supabase = supabase or get_supabase_client()
     response = (
         supabase.table("fields")
         .update({"status": body.status})
@@ -429,7 +434,12 @@ def _update_field_photo_reference(field_id: str, photo_path: str) -> dict[str, A
     return response.data[0]
 
 
-def update_field_record(field_id: str, body: FieldUpdate) -> dict[str, Any]:
+def update_field_record(
+    field_id: str,
+    body: FieldUpdate,
+    *,
+    supabase: Any | None = None,
+) -> dict[str, Any]:
     field_id = validate_uuid_id(field_id, "field_id")
     provided = body.model_dump(exclude_unset=True)
 
@@ -463,7 +473,7 @@ def update_field_record(field_id: str, body: FieldUpdate) -> dict[str, Any]:
 
     _validate_field_update_content(provided)
 
-    supabase = get_supabase_client()
+    supabase = supabase or get_supabase_client()
     existing_response = (
         supabase.table("fields").select("*").eq("id", field_id).execute()
     )
@@ -703,5 +713,9 @@ def update_field_status(
     body: FieldStatusUpdate,
     _: dict[str, Any] = Depends(require_admin),
 ):
-    return update_field_status_record(field_id, body)
+    return update_field_status_record(
+        field_id,
+        body,
+        supabase=get_supabase_service_role_client(),
+    )
 

@@ -46,6 +46,18 @@ def route_auth_dependencies_service_client_to_test_double(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def route_admin_service_client_to_test_double(monkeypatch):
+    """Keep admin endpoint tests on their explicitly injected fake client."""
+    from app.api import admin
+
+    monkeypatch.setattr(
+        admin,
+        "get_supabase_service_role_client",
+        lambda: admin.get_supabase_client(),
+    )
+
+
+@pytest.fixture(autouse=True)
 def route_auth_audit_service_client_to_auth_test_double(monkeypatch):
     """Keep auth audit writes on the same per-test privileged fake client."""
     from app.api import auth
