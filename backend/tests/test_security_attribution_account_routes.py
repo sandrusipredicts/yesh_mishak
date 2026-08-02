@@ -546,9 +546,9 @@ def test_unsupported_tuple_rejected_before_client() -> None:
     ):
         recorder.create_event(
             trusted_account_uuid=ACCOUNT_UUID,
-            route_key="admin_user_ban",
-            event_category="admin_account_control",
-            http_method="POST",
+            route_key="admin_field_update",
+            event_category="admin_content_control",
+            http_method="PATCH",
             outcome="succeeded",
         )
 
@@ -732,5 +732,5 @@ def test_original_logout_tuple_still_in_registry() -> None:
     ) in attribution._APPROVED_ROUTE_REGISTRY
 
 
-def test_registry_has_exactly_six_entries() -> None:
-    assert len(attribution._APPROVED_ROUTE_REGISTRY) == 6
+def test_registry_has_exactly_eleven_entries_after_admin_expansion() -> None:
+    assert len(attribution._APPROVED_ROUTE_REGISTRY) == 11

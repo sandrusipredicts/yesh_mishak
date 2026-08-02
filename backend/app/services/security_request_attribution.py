@@ -29,6 +29,8 @@ SecurityEventCategory = Literal[
     "session_security_change",
     "credential_method_change",
     "account_lifecycle_change",
+    "admin_account_control",
+    "admin_content_control",
 ]
 SecurityRouteKey = Literal[
     "auth_logout",
@@ -37,6 +39,11 @@ SecurityRouteKey = Literal[
     "auth_password_set",
     "auth_password_remove",
     "auth_account_delete",
+    "admin_user_ban",
+    "admin_user_unban",
+    "admin_user_suspend",
+    "admin_user_unsuspend",
+    "admin_field_delete",
 ]
 SecurityHttpMethod = Literal["POST", "DELETE"]
 SecurityOutcome = Literal["succeeded", "denied", "failed", "ambiguous"]
@@ -74,6 +81,11 @@ _APPROVED_ROUTE_REGISTRY = frozenset(
         ("credential_method_change", "auth_password_set", "POST"),
         ("credential_method_change", "auth_password_remove", "POST"),
         ("account_lifecycle_change", "auth_account_delete", "DELETE"),
+        ("admin_account_control", "admin_user_ban", "POST"),
+        ("admin_account_control", "admin_user_unban", "POST"),
+        ("admin_account_control", "admin_user_suspend", "POST"),
+        ("admin_account_control", "admin_user_unsuspend", "POST"),
+        ("admin_content_control", "admin_field_delete", "DELETE"),
     }
 )
 _APPROVED_OUTCOME_FAILURES: dict[str, frozenset[str | None]] = {

@@ -131,11 +131,18 @@ def remove_field_record(
     field_id: str, body: FieldRemoveBody, actor_user_id: str
 ) -> dict[str, Any]:
     field_id = validate_uuid_id(field_id, "field_id")
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_service_role_client()
+        existing_response = (
+            supabase.table("fields").select("*").eq("id", field_id).execute()
+        )
+    except Exception:
+        raise_api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="DATABASE_ERROR",
+            message="Failed to remove field",
+        )
 
-    existing_response = (
-        supabase.table("fields").select("*").eq("id", field_id).execute()
-    )
     if not existing_response.data:
         raise_api_error(
             status_code=status.HTTP_404_NOT_FOUND,

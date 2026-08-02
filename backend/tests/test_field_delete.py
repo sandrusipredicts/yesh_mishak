@@ -117,6 +117,10 @@ def _make_client(monkeypatch, tables: dict[str, list]) -> TestClient:
     fake = FakeSupabaseClient(tables)
     monkeypatch.setattr("app.auth.dependencies.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.fields.get_supabase_client", lambda: fake)
+    monkeypatch.setattr(
+        "app.routers.fields.get_supabase_service_role_client",
+        lambda: fake,
+    )
     monkeypatch.setattr("app.routers.games.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.game_payloads.get_supabase_client", lambda: fake)
     monkeypatch.setattr("app.routers.game_lifecycle.get_supabase_client", lambda: fake)
@@ -307,6 +311,51 @@ def test_delete_succeeds_for_admin_and_sets_removal_fields(monkeypatch) -> None:
     assert field["removed_at"] is not None
     assert field["removed_by"] == "admin-1"
     assert field["removal_reason"] == "duplicate_field"
+
+
+def test_delete_uses_service_role_client_for_read_and_update(monkeypatch) -> None:
+    _configure(monkeypatch)
+    client = _make_client(monkeypatch, _base_tables())
+    service_tables = _base_tables(_field())
+    service_client = FakeSupabaseClient(service_tables)
+
+    monkeypatch.setattr(
+        "app.routers.fields.get_supabase_client",
+        lambda: pytest.fail("admin field deletion must not use the anon client"),
+    )
+    monkeypatch.setattr(
+        "app.routers.fields.get_supabase_service_role_client",
+        lambda: service_client,
+    )
+
+    response = client.request(
+        "DELETE", DELETE_PATH.format("field-1"), json=VALID_BODY, headers=_headers(ADMIN)
+    )
+
+    assert response.status_code == 200
+    row = service_tables["fields"][0]
+    assert row["removed_at"] is not None
+    assert row["removed_by"] == ADMIN["id"]
+    assert row["removal_reason"] == VALID_BODY["reason"]
+
+
+def test_delete_returns_404_only_when_service_role_finds_no_row(monkeypatch) -> None:
+    _configure(monkeypatch)
+    anon_tables = _base_tables(_field())
+    client = _make_client(monkeypatch, anon_tables)
+    service_client = FakeSupabaseClient(_base_tables())
+    monkeypatch.setattr(
+        "app.routers.fields.get_supabase_service_role_client",
+        lambda: service_client,
+    )
+
+    response = client.request(
+        "DELETE", DELETE_PATH.format("field-1"), json=VALID_BODY, headers=_headers(ADMIN)
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "FIELD_NOT_FOUND"
+    assert anon_tables["fields"][0]["removed_at"] is None
 
 
 @pytest.mark.parametrize(
@@ -618,3 +667,24 @@ def test_delete_database_failure_returns_clean_500(monkeypatch) -> None:
     err = response.json()
     assert err["error"] is True
     assert err["code"] == "DATABASE_ERROR"
+
+
+def test_delete_service_role_failure_returns_clean_500(monkeypatch) -> None:
+    _configure(monkeypatch)
+    client = _make_client(monkeypatch, _base_tables(_field()))
+
+    def fail_service_client() -> None:
+        raise RuntimeError("sensitive service-role failure")
+
+    monkeypatch.setattr(
+        "app.routers.fields.get_supabase_service_role_client",
+        fail_service_client,
+    )
+
+    response = client.request(
+        "DELETE", DELETE_PATH.format("field-1"), json=VALID_BODY, headers=_headers(ADMIN)
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "DATABASE_ERROR"
+    assert "sensitive service-role failure" not in response.text
