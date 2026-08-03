@@ -18,12 +18,24 @@ function AccountCityStep({ userId, onSelected }) {
   const { t } = useTranslation()
   const [city, setCity] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [error, setError] = useState('')
   const selectedCityIsValid = useMemo(() => israelCities.includes(city), [city])
+
+  function handleCityChange(value) {
+    setCity(value)
+    setError('')
+  }
 
   function handleContinue() {
     if (isBusy || !selectedCityIsValid) return
     setIsBusy(true)
-    setAccountCity(userId, city)
+    setError('')
+    const ok = setAccountCity(userId, city)
+    if (!ok) {
+      setError(t('onboarding.cityPersistFailed'))
+      setIsBusy(false)
+      return
+    }
     onSelected(city)
   }
 
@@ -41,11 +53,12 @@ function AccountCityStep({ userId, onSelected }) {
         <CityAutocomplete
           id="account-city-input"
           value={city}
-          onChange={setCity}
+          onChange={handleCityChange}
           cities={israelCities}
           placeholder={t('onboarding.cityPlaceholder')}
         />
         {city && !selectedCityIsValid ? <p role="alert">{t('onboarding.chooseCity')}</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
       </div>
     </OnboardingLayout>
   )

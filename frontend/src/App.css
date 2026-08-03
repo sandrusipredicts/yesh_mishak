@@ -380,6 +380,15 @@ select {
 .login-error {
   color: #b42318;
   font-size: 14px;
+  scroll-margin-bottom: 16px;
+}
+
+.auth-form .login-error {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding: 8px 0;
+  z-index: 1;
 }
 
 .login-info {
