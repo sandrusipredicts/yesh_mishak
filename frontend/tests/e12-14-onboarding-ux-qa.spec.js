@@ -94,39 +94,6 @@ async function mockLoginApi(page) {
   })
 }
 
-async function mockRegisterApi(page, { shouldFail = false, status = 200 } = {}) {
-  await page.route('**/auth/register', (route) => {
-    if (route.request().method() !== 'POST') return route.fallback()
-    if (shouldFail) {
-      return route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Registration failed' }),
-      })
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        access_token: makeJwt(),
-        token_type: 'bearer',
-        email_verification_required: true,
-        email_verification_sent: true,
-        user: { id: USER.id, name: USER.name, email: USER.email },
-      }),
-    })
-  })
-}
-
-async function mockTermsApi(page, { shouldFail = false } = {}) {
-  await page.route('**/auth/accept-terms', (route) => {
-    if (shouldFail) {
-      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"Internal error"}' })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":"Terms accepted"}' })
-  })
-}
-
 async function chooseYeruham(page) {
   const input = page.locator('#onboarding-city-input')
   await input.fill('ירוחם')
