@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging'
+import { getRuntimeBrandName } from './i18n'
 
 const FIREBASE_CONFIG = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -34,7 +35,7 @@ function getNotificationFromPayload(payload) {
   const data = payload?.data || {}
 
   return {
-    title: notification.title || data.title || 'yesh_mishak',
+    title: notification.title || data.title || getRuntimeBrandName(),
     options: {
       body: notification.body || data.body || '',
       icon: '/favicon.svg',

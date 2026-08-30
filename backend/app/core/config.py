@@ -66,6 +66,14 @@ class Settings(BaseSettings):
         default="Yesh Mishak",
         alias="PASSWORD_RESET_FROM_NAME",
     )
+    default_business_name: str = Field(
+        default="Yesh Mishak",
+        alias="DEFAULT_BUSINESS_NAME",
+    )
+    fallback_business_name: str = Field(
+        default="Business",
+        alias="FALLBACK_BUSINESS_NAME",
+    )
     push_retry_max_attempts: int = Field(default=5, alias="PUSH_RETRY_MAX_ATTEMPTS")
     push_retry_staleness_hours: float = Field(default=2.0, alias="PUSH_RETRY_STALENESS_HOURS")
     public_app_url: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_URL")

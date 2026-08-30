@@ -1,9 +1,23 @@
-import { useEffect } from 'react'
+import { Children, cloneElement, isValidElement, useEffect } from 'react'
 
 import './PublicPolicyPage.css'
+import { useBusinessBranding } from '../branding/BusinessBrandingContext'
+import { replaceLegacyBranding } from '../branding/runtimeBranding'
 
 const CONTACT_EMAIL = 'support@yesh-mishak.com'
 const LAST_UPDATED = 'July 22, 2026'
+function replaceBrandInNode(node, businessName) {
+  if (typeof node === 'string') {
+    return replaceLegacyBranding(node, businessName)
+  }
+
+  if (!isValidElement(node)) {
+    return node
+  }
+
+  const children = Children.map(node.props.children, (child) => replaceBrandInNode(child, businessName))
+  return cloneElement(node, undefined, children)
+}
 
 const policyContent = {
   privacy: {
@@ -280,22 +294,23 @@ const policyContent = {
 }
 
 function PublicPolicyPage({ policy }) {
+  const { businessName } = useBusinessBranding()
   const content = policyContent[policy]
 
   useEffect(() => {
     const previousTitle = document.title
-    document.title = `${content.title} | Yesh Mishak`
+    document.title = `${content.title} | ${businessName}`
 
     return () => {
       document.title = previousTitle
     }
-  }, [content.title])
+  }, [businessName, content.title])
 
   return (
     <main className="public-policy-page" dir="ltr">
       <header className="public-policy-header">
-        <a className="public-policy-brand" href="/" aria-label="Yesh Mishak home">
-          yesh_mishak
+        <a className="public-policy-brand" href="/" aria-label={`${businessName} home`}>
+          {businessName}
         </a>
         <nav className="public-policy-nav" aria-label="Legal pages">
           <a href="/privacy" aria-current={policy === 'privacy' ? 'page' : undefined}>
@@ -312,21 +327,21 @@ function PublicPolicyPage({ policy }) {
           <span className="public-policy-eyebrow">{content.eyebrow}</span>
           <h1 id="policy-title">{content.title}</h1>
           <p className="public-policy-updated">Last updated: {LAST_UPDATED}</p>
-          {content.introduction}
+          {replaceBrandInNode(content.introduction, businessName)}
         </div>
 
         <div className="public-policy-sections">
           {content.sections.map((section) => (
             <section id={section.id} key={section.title}>
               <h2>{section.title}</h2>
-              {section.content}
+              {replaceBrandInNode(section.content, businessName)}
             </section>
           ))}
         </div>
       </article>
 
       <footer className="public-policy-footer">
-        <span>© 2026 Yesh Mishak</span>
+        <span>© 2026 {businessName}</span>
         <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
       </footer>
     </main>

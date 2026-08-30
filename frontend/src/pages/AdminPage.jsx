@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { updateAdminBusinessBranding } from '../api/businessBranding'
+import { useBusinessBranding } from '../branding/BusinessBrandingContext'
 import AdminEngagement from '../components/admin/AdminEngagement'
 import AdminFields from '../components/admin/AdminFields'
 import AdminFieldReports from '../components/admin/AdminFieldReports'
@@ -11,7 +13,12 @@ import AdminUsers from '../components/admin/AdminUsers'
 
 function AdminPage() {
   const { t } = useTranslation()
+  const { businessName, applyBusinessName } = useBusinessBranding()
   const [activeSectionId, setActiveSectionId] = useState('stats')
+  const [brandDraft, setBrandDraft] = useState(businessName)
+  const [isSavingBrand, setIsSavingBrand] = useState(false)
+  const [brandSaveMessage, setBrandSaveMessage] = useState('')
+  const [brandSaveError, setBrandSaveError] = useState('')
   const adminSections = useMemo(() => [
     {
       id: 'stats',
@@ -58,15 +65,61 @@ function AdminPage() {
   ], [t])
   const activeSection =
     adminSections.find((section) => section.id === activeSectionId) ?? adminSections[0]
+  const isBrandDirty = brandDraft.trim() !== businessName
+
+  useEffect(() => {
+    setBrandDraft(businessName)
+  }, [businessName])
+
+  async function handleSaveBranding(event) {
+    event.preventDefault()
+    const nextBusinessName = brandDraft.trim()
+    if (!nextBusinessName || isSavingBrand) {
+      return
+    }
+
+    setIsSavingBrand(true)
+    setBrandSaveError('')
+    setBrandSaveMessage('')
+
+    try {
+      const result = await updateAdminBusinessBranding(nextBusinessName)
+      applyBusinessName(result.business_name)
+      setBrandSaveMessage(t('admin.businessNameSaved'))
+    } catch {
+      setBrandSaveError(t('admin.businessNameSaveFailed'))
+    } finally {
+      setIsSavingBrand(false)
+    }
+  }
 
   return (
     <main className="admin-page">
       <header className="admin-header">
         <div>
-          <h1>{t('admin.panel')}</h1>
+          <h1>{businessName}</h1>
           <p>{t('admin.description')}</p>
         </div>
         <div className="admin-header-actions">
+          <form className="admin-branding-form" onSubmit={handleSaveBranding}>
+            <label htmlFor="admin-business-name">{t('admin.businessNameLabel')}</label>
+            <input
+              id="admin-business-name"
+              type="text"
+              value={brandDraft}
+              maxLength={120}
+              onChange={(event) => {
+                setBrandDraft(event.target.value)
+                setBrandSaveError('')
+                setBrandSaveMessage('')
+              }}
+            />
+            <button type="submit" disabled={isSavingBrand || !brandDraft.trim() || !isBrandDirty}>
+              {isSavingBrand ? t('admin.businessNameSaving') : t('admin.businessNameSave')}
+            </button>
+            {brandSaveMessage ? <p role="status">{brandSaveMessage}</p> : null}
+            {brandSaveError ? <p role="alert">{brandSaveError}</p> : null}
+          </form>
           <a className="admin-back-link" href="/">
             {t('admin.backToMap')}
           </a>

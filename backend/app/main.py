@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.middleware.request_context import request_context_middleware
 from app.middleware.request_metrics import request_metrics_middleware
 from app.monitoring import capture_unexpected_exception, init_monitoring, resolve_environment
+from app.routers.business_branding import router as business_branding_router
 from app.routers import analytics_events, field_reports, fields, games, moderation, notifications, share_events
 
 logger = logging.getLogger("app")
@@ -171,6 +172,7 @@ app.middleware("http")(request_context_middleware)
 app.include_router(admin_router)
 app.include_router(analytics_events.router)
 app.include_router(auth_router)
+app.include_router(business_branding_router)
 app.include_router(field_reports.router)
 app.include_router(fields.router)
 app.include_router(games.router)
@@ -197,4 +199,3 @@ if resolve_environment(settings.sentry_environment) != "production":
         raise RuntimeError(
             "Sentry backend test trigger (E09-01 manual verification only)"
         )
-

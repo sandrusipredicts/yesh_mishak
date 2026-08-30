@@ -16,6 +16,7 @@ import {
 import { isAccountLinkRequiredError, mapNativeAuthError } from '../api/authErrorMapping'
 import { clearSession, isNativeRuntime } from '../api/sessionStorage'
 import { getApiErrorMessage } from '../api/errors'
+import { useBusinessBranding } from '../branding/BusinessBrandingContext'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise
@@ -53,6 +54,7 @@ function loadGoogleScript() {
 
 function LoginPage({ notice = '', onForgotPassword, onLogin }) {
   const { t } = useTranslation()
+  const { businessName } = useBusinessBranding()
   const initialVerificationToken = (
     window.location.pathname === '/verify-email'
       ? new URLSearchParams(window.location.search).get('token') || ''
@@ -396,7 +398,7 @@ function LoginPage({ notice = '', onForgotPassword, onLogin }) {
   return (
     <main className="login-page">
       <section className="login-panel" aria-labelledby="login-title">
-        <h1 id="login-title">yesh_mishak</h1>
+        <h1 id="login-title">{businessName}</h1>
         <p>{t('app.tagline')}</p>
 
         <div className="auth-mode-tabs" role="tablist" aria-label={t('auth.method')}>

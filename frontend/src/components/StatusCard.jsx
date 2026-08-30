@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next'
+import { useBusinessBranding } from '../branding/BusinessBrandingContext'
 
 function StatusCard({ error, loading, status }) {
   const { t } = useTranslation()
+  const { businessName } = useBusinessBranding()
   let content = t('backend.checking')
 
   if (error) {
@@ -12,7 +14,7 @@ function StatusCard({ error, loading, status }) {
 
   return (
     <section className="status-panel">
-      <h1>{t('app.name')}</h1>
+      <h1>{businessName}</h1>
       <p className={error ? 'status-line status-error' : 'status-line'}>
         <span className="status-value">{content}</span>
       </p>
