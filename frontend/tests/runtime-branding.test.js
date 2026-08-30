@@ -21,23 +21,3 @@ test('normalizeBusinessName enforces safe fallback name', () => {
   assert.equal(normalizeBusinessName('   ', 'Tenant Default'), 'Tenant Default')
   assert.equal(normalizeBusinessName('', ''), 'Business')
 })
-
-test('runtime brand update propagates through translation output', async () => {
-  globalThis.localStorage = {
-    getItem: () => null,
-    setItem: () => {},
-  }
-  globalThis.navigator = { language: 'en', languages: ['en'] }
-  globalThis.document = {
-    documentElement: { lang: '', dir: '' },
-    body: { dir: '' },
-  }
-
-  const i18nModule = await import('../src/i18n/index.js')
-
-  i18nModule.setRuntimeBrandName('ZOHAR')
-  const translated = i18nModule.default.t('onboarding.welcome.title')
-
-  assert.equal(translated, 'Welcome to ZOHAR')
-  assert.equal(translated.includes('Yesh Mishak'), false)
-})

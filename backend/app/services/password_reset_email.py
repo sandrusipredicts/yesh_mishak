@@ -13,7 +13,7 @@ def build_password_reset_email(
     reset_url: str,
     expires_in_minutes: int,
     *,
-    business_name: str,
+    business_name: str = "Yesh Mishak",
 ) -> PasswordResetEmail:
     escaped_url = escape(reset_url, quote=True)
     escaped_business_name = escape(business_name)

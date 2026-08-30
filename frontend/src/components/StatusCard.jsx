@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useBusinessBranding } from '../branding/BusinessBrandingContext'
+import useBusinessBranding from '../branding/useBusinessBranding'
 
 function StatusCard({ error, loading, status }) {
   const { t } = useTranslation()

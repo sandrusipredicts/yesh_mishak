@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { updateAdminBusinessBranding } from '../api/businessBranding'
-import { useBusinessBranding } from '../branding/BusinessBrandingContext'
+import useBusinessBranding from '../branding/useBusinessBranding'
 import AdminEngagement from '../components/admin/AdminEngagement'
 import AdminFields from '../components/admin/AdminFields'
 import AdminFieldReports from '../components/admin/AdminFieldReports'
@@ -15,7 +15,8 @@ function AdminPage() {
   const { t } = useTranslation()
   const { businessName, applyBusinessName } = useBusinessBranding()
   const [activeSectionId, setActiveSectionId] = useState('stats')
-  const [brandDraft, setBrandDraft] = useState(businessName)
+  const [brandDraft, setBrandDraft] = useState('')
+  const [hasBrandDraft, setHasBrandDraft] = useState(false)
   const [isSavingBrand, setIsSavingBrand] = useState(false)
   const [brandSaveMessage, setBrandSaveMessage] = useState('')
   const [brandSaveError, setBrandSaveError] = useState('')
@@ -65,15 +66,12 @@ function AdminPage() {
   ], [t])
   const activeSection =
     adminSections.find((section) => section.id === activeSectionId) ?? adminSections[0]
-  const isBrandDirty = brandDraft.trim() !== businessName
-
-  useEffect(() => {
-    setBrandDraft(businessName)
-  }, [businessName])
+  const brandingInputValue = hasBrandDraft ? brandDraft : businessName
+  const isBrandDirty = hasBrandDraft && brandDraft.trim() !== businessName
 
   async function handleSaveBranding(event) {
     event.preventDefault()
-    const nextBusinessName = brandDraft.trim()
+    const nextBusinessName = brandingInputValue.trim()
     if (!nextBusinessName || isSavingBrand) {
       return
     }
@@ -85,6 +83,8 @@ function AdminPage() {
     try {
       const result = await updateAdminBusinessBranding(nextBusinessName)
       applyBusinessName(result.business_name)
+      setBrandDraft(result.business_name)
+      setHasBrandDraft(false)
       setBrandSaveMessage(t('admin.businessNameSaved'))
     } catch {
       setBrandSaveError(t('admin.businessNameSaveFailed'))
@@ -106,15 +106,16 @@ function AdminPage() {
             <input
               id="admin-business-name"
               type="text"
-              value={brandDraft}
+              value={brandingInputValue}
               maxLength={120}
               onChange={(event) => {
                 setBrandDraft(event.target.value)
+                setHasBrandDraft(true)
                 setBrandSaveError('')
                 setBrandSaveMessage('')
               }}
             />
-            <button type="submit" disabled={isSavingBrand || !brandDraft.trim() || !isBrandDirty}>
+            <button type="submit" disabled={isSavingBrand || !brandingInputValue.trim() || !isBrandDirty}>
               {isSavingBrand ? t('admin.businessNameSaving') : t('admin.businessNameSave')}
             </button>
             {brandSaveMessage ? <p role="status">{brandSaveMessage}</p> : null}

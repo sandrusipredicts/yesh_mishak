@@ -61,6 +61,8 @@ def get_business_branding(*, client: Any | None = None) -> dict[str, str]:
             or _is_missing_schema_error(exc, "id")
         ):
             raise
+    except KeyError:
+        pass
 
     return {"business_name": _safe_default_business_name(), "source": "default"}
 

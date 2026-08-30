@@ -9,7 +9,6 @@ from urllib.parse import quote
 from app.core.config import get_settings
 from app.db.supabase import get_supabase_service_role_client
 from app.services.email_delivery import EmailDeliveryError, send_email
-from app.services.business_branding import get_business_branding
 
 
 GENERIC_RESEND_MESSAGE = "If the account exists and needs verification, a new email will be sent."
@@ -40,7 +39,7 @@ def _verification_url(token: str) -> str:
     return f"{base}/verify-email?token={quote(token, safe='')}"
 
 
-def _send_email(recipient: str, verification_url: str, *, business_name: str) -> None:
+def _send_email(recipient: str, verification_url: str, business_name: str) -> None:
     text_body = (
         f"Verify your {business_name} email by opening this link:\n\n"
         f"{verification_url}\n\n"
@@ -79,11 +78,10 @@ def issue_verification_email(user_id: str, email: str) -> None:
     if _scalar_result(prepared.data) != "created":
         raise ValueError("VERIFICATION_COOLDOWN")
     try:
-        branding = get_business_branding(client=client)
         _send_email(
             email,
             _verification_url(raw_token),
-            business_name=branding["business_name"],
+            settings.default_business_name,
         )
     except VerificationDeliveryError:
         # The account remains recoverable: invalidate the undelivered token so

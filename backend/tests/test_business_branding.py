@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Any
 
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-key")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client")
+os.environ.setdefault("JWT_SECRET", "test-secret")
 
 from app.auth.dependencies import require_admin
 from app.main import app

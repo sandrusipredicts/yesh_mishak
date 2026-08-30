@@ -16,7 +16,7 @@ import {
 import { isAccountLinkRequiredError, mapNativeAuthError } from '../api/authErrorMapping'
 import { clearSession, isNativeRuntime } from '../api/sessionStorage'
 import { getApiErrorMessage } from '../api/errors'
-import { useBusinessBranding } from '../branding/BusinessBrandingContext'
+import useBusinessBranding from '../branding/useBusinessBranding'
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
 let googleScriptPromise

@@ -16,7 +16,6 @@ from app.db.supabase import get_supabase_service_role_client
 from app.errors import raise_api_error
 from app.services.email_delivery import ResendEmailDelivery
 from app.services.password_reset_email import build_password_reset_email
-from app.services.business_branding import get_business_branding
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +85,11 @@ class PasswordResetService:
 
     def deliver_password_reset(self, job: PasswordResetDeliveryJob) -> None:
         reset_url = self._build_reset_url(job.raw_token)
-        branding = get_business_branding(client=self.supabase)
+        settings = get_settings()
         email_message = build_password_reset_email(
             reset_url,
-            get_settings().password_reset_token_ttl_minutes,
-            business_name=branding["business_name"],
+            settings.password_reset_token_ttl_minutes,
+            business_name=settings.default_business_name,
         )
         try:
             delivery_result = self.email_delivery.send_email(

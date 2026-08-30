@@ -1,12 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getBusinessBranding } from '../api/businessBranding'
 import { getRuntimeBrandName, setRuntimeBrandName } from '../i18n'
+import { BusinessBrandingContext } from './businessBrandingContext'
 import { normalizeBusinessName } from './runtimeBranding'
 
-const BusinessBrandingContext = createContext(null)
-
-export function BusinessBrandingProvider({ children }) {
+export default function BusinessBrandingProvider({ children }) {
   const [businessName, setBusinessName] = useState(() => normalizeBusinessName(getRuntimeBrandName()))
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -19,36 +18,46 @@ export function BusinessBrandingProvider({ children }) {
   }, [])
 
   const refreshBusinessName = useCallback(async () => {
-    setLoadError('')
+    setIsLoading(true)
     try {
       const response = await getBusinessBranding()
       applyBusinessName(response?.business_name)
+      setLoadError('')
       return response
     } catch (error) {
       setLoadError(error?.message || 'Failed to load business branding')
       throw error
+    } finally {
+      setIsLoading(false)
     }
   }, [applyBusinessName])
 
   useEffect(() => {
     let isMounted = true
 
-    refreshBusinessName()
-      .catch(() => {
+    queueMicrotask(async () => {
+      try {
+        const response = await getBusinessBranding()
         if (isMounted) {
+          applyBusinessName(response?.business_name)
+          setLoadError('')
+        }
+      } catch (error) {
+        if (isMounted) {
+          setLoadError(error?.message || 'Failed to load business branding')
           applyBusinessName(getRuntimeBrandName())
         }
-      })
-      .finally(() => {
+      } finally {
         if (isMounted) {
           setIsLoading(false)
         }
-      })
+      }
+    })
 
     return () => {
       isMounted = false
     }
-  }, [applyBusinessName, refreshBusinessName])
+  }, [applyBusinessName])
 
   const value = useMemo(
     () => ({
@@ -66,12 +75,4 @@ export function BusinessBrandingProvider({ children }) {
       {children}
     </BusinessBrandingContext.Provider>
   )
-}
-
-export function useBusinessBranding() {
-  const context = useContext(BusinessBrandingContext)
-  if (!context) {
-    throw new Error('useBusinessBranding must be used inside BusinessBrandingProvider')
-  }
-  return context
 }

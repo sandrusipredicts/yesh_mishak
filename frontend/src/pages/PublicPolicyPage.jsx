@@ -1,7 +1,7 @@
 import { Children, cloneElement, isValidElement, useEffect } from 'react'
 
 import './PublicPolicyPage.css'
-import { useBusinessBranding } from '../branding/BusinessBrandingContext'
+import useBusinessBranding from '../branding/useBusinessBranding'
 import { replaceLegacyBranding } from '../branding/runtimeBranding'
 
 const CONTACT_EMAIL = 'support@yesh-mishak.com'
