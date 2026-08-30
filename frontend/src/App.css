@@ -2094,6 +2094,43 @@ select {
   gap: 10px;
 }
 
+.admin-branding-form {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.admin-branding-form label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.admin-branding-form input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.admin-branding-form button {
+  border: 1px solid #0f172a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-weight: 700;
+  color: #ffffff;
+  background: #0f172a;
+}
+
+.admin-branding-form button:disabled {
+  opacity: 0.6;
+}
+
+.admin-branding-form p {
+  margin: 0;
+  font-size: 12px;
+}
+
 .admin-header h1 {
   margin: 0;
   font-size: 30px;
@@ -3803,6 +3840,10 @@ select {
 
   .admin-header-actions {
     justify-content: flex-start;
+  }
+
+  .admin-branding-form {
+    width: 100%;
   }
 
   .admin-shell {

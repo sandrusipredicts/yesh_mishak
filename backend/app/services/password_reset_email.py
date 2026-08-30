@@ -9,10 +9,16 @@ class PasswordResetEmail:
     text_body: str
 
 
-def build_password_reset_email(reset_url: str, expires_in_minutes: int) -> PasswordResetEmail:
+def build_password_reset_email(
+    reset_url: str,
+    expires_in_minutes: int,
+    *,
+    business_name: str = "Yesh Mishak",
+) -> PasswordResetEmail:
     escaped_url = escape(reset_url, quote=True)
-    subject = "Reset your Yesh Mishak password / איפוס סיסמה ב-יש משחק"
-    text_body = f"""Reset your Yesh Mishak password
+    escaped_business_name = escape(business_name)
+    subject = f"Reset your {business_name} password / איפוס סיסמה ב-{business_name}"
+    text_body = f"""Reset your {business_name} password
 
 Use this link to choose a new password:
 {reset_url}
@@ -20,7 +26,7 @@ Use this link to choose a new password:
 This link expires in {expires_in_minutes} minutes.
 If you did not request this, you can ignore this email.
 
-איפוס סיסמה ב-יש משחק
+איפוס סיסמה ב-{business_name}
 
 כדי לבחור סיסמה חדשה, יש לפתוח את הקישור:
 {reset_url}
@@ -31,14 +37,14 @@ If you did not request this, you can ignore this email.
     html_body = f"""<!doctype html>
 <html lang="en">
   <body>
-    <h1>Reset your Yesh Mishak password</h1>
+    <h1>Reset your {escaped_business_name} password</h1>
     <p>Use the link below to choose a new password.</p>
     <p><a href="{escaped_url}">Reset password</a></p>
     <p>This link expires in {expires_in_minutes} minutes.</p>
     <p>If you did not request this, you can ignore this email.</p>
     <hr>
     <div dir="rtl" lang="he">
-      <h1>איפוס סיסמה ב-יש משחק</h1>
+      <h1>איפוס סיסמה ב-{escaped_business_name}</h1>
       <p>כדי לבחור סיסמה חדשה, יש לפתוח את הקישור הבא.</p>
       <p><a href="{escaped_url}">איפוס סיסמה</a></p>
       <p>הקישור יפוג בעוד {expires_in_minutes} דקות.</p>

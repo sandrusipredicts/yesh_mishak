@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './i18n'
 import App from './App.jsx'
+import BusinessBrandingProvider from './branding/BusinessBrandingProvider.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { initMonitoring } from './monitoring/index.js'
 import TestCrashTrigger from './monitoring/TestCrashTrigger.jsx'
@@ -22,7 +23,9 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
       {isTestTriggerAllowed ? <TestCrashTrigger /> : null}
-      <App />
+      <BusinessBrandingProvider>
+        <App />
+      </BusinessBrandingProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

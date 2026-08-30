@@ -44,6 +44,7 @@ from app.services.push_delivery_metrics import get_push_delivery_metrics
 from app.services.share_events import get_share_event_metrics
 from app.services.duplicate_detection import find_duplicates
 from app.services.field_photos import create_field_photo_signed_url
+from app.services.business_branding import get_business_branding, update_business_name
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -89,6 +90,18 @@ class ContentReportStatusUpdate(BaseModel):
         if value not in {"in_review", "resolved", "rejected"}:
             raise ValueError("Invalid content report status")
         return value
+
+
+class BusinessBrandingUpdateBody(BaseModel):
+    business_name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("business_name")
+    @classmethod
+    def normalize_business_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("business_name is required")
+        return normalized
 
 ADMIN_USER_COLUMNS = ",".join(
     [
@@ -633,6 +646,19 @@ def get_admin_me(current_user: dict[str, Any] = Depends(require_admin)):
         "name": current_user["name"],
         "role": current_user["role"],
     }
+
+
+@router.get("/settings/business-branding")
+def get_admin_business_branding(_: dict[str, Any] = Depends(require_admin)):
+    return get_business_branding()
+
+
+@router.patch("/settings/business-branding")
+def patch_admin_business_branding(
+    body: BusinessBrandingUpdateBody,
+    _: dict[str, Any] = Depends(require_admin),
+):
+    return update_business_name(body.business_name)
 
 
 @router.get("/users")

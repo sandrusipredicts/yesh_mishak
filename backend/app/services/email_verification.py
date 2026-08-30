@@ -39,20 +39,21 @@ def _verification_url(token: str) -> str:
     return f"{base}/verify-email?token={quote(token, safe='')}"
 
 
-def _send_email(recipient: str, verification_url: str) -> None:
+def _send_email(recipient: str, verification_url: str, business_name: str) -> None:
     text_body = (
-        "Verify your yesh_mishak email by opening this link:\n\n"
+        f"Verify your {business_name} email by opening this link:\n\n"
         f"{verification_url}\n\n"
         "If you did not create this account, you can ignore this message."
     )
     safe_url = html.escape(verification_url, quote=True)
+    safe_business_name = html.escape(business_name)
     html_body = (
-        f'<p>Verify your yesh_mishak email:</p><p><a href="{safe_url}">Verify email</a></p>'
+        f'<p>Verify your {safe_business_name} email:</p><p><a href="{safe_url}">Verify email</a></p>'
         "<p>If you did not create this account, you can ignore this message.</p>"
     )
     send_email(
         recipient=recipient,
-        subject="Verify your yesh_mishak email",
+        subject=f"Verify your {business_name} email",
         text_body=text_body,
         html_body=html_body,
     )
@@ -77,7 +78,11 @@ def issue_verification_email(user_id: str, email: str) -> None:
     if _scalar_result(prepared.data) != "created":
         raise ValueError("VERIFICATION_COOLDOWN")
     try:
-        _send_email(email, _verification_url(raw_token))
+        _send_email(
+            email,
+            _verification_url(raw_token),
+            settings.default_business_name,
+        )
     except VerificationDeliveryError:
         # The account remains recoverable: invalidate the undelivered token so
         # resend is not blocked by the normal per-account cooldown.

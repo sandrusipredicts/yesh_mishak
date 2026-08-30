@@ -3,6 +3,7 @@ import { initReactI18next } from 'react-i18next'
 
 import en from '../locales/en/common'
 import he from '../locales/he/common'
+import { normalizeBusinessName, replaceLegacyBranding } from '../branding/runtimeBranding'
 
 export const LANGUAGE_STORAGE_KEY = 'app_language'
 export const LANGUAGE_SELECTED_STORAGE_KEY = 'language_selected'
@@ -10,6 +11,18 @@ export const SUPPORTED_LANGUAGES = ['he', 'en']
 export const LANGUAGE_DIRECTIONS = {
   he: 'rtl',
   en: 'ltr',
+}
+let runtimeBrandName = 'Yesh Mishak'
+
+const runtimeBrandPostProcessor = {
+  type: 'postProcessor',
+  name: 'runtimeBranding',
+  process(value) {
+    if (typeof value !== 'string') {
+      return value
+    }
+    return replaceLegacyBranding(value, runtimeBrandName)
+  },
 }
 
 export function normalizeLanguage(language) {
@@ -85,6 +98,7 @@ export function persistLanguageSelection(language) {
 }
 
 i18n
+  .use(runtimeBrandPostProcessor)
   .use(initReactI18next)
   .init({
     resources: {
@@ -99,6 +113,7 @@ i18n
     interpolation: {
       escapeValue: false,
     },
+    postProcess: ['runtimeBranding'],
   })
 
 applyDocumentLanguage(i18n.language)
@@ -108,5 +123,14 @@ i18n.on('languageChanged', (language) => {
   localStorage.setItem(LANGUAGE_STORAGE_KEY, normalizedLanguage)
   applyDocumentLanguage(normalizedLanguage)
 })
+
+export function setRuntimeBrandName(nextBusinessName) {
+  runtimeBrandName = normalizeBusinessName(nextBusinessName)
+  i18n.emit('languageChanged', i18n.language)
+}
+
+export function getRuntimeBrandName() {
+  return runtimeBrandName
+}
 
 export default i18n
